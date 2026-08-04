@@ -22,6 +22,11 @@ surface glob against a raw file_domain pattern would be glob-vs-glob, which
 silently agrees far too often: `plugins/**` "matches" the literal string
 `plugins/xp-agents/smm/*.py` because the regex `.*` happily eats the `*`.
 
+Selection is all-or-nothing per story (`commands_for_story`, and therefore
+the CLI): a domain only PARTLY claimed selects nothing. See `unclaimed_paths`
+— that is the one direction in which narrowing tests less than the full
+command it replaces, and the consumer is an auto-merge gate.
+
 `status` is deliberately not consulted. A surface marked `gap` that declares
 a `command` is still selected: nothing in the schema couples the two fields,
 and skipping a command the author explicitly wrote would be a rule invented
@@ -32,11 +37,17 @@ from collections.abc import Iterable
 
 import triage
 
-__all__ = ["commands_for_paths", "commands_for_story", "surfaces_for_paths"]
+__all__ = [
+    "commands_for_paths",
+    "commands_for_story",
+    "story_file_domain",
+    "surfaces_for_paths",
+    "unclaimed_paths",
+]
 
 
-def _surface_claims_any(surface: dict, paths: list[str]) -> bool:
-    """True when any of the surface's declared globs matches any path.
+def _claimed_paths(surface: dict, paths: list[str]) -> set[str]:
+    """The subset of `paths` the surface's declared globs match.
 
     A surface declaring no `paths` claims NOTHING — never everything. That is
     the state every existing project is in (the field postdates their
@@ -45,14 +56,31 @@ def _surface_claims_any(surface: dict, paths: list[str]) -> bool:
     """
     globs = surface.get("paths")
     if not isinstance(globs, list):
-        return False
+        return set()
+    claimed: set[str] = set()
     for pattern in globs:
         if not isinstance(pattern, str):
             continue
         matcher = triage.compile_glob(pattern)
-        if any(matcher.fullmatch(path) for path in paths):
-            return True
-    return False
+        claimed.update(path for path in paths if matcher.fullmatch(path))
+    return claimed
+
+
+def unclaimed_paths(surfaces: Iterable[dict], paths: Iterable[str]) -> list[str]:
+    """The paths NO surface claims, sorted — the residue, and the veto.
+
+    A caller that narrows while this is non-empty runs less than it runs
+    today: the unclaimed file's tests are in neither the selected commands
+    nor anything else. Both close paths need the same answer (story close
+    from a file_domain, free close from a branch diff), so the rule is a
+    shared helper rather than a private branch inside one entry point.
+    """
+    path_list = list(paths)
+    claimed: set[str] = set()
+    for surface in surfaces:
+        if isinstance(surface, dict):
+            claimed |= _claimed_paths(surface, path_list)
+    return sorted(set(path_list) - claimed)
 
 
 def surfaces_for_paths(surfaces: Iterable[dict], paths: Iterable[str]) -> list[dict]:
@@ -65,7 +93,7 @@ def surfaces_for_paths(surfaces: Iterable[dict], paths: Iterable[str]) -> list[d
     return [
         surface
         for surface in surfaces
-        if isinstance(surface, dict) and _surface_claims_any(surface, path_list)
+        if isinstance(surface, dict) and _claimed_paths(surface, path_list)
     ]
 
 
@@ -110,17 +138,27 @@ def commands_for_story(
     *,
     cwd: str,
 ) -> list[str]:
-    """Surface commands covering one story's file domain.
+    """Surface commands covering one story's file domain — ALL of it, or none.
 
     `cwd` is required and is passed straight to
     `triage.extract_file_domain_paths`, which refuses a glob entry with no
     root rather than falling back to the process cwd. Expansion is what makes
     the comparison literal-path-vs-glob; see the module docstring.
+
+    Returns EMPTY when any expanded path is unclaimed, even though other
+    paths matched. Partial coverage is the one shape that narrows to LESS
+    testing than the full command it replaces — the claimed surface's command
+    runs, the unclaimed file's tests run nowhere — and the gate reading this
+    auto-merges on green. Whole-domain coverage or no narrowing at all; a
+    surface declared over the residue with NO command (prose, config) buys
+    coverage back without adding a run.
     """
     paths = triage.extract_file_domain_paths(
         story_file_domain(sprint, story_id), cwd=cwd
     )
     surfaces = system_context.get("acceptance_surfaces")
     if not isinstance(surfaces, list):
+        return []
+    if unclaimed_paths(surfaces, paths):
         return []
     return commands_for_paths(surfaces, paths)

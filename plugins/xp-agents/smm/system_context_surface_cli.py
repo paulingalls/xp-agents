@@ -18,6 +18,10 @@ Output contract, which the CALLER's fallback depends on:
     no match     nothing on stdout, exit 0
     cannot tell  nothing on stdout, exit 1, reason on stderr
 
+`no match` covers PARTIAL match too: a story whose domain is only partly
+claimed by declared surfaces prints nothing, because running the claimed
+surface's command alone would test less than the full command it replaces.
+
 `no match` and `cannot tell` both mean "fall back to the full command" for the
 consumer, so the exit code is diagnostic rather than a decision — said plainly
 here instead of implying the rc carries more than it does. What this command
