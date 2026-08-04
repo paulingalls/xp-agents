@@ -40,6 +40,12 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
             "additionalContextLimit": 0,
             "statusMessage": "spike: recording PreToolUse:Bash..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_inject_marker.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: PreToolUse injection smoke..."
           }
         ]
       },
