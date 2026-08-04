@@ -99,6 +99,40 @@ class TestExitReachesShell(unittest.TestCase):
         self.assertTrue(exit_reaches_shell('pytest -k "a | b"'))
         self.assertTrue(exit_reaches_shell("cargo test -- --skip 'a; b'"))
 
+    def test_an_apostrophe_in_a_quoted_arg_does_not_hide_a_separator(self) -> None:
+        """The gate's own bypass, found by security review at sprint-128 close.
+
+        `strip_quoted` used to run the single-quote regex BEFORE the
+        double-quote one, so an apostrophe inside `"..."` paired with the next
+        apostrophe anywhere and deleted every operator between them. The `;`
+        never reached the scan, the masked command was accepted as a gate
+        command, and close auto-merged on a red suite — the exact defect this
+        predicate exists to refuse.
+
+        `pytest -k "it's"` is an ordinary expression, not a contrived one.
+        """
+        self.assertFalse(exit_reaches_shell('pytest -q -k "it\'s" ; echo X "don\'t"'))
+        self.assertFalse(exit_reaches_shell('make test A="a\'b" | tee log B="c\'d"'))
+        self.assertFalse(exit_reaches_shell("pytest -m \"user's\" & ruff check 'src'"))
+        # `||` masks by design, so the apostrophe hid a real masker here too.
+        self.assertFalse(exit_reaches_shell('pytest -k "doesn\'t" || echo "won\'t"'))
+
+    def test_an_apostrophe_does_not_turn_data_into_an_operator(self) -> None:
+        """The other direction: the fix must not start REFUSING commands whose
+        operators are genuinely quoted data. A predicate that refuses
+        everything would pass the bypass tests above while disabling the gate
+        for every project that quotes an operator."""
+        self.assertTrue(exit_reaches_shell('pytest -k "a | b"'))
+        self.assertTrue(exit_reaches_shell("cargo test -- --skip 'a; b'"))
+        self.assertTrue(exit_reaches_shell('pytest -k "it\'s | fine" && echo ok'))
+
+    def test_an_unbalanced_quote_fails_closed(self) -> None:
+        """An unterminated quote must not swallow the rest of the line. Nothing
+        is stripped, so the separator is still seen and the command refused —
+        the safe direction for a predicate guarding an auto-merge."""
+        self.assertFalse(exit_reaches_shell('pytest -k "unterminated ; echo X'))
+        self.assertFalse(exit_reaches_shell("pytest -k 'unterminated ; echo X"))
+
     def test_a_shell_c_body_is_code_not_data(self) -> None:
         """`sh -c` takes CODE, so a pipe INSIDE the body discards exactly as an
         unwrapped one does — the wrapper must not launder it."""
