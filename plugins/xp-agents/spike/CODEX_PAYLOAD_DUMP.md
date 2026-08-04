@@ -179,3 +179,109 @@ a commit message is not an input story-007 reads.
 ## Runs that produced no captures
 
 - run-C
+
+---
+
+# story-010 — hook-side skill-preload injection
+
+**Verdict: it works end to end.** The customer's design — a hook reads the skill's
+identity from its own payload, runs that preload itself, injects the result — is
+viable on this harness.
+
+The handle is an accident of the very defect it works around. Codex skills are not
+tool calls, so there is no pre-invocation skill event. But Codex has the **model
+read `SKILL.md` with a shell command**, so the skill's identity arrives as
+`tool_input.command` on `PreToolUse` — an event that accepts injected context.
+
+## What was proven, and how it was made falsifiable
+
+| Leg | Result |
+|---|---|
+| Identity in the payload | `tool_input.command` carries `/skills/<name>/SKILL.md`. Verbatim field name; extracted across `sed`/`cat`/`head`/`python` shapes and all 16 skills. |
+| Injection reaches the model | Marker minted in-hook (`uuid4`), never in the prompt. Model reported it byte-identical. |
+| Control | Handler wired with injection **suppressed** — marker still recorded to disk, model answered **NO**. Records also sat outside every `--add-dir` path, so the sandboxed shell could not read them. |
+| End to end | Model quoted the seeded Debt id `0f0044d8aae9`, Concern id `4c057451bdbe` and nonce `ZEPHYR-QUARTZ-7741` from 477 injected bytes of real preload output. None appeared in the prompt. |
+| The negative | No shipped `SKILL.md` instructs a model to run a preload — story-009 reverted that edit. So state arriving can only be hook delivery. |
+
+## Requirements a shipped version must honour
+
+Each was found the hard way, and each fails **quietly** — exit 0, no error, an
+injection that looks successful.
+
+1. **Run the preload in the SESSION's cwd, not the skill dir.** Preloads resolve
+   the shared model by hashing the git common dir of their cwd, so running one
+   under the plugin cache resolves a *different project's* state. Measured: 75
+   bytes of an empty project instead of 477 of the right one. The E2E nonce caught
+   this; reasoning did not.
+2. **Run the command the skill's own `!` line names.** 14 of 16 say
+   `scripts/preload.sh`, one takes `--consume-gate`, one is
+   `check_session_needs.sh`. A hardcoded filename is correct on 14 and wrong on 2
+   — one of them the most-used skill.
+3. **Once per skill per session, claimed ATOMICALLY and before the run.** A
+   chunk-read fires `PreToolUse` repeatedly (14 firings across two skills in the
+   corpus), and `xp-assign`'s preload *consumes* a gate marker — so a naive
+   handler burns one gate per chunk. "Check the marker, then write it after a
+   successful run" is not enough: measured, 4 parallel firings all read it absent
+   and all ran the preload, so 4 gates would go. `O_CREAT|O_EXCL` before the run,
+   released again on any path that injects nothing so one transient failure does
+   not withhold state for the rest of the session.
+4. **A heartbeat must exist first.** The shipped preload refuses with
+   "Hook Runtime: not live — skill context withheld" when none is found, and the
+   injected payload becomes that refusal rather than state.
+5. **Constrain the resolved FILE under the plugin root** before executing, since
+   the command comes out of a file whose path arrived in a payload. Constraining
+   only the *directory* is not enough, and both holes were measured executing an
+   arbitrary `!` line while the directory check reported safe: a `..` segment
+   normalises back inside the root, and a symlinked `SKILL.md` inside a contained
+   directory points wherever the link says.
+6. **A path mention is not an invocation.** The identity handle is a substring
+   match on `tool_input.command`, so *any* shell call that merely names a skill's
+   `SKILL.md` under the plugin root fires the mechanism — `wc -c`, `grep`, a
+   `git` argument. Measured on the `--consume-gate` preload: a `wc -c` on
+   `skills/xp-assign/SKILL.md` consumed the gate, injected, and claimed the
+   once-marker, so the genuine skill read that followed received **nothing** and
+   was recorded as `already injected this session`. Idempotence therefore reads as
+   working while the model got no state. A shipped version needs the read shape
+   constrained (the path as a reader's argument), or the claim deferred until the
+   skill body is actually delivered — this rig does neither.
+
+## Rig state story-010 leaves behind (updates the §"Rig state a later story inherits")
+
+- **`spike/_stop_block_probe.py` is now UNREGISTERED** from `Stop`. Its own question
+  is already answered and recorded above — `stop_hook_active` reads False on a
+  turn's first Stop and flips True after a block (run-F: False, True, True, True) —
+  and its block displaced the final assistant message, which had to be read out of
+  the transcript. The file and `test_stop_probe.py` are still in the tree, so
+  re-registering is a one-entry edit plus a `.codex-plugin/plugin.json` bump. A
+  later story measuring gate enforcement wants the real `scripts/stop_*.py` gates
+  anyway, not this probe.
+- **`spike/_skill_inject.py` is now REGISTERED on `PreToolUse:Bash`** and is not
+  inert: it runs a preload (up to 30 s) and injects on any Bash call naming a skill
+  path — see requirement 6. A later run measuring anything else on `PreToolUse:Bash`
+  should unregister it or set `XP_SPIKE_SUPPRESS_INJECT`, or it is a confound.
+- `scripts/session_start.py` (the heartbeat writer) and `spike/_inject_marker.py`
+  remain unwired from `SessionStart`, as story-003 left them.
+
+## The main risk
+
+**The handle depends on the model reading `SKILL.md` through a shell command.** If
+Codex ever delivers skill bodies without a shell read, or the model uses a
+non-shell read tool, `PreToolUse:Bash` stops carrying the identity and the
+mechanism silently stops firing — silently, because "no marker" and "no injection"
+look identical. Every read observed so far went through `/bin/zsh -lc`.
+
+A smaller unknown of the same shape: the injecting entry was registered with
+`"additionalContextLimit": 0`, copied from the recorder entries where it means
+"this hook returns none", and 477 bytes still reached the model. So on
+`codex-cli 0.146.0` the field did not cap the injection — whether because 0 means
+unlimited or because the field is ignored is **not** settled here. A shipped
+version should set it deliberately rather than inherit the recorder's value.
+
+## Cost of the alternative, if this is not adopted
+
+story-009's in-body fallback, measured from its own reverted commit: **+227 bytes
+per skill × 16 = 3,632 bytes**. The binding cost is budgets, not bytes — **6 of 16
+would breach their recorded per-skill cap**: `xp-review-plan` (short 117),
+`xp-system-context` (113), `xp-sprint-close` (81), `xp-free-close` (79),
+`xp-sprint-review` (74), `xp-story-close` (41). And it still rests on the model
+volunteering to run a command it read in a file.
