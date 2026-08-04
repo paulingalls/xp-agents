@@ -173,6 +173,18 @@ def main() -> int:
     env["CLAUDE_SKILL_DIR"] = str(skill_dir)
     env.setdefault("CLAUDE_PLUGIN_DATA", os.environ.get("CLAUDE_PLUGIN_DATA", ""))
 
+    # Run it where the SESSION runs, not in the skill dir. A preload resolves the
+    # shared model by hashing the git common dir of its cwd, so running it under
+    # the plugin cache resolves a DIFFERENT project's state — with exit 0 and no
+    # error, injecting the wrong project's data as if it were right. The E2E
+    # caught this; reasoning did not.
+    session_cwd = payload.get("cwd")
+    run_cwd = (
+        session_cwd
+        if isinstance(session_cwd, str) and Path(session_cwd).is_dir()
+        else None
+    )
+
     try:
         result = subprocess.run(
             ["bash", "-c", command_line],
@@ -180,7 +192,7 @@ def main() -> int:
             text=True,
             timeout=_PRELOAD_TIMEOUT_SECONDS,
             env=env,
-            cwd=str(skill_dir),
+            cwd=run_cwd,
         )
     except Exception as exc:  # the failure text IS the finding
         _record(

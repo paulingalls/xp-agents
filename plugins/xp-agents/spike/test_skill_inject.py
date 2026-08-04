@@ -222,6 +222,38 @@ class TestIdempotence(unittest.TestCase):
             self.assertIsNotNone(_injected(_run(_payload(c, "B"), rec, root)))
 
 
+class TestPreloadRunsInTheSessionCwd(unittest.TestCase):
+    def test_preload_runs_in_the_session_cwd_not_the_skill_dir(self) -> None:
+        # Found by the E2E, not by reasoning. A preload resolves the shared model
+        # by hashing the git common dir of its CWD, so running it in the skill dir
+        # under the plugin cache resolves a DIFFERENT project's state — and does
+        # so with exit 0 and no error, injecting the wrong project's data as if it
+        # were right. The host would run it where the session runs.
+        with tempfile.TemporaryDirectory() as td:
+            root, rec = Path(td) / "plug", Path(td) / "rec"
+            session_cwd = Path(td) / "session"
+            session_cwd.mkdir(parents=True)
+            _fake_plugin(
+                root,
+                "cwd",
+                "${CLAUDE_SKILL_DIR}/scripts/preload.sh",
+                '#!/bin/sh\necho "RAN-IN:$(pwd)"\n',
+            )
+            payload = json.dumps(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "s1",
+                    "cwd": str(session_cwd),
+                    "tool_name": "Bash",
+                    "tool_input": {"command": f"cat {root}/skills/cwd/SKILL.md"},
+                }
+            )
+            ctx = _injected(_run(payload, rec, root))
+            # resolve(): on macOS /var is a symlink to /private/var, so the
+            # shell's $(pwd) and tempfile's path differ by prefix only.
+            self.assertIn(f"RAN-IN:{session_cwd.resolve()}", ctx)
+
+
 class TestExecutionSurface(unittest.TestCase):
     def test_refuses_a_skill_dir_outside_the_plugin_root(self) -> None:
         # The handler executes a command read from a file whose path arrived in

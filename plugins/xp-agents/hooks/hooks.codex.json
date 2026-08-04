@@ -43,9 +43,9 @@
           },
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_inject_marker.py",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_skill_inject.py",
             "additionalContextLimit": 0,
-            "statusMessage": "spike: PreToolUse injection smoke..."
+            "statusMessage": "spike: hook-side skill preload injection..."
           }
         ]
       },
@@ -151,11 +151,6 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
             "additionalContextLimit": 0,
             "statusMessage": "spike: recording Stop..."
-          },
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_stop_block_probe.py",
-            "statusMessage": "spike: bounded Stop-loop probe..."
           }
         ]
       }
