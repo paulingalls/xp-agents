@@ -80,7 +80,7 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/scripts/pre_tool_write.py": 463,
     "plugins/xp-agents/scripts/session_start.py": 462,
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
-    # tests (57)
+    # tests (55)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
@@ -125,7 +125,6 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_spawn_teammate_markers.py": 462,
     "plugins/xp-agents/tests/smm/test_init_migration_lock.py": 462,
     "plugins/xp-agents/tests/smm/test_triage.py": 460,
-    "plugins/xp-agents/tests/skills/test_preload_liveness.py": 459,
     "plugins/xp-agents/tests/engine/test_sprint_cli.py": 458,
     "plugins/xp-agents/tests/hooks/test_subagent_tiers_sprint.py": 457,
     "plugins/xp-agents/tests/hooks/test_sprint_stop_gate.py": 455,

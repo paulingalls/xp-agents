@@ -38,6 +38,13 @@ import os
 # LAUNCHER's heartbeat, found none and withheld every skill's context while its
 # own hooks were running fine. So the more-derived host ranks higher, and the
 # one that leaks downward ranks last.
+#
+# That order is a fixed ranking of the ONE nesting direction measured, not a
+# general rule: nesting direction is runtime state, so the reverse launch has
+# the same silent failure mirrored. Two things bound it — `spawn_teammate` drops
+# EVERY name here when it launches a child, and `XP_SESSION_ID` sits above all
+# of them for a host to set explicitly. A host that spawns another and cannot
+# be taught to drop or override needs the id handed in, not re-ranked.
 SESSION_ID_ENV_CANDIDATES: tuple[str, ...] = (
     "XP_SESSION_ID",
     "CODEX_THREAD_ID",

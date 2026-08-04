@@ -81,19 +81,26 @@ class TestSessionIdContainment(unittest.TestCase):
 
         So a variable naming the session actually in charge must outrank one
         that merely leaked into it.
+
+        Both names are spelled out rather than read off the chain by position.
+        Deriving the expectation from the same tuple under test asserts only
+        that the tuple has distinct entries: reorder it and the expectation
+        moves with it, so the one regression this pins would ship green.
         """
-        candidates = hook_liveness.SESSION_ID_ENV_CANDIDATES
-        env = {name: f"id-from-{name}" for name in candidates}
-        env[_env_hygiene.PINNED_SESSION_ID_VAR] = ""
+        own = "CODEX_THREAD_ID"
+        leaks_downward = "CLAUDE_CODE_SESSION_ID"
+        env = dict.fromkeys(hook_liveness.SESSION_ID_ENV_CANDIDATES, "")
+        env[own] = "the-hosts-own-id"
+        env[leaks_downward] = "an-id-leaked-from-the-launcher"
 
         with patch.dict(os.environ, env):
             resolved = hook_liveness.resolve_session_id()
 
-        leaked = candidates[-1]
-        self.assertNotEqual(
+        self.assertEqual(
             resolved,
-            f"id-from-{leaked}",
-            f"{leaked} leaks into child sessions, so it must rank LAST",
+            "the-hosts-own-id",
+            f"{leaks_downward} leaks into a session launched from another "
+            f"agent, so {own} must rank ABOVE it — not merely be present",
         )
 
     def test_a_child_process_inherits_the_pin(self):
