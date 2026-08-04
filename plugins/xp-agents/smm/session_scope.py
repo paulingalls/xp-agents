@@ -30,8 +30,17 @@ import os
 # Read by `hook_liveness.resolve_session_id` (which re-exports this tuple) and
 # by every session-scoped marker's filename. tests/_env_hygiene.py pins the
 # first and strips the rest for the whole suite.
+#
+# Order after the first is by OWNERSHIP, not arrival: a host launched from
+# another agent inherits that agent's variable, so several can be set at once
+# and preference alone picks the heartbeat a preload addresses. Measured — a
+# second-harness session carried the launching harness's id, resolved the
+# LAUNCHER's heartbeat, found none and withheld every skill's context while its
+# own hooks were running fine. So the more-derived host ranks higher, and the
+# one that leaks downward ranks last.
 SESSION_ID_ENV_CANDIDATES: tuple[str, ...] = (
     "XP_SESSION_ID",
+    "CODEX_THREAD_ID",
     "CLAUDE_CODE_SESSION_ID",
 )
 
