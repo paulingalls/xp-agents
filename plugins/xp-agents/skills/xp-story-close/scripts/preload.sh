@@ -182,14 +182,6 @@ fi
 emit_var VERIFY_UNTOUCHED "$UNTOUCHED"
 echo "VERIFY_DEFERRED=${VERIFY_DEFERRED}"
 
-# Condition 3's command set, RESOLVED here rather than left as prose branches
-# for the skill to judge — see _preload_surface.sh. Same `${TEAMMATE_CWD:-.}`
-# as the verify_paths call above: selection expands the story's file_domain
-# globs over DISK, so a hardcoded `.` would compute a teammate story's
-# selection against the main checkout, where its new files do not exist —
-# silently empty, silently never narrowing.
-emit_gate_commands "$STORY_ID" "$(find_test_command)" "${TEAMMATE_CWD:-.}"
-
 # Cadence routes Step 4.5: 'story' runs the full review cycle here (the
 # per-commit gate deferred it); 'commit'/unset keeps the close-reviewer
 # fork. _get_review_cadence fail-safes to 'commit'.
@@ -202,6 +194,19 @@ fi
 
 emit_system_context_rendered_for close-reviewer
 emit_hook_guidance "$HOOK_STATUS"
+
+# Condition 3's command set, RESOLVED here rather than left as prose branches
+# for the skill to judge — see _preload_surface.sh. Same `${TEAMMATE_CWD:-.}`
+# as the verify_paths call above: selection expands the story's file_domain
+# globs over DISK, so a hardcoded `.` would compute a teammate story's
+# selection against the main checkout, where its new files do not exist —
+# silently empty, silently never narrowing.
+#
+# Emitted LAST of the preload's own output, so the `### GATE_COMMANDS` block
+# is bounded by the shared reference's first heading rather than trailing off
+# into unrelated KEY=value lines. The shared file's own `- ` bullets sit under
+# their own headings, past that boundary.
+emit_gate_commands "$STORY_ID" "$(find_test_command)" "${TEAMMATE_CWD:-.}"
 
 # Append shared close-pipeline reference (Steps 5, 5b, 6) so the LLM
 # sees one consistent set of shared instructions across all four close

@@ -195,10 +195,16 @@ Step 6 `AskUserQuestion` (Step 6b still runs) when ALL hold:
    never touches; an empty or unreadable diff counts everything (fail closed).
    Name both branches — on the teammate path your HEAD is the sprint branch.
    Test `[ "$HIGH_CONCERN_COUNT" -gt 0 ]` → fall through to shared Step 6.
-3. Preload emitted a non-empty `TEST_COMMAND=...` AND running it after
-   all Step 5c fixes landed exits 0.
+3. Preload emitted a `### GATE_COMMANDS` block AND every command in it, run
+   after all Step 5c fixes landed, exits 0 — name which failed on a non-zero.
+   The preload chose that set (surface-scoped, else the full `TEST_COMMAND`)
+   and reports which in `GATE_SCOPE`; do not re-derive it here — a gate
+   decided in prose cannot be asserted, and this one merges without asking.
+   No block is emitted when there is nothing to run, so the gate can
+   **never run nothing** and report green.
 
-When `TEST_COMMAND` is empty, print this hint before falling through:
+When there is no `### GATE_COMMANDS` block, print this hint before falling
+through:
 
 ```
 Auto-merge disabled — set stack.test_command in system_context.json to enable.

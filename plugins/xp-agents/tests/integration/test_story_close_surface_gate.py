@@ -110,12 +110,23 @@ class _GateResolutionBase(unittest.TestCase):
 
     @staticmethod
     def _commands(stdout: str) -> list[str]:
-        """The `- `-prefixed lines under the block heading."""
+        """The `- `-prefixed lines under the heading, STOPPING at the next
+        markdown heading.
+
+        Reading to EOF instead would swallow the shared close-pipeline
+        reference's own `- ` bullets, which the preload appends after this
+        block — caught by running the real preload by hand, not by a test.
+        """
         lines = stdout.splitlines()
         if "### GATE_COMMANDS" not in lines:
             return []
-        start = lines.index("### GATE_COMMANDS") + 1
-        return [ln[2:] for ln in lines[start:] if ln.startswith("- ")]
+        out: list[str] = []
+        for ln in lines[lines.index("### GATE_COMMANDS") + 1 :]:
+            if ln.startswith("#"):
+                break
+            if ln.startswith("- "):
+                out.append(ln[2:])
+        return out
 
 
 class TestResolutionPrefersSurfaceCommands(_GateResolutionBase):
@@ -323,6 +334,28 @@ class TestTheGateCanNeverRunNothingAndReportGreen(_GateResolutionBase):
                     )
 
 
+class TestConditionThreeConsumesTheResolvedSet(unittest.TestCase):
+    """The prose half. Condition 3 must read the block the preload resolved,
+    NOT re-derive the surface-vs-full choice itself — a decision table here is
+    the vacuous-hold shape conditions 1 and 2 were converted away from.
+    """
+
+    def setUp(self) -> None:
+        self.skill = (_PLUGIN_ROOT / "skills/xp-story-close/SKILL.md").read_text()
+
+    def test_condition_three_reads_the_gate_block(self) -> None:
+        self.assertIn("### GATE_COMMANDS", self.skill)
+
+    def test_condition_three_states_the_never_run_nothing_invariant(self) -> None:
+        self.assertIn("never run nothing", self.skill)
+
+    def test_condition_three_does_not_re_derive_the_choice(self) -> None:
+        """No surface-vs-full branching in prose: the preload already chose,
+        and GATE_SCOPE is reporting only."""
+        self.assertNotIn("when nothing matched", self.skill)
+        self.assertNotIn("falling back to the full", self.skill)
+
+
 class TestStoryClosePreloadEmitsTheGateBlock(unittest.TestCase):
     """End-to-end through the real preload, on the shape every project is in
     today: no surface declares paths, so the gate falls back and says so."""
@@ -349,6 +382,49 @@ class TestStoryClosePreloadEmitsTheGateBlock(unittest.TestCase):
         self.assertIn(f"- {_FULL}", out)
         # TEST_COMMAND stays emitted verbatim — existing consumers untouched.
         self.assertIn(f"TEST_COMMAND={_FULL}", out)
+
+    def test_the_block_is_not_polluted_by_the_shared_reference(self) -> None:
+        """The preload appends `_close_pipeline_shared.md`, which carries its
+        own `- ` bullets (the Step 5c classifier list). The gate block is
+        emitted LAST of the preload's own output so the next markdown heading
+        bounds it — otherwise the gate would 'run' a dozen prose bullets.
+        """
+        out = _GateResolutionBase._commands(self._real_preload_stdout())
+        self.assertEqual(out, [_FULL])
+
+    def test_nothing_unrelated_sits_inside_the_block(self) -> None:
+        """The block must be the LAST of the preload's own output, so its
+        section holds commands and nothing else. Emitted earlier, `REVIEW_PATH=`
+        and `SYSTEM_CONTEXT_RENDERED=` fall INSIDE the section — the previous
+        assertion cannot see that, because it only collects `- ` lines.
+        """
+        lines = self._real_preload_stdout().splitlines()
+        start = lines.index("### GATE_COMMANDS") + 1
+        body: list[str] = []
+        for ln in lines[start:]:
+            if ln.startswith("#"):
+                break
+            body.append(ln)
+        stray = [ln for ln in body if ln.strip() and not ln.startswith("- ")]
+        self.assertEqual(stray, [], f"non-command lines inside the block: {stray}")
+
+    def _real_preload_stdout(self) -> str:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        smm = tmp / "data" / "proj" / "smm"
+        smm.mkdir(parents=True)
+        (smm / "events.jsonl").write_text("")
+        (smm / "system_context.json").write_text(json.dumps(_system_context(None)))
+        env = dict(os.environ)
+        env["XP_AGENTS_DATA"] = str(smm.parent.parent)
+        env["SMM_DIR"] = str(smm)
+        return subprocess.run(
+            ["bash", str(_STORY_CLOSE_PRELOAD)],
+            cwd=smm,
+            capture_output=True,
+            text=True,
+            env=env,
+        ).stdout
 
 
 if __name__ == "__main__":

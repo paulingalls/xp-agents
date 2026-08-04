@@ -64,7 +64,17 @@ SKILL_BUDGETS: dict[str, int] = {
     # in the 21 chars that were left. Re-trimmed the note to three lines first —
     # the full rationale lives once in the shared close-pipeline reference,
     # which the preload injects alongside this skill.
-    "xp-story-close": 12770,
+    #
+    # Bumped 12770 -> 12960 (story-016): condition 3 stopped naming
+    # TEST_COMMAND directly and now consumes the `### GATE_COMMANDS` set the
+    # preload resolved (surface-scoped, else the full command). The two
+    # load-bearing sentences are the ones that cost the chars: "do not
+    # re-derive the choice here" and the never-run-nothing invariant. Both
+    # guard an AUTO-merge, and dropping either re-opens the vacuous-hold shape
+    # conditions 1 and 2 were converted away from. Re-trimmed first: the first
+    # draft measured 12700, trimmed to 12515, which still sat exactly on the
+    # 98% band.
+    "xp-story-close": 12960,
     "xp-system-context": 1070,
     "xp-work-selection": 8700,
 }
