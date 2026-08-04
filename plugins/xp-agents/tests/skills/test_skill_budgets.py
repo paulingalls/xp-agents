@@ -74,6 +74,12 @@ SKILL_BUDGETS: dict[str, int] = {
     # conditions 1 and 2 were converted away from. Re-trimmed first: the first
     # draft measured 12700, trimmed to 12515, which still sat exactly on the
     # 98% band.
+    #
+    # Review then spent 147 of the 445 chars that bump bought, naming the cwd
+    # condition 3's commands run from (the teammate path's checkout holds
+    # neither the story nor the Step 5c fixes). Measured 12662 = 97.7%: the
+    # bump is SPENT, 38 chars from the band. The next clause here trims one
+    # first — do not read the remainder as headroom.
     "xp-story-close": 12960,
     "xp-system-context": 1070,
     "xp-work-selection": 8700,

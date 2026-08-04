@@ -35,11 +35,31 @@ find_surface_commands() {
         || echo ""
 }
 
+# runnable_lines VALUE -> VALUE minus every blank or whitespace-only line.
+#
+# The runnability filter the never-run-nothing invariant rests on. Neither
+# `stack.test_command` nor a surface `command` is checked for content — the
+# schema type-checks and length-checks a string and stops — so `"   "` reaches
+# here and is `[ -n ]`-true. Emitted raw that is `GATE_SCOPE=full` plus a
+# bullet holding nothing: a scope that claims a command and runs none. Empty
+# out here instead, and the caller falls back exactly as it does for a value
+# that was never set.
+runnable_lines() {
+    local line out=""
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "${line//[[:space:]]/}" ] || continue
+        out="${out}${out:+$'\n'}${line}"
+    done <<< "${1-}"
+    printf '%s' "$out"
+}
+
 # emit_gate_commands STORY_ID FULL_COMMAND [CWD] -> GATE_SCOPE + the block.
 #
 #   surface commands found -> GATE_SCOPE=surface, block lists them
 #   else FULL_COMMAND set   -> GATE_SCOPE=full,    block holds it alone
 #   else                    -> GATE_SCOPE=none,    NO block at all
+#
+# "found"/"set" mean RUNNABLE, not merely non-empty — see runnable_lines.
 #
 # Each command is line-prefixed with "- ". strip_framing kills the
 # newline/CR/tab forgery vectors but does nothing about a value whose SHAPE is
@@ -48,15 +68,16 @@ find_surface_commands() {
 # that structurally impossible; test_preload_var_hygiene.py pins it.
 emit_gate_commands() {
     local story="${1-}" full="${2-}" cwd="${3:-.}" resolved scope line
-    resolved=$(find_surface_commands "$story" "$cwd")
+    resolved=$(runnable_lines "$(find_surface_commands "$story" "$cwd")")
     if [ -n "$resolved" ]; then
         scope="surface"
-    elif [ -n "$full" ]; then
-        scope="full"
-        resolved="$full"
     else
-        scope="none"
-        resolved=""
+        resolved=$(runnable_lines "$full")
+        if [ -n "$resolved" ]; then
+            scope="full"
+        else
+            scope="none"
+        fi
     fi
     emit_var GATE_SCOPE "$scope"
     [ -n "$resolved" ] || return 0

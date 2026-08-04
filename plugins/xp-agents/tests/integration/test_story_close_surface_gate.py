@@ -299,10 +299,59 @@ class TestTheGateCanNeverRunNothingAndReportGreen(_GateResolutionBase):
         self.assertIn("GATE_SCOPE=none", out)
         self.assertNotIn("### GATE_COMMANDS", out)
 
+    def test_a_whitespace_only_command_is_not_a_command(self) -> None:
+        """`stack.test_command` set to blanks passed the old condition 3? No —
+        `emit_var`'s flat() trimmed it to empty and auto-merge stayed off. The
+        block prints the value RAW, so without a runnability filter the same
+        input yields `GATE_SCOPE=full` plus a bullet holding nothing: the gate
+        runs nothing and merges green. Nothing in the schema rejects it
+        (`command`/`test_command` are only type- and length-checked).
+        """
+        smm = self._seed(None, ["src/cli/main.py"])
+        out = self._resolve(smm, full="   ")
+        self.assertIn("GATE_SCOPE=none", out)
+        self.assertNotIn("### GATE_COMMANDS", out)
+
+    def test_a_blank_surface_command_drops_out_of_the_set(self) -> None:
+        """Same input by the other door. A blank surface command contributes
+        nothing — exactly like the declared-no-command surface that
+        `surface_selection` already treats as coverage without a run — instead
+        of an unrunnable bullet its siblings' green would carry.
+        """
+        smm = self._seed(
+            [
+                {
+                    "name": "blank",
+                    "signals": ["x"],
+                    "status": "covered",
+                    "paths": ["src/a.py"],
+                    "command": "  ",
+                },
+                {
+                    "name": "real",
+                    "signals": ["x"],
+                    "status": "covered",
+                    "paths": ["src/b.py"],
+                    "command": "pytest tests/b",
+                },
+            ],
+            ["src/a.py, src/b.py"],
+        )
+        out = self._resolve(smm)
+        self.assertIn("GATE_SCOPE=surface", out)
+        self.assertEqual(self._commands(out), ["pytest tests/b"])
+
     def test_a_non_none_scope_always_carries_at_least_one_command(self) -> None:
         """Mutation: emit GATE_SCOPE=full with an empty block -> red. An
         emitted-but-empty block is the shape that would run nothing and let
-        the merge proceed."""
+        the merge proceed.
+
+        Every case below hands in a runnable `full`, so `none` is not a legal
+        answer for any of them — asserted, not skipped. Guarding the real
+        assertion on `if scope != "none"` would let a resolver that answered
+        `none` everywhere pass this test with nothing checked, which is the
+        vacuous shape the whole class exists to rule out.
+        """
         for surfaces, domain, full in (
             (None, ["src/cli/main.py"], _FULL),
             ([{"name": "c", "signals": ["x"], "status": "covered"}], ["a.py"], _FULL),
@@ -327,11 +376,11 @@ class TestTheGateCanNeverRunNothingAndReportGreen(_GateResolutionBase):
                     for ln in out.splitlines()
                     if ln.startswith("GATE_SCOPE=")
                 )
-                if scope != "none":
-                    self.assertTrue(
-                        self._commands(out),
-                        f"GATE_SCOPE={scope} with no commands would run nothing",
-                    )
+                self.assertNotEqual(scope, "none", "a runnable full command was set")
+                self.assertTrue(
+                    self._commands(out),
+                    f"GATE_SCOPE={scope} with no commands would run nothing",
+                )
 
 
 class TestConditionThreeConsumesTheResolvedSet(unittest.TestCase):

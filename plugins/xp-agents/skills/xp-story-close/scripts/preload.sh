@@ -120,7 +120,13 @@ echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 # TEST_COMMAND is customer-set free text (system_context.stack.test_command,
 # not a git-constrained ref) — route it through emit_var so a newline in it
 # cannot forge a line that shadows the VERIFY_DEFERRED gate emitted below.
-emit_var TEST_COMMAND "$(find_test_command)"
+#
+# Resolved into a variable rather than inlined twice: emit_gate_commands below
+# needs the same value, and find_test_command spawns a python3 that re-reads
+# system_context.json — a second read that could also disagree with this one if
+# the document changed mid-preload.
+TEST_COMMAND=$(find_test_command)
+emit_var TEST_COMMAND "$TEST_COMMAND"
 echo "CLOSE_START_TS=$(now_iso)"
 # Assign-then-use, not `echo "$(generate_id)"`: the id has to be reusable by
 # the two consumers below, and generating it inside the echo left nothing for
@@ -206,7 +212,7 @@ emit_hook_guidance "$HOOK_STATUS"
 # is bounded by the shared reference's first heading rather than trailing off
 # into unrelated KEY=value lines. The shared file's own `- ` bullets sit under
 # their own headings, past that boundary.
-emit_gate_commands "$STORY_ID" "$(find_test_command)" "${TEAMMATE_CWD:-.}"
+emit_gate_commands "$STORY_ID" "$TEST_COMMAND" "${TEAMMATE_CWD:-.}"
 
 # Append shared close-pipeline reference (Steps 5, 5b, 6) so the LLM
 # sees one consistent set of shared instructions across all four close
