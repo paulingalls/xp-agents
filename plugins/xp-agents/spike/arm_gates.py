@@ -167,6 +167,13 @@ def append_fail_signal(smm_dir: Path, repo: Path) -> None:
     the only sanctioned writer, it validates at write time, and a hand-written
     line that fails validation would leave the gate unarmed for a reason no
     diagnosis here would name.
+
+    **Attributed to the agent the READER will scope to**, not to this helper. A
+    worktree teammate shares the event log with its lead and siblings, so
+    `tdd_check._reader_scope` counts only signals carrying that teammate's own
+    agent id; a concern filed under any other name is silently skipped and the
+    gate never blocks. `--agent` becomes the event's `agent_id`, so it must be
+    the same value `identity.resolve_agent_id` returns for this cwd.
     """
     subprocess.run(
         [
@@ -176,7 +183,7 @@ def append_fail_signal(smm_dir: Path, repo: Path) -> None:
             "--type",
             "concern",
             "--agent",
-            "spike-arm-gates",
+            agent_id_for(repo),
             "--severity",
             "medium",
             "--content",

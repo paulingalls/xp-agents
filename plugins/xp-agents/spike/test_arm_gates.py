@@ -113,6 +113,20 @@ class TestStopGateArming(_ScratchTestCase):
         )
         self.assertEqual(result["stdout"].strip(), "")
 
+    def test_arming_works_when_the_cwd_is_a_worktree_teammate(self) -> None:
+        # The configuration every real run actually uses, and the one the other
+        # checks here missed: `build_rig` names its repo "proj", which is not a
+        # worktree, so the teammate scoping in tdd_check._reader_scope never
+        # engaged. Under a `worktree-story-` cwd the reader counts ONLY that
+        # teammate's own test signals, so a fail concern attributed to any other
+        # agent id is filtered out and the gate never blocks. Measured on the
+        # real harness before this check existed.
+        with tempfile.TemporaryDirectory() as td:
+            repo, smm_dir = probe.build_rig(Path(td), repo_name="worktree-story-999")
+            report = arm_gates.arm_tdd_stop_gate(repo=repo, smm_dir=smm_dir)
+            self.assertTrue(report["armed"])
+            self.assertEqual(report["agent_id"], "worktree-story-999")
+
     def test_arming_refuses_when_another_agent_is_active(self) -> None:
         # tdd_stop_gate releases when other teammates are live, since they may
         # own the failing tests. Guards a helper that appends the fail concern

@@ -172,7 +172,9 @@ def _git(repo: Path, *args: str) -> None:
     )
 
 
-def build_rig(root: Path, stage_files: bool = True) -> tuple[Path, Path]:
+def build_rig(
+    root: Path, stage_files: bool = True, repo_name: str = "proj"
+) -> tuple[Path, Path]:
     """A git repo with the gate armed, plus a real SMM resolved by init.sh.
 
     The SMM is created by `init.sh` rather than hand-assembled: it is the single
@@ -183,7 +185,12 @@ def build_rig(root: Path, stage_files: bool = True) -> tuple[Path, Path]:
     Armed means cadence `commit` (the default, so no marker is written), no
     recorded review, and >= REVIEW_CYCLE_THRESHOLD staged code files.
     """
-    repo = root / "proj"
+    # `repo_name` matters: a `worktree-story-` segment makes the shipped code
+    # treat this cwd as a CLI teammate, which changes both the SessionStart
+    # branch and the test-signal reader's scope. Defaulting to "proj" keeps the
+    # commit-shape checks on the lead path; the Stop-gate checks override it,
+    # because the real runs are teammates and that scoping was what broke.
+    repo = root / repo_name
     repo.mkdir(parents=True, exist_ok=True)
     _git(repo, "init", "-q")
     _git(repo, "config", "user.email", "spike@example.invalid")
