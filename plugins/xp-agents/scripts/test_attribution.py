@@ -22,83 +22,24 @@ does run, but only `&&` carries a segment's FAILURE out to the overall exit —
 `OUT=$(pytest); echo $?` exits 0 over a red suite. `exit_status_proves_runner_passed`
 is that direction; the two are mirrors, not an asymmetry.
 
+`head_token` and `ARGUMENT_CONSUMING_HEADS` — "which token of a segment is the
+executable, and does it merely consume its arguments as data" — live in
+`shell_exit_structure`, which grew a second caller for them. They carry no
+framework knowledge, so this module holds none of the shell vocabulary and
+`shell_exit_structure` holds none of the runner vocabulary.
+
 Pure — stdlib only, no SMM dependencies.
 """
 
-import re
-
 import git_commits
 from shell_exit_structure import (
+    ARGUMENT_CONSUMING_HEADS,
     SEGMENT_BREAK_RE,
+    head_token,
     outer_exit_reaches_shell,
     shell_c_bodies,
 )
 from test_parsing import PARSER_STATUS_PARSED, is_test_run, parse_test_results
-
-# Tokens that wrap another executable without being the thing under test, mapped
-# to the options each one takes a SEPARATE VALUE for. Peeled so `time grep pytest
-# x` is still seen as a grep, not as a test run.
-#
-# The value map is what keeps the peel from eating the executable. An option zone
-# holds two kinds of flag and they consume differently:
-#
-#   * value-taking (`sudo -u ci grep ...`) — the NEXT token is the flag's value.
-#     Not skipping it leaves `ci` as the head, which is in no refusal list, so
-#     the grep escapes and a no-match exit 1 is blamed on the runner it grepped
-#     for.
-#   * boolean (`time -p grep ...`) — the next token IS the executable. Skipping
-#     it eats `grep` and leaves `pytest` as the head: same false attribution,
-#     arrived at from the opposite direction.
-#
-# So neither blanket rule is safe, and "consume the value too" — which this did
-# unconditionally — is not the conservative choice it looks like. The set of
-# wrappers is small, closed, and ours; enumerating their value-taking options is
-# the only thing that answers both. An option NOT listed for a wrapper is treated
-# as boolean and consumes nothing; `--opt=value` carries its own value and never
-# consumes the next token either.
-_WRAPPER_VALUE_OPTS: dict[str, frozenset[str]] = {
-    "env": frozenset({"-u", "-C", "-S", "--unset", "--chdir", "--split-string"}),
-    "sudo": frozenset(
-        {"-u", "-g", "-p", "-C", "-U", "-h", "-r", "-t", "--user", "--group",
-         "--prompt", "--close-from", "--other-user", "--host", "--role", "--type"}
-    ),
-    "time": frozenset({"-o", "-f", "--output", "--format"}),
-    "nice": frozenset({"-n", "--adjustment"}),
-    "nohup": frozenset(),
-    "command": frozenset(),
-    "exec": frozenset({"-a"}),
-    "stdbuf": frozenset({"-i", "-o", "-e", "--input", "--output", "--error"}),
-    "xargs": frozenset(
-        {"-n", "-I", "-i", "-P", "-d", "-s", "-E", "-e", "-L", "-a", "--max-args",
-         "--replace", "--max-procs", "--delimiter", "--max-chars", "--eof",
-         "--max-lines", "--arg-file"}
-    ),
-}  # fmt: skip
-_WRAPPER_TOKENS = frozenset(_WRAPPER_VALUE_OPTS)
-
-# Commands that CONSUME a runner name as data (a search pattern, a filename)
-# instead of executing it. When one of these heads the segment, the runner
-# token is an argument and the exit code is not the runner's.
-#
-# This is a refusal list, NOT a whitelist of launchers, and the direction is
-# deliberate: an unrecognized head still attributes (today's behavior, gate
-# keeps its teeth), whereas an unrecognized LAUNCHER in a whitelist would
-# silently stop attributing — a disarm, which is the far worse failure. The
-# `test_every_framework_still_attributed` control pins that direction.
-_ARGUMENT_CONSUMING_HEADS = frozenset(
-    {
-        "grep", "egrep", "fgrep", "rg", "ripgrep", "ag", "ack", "git",
-        "sed", "awk", "cat", "echo", "printf", "head", "tail", "less", "more",
-        "find", "ls", "wc", "sort", "uniq", "cut", "tr", "diff", "jq",
-    }
-)  # fmt: skip
-
-_ASSIGNMENT_RE = re.compile(r"^\w+=")
-
-# Shell punctuation that can prefix an executable without being part of its
-# name — `(grep ...)` must still read as a grep, or the refusal list below is
-# trivially bypassed by a subshell.
-_HEAD_PUNCTUATION = "({"
 
 
 def is_compound(command: str) -> bool:
@@ -129,52 +70,11 @@ def _segments(command: str) -> list[str]:
     return segments
 
 
-def _head_token(segment: str) -> str:
-    """The executable token of a segment: the first token left after peeling
-    shell punctuation, VAR=val assignments, and wrapper commands with their
-    options, reduced to its basename.
-
-    A flag is only ever reachable here while still inside a wrapper's option zone
-    (`sudo -u ci grep ...` — the executable cannot itself start with `-`), so
-    whether it swallows the token after it is a question about THAT wrapper, and
-    is answered by `_WRAPPER_VALUE_OPTS` rather than by a blanket rule. Both
-    blanket rules mis-attribute (see that table): always-consume eats the `grep`
-    in `time -p grep pytest x`, never-consume leaves `ci` heading
-    `sudo -u ci grep pytest src/`.
-
-    A flag seen with no wrapper open (`-x foo` — not a shape any real segment
-    takes) consumes nothing, which is the same fail-safe direction: the worst it
-    can do is attribute.
-    """
-    tokens = segment.split()
-    wrapper = ""  # the wrapper whose option zone we are in, if any
-    i = 0
-    while i < len(tokens):
-        token = tokens[i].lstrip(_HEAD_PUNCTUATION)
-        i += 1
-        if not token or _ASSIGNMENT_RE.match(token):
-            continue
-        if token.startswith("-"):
-            # `--opt=value` carries its own value; only the separated form can
-            # reach forward for the next token.
-            if "=" not in token and token in _WRAPPER_VALUE_OPTS.get(
-                wrapper, frozenset()
-            ):
-                i += 1
-            continue
-        basename = token.rsplit("/", 1)[-1]
-        if basename in _WRAPPER_TOKENS:
-            wrapper = basename
-            continue
-        return basename
-    return ""
-
-
 def _segment_framework(segment: str) -> str | None:
     """The framework this ONE segment plausibly EXECUTES, or None. A segment
     headed by an argument-consuming command merely names the runner."""
     framework = is_test_run(segment)
-    if framework and _head_token(segment) not in _ARGUMENT_CONSUMING_HEADS:
+    if framework and head_token(segment) not in ARGUMENT_CONSUMING_HEADS:
         return framework
     return None
 

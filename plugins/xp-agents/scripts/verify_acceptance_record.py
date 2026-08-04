@@ -41,6 +41,12 @@ _AGENT_ID = "verify-acceptance"
 # Story-level acceptance_execution carries no surface; bucket it here.
 _STORY_SURFACE = "(story)"
 
+# A READER-side status with no event behind it: the sprint carries
+# verify-bearing items and nothing has recorded a result for them. Deliberately
+# NOT an `event_schema.VERIFY_STATUS_*` value — nothing appends it, and the
+# append-time enum would reject it if something tried.
+VERIFY_REPORT_UNVERIFIED = "unverified"
+
 # A deferred story's deliverable is intentionally not built, so its acceptance
 # commands would go RED on the expected-missing artifact and block the close of
 # legitimately-shipped work (hit live closing sprint-121). --sprint skips only
@@ -112,11 +118,40 @@ def _print_matrix(rows: list[dict]) -> None:
             print(f"  [{mark}] {r['story']} {ac}  {r['command']}  (exit {rc})")
 
 
+def verify_report(smm_dir: Path, sprint: dict) -> tuple[str, list[dict], list[dict]]:
+    """The status a READER should act on, which is not always the one recorded.
+
+    "No verify event" has two meanings and only one of them is green. A sprint
+    whose acceptance is all prose has nothing to run, so `none` is the honest
+    answer and the close gate proceeds. A sprint that DOES carry verify-bearing
+    items and still has no event was never verified — and reading that as `none`
+    made the absence of evidence pass as evidence of absence, at a gate whose
+    whole job is to hold the merge until the rerun says green.
+
+    That absence is reachable, not theoretical: the rerun is launched through a
+    harness-bounded tool call, and a run killed by the OUTER bound is killed
+    before it can append. Its per-command and batch bounds cannot save it —
+    they are larger than the bound of the only production caller — so the one
+    thing that stays under this project's control is refusing to read the
+    silence as green. `--force-close` remains the documented override.
+
+    `_gather_sprint_items` is the same enumeration the runner uses, so the two
+    cannot disagree about what "verify-bearing" means: deferred stories and
+    string-only acceptance contribute nothing to either.
+    """
+    status, failing, skipped = _last_verify(smm_dir, sprint["sprint_id"])
+    if status == VERIFY_STATUS_NONE and _gather_sprint_items(sprint):
+        return VERIFY_REPORT_UNVERIFIED, [], []
+    return status, failing, skipped
+
+
 def _last_verify(smm_dir: Path, sprint_id: str) -> tuple[str, list[dict], list[dict]]:
     """Status, failing items and SKIPPED items of this sprint's last verify.
 
-    Returns ("none", [], []) when no verify event exists for the sprint — the
-    close gate treats that identically to green (nothing was gated).
+    Returns ("none", [], []) when no verify event exists for the sprint. Callers
+    that gate on the result want `verify_report` instead — `none` conflates "no
+    verify-bearing acceptance" with "never verified", and only the first is
+    green.
 
     Skipped is a third return rather than a merge into `failing` because both
     readers must be able to say which it was: an item that never ran did not

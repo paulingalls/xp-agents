@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 import close_verify_gate
 import sprint_store
 import verify_acceptance
+import verify_acceptance_record
 from _bases import _HookTestCase
 from conftest import make_sprint_dict, verify_events
 
@@ -289,9 +290,15 @@ class TestBothReadersOfTheVerifyEvent(_BatchRunTestCase):
 
     def test_last_verify_carries_the_skipped_items(self):
         """The shared accessor both readers go through. Mutation: drop the
-        third element and the gate below has nothing to name."""
+        third element and the gate below has nothing to name.
+
+        Read from `verify_acceptance_record`, its owner: the runner module
+        re-exported it only for these tests, and a re-export kept alive by a
+        test is how the reader half stays coupled to the runner half the
+        extraction split them apart for.
+        """
         self._skipped_batch()
-        status, failing, skipped = verify_acceptance._last_verify(
+        status, failing, skipped = verify_acceptance_record._last_verify(
             self.smm_dir, "sprint-093"
         )
         self.assertEqual(status, verify_acceptance.VERIFY_STATUS_RED)

@@ -150,6 +150,80 @@ class TestExitReachesShell(unittest.TestCase):
         self.assertTrue(exit_reaches_shell(""))
 
 
+class TestAnArgumentSubstitutionIsAWordNotACapture(unittest.TestCase):
+    """`pytest -n $(nproc)` is ONE command; `$(nproc)` computes an argument.
+
+    The shell reports pytest's exit status, not nproc's — so refusing every
+    `$(...)` refused a whole class of ordinary declared commands. Every consumer
+    of this predicate then went quietly inert for those projects: close
+    auto-merge switched itself off and told the user to fix a `;`, a pipe or an
+    `&` that was nowhere in their command.
+
+    The line is drawn at what the shell actually reports, so the captures below
+    must stay refused. Both directions live in one class because the whole risk
+    of relaxing a fail-open guard is relaxing it one case too far.
+    """
+
+    ARGUMENTS = (
+        "pytest -n $(nproc)",
+        "go test $(go list ./...)",
+        "make -j$(nproc) test",
+        "pytest --rootdir=$(pwd)",
+        "cargo test --target-dir `mktemp -d`",
+        "cd $(git rev-parse --show-toplevel) && make test",
+        "pytest -n $(getconf _NPROCESSORS_ONLN) && npm test",
+        "go build -ldflags=-X=main.v=$(git describe --tags) ./...",
+    )
+
+    CAPTURES = (
+        "OUT=$(tsc --noEmit)",
+        "echo $(make build)",
+        "echo `make`",
+        "$(cat cmdfile)",
+        "printf '%s' $(pytest -q)",
+        "cat $(ls dist)",
+    )
+
+    def test_an_argument_substitution_reaches(self) -> None:
+        for command in self.ARGUMENTS:
+            with self.subTest(command=command):
+                self.assertTrue(exit_reaches_shell(command))
+
+    def test_a_capture_still_discards(self) -> None:
+        for command in self.CAPTURES:
+            with self.subTest(command=command):
+                self.assertFalse(exit_reaches_shell(command))
+
+    def test_an_operator_after_the_substitution_still_discards(self) -> None:
+        """The text AFTER the substitution closes is depth-0 again, so every
+        rule still applies to it. This is the direction a depth-aware walk gets
+        wrong: the closing `)` rides mid-token on the next segment, so a
+        discard sitting after it can hide inside a segment that reads as
+        'inside the substitution'."""
+        for command in (
+            "pytest -n $(nproc) &",
+            "pytest -n $(nproc); echo done",
+            "pytest -n $(nproc) | tee log",
+            "pytest -n $(nproc) || true",
+            "make -j$(nproc) test\necho done",
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(exit_reaches_shell(command))
+
+    def test_an_unclosed_substitution_fails_closed(self) -> None:
+        """Nothing this module cannot parse is ever waved through."""
+        self.assertFalse(exit_reaches_shell("pytest -n $(nproc"))
+        self.assertFalse(exit_reaches_shell("pytest -n `nproc"))
+
+    def test_a_nested_substitution_is_still_one_argument(self) -> None:
+        self.assertTrue(exit_reaches_shell("pytest -c $(dirname $(which pytest))/x"))
+
+    def test_a_shell_c_body_gets_the_same_treatment(self) -> None:
+        self.assertTrue(exit_reaches_shell("sh -c 'pytest -n $(nproc)'"))
+        self.assertFalse(exit_reaches_shell("sh -c 'echo $(make build)'"))
+        self.assertFalse(exit_reaches_shell("sh -c 'pytest -n $(nproc)' | tee log"))
+
+
 class TestNotVacuousWithoutARunner(unittest.TestCase):
     """Why this predicate had to be extracted rather than reused.
 

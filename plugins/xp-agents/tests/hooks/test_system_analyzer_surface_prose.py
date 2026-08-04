@@ -27,6 +27,9 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+from system_context_entry_validators import ACCEPTANCE_SURFACE_PATHS_MAXCOUNT
 
 _ANALYZER = Path(__file__).parent.parent.parent / "agents" / "xp-system-analyzer.md"
 
@@ -55,6 +58,25 @@ class TestSurfaceAuthoringPrompt(unittest.TestCase):
 
     def test_the_residue_surface_carries_no_command(self) -> None:
         self.assertIn("no `command`", self.md)
+
+    def test_it_names_the_paths_count_cap_and_a_way_to_stay_under_it(self) -> None:
+        """The residue rule asks for EVERY unclaimed path group in one surface's
+        `paths`, while the write path rejects more than the cap — and
+        `edit-acceptance-surfaces` replaces the WHOLE array, so going over
+        discards every surface authored in the same call, not just the long
+        one. Prose that asks for an unbounded list without naming its bound
+        guarantees a rejected write on any repo with more groups than that, and
+        the user sees only a budget message about one field.
+
+        The cap is read from the validator, so raising it there without
+        re-telling the analyzer goes red here rather than silently drifting.
+        """
+        cap = ACCEPTANCE_SURFACE_PATHS_MAXCOUNT
+        self.assertIn(f"max {cap}", self.md)
+        self.assertIn(f"Past {cap} groups", self.md)
+        # The escape hatch, not just the limit: a cap with no way to satisfy it
+        # leaves the analyzer stuck the moment a repo exceeds it.
+        self.assertIn("split across several command-less surfaces", self.md)
 
 
 class TestNarrowingIsAnInformedChoice(unittest.TestCase):

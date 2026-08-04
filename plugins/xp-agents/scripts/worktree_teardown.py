@@ -29,7 +29,18 @@ import _subprocess_env
 
 # Stopping things is bounded work, unlike bootstrap's cold-install case — a
 # hung teardown must not stall a worktree removal for minutes.
-_DEFAULT_TEARDOWN_TIMEOUT_S = 120
+#
+# AND IT MUST BE SMALLER THAN THE CALLER'S OWN BOUND, or the guarantee is
+# unreachable. Teardown reaches production inside `cleanup_teammate`, launched
+# from a close skill as a plain tool call — whose default bound was the SAME 120
+# this used to be. A hung teardown then consumed the whole outer budget and the
+# OUTER kill won: the worktree was never removed, the branch never deleted, the
+# coordination entry never cleared, and the operator saw a timed-out tool call
+# instead of the "timed out after Ns" line this module exists to print. The
+# margin is what leaves the removal — the fast part, and the part that actually
+# has to happen — room to run inside the same call. Raise the caller's bound and
+# `XP_TEARDOWN_TIMEOUT_S` together if a project's stop genuinely needs longer.
+_DEFAULT_TEARDOWN_TIMEOUT_S = 90
 
 
 def _teardown_timeout() -> int:
@@ -81,6 +92,13 @@ def run_teardown(wt_path: str, smm_dir: Path) -> None:
     that refuses to clean up is worse than the leak it exists to prevent.
     This function does not validate `wt_path`; the caller owns confirming it
     points at a real worktree before invoking teardown.
+
+    THE CWD IS SCOPED; THE COMMAND'S BLAST RADIUS IS NOT, and no caller can
+    make it so. The command is project-declared and opaque to the plugin — a
+    `docker compose down` on a project name shared across checkouts stops the
+    ONE shared stack, and this runs at a story close while sibling teammates in
+    a parallel sprint are still working. Scoping it is the declaring project's
+    responsibility; the plugin can only run it where it was told to.
     """
     command = _declared_teardown(smm_dir)
     if command is None:

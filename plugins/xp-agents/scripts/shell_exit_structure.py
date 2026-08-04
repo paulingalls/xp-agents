@@ -58,6 +58,11 @@ FAILURE_PROPAGATING_OPERATOR = "&&"
 SUBSTITUTION_OPEN = "$("
 SUBSTITUTION_BACKTICK = "`"
 
+# What an elided ARGUMENT substitution leaves behind — see
+# `argument_substitutions_as_words`. Any operator-free, non-empty token would
+# do; it exists only to keep the surrounding segment non-empty and spaced.
+_SUBSTITUTION_WORD = "x"
+
 # Asynchronous execution: a bare `&` backgrounds the command, so the shell
 # returns 0 before it has produced an exit status — the hardest-discarded exit
 # there is. Deliberately NOT an entry in the segment alternation above: `2>&1`
@@ -93,6 +98,127 @@ _SHELL_C_RE = re.compile(
 # whose body runs the thing under measurement must still count as a measured
 # segment or every operator AFTER it stops counting.
 SHELL_C_HEAD_RE = re.compile(r"^" + _SHELL_C_INVOCATION + r"\b")
+
+# ---------------------------------------------------------------------------
+# WHICH TOKEN OF A SEGMENT IS THE EXECUTABLE.
+#
+# Moved down here from `test_attribution` when `exit_reaches_shell` needed it to
+# tell an ARGUMENT substitution from a COMMAND one. It is shell structure, not
+# framework knowledge — no runner name appears in it — and `test_attribution`
+# imports UP from this module, so one copy each would only drift.
+#
+# Tokens that wrap another executable without being the thing under test, mapped
+# to the options each one takes a SEPARATE VALUE for. Peeled so `time grep pytest
+# x` is still seen as a grep, not as a test run.
+#
+# The value map is what keeps the peel from eating the executable. An option zone
+# holds two kinds of flag and they consume differently:
+#
+#   * value-taking (`sudo -u ci grep ...`) — the NEXT token is the flag's value.
+#     Not skipping it leaves `ci` as the head, which is in no refusal list, so
+#     the grep escapes and a no-match exit 1 is blamed on the runner it grepped
+#     for.
+#   * boolean (`time -p grep ...`) — the next token IS the executable. Skipping
+#     it eats `grep` and leaves `pytest` as the head: same false attribution,
+#     arrived at from the opposite direction.
+#
+# So neither blanket rule is safe, and "consume the value too" — which this did
+# unconditionally — is not the conservative choice it looks like. The set of
+# wrappers is small, closed, and ours; enumerating their value-taking options is
+# the only thing that answers both. An option NOT listed for a wrapper is treated
+# as boolean and consumes nothing; `--opt=value` carries its own value and never
+# consumes the next token either.
+_WRAPPER_VALUE_OPTS: dict[str, frozenset[str]] = {
+    "env": frozenset({"-u", "-C", "-S", "--unset", "--chdir", "--split-string"}),
+    "sudo": frozenset(
+        {"-u", "-g", "-p", "-C", "-U", "-h", "-r", "-t", "--user", "--group",
+         "--prompt", "--close-from", "--other-user", "--host", "--role", "--type"}
+    ),
+    "time": frozenset({"-o", "-f", "--output", "--format"}),
+    "nice": frozenset({"-n", "--adjustment"}),
+    "nohup": frozenset(),
+    "command": frozenset(),
+    "exec": frozenset({"-a"}),
+    "stdbuf": frozenset({"-i", "-o", "-e", "--input", "--output", "--error"}),
+    "xargs": frozenset(
+        {"-n", "-I", "-i", "-P", "-d", "-s", "-E", "-e", "-L", "-a", "--max-args",
+         "--replace", "--max-procs", "--delimiter", "--max-chars", "--eof",
+         "--max-lines", "--arg-file"}
+    ),
+}  # fmt: skip
+_WRAPPER_TOKENS = frozenset(_WRAPPER_VALUE_OPTS)
+
+# Commands that CONSUME another command's name — or its OUTPUT — as data
+# instead of executing it. Two callers, one list:
+#
+#   * `test_attribution` — when one of these heads a segment, a runner token in
+#     it is an argument (`grep -rn pytest src/`) and the exit code is not the
+#     runner's.
+#   * `_heads_a_command` below — when one of these heads the segment opening a
+#     `$(...)`, the substitution is not merely producing an argument for real
+#     work: `echo $(make build)` exits 0 over a failed build, and treating that
+#     capture as harmless is precisely the fail-open this predicate refuses.
+#
+# This is a refusal list, NOT a whitelist of launchers, and the direction is
+# deliberate: an unrecognized head still attributes (today's behavior, gate
+# keeps its teeth), whereas an unrecognized LAUNCHER in a whitelist would
+# silently stop attributing — a disarm, which is the far worse failure. The
+# `test_every_framework_still_attributed` control pins that direction.
+ARGUMENT_CONSUMING_HEADS = frozenset(
+    {
+        "grep", "egrep", "fgrep", "rg", "ripgrep", "ag", "ack", "git",
+        "sed", "awk", "cat", "echo", "printf", "head", "tail", "less", "more",
+        "find", "ls", "wc", "sort", "uniq", "cut", "tr", "diff", "jq",
+    }
+)  # fmt: skip
+
+_ASSIGNMENT_RE = re.compile(r"^\w+=")
+
+# Shell punctuation that can prefix an executable without being part of its
+# name — `(grep ...)` must still read as a grep, or the refusal list above is
+# trivially bypassed by a subshell.
+_HEAD_PUNCTUATION = "({"
+
+
+def head_token(segment: str) -> str:
+    """The executable token of a segment: the first token left after peeling
+    shell punctuation, VAR=val assignments, and wrapper commands with their
+    options, reduced to its basename. "" when the segment names no executable.
+
+    A flag is only ever reachable here while still inside a wrapper's option zone
+    (`sudo -u ci grep ...` — the executable cannot itself start with `-`), so
+    whether it swallows the token after it is a question about THAT wrapper, and
+    is answered by `_WRAPPER_VALUE_OPTS` rather than by a blanket rule. Both
+    blanket rules mis-attribute (see that table): always-consume eats the `grep`
+    in `time -p grep pytest x`, never-consume leaves `ci` heading
+    `sudo -u ci grep pytest src/`.
+
+    A flag seen with no wrapper open (`-x foo` — not a shape any real segment
+    takes) consumes nothing, which is the same fail-safe direction: the worst it
+    can do is attribute.
+    """
+    tokens = segment.split()
+    wrapper = ""  # the wrapper whose option zone we are in, if any
+    i = 0
+    while i < len(tokens):
+        token = tokens[i].lstrip(_HEAD_PUNCTUATION)
+        i += 1
+        if not token or _ASSIGNMENT_RE.match(token):
+            continue
+        if token.startswith("-"):
+            # `--opt=value` carries its own value; only the separated form can
+            # reach forward for the next token.
+            if "=" not in token and token in _WRAPPER_VALUE_OPTS.get(
+                wrapper, frozenset()
+            ):
+                i += 1
+            continue
+        basename = token.rsplit("/", 1)[-1]
+        if basename in _WRAPPER_TOKENS:
+            wrapper = basename
+            continue
+        return basename
+    return ""
 
 
 def shell_c_bodies(command: str) -> list[str]:
@@ -205,6 +331,89 @@ def _every_segment(segment: str) -> bool:
     return bool(segment)
 
 
+def _closing_index(command: str, open_at: int, opener: str) -> int:
+    """Index just PAST the substitution opened at *open_at*, or -1 if unclosed.
+
+    Nesting is counted for `$(`, because `$(dirname $(which go))` closes twice
+    with one token between; a backtick cannot nest, so its partner is the next
+    one. An unclosed opener answers -1 and is left alone — the walk then sees a
+    capture that never closes and refuses, which is the safe direction for the
+    one input this module cannot parse.
+    """
+    if opener == SUBSTITUTION_BACKTICK:
+        closer = command.find(SUBSTITUTION_BACKTICK, open_at + 1)
+        return -1 if closer < 0 else closer + 1
+    depth = 0
+    for i in range(open_at + len(SUBSTITUTION_OPEN), len(command)):
+        if command[i] == "(":
+            depth += 1
+        elif command[i] == ")":
+            if depth == 0:
+                return i + 1
+            depth -= 1
+    return -1
+
+
+def _heads_a_command(prefix: str) -> bool:
+    """Does the text before a substitution already name the thing being run?
+
+    The whole argument-vs-command distinction, and the only place the head-token
+    knowledge above is used from this file. `prefix` is everything since the last
+    operator, so `head_token` sees one segment.
+
+    A head that is EMPTY means the substitution is the command (`$(cat cmdfile)`)
+    or its value is merely being captured (`OUT=$(tsc --noEmit)` — assignments
+    peel away, leaving nothing). A head that CONSUMES its arguments as data
+    (`echo $(make build)`) means the exit status reaching the shell is the
+    consumer's, not the substitution's, which is the same discard by another
+    route. Everything else is a command taking a computed WORD.
+    """
+    head = head_token(SEGMENT_BREAK_RE.split(prefix)[-1])
+    return bool(head) and head not in ARGUMENT_CONSUMING_HEADS
+
+
+def argument_substitutions_as_words(command: str) -> str:
+    """*command* with every ARGUMENT substitution replaced by a plain word.
+
+    `pytest -n $(nproc)` is ONE command whose exit status is pytest's; the
+    substitution computes an argument, and the shell discards ITS status, not
+    pytest's. Treating every `$(...)` as a capture refused that — along with
+    `go test $(go list ./...)`, `make -j$(nproc) test` and `pytest
+    --rootdir=$(pwd)` — so a project declaring any of them had close auto-merge
+    silently switched off, under a reason string naming a `;`, pipe or `&` that
+    was nowhere in its command.
+
+    Rewriting rather than teaching the walk about depth is deliberate: the
+    substitution's closing `)` rides mid-token on the segment after it, so a
+    depth-aware walk would have to re-split that segment to keep the checks that
+    must still apply to the text AFTER the close. `pytest -n $(nproc) &` is
+    backgrounded and must stay refused; as `pytest -n x &` it simply is.
+
+    A COMMAND substitution is left verbatim, so the walk still sees it and still
+    refuses — see `_heads_a_command` for which is which.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(command):
+        if command.startswith(SUBSTITUTION_OPEN, i):
+            opener = SUBSTITUTION_OPEN
+        elif command[i] == SUBSTITUTION_BACKTICK:
+            opener = SUBSTITUTION_BACKTICK
+        else:
+            out.append(command[i])
+            i += 1
+            continue
+        end = _closing_index(command, i, opener)
+        if end < 0 or not _heads_a_command("".join(out)):
+            # Kept verbatim, unclosed span and all: the walk's job to refuse.
+            out.append(command[i:] if end < 0 else command[i:end])
+            i = len(command) if end < 0 else end
+            continue
+        out.append(_SUBSTITUTION_WORD)
+        i = end
+    return "".join(out)
+
+
 def exit_reaches_shell(command: str) -> bool:
     """True when *command*'s own exit status becomes the shell's exit status.
 
@@ -214,17 +423,21 @@ def exit_reaches_shell(command: str) -> bool:
     the caller might have wanted to read?
 
     Conservative by construction, because a wrong True is what lets a caller
-    compare two runs on a number that means nothing. `cd $(git rev-parse
-    --show-toplevel) && make test` reads as captured and is refused even though
-    its substitution closes before the runner — the runner-aware sibling can
-    afford that distinction because it knows which segment is the runner, and
-    this one deliberately cannot. Refusing to measure is recoverable (declare a
-    simpler command); measuring noise is not.
+    compare two runs on a number that means nothing. What it will NOT refuse is
+    a substitution that merely computes an ARGUMENT — `pytest -n $(nproc)` is one
+    command and the shell reports pytest's status — because refusing those
+    silently disabled every consumer for a whole class of ordinary declared
+    commands. `argument_substitutions_as_words` draws that line, and a capture
+    whose value is what the shell actually reports (`OUT=$(tsc --noEmit)`,
+    `echo $(make build)`) stays refused.
 
     A command that runs nothing is vacuously True — there is no exit status here
     to have been swallowed. Callers that need "this is a runnable command" must
     ask that separately.
     """
-    if not outer_exit_reaches_shell(command, _every_segment):
+    if not outer_exit_reaches_shell(
+        argument_substitutions_as_words(command), _every_segment
+    ):
         return False
+    # The bodies come from the ORIGINAL command; the recursion re-elides each.
     return all(exit_reaches_shell(body) for body in shell_c_bodies(command))

@@ -174,7 +174,7 @@ def _tail(text: str) -> str:
     return "..." + text[-_OUTPUT_TAIL_CHARS:]
 
 
-def _remove_throwaway(name: str, cwd: str) -> bool:
+def _remove_throwaway(name: str, cwd: str, smm_dir: Path | None = None) -> bool:
     """Remove the throwaway worktree. True if the path is gone afterwards.
 
     `remove_worktree_dir`, NOT `remove_worktree`: the latter also deletes a
@@ -182,6 +182,16 @@ def _remove_throwaway(name: str, cwd: str) -> bool:
     worktree NAME. `force=True` is the documented post-work case — a throwaway
     that just ran a project command always holds build artifacts, so
     `force=False` would raise `WorktreeNotEmpty` essentially every run.
+
+    *smm_dir* runs the project's declared `stack.worktree_teardown` against the
+    throwaway before it goes. This module runs an ARBITRARY project command in
+    that checkout — its own docstring names a typecheck whose types come from a
+    dev server the command starts — so a throwaway removed without teardown
+    leaves that stack alive holding its port, on a path that no longer exists.
+    The next differential (the scaffold's verify pass runs one) then measures
+    against the survivor. It is optional only for the self-healing call in
+    `_add_detached_worktree`, which is clearing DEBRIS: nothing is running in a
+    directory a crashed earlier run stranded, and there may be no SMM to read.
 
     The filesystem fallback is for a directory git does not KNOW is a worktree:
     a run killed between `mkdir` and `git worktree add` strands exactly that,
@@ -194,7 +204,7 @@ def _remove_throwaway(name: str, cwd: str) -> bool:
     and destroy the diagnostic. A surviving path is reported on stderr instead,
     which is loud without being destructive.
     """
-    worktree.remove_worktree_dir(name, cwd, force=True)
+    worktree.remove_worktree_dir(name, cwd, force=True, smm_dir=smm_dir)
     wt = worktree.worktree_path(name, cwd)
     if wt.exists():
         shutil.rmtree(wt, ignore_errors=True)
@@ -315,15 +325,23 @@ def differential(
     seconds = timeout if timeout and timeout > 0 else _differential_timeout()
     env = _subprocess_env.smm_child_env(smm_dir)
     name = _throwaway_name()
-    wt = _add_detached_worktree(name, cwd)
-    # An in-repo placement resolves dependencies by walking UP into the primary's
-    # tree, which HIDES the gap being measured. worktree_path falls back to
-    # in-repo when the out-of-repo base is unresolvable, so say so on the result:
-    # every other caveat here describes a false POSITIVE, and this is the one
-    # direction — a false negative — the doctrine above calls unacceptable.
-    degraded = () if _is_out_of_repo(wt, root) else (_IN_REPO_CAVEAT,)
+    degraded: tuple[str, ...] = ()
     leg = "primary"
+    # The create is INSIDE the try. `git worktree add` can register the worktree
+    # and then fail (a full disk mid-checkout, an interrupted run, a permissions
+    # error under the worktree root), and a create above the `try` leaves that
+    # registration stranded — with a per-run-unique name, nothing ever reclaims
+    # it. Cleaning up a create that never registered anything is free; the
+    # reverse is a leak on exactly the failure this `finally` exists for.
     try:
+        wt = _add_detached_worktree(name, cwd)
+        # An in-repo placement resolves dependencies by walking UP into the
+        # primary's tree, which HIDES the gap being measured. worktree_path falls
+        # back to in-repo when the out-of-repo base is unresolvable, so say so on
+        # the result: every other caveat here describes a false POSITIVE, and this
+        # is the one direction — a false negative — the doctrine above calls
+        # unacceptable.
+        degraded = () if _is_out_of_repo(wt, root) else (_IN_REPO_CAVEAT,)
         primary = _subprocess_env.run_in_new_process_group(
             command, cwd=cwd, timeout=seconds, env=env
         )
@@ -351,7 +369,7 @@ def differential(
         # The guarantee this module owns: nothing else in shipped code wraps
         # worktree create/remove in try/finally. See _remove_throwaway for the
         # force/fallback reasoning.
-        _remove_throwaway(name, cwd)
+        _remove_throwaway(name, cwd, smm_dir)
 
     same = primary.returncode == throwaway.returncode
     outcome = OUTCOME_NO_GAP if same else OUTCOME_GAP

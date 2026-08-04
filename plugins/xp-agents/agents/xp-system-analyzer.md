@@ -116,7 +116,7 @@ Canonical acceptance harnesses per surface live in `scripts/scaffold_detect.py:_
 - `signals`: what you detected indicating this surface exists
 - `harness`: acceptance tooling name (omit if none found)
 - `status`: `"covered"` if harness exists, `"gap"` if not
-- `paths`, `command`: the globs this surface owns and the narrowed command covering it. `command` requires `paths` or it is rejected at write.
+- `paths`, `command`: the globs this surface owns (max 20) and the narrowed command covering it. `command` requires `paths` or it is rejected at write.
 
 **Propose `paths` and `command`, then confirm — do not infer silently.** Close gates narrow to these commands, so a guessed command runs the wrong tests before an auto-merge. Propose per surface from what you read (test layout, scripts, config), show the customer the proposed globs and command, and write **only what they confirm**. Anything unconfirmed is omitted, not guessed.
 
@@ -127,7 +127,7 @@ Canonical acceptance harnesses per surface live in `scripts/scaffold_detect.py:_
 - coverage is checked by PATH, not by blast radius. A change that breaks a surface the selection did not pick can auto-merge at story close, and **no later step re-runs the full suite**: sprint close reviews the diff and asks a human, it never runs `stack.test_command`.
 - `stack.test_command` must **cover every surface**. It is what the gate falls back to, and what a selection covering everything collapses to — point it at a script calling each suite, not at one of them.
 
-**Also propose a residue surface.** List the repo paths no proposed surface claims — docs, config, prose — and propose one surface covering them with `paths` and **no `command`**. Selection is all-or-nothing: any unclaimed path vetoes narrowing entirely, so without the residue the gates fall back to the full command forever and every `paths`/`command` you just wrote does nothing. A command-less surface buys coverage without adding a run. Enumerate them — a catch-all glob claims code too, satisfying the veto for files no command tests.
+**Also propose a residue surface.** Propose one surface holding the `paths` no other surface claims — docs, config, prose — with **no `command`**: coverage without a run. Selection is all-or-nothing, so one unclaimed path vetoes narrowing entirely and every `paths`/`command` you wrote does nothing. Enumerate by GROUP (`docs/**`, never per file) — a catch-all glob claims code too. Past 20 groups, split across several command-less surfaces: over the cap the write is rejected WHOLE and this command replaces the array, so one long list discards every surface in the call.
 
 **Update mode:** Patch via `edit-acceptance-surfaces` and compare detected surfaces against existing entries — add new surfaces, update signals, do NOT remove surfaces the user may have manually added. This replaces the WHOLE array, so re-emit any `paths`/`command` you found: a declared value you omit is DELETED, silently:
 ```bash
@@ -250,7 +250,7 @@ Before filling each capped list, apply its discriminator test. The test is the *
     {"name": "domain-glossary (max 50 chars)", "content": "<string, list, or object — serialized max 500 chars>"}
   ],
   "acceptance_surfaces": [
-    {"name": "browser (max 50 chars)", "signals": ["<max 100 chars each>"], "harness": "<optional, max 50 chars>", "status": "covered | gap", "paths": ["<optional, max 200 chars each>"], "command": "<optional, max 100 chars; requires paths>"}
+    {"name": "browser (max 50 chars)", "signals": ["<max 100 chars each>"], "harness": "<optional, max 50 chars>", "status": "covered | gap", "paths": ["<optional, max 20 entries, 200 chars each>"], "command": "<optional, max 100 chars; requires paths>"}
   ]
 }
 ```

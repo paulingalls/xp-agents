@@ -210,8 +210,8 @@ No block: report the preload's `GATE_DISABLED_REASON`, never assume unset.
 `not-set` — no `stack.test_command`; declare one via
 `system_context_cli.py edit-stack-field test_command`.
 `exit-status-masked` — set but its exit status never reaches the shell (`;`, a
-pipe, a trailing `&`), so it reports success when its runner failed; suggest
-`&&`.
+pipe, `&`, a `$(...)` capture), so it reports success when its runner failed;
+suggest `&&`.
 `unresolved` — the resolver failed; do not claim the field is unset.
 
 When all three conditions hold, print:

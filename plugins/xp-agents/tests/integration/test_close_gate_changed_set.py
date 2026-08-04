@@ -225,6 +225,48 @@ class TestTheWorkingTreeLegSpellsPathsGitsWay(_ChangedSetCase):
         )
 
 
+class TestTheCommittedLegKeepsBothSidesOfARename(_ChangedSetCase):
+    """The SAME asymmetry as the status leg above, one leg over.
+
+    `git diff --name-only` has rename detection on by default, so a committed
+    `git mv src/api/routes.py src/cli/routes.py` reports the DESTINATION only —
+    `src/api` is neither selected nor vetoed, and the gate merges without asking
+    having run `pytest tests/cli` while `pytest tests/api` (red, because the
+    module moved out from under it) ran nowhere.
+
+    The rename must be COMMITTED and the working tree CLEAN, or the status leg
+    supplies the source path and the assertion passes for the wrong reason —
+    which is exactly how the sibling case above ended up unable to cover this
+    one (it re-takes its base after the file exists, so `base...HEAD` is empty).
+    """
+
+    def _committed_rename(self) -> tuple[Path, str]:
+        repo, _ = self.repo_with("src/api/routes.py")
+        base = self.git(repo, "rev-parse", "HEAD").strip()
+        (repo / "src" / "cli").mkdir(parents=True, exist_ok=True)
+        self.git(repo, "mv", "src/api/routes.py", "src/cli/routes.py")
+        self.git(repo, "commit", "-m", "move")
+        # The guard that keeps this test honest: with anything uncommitted the
+        # status leg would answer, and the committed leg would go untested.
+        self.assertEqual(self.git(repo, "status", "--porcelain"), "")
+        return repo, base
+
+    def test_the_changed_set_holds_the_source_path(self) -> None:
+        """Mutation: drop `--no-renames` -> red, the set is the destination only."""
+        repo, base = self._committed_rename()
+        self.assertEqual(
+            close_gate_commands.changed_paths(base, repo),
+            ["src/api/routes.py", "src/cli/routes.py"],
+        )
+
+    def test_the_source_surface_is_still_selected(self) -> None:
+        """The consequence, through the real CLI: `api` keeps its command."""
+        repo, base = self._committed_rename()
+        scope, commands = self.run_resolver(repo, base)
+        self.assertEqual(scope, "surface")
+        self.assertEqual(commands, [_CLI, _API])
+
+
 class TestTheChangedSetIsAnOptionNotAList(_ChangedSetCase):
     """The seam that makes the fall-back above structural rather than incidental:
     `changed_paths` answers None for "could not be read" and a list for "read

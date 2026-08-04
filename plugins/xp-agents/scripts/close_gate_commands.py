@@ -37,8 +37,11 @@ found that by RUNNING the emitter rather than reading it.
 Which operators discard an exit status is decidable from the string alone, so
 `shell_exit_structure.exit_reaches_shell` (shipped by story-003, never wired to
 this consumer until now) is the owner. `&&` propagates failure and is accepted;
-`;`, a bare pipe and a trailing `&` are not. Structural, so it holds for a Rust
-or TypeScript project as readily as a Python one — no language table.
+`;`, a bare pipe, a trailing `&` and a capture the shell reports INSTEAD of the
+runner (`echo $(make build)`) are not. A substitution that merely computes an
+argument (`pytest -n $(nproc)`) is accepted — refusing those switched the gate
+off for a whole class of ordinary declared commands. Structural, so it holds for
+a Rust or TypeScript project as readily as a Python one — no language table.
 
 REFUSAL IS ALL-OR-NOTHING, NEVER A FILTER. Step 4's veto has already proved
 every changed path is claimed by some surface. Dropping just the refused
@@ -174,10 +177,18 @@ def changed_paths(base: str, cwd: Path) -> list[str] | None:
     Measured: with the base emptied, a branch whose commits touched `src/api`
     resolved to the one surface holding an uncommitted fix, and this gate
     merges without asking. So a failed read refuses to narrow instead.
+
+    `--no-renames` is the committed leg's half of what `_status_paths` does for
+    the working-tree leg, and for the same reason. Rename detection is ON by
+    default, so a committed `git mv src/api/routes.py src/cli/routes.py` reports
+    the DESTINATION only: `src/api` is then neither selected nor vetoed, and the
+    gate merges without asking while the tests of the surface a module was moved
+    OUT of ran nowhere. Turning detection off spells the rename as a delete plus
+    an add, which keeps both paths — the direction that can only add coverage.
     """
     if not base.strip():
         return None
-    committed = _git(cwd, "diff", f"{base}...HEAD", "--name-only", "-z")
+    committed = _git(cwd, "diff", f"{base}...HEAD", "--name-only", "--no-renames", "-z")
     if committed is None:
         return None
     status = _git(cwd, "status", "--porcelain", "-z", "--untracked-files=all")

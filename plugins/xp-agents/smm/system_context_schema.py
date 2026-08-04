@@ -109,7 +109,12 @@ _REQUIRED_FIELDS = frozenset(
 # `worktree_teardown` is its mirror image: a project-declared command run
 # before a teammate worktree is removed, to stop whatever the teammate
 # started (e.g. a `docker compose` stack) that outlives the worktree
-# itself. Also opaque to the plugin, for the same reason.
+# itself. Also opaque to the plugin, for the same reason — which is why the
+# declaring project owns scoping it to ONE worktree. It runs at a story
+# close while sibling teammates in a parallel sprint are still working, and
+# a stop that addresses a shared stack (a compose project name that is not
+# per-directory) takes their services down with it. The plugin runs the
+# command in the worktree; it cannot bound what the command reaches.
 STACK_OPTIONAL_FIELDS = (
     "runtime",
     "dependencies_policy",

@@ -99,13 +99,9 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_lint_config_style_flags.py": 483,
     "plugins/xp-agents/tests/hooks/test_spawn_teammate_branch_release.py": 482,
     "plugins/xp-agents/tests/hooks/test_bash.py": 481,
-    # Entered the band at review: `acceptance_surfaces[].paths` gained a COUNT
-    # budget (it renders into every agent injection, so an unbounded list is
-    # unbounded injected context) and both directions of it are pinned.
-    # `TestAcceptanceSurface*` is the cohesive group to extract next — two
-    # classes, one fixture, sharing nothing with the module/principle/
-    # project_specific validation above them.
-    "plugins/xp-agents/tests/engine/test_system_context_schema_fields.py": 480,
+    # RETIRED (close review): test_system_context_schema_fields.py 480->335, by
+    # taking the extraction its own ceiling note named — `TestAcceptanceSurface*`
+    # (two classes, one fixture) moved to test_system_context_surface_fields.py.
     # RETIRED (story-018), both now under the 450 floor so deleted, not
     # ratcheted: test_story_close_surface_gate.py 478->386 (three disagreeing
     # gate harnesses consolidated into tests/integration/_gate_harness.py), and

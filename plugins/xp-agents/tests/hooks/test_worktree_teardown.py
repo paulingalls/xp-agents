@@ -308,6 +308,22 @@ class TestRunnerKillsGroupOnInterrupt(_TeardownTestCase):
 
 
 class TestTeardownTimeoutOverride(_TeardownTestCase):
+    def test_the_default_leaves_room_for_the_removal_that_follows(self):
+        """The bound is only a bound if it fires FIRST.
+
+        Teardown reaches production inside `cleanup_teammate`, invoked from a
+        close skill as an ordinary tool call with its own bound. When the two
+        are equal, a hung teardown consumes the whole outer budget and the outer
+        kill wins: the worktree is never removed, the branch never deleted, and
+        the operator sees a timed-out call rather than this module's own
+        report. Pinned as a MARGIN rather than a literal so tuning the number
+        keeps the property.
+        """
+        callers_own_bound = 120  # the close skill's tool call takes the default
+        self.assertLess(
+            worktree_teardown._DEFAULT_TEARDOWN_TIMEOUT_S, callers_own_bound
+        )
+
     def test_zero_falls_back_to_the_default(self):
         with patch.dict(os.environ, {"XP_TEARDOWN_TIMEOUT_S": "0"}):
             self.assertEqual(

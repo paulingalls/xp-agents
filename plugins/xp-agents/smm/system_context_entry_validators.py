@@ -321,7 +321,15 @@ def _validate_acceptance_surface_entry(
     # which is the failure this whole field exists to remove — reject it at
     # write rather than let it look healthy. The reverse is fine: `paths`
     # alone still describes ownership.
-    if entry.get("command") and not entry.get("paths"):
+    #
+    # WRITE PATH ONLY, hence `enforce_budget` — which is this validator's one
+    # read/write discriminator (`load_system_context` passes False). Unguarded,
+    # this rule also ran on the READ path, where `load_system_context` RAISES on
+    # any error: one hand-edited surface then crashed every subsequent read,
+    # including `branching_stage._maybe_auto_promote`'s uncaught load -> mutate
+    # -> save from a hook. `unknown_surface_key_errors` above documents that
+    # hazard verbatim as the reason a rule like this stays off the read path.
+    if enforce_budget and entry.get("command") and not entry.get("paths"):
         errors.append(
             f"acceptance_surfaces[{idx}].command declared without paths: a surface "
             "with no paths can never be selected, so the command would never run"

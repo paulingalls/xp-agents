@@ -124,9 +124,24 @@ def verify_gate_block(args: argparse.Namespace) -> str | None:
                 return None  # symlinked sprint path → fail open (matches touch gate)
             if sprint is None:
                 return None
-            status, failing, skipped = verify_acceptance_record._last_verify(
-                smm_dir, sprint["sprint_id"]
+            status, failing, skipped = verify_acceptance_record.verify_report(
+                smm_dir, sprint
             )
+            if (
+                status == verify_acceptance_record.VERIFY_REPORT_UNVERIFIED
+                and not args.force_verify
+            ):
+                # NOT the same refusal as red, and not the same as `none`.
+                # `none` means there was nothing verify-bearing to gate; this
+                # means there was, and no run ever recorded a result — most
+                # often because the rerun was killed by the bound of the tool
+                # that launched it, which kills it before it can append. Reading
+                # that silence as green merges an unverified sprint.
+                return (
+                    "merge refused: this sprint has verify-bearing acceptance "
+                    "and no verify run recorded a result. Run /xp-sprint-review, "
+                    "or /xp-sprint-close --force-close <reason>"
+                )
             if status == VERIFY_STATUS_RED and not args.force_verify:
                 # Shared with the CLI status printer: a sprint red purely
                 # because the batch budget SKIPPED items would otherwise refuse

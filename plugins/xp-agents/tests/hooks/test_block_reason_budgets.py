@@ -103,7 +103,15 @@ GATE_SCRIPTS: tuple[str, ...] = (
 REASON_BUDGETS: dict[str, int] = {
     "scripts/bash_failure.py": 60,
     "scripts/close_cycle_stop_gate.py": 890,
-    "scripts/close_verify_gate.py": 840,
+    # Bumped 840 -> 1010 (close review): the acceptance gate gained a THIRD
+    # refusal — a sprint with verify-bearing acceptance that no run ever
+    # recorded a result for, which the gate used to read as green. A whole new
+    # refusal path is what the module docstring's ~11% headroom is explicitly
+    # NOT for ("a gate that gains a clause"), so this is a considered bump
+    # rather than spending the clause allowance. Re-measured at 910 and refitted
+    # to the same ratchet(chars, 10) formula; the reason itself was cut to one
+    # sentence plus the documented override first.
+    "scripts/close_verify_gate.py": 1010,
     # Zero, deliberately: hook_io.py emits no reason prose today. Adding one
     # must be a considered bump here, not an unbounded arrival.
     "scripts/hook_io.py": 0,
@@ -136,7 +144,9 @@ REASON_BUDGETS: dict[str, int] = {
 MIN_REASON_CHARS: dict[str, int] = {
     "scripts/bash_failure.py": 40,
     "scripts/close_cycle_stop_gate.py": 670,
-    "scripts/close_verify_gate.py": 640,
+    # Raised with the budget above (round(910 * 0.85 / 10) * 10): a floor left
+    # at the old size would let the new refusal be deleted again for free.
+    "scripts/close_verify_gate.py": 770,
     "scripts/hook_io.py": 0,
     "scripts/housekeeping_stop_gate.py": 400,
     "scripts/kickoff_gate.py": 200,

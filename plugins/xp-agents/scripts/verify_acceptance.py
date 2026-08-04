@@ -43,10 +43,11 @@ from event_schema import (
 from sprint_store import get_story
 from verify_acceptance_record import (
     _AGENT_ID,
+    VERIFY_REPORT_UNVERIFIED,
     _gather_sprint_items,
-    _last_verify,
     _print_matrix,
     unverified_items,
+    verify_report,
 )
 
 # Exit codes for --query-verify-status, mirroring verify_paths.py: 1 is a gate
@@ -354,13 +355,21 @@ def _run_sprint(smm_dir: Path) -> int:
 
 
 def _query_verify_status(smm_dir: Path) -> int:
-    """Print the current sprint's last verify status; exit red(1)/ok(0)/error(2)."""
+    """Print the current sprint's verify status; exit gate(1)/ok(0)/error(2).
+
+    `unverified` gates exactly as red does — see `verify_report`. Reported under
+    its own name rather than folded into red because the two need different
+    actions from the operator: red says fix the failures, unverified says the
+    rerun never recorded anything, so run it.
+    """
     sprint, code = _load_sprint(smm_dir)
     if sprint is None:
         return code
 
-    status, failing, skipped = _last_verify(smm_dir, sprint["sprint_id"])
+    status, failing, skipped = verify_report(smm_dir, sprint)
     print(status)
+    if status == VERIFY_REPORT_UNVERIFIED:
+        return _EXIT_RED
     if status == VERIFY_STATUS_RED:
         for line in unverified_items(failing, skipped):
             print(f"  {line}")

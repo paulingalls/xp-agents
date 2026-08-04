@@ -372,6 +372,55 @@ class TestEmitConfirmation(_SprintCLITestCase):
         self.assertEqual(rc, verify_acceptance._EXIT_ERROR)
 
 
+class TestNeverVerifiedIsNotGreen(_SprintCLITestCase):
+    """A missing event has TWO meanings and only one of them is green.
+
+    The rerun reaches production through a harness-bounded tool call, and a run
+    killed by that OUTER bound dies before it can append — the inner per-command
+    and batch bounds are larger than the caller's, so they never get to convert
+    it into a red. Reading the resulting silence as `none` made absence of
+    evidence pass as evidence of absence at the one gate that holds the merge.
+    """
+
+    def _seed_verify_bearing(self) -> None:
+        self._seed(
+            [
+                _story(
+                    "story-001",
+                    acceptance_criteria=[
+                        {"description": "ok", "surface": "cli", "command": "true"},
+                    ],
+                ),
+            ]
+        )
+
+    def test_a_verify_bearing_sprint_with_no_run_reports_unverified(self):
+        """Mutation: read `_last_verify` directly -> `none`, exit 0, green."""
+        self._seed_verify_bearing()
+        result = self._run("--query-verify-status")
+        self.assertEqual(result.returncode, verify_acceptance._EXIT_RED)
+        self.assertIn(verify_acceptance.VERIFY_REPORT_UNVERIFIED, result.stdout)
+
+    def test_a_run_that_lands_clears_it(self):
+        """The refutation partner: `unverified` must not be the answer to
+        everything, or the gate is a permanent block rather than a gate."""
+        self._seed_verify_bearing()
+        self._run("--sprint")
+        result = self._run("--query-verify-status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("green", result.stdout)
+
+    def test_a_sprint_with_nothing_to_verify_is_still_none(self):
+        """The other half of the discriminator, already pinned by
+        `TestAllStringSkip` and restated here as this class's own control: a
+        sprint whose acceptance is all prose has nothing to run, so silence is
+        honest and the gate must not invent work for it."""
+        self._seed([_story("story-001", acceptance_criteria=["manual"])])
+        result = self._run("--query-verify-status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("none", result.stdout)
+
+
 class TestQueryStatusGreen(_SprintCLITestCase):
     def test_query_status_green_when_all_pass(self):
         self._seed(

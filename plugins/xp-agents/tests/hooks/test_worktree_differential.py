@@ -18,6 +18,7 @@ staying out of the `worktree-story-` teammate namespace). The removal tests
 below therefore assert the PRODUCTION `finally` ran, not that cleanup exists.
 """
 
+import json
 import shutil
 import subprocess
 import sys
@@ -359,6 +360,69 @@ class TestThrowawayAlwaysRemoved(_DifferentialTestCase):
             (stranded / "debris").write_text("left by a crashed run\n")
             result = self.run_differential("test -f README")
         self.assertEqual(result["outcome"], worktree_differential.OUTCOME_NO_GAP)
+        self.assertNoThrowawayLeft()
+
+    def test_the_declared_teardown_runs_before_the_throwaway_goes(self) -> None:
+        """The measured command may START something — the module's own docstring
+        names a typecheck whose types come from a dev server it launches. Removing
+        the throwaway without the project's declared `stack.worktree_teardown`
+        leaves that stack alive holding its port, on a path that no longer
+        exists, and the verify pass's second differential then measures against
+        the survivor. Exactly the orphaned-stack leak this branch added teardown
+        to close.
+
+        Mutation: drop `smm_dir` from the `_remove_throwaway` call -> red.
+        """
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, True)
+        marker = outside / "teardown-ran"
+        (self.smm_dir / "system_context.json").write_text(
+            json.dumps(
+                {
+                    "product": "x",
+                    "architecture_overview": "x",
+                    "stack": {
+                        "languages": ["Python"],
+                        "worktree_teardown": f"touch {marker}",
+                    },
+                    "modules": [],
+                    "conventions": [],
+                    "principles": [],
+                    "project_specific": [],
+                }
+            )
+        )
+
+        self.run_differential("test -f README")
+
+        self.assertTrue(marker.exists(), "the declared teardown never ran")
+        self.assertNoThrowawayLeft()
+
+    def test_a_registered_then_failed_create_is_still_removed(self) -> None:
+        """`git worktree add` can REGISTER the worktree and then fail — a full
+        disk mid-checkout, an interrupted run, a permissions error under the
+        worktree root. That registration is precisely what this module promises
+        to clean up, and the create sat OUTSIDE the `try/finally` that promises
+        it, so each such failure stranded another `worktree-diff-*` entry the
+        per-run-unique name guarantees nothing will ever reclaim.
+
+        Mutation: move the create back above the `try` -> red, both on disk and
+        in the git registry.
+        """
+        real_run = subprocess.run
+
+        def register_then_fail(cmd, *args, **kwargs):
+            result = real_run(cmd, *args, **kwargs)
+            if list(cmd[:3]) == ["git", "worktree", "add"]:
+                # Registered for real by the call above, then reported failed.
+                return subprocess.CompletedProcess(cmd, 1, "", "disk full")
+            return result
+
+        with (
+            patch.object(worktree_differential.subprocess, "run", register_then_fail),
+            self.assertRaises(RuntimeError),
+        ):
+            self.run_differential("test -f README")
         self.assertNoThrowawayLeft()
 
     def test_the_throwaway_is_never_in_the_teammate_namespace(self) -> None:
