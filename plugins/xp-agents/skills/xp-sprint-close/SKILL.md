@@ -35,7 +35,7 @@ The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
 
 ## Step 0: Verify-acceptance gate
 
-The preload surfaces `VERIFY_STATUS` (`green`/`red`/`none`) — the last sprint-verify rerun's status. `green`/`none` proceed to Step 1 (`none` = nothing verify-bearing to gate). `red` means failing acceptance items: **refuse the merge** — stop and tell the user to fix and re-run `/xp-sprint-review`, or override via `/xp-sprint-close --force-close <reason>`. On `--force-close <reason>`, record the bypass as debt, then continue:
+The preload surfaces `VERIFY_STATUS` (`green`/`red`/`none`) — the last sprint-verify rerun's status. `green`/`none` proceed to Step 1 (`none` = nothing verify-bearing to gate). `red` means acceptance items failed **or never ran** (the batch budget stopped the rerun — those lines read `not run`): **refuse the merge** — stop and tell the user to fix the failures, or raise the batch budget for the not-run ones, and re-run `/xp-sprint-review`; or override via `/xp-sprint-close --force-close <reason>`. On `--force-close <reason>`, record the bypass as debt, then continue:
 
 ```bash
 FAILING=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/verify_acceptance.py --query-verify-status --smm-dir <SMM_DIR> | tail -n +2 | head -c 240) || true

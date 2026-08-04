@@ -42,6 +42,14 @@ unattended acceptance batch also gained a bound it never had (7200s), and the
 `/xp-accept` path a bound it never had at all; both mean "never hang forever", not
 "fail fast", so an hour-long suite still passes comfortably.
 
+That bound is **per command**, so the sprint-wide rerun also gets a total: 4h
+(`VERIFY_BATCH_TIMEOUT_S`; set it to 0 or a negative to run unbounded). It decides
+which items *start* and never kills one already running, so a slow suite keeps its
+two hours while an eight-item sprint can no longer run overnight inside close. The
+items it never reached are named — in the matrix, in the status output, and in the
+merge refusal — and they hold the close red, because some items green and the rest
+unknown is not a verified sprint.
+
 **Half of this thread did not ship.** The skill that would detect a missing
 bootstrap and *verify* a candidate you supply is deferred.
 `scripts/worktree_differential.py` — the instrument it was to be built on, which
