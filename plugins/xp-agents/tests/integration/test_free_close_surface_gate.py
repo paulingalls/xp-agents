@@ -66,14 +66,14 @@ class TestFreeCloseNarrowsOnTheBranchDiff(_FreeCloseResolution):
     def test_a_diff_touching_one_surface_runs_only_its_command(self) -> None:
         out = self._resolve(self._seed(self._three()), "src/cli/main.py")
         self.assertIn("GATE_SCOPE=surface", out)
-        self.assertEqual(self._commands(out), ["pytest tests/cli"])
+        self.assertEqual(self.selected(out), ["pytest tests/cli"])
         self.assertNotIn(_FULL, out)
 
     def test_a_diff_touching_two_of_three_runs_both(self) -> None:
         out = self._resolve(
             self._seed(self._three()), "src/cli/main.py\nsrc/api/routes.py"
         )
-        self.assertEqual(self._commands(out), ["pytest tests/cli", "pytest tests/api"])
+        self.assertEqual(self.selected(out), ["pytest tests/cli", "pytest tests/api"])
 
     def test_an_unclaimed_path_in_the_diff_falls_back(self) -> None:
         """The veto, through the free-close door. A free branch that touches
@@ -105,7 +105,7 @@ class TestCollapseWhenTheDiffSelectsEverything(_FreeCloseResolution):
             "src/cli/main.py",
         )
         self.assertIn("GATE_SCOPE=surface", out)
-        self.assertEqual(self._commands(out), ["pytest tests/cli"])
+        self.assertEqual(self.selected(out), ["pytest tests/cli"])
 
 
 class TestFreeClosePreloadEmitsTheBlock(_FreeCloseResolution):
@@ -131,9 +131,13 @@ class TestFreeClosePreloadEmitsTheBlock(_FreeCloseResolution):
         directly, and the end-to-end one runs outside a git repo, so BOTH stay
         green against a call site that stopped passing the changed-path set —
         measured: the whole suite passes with the argument emptied, narrowing
-        permanently and silently inert. Only the call site names the input."""
+        permanently and silently inert. Only the call site names the input.
+
+        Pinned on `merge-base` specifically: a BRANCH NAME re-computes the
+        merge base at gate time, so a target advancing mid-close would shift
+        the range, trip the recheck, and disable narrowing for every close."""
         self.assertIn(
-            'emit_gate_commands "$(get_changed_files_range "${TARGET_BRANCH}")"',
+            'emit_gate_commands "$(_git merge-base "${TARGET_BRANCH}" HEAD',
             _FREE_CLOSE_PRELOAD.read_text(),
         )
 

@@ -63,7 +63,7 @@ emit_hook_guidance "$HOOK_STATUS"
 # possible input; the same call serves story close, where the diff also catches
 # files the story drifted onto. Emitted LAST of this preload's own output so
 # the reference's first heading bounds the block.
-emit_gate_commands "$(get_changed_files_range "${TARGET_BRANCH}")" "$TEST_COMMAND"
+emit_gate_commands "$(_git merge-base "${TARGET_BRANCH}" HEAD 2>/dev/null)" "${TEAMMATE_CWD:-.}" "$TEST_COMMAND"
 
 # Append the close-pipeline reference so the LLM sees one consistent set of
 # shared instructions instead of near-duplicate inlined copies.

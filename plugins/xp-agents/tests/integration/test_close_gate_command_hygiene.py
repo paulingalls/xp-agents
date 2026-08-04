@@ -84,9 +84,16 @@ class TestOneBulletIsOneCommand(_BlockHarness):
         self.assertEqual(self._commands(out), [])
         self.assertNotIn("rm -rf build", out)
 
-    def test_a_newline_in_a_surface_command_stays_one_bullet(self) -> None:
-        """The same door on the surface leg. Mutation: return `command`
-        unflattened from `surface_selection._declared_command` -> red."""
+    def test_a_newline_in_a_surface_command_collapses_the_leg(self) -> None:
+        """SUPERSEDED, like the full-command case above. This asserted
+        `scope=surface` with a mashed `pytest tests/cli rm -rf build` — a
+        command that cannot run, declared "safe" because it was one bullet.
+
+        Two lines is two commands, so the surface command is REFUSED, and
+        refusal collapses the whole leg to the full suite rather than filtering
+        (concern 96002de2ca73). Mutation: filter instead of collapse -> red,
+        and `src/cli/**` is covered by nothing.
+        """
         smm = self._seed(
             [
                 {
@@ -100,12 +107,12 @@ class TestOneBulletIsOneCommand(_BlockHarness):
             "pytest -n auto WHOLE-SUITE",
         )
         out = self._resolve(smm, paths=_CLAIMED, full="pytest -n auto WHOLE-SUITE")
-        self.assertEqual(self._scope(out), "surface")
-        self.assertEqual(self._commands(out), ["pytest tests/cli rm -rf build"])
+        self.assertEqual(self._scope(out), "full")
+        self.assertEqual(self._commands(out), ["pytest -n auto WHOLE-SUITE"])
+        self.assertNotIn("rm -rf build", out)
 
-    def test_a_carriage_return_in_a_surface_command_stays_one_bullet(self) -> None:
-        """`str.split()` covers \\r and \\t as well as \\n; a CRLF-authored
-        document must not smuggle one in either."""
+    def test_a_carriage_return_in_a_surface_command_collapses_the_leg(self) -> None:
+        """A CRLF-authored document must not smuggle one in either."""
         smm = self._seed(
             [
                 {
@@ -119,7 +126,8 @@ class TestOneBulletIsOneCommand(_BlockHarness):
             "pytest -n auto WHOLE-SUITE",
         )
         out = self._resolve(smm, paths=_CLAIMED, full="pytest -n auto WHOLE-SUITE")
-        self.assertEqual(self._commands(out), ["pytest tests/cli rm -rf build"])
+        self.assertEqual(self._scope(out), "full")
+        self.assertNotIn("rm -rf build", out)
 
 
 class TestTheDocumentedOptOutStillDisablesTheGate(_BlockHarness):
@@ -182,7 +190,9 @@ class TestTheDocumentedOptOutStillDisablesTheGate(_BlockHarness):
         )
         out = self._resolve(smm, paths=_CLAIMED, full="pytest -n auto WHOLE-SUITE")
         self.assertEqual(self._scope(out), "surface")
-        self.assertEqual(self._commands(out), ["pytest tests/cli"])
+        # `selected` drops the drift-recheck bullet, which is machinery rather
+        # than a chosen test command — see TestTheDriftRecheckBullet.
+        self.assertEqual(self.selected(out), ["pytest tests/cli"])
 
 
 class TestBothCloseSkillsRunEveryBullet(unittest.TestCase):

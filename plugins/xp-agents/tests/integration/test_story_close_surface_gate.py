@@ -76,7 +76,7 @@ class TestResolutionPrefersSurfaceCommands(_GateResolutionBase):
         )
         out = self._resolve(smm, paths="src/cli/main.py")
         self.assertIn("GATE_SCOPE=surface", out)
-        self.assertEqual(self._commands(out), ["pytest tests/cli"])
+        self.assertEqual(self.selected(out), ["pytest tests/cli"])
         self.assertNotIn(_FULL, out)
 
     def test_two_surfaces_emit_two_runnable_lines(self) -> None:
@@ -115,7 +115,7 @@ class TestResolutionPrefersSurfaceCommands(_GateResolutionBase):
         )
         out = self._resolve(smm, paths="src/cli/main.py\nsrc/api/routes.py")
         self.assertEqual(
-            self._commands(out),
+            self.selected(out),
             ["pytest -n auto tests/cli", "pytest -n auto tests/api"],
         )
 
@@ -202,7 +202,7 @@ class TestSelectionSeesDriftedFiles(_GateResolutionBase):
         )
         out = self._resolve(smm, paths="src/cli/main.py\nsrc/cli/drifted.py")
         self.assertIn("GATE_SCOPE=surface", out)
-        self.assertEqual(self._commands(out), ["pytest tests/cli"])
+        self.assertEqual(self.selected(out), ["pytest tests/cli"])
 
 
 class TestTheGateCanNeverRunNothingAndReportGreen(_GateResolutionBase):
@@ -257,7 +257,7 @@ class TestTheGateCanNeverRunNothingAndReportGreen(_GateResolutionBase):
         )
         out = self._resolve(smm, paths="src/a.py\nsrc/b.py")
         self.assertIn("GATE_SCOPE=surface", out)
-        self.assertEqual(self._commands(out), ["pytest tests/b"])
+        self.assertEqual(self.selected(out), ["pytest tests/b"])
 
     def test_a_non_none_scope_always_carries_at_least_one_command(self) -> None:
         """Mutation: emit GATE_SCOPE=full with an empty block -> red. An
@@ -341,7 +341,7 @@ class TestStoryClosePreloadEmitsTheGateBlock(GateHarness):
         emitted LAST of the preload's own output so the next markdown heading
         bounds it — otherwise the gate would 'run' a dozen prose bullets.
         """
-        out = _GateResolutionBase._commands(self._real_preload_stdout())
+        out = _GateResolutionBase.selected(self._real_preload_stdout())
         self.assertEqual(out, [_FULL])
 
     def test_nothing_unrelated_sits_inside_the_block(self) -> None:
@@ -364,7 +364,7 @@ class TestStoryClosePreloadEmitsTheGateBlock(GateHarness):
         """Source pin: only the call site names the input. Replaced with "",
         the whole suite still passed (measured) while narrowing was inert."""
         self.assertIn(
-            'emit_gate_commands "$(get_changed_files_range "${TARGET_BRANCH}")"',
+            'emit_gate_commands "$(_git merge-base "${TARGET_BRANCH}" HEAD',
             _STORY_CLOSE_PRELOAD.read_text(),
         )
 

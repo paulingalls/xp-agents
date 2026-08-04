@@ -93,15 +93,15 @@ runnable_lines() {
 # command, not only an attack — would forge a preload key. The prefix makes
 # that structurally impossible; test_preload_var_hygiene.py pins it.
 emit_gate_commands() {
-    local changed="${1-}" full="${2-}" out scope reason line body
+    local base="${1-}" cwd="${2-}" full="${3-}" out scope reason dgst line body
 
-    out=$(printf '%s\n' "$changed" | XP_GATE_FULL="$full" python3 \
-        "${PLUGIN_ROOT}/scripts/close_gate_commands.py" \
-        --smm-dir "${SMM_DIR}" --full-command "$full" --paths-from - 2>/dev/null) \
-        || out=""
+    out=$(python3 "${PLUGIN_ROOT}/scripts/close_gate_commands.py" \
+        --smm-dir "${SMM_DIR}" --base "$base" --cwd "${cwd:-.}" \
+        --full-command "$full" 2>/dev/null) || out=""
 
     scope=$(printf '%s\n' "$out" | sed -n 's/^SCOPE=//p' | head -1)
     reason=$(printf '%s\n' "$out" | sed -n 's/^REASON=//p' | head -1)
+    dgst=$(printf '%s\n' "$out" | sed -n 's/^DIGEST=//p' | head -1)
     body=$(printf '%s\n' "$out" | sed -n '/^--$/,$p' | tail -n +2)
 
     # A failed or unparseable resolve is the same as "nothing to run": no
@@ -117,6 +117,26 @@ emit_gate_commands() {
     fi
     echo ""
     echo "### GATE_COMMANDS"
+    # The drift recheck, FIRST and only when the gate actually narrowed.
+    #
+    # Under GATE_SCOPE=full there is nothing to recheck: the full command is
+    # the fallback and the maximum, so a review fix landing after the preload
+    # ran cannot make it insufficient. Emitting it there would also change the
+    # block every existing project sees, for no safety gained.
+    #
+    # Under GATE_SCOPE=surface it is load-bearing. The set was frozen from the
+    # pre-review diff and both SKILL.md files forbid re-deriving it in prose;
+    # this bullet re-derives it in CODE and exits non-zero on drift, so
+    # condition 3's "every command exits 0" enforces the freeze. Failure falls
+    # through to the human prompt — it can never fail toward auto-merge.
+    #
+    # Absolute and quoted: the agent runs this in its own shell, where
+    # PLUGIN_ROOT and SMM_DIR do not exist, and a worktree path may hold spaces.
+    if [ "$scope" = "surface" ] && [ -n "$dgst" ]; then
+        printf -- '- python3 %q --smm-dir %q --base %q --cwd %q --full-command %q --expect-digest %q\n' \
+            "${PLUGIN_ROOT}/scripts/close_gate_commands.py" \
+            "${SMM_DIR}" "$base" "${cwd:-.}" "$full" "$dgst"
+    fi
     printf '%s\n' "$body" | while IFS= read -r line || [ -n "$line" ]; do
         [ -n "$line" ] && printf -- '- %s\n' "$(strip_framing "$line")"
     done

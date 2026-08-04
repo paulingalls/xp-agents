@@ -214,7 +214,7 @@ emit_hook_guidance "$HOOK_STATUS"
 # is bounded by the shared reference's first heading rather than trailing off
 # into unrelated KEY=value lines. The shared file's own `- ` bullets sit under
 # their own headings, past that boundary.
-emit_gate_commands "$(get_changed_files_range "${TARGET_BRANCH}")" "$TEST_COMMAND"
+emit_gate_commands "$(_git merge-base "${TARGET_BRANCH}" HEAD 2>/dev/null)" "${TEAMMATE_CWD:-.}" "$TEST_COMMAND"
 
 # Append shared close-pipeline reference (Steps 5, 5b, 6) so the LLM
 # sees one consistent set of shared instructions across all four close
