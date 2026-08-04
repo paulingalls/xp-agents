@@ -250,9 +250,13 @@ METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_RESOLVED_BY_COMMITS = "resolved_by_commits"
 
 # Concern metadata.kind discriminator vocabulary. Centralized so producer
-# (close_cycle_stop_gate hook) and consumer (retros, integration tests)
-# can't drift on the spelling. Pattern matches STATUS_ACTION_* — a small
-# string vocab named at module level, not inlined.
+# (scripts/close_cycle_abandonment, the sole owner of this record — the
+# aged-Stop gate, the SessionStart sweep and the close preloads all route
+# through it, and `metadata.detector` is what tells them apart) and consumer
+# (retros, integration tests) can't drift on the spelling. Pattern matches
+# STATUS_ACTION_* — a small string vocab named at module level, not inlined.
+# The VALUE keeps its original spelling on purpose: renaming it would orphan
+# every abandonment already in a project's log.
 CONCERN_KIND_CLOSE_CYCLE_BYPASS = "close_cycle_bypass"
 
 # tdd_red: producer (bash_post_tool) tags test_run_complete events when

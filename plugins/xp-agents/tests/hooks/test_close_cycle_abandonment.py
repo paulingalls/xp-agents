@@ -28,6 +28,7 @@ import os
 import sys
 import unittest
 from contextlib import redirect_stderr
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -324,6 +325,46 @@ class TestClosePreloadRecordsBeforeArming(_AbandonmentAssertions, _IntegrationTe
 
     def test_free_close_records_before_arming(self):
         self._assert_records_before_arming("free")
+
+    def test_the_record_lands_before_this_close_s_counting_window(self):
+        """The record is about the PREVIOUS cycle, so it must not count as one
+        of THIS close's findings.
+
+        Step 6's abort-default counts `severity=high` concerns raised after
+        `CLOSE_START_TS`, and the auto-merge gate refuses on the same number.
+        Recorded inside that window, a restart's own abandonment concern
+        recommends aborting every restarted close — for a concern whose stated
+        recovery IS the restart in progress. The log keeps it either way; only
+        the window changes.
+        """
+        for mode in _ARMING_MODES:
+            with self.subTest(mode=mode):
+                (self.smm_dir / "events.jsonl").write_text("")
+                markers.marker_write(
+                    self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "survivor"
+                )
+
+                result = self._run_preload(self._preload(mode))
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+                recorded = datetime.fromisoformat(self._one_bypass_concern()["ts"])
+                window_start = datetime.fromisoformat(
+                    self._emitted_var(result.stdout, "CLOSE_START_TS")
+                )
+                self.assertLess(
+                    recorded,
+                    window_start,
+                    "recorded inside this close's window, so Step 6 counts it "
+                    "and defaults the restarted close to abort",
+                )
+
+    @staticmethod
+    def _emitted_var(stdout: str, name: str) -> str:
+        prefix = f"{name}="
+        for line in stdout.splitlines():
+            if line.startswith(prefix):
+                return line[len(prefix) :]
+        raise AssertionError(f"preload emitted no {name}")
 
     def test_a_first_close_records_nothing(self):
         """No survivor is the normal case — arming must stay silent."""
