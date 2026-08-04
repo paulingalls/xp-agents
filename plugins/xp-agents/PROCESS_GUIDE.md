@@ -62,7 +62,9 @@ CLIs (`sprint_cli.py`, `plan_cli.py`, `smm_cli.py`, `retro_cli.py`, `session_his
 
 ### System Context
 
-`system_context.json` (per-project, in `SMM_DIR`) holds stack, architecture, conventions, principles, branching stage, and acceptance surfaces. Read by session_start, `/xp-plan`, `/xp-sprint-start`, close-skill gates, and the plan/close reviewers. Create or refresh via `/xp-system-context`; patch via `system_context_cli.py` (`edit-{stack,branching}-field`; `add-*`/`edit-*`/`retire-*` for capped lists; `--help`). An empty `stack.test_command` disables the close-skill auto-merge gate.
+`system_context.json` (per-project, in `SMM_DIR`) holds stack, architecture, conventions, principles, branching stage, and acceptance surfaces. Read by session_start, `/xp-plan`, `/xp-sprint-start`, close-skill gates, and the plan/close reviewers. Create or refresh via `/xp-system-context`; patch via `system_context_cli.py` (`edit-{stack,branching}-field`; `add-*`/`edit-*`/`retire-*` for capped lists; `--help`). An empty `stack.test_command` disables the close-skill auto-merge gate, as does one whose exit status cannot reach the shell (`;`, a bare pipe, a trailing `&`) — it reports success when its runner failed. `GATE_DISABLED_REASON` says which.
+
+**Narrowing.** Surface `paths` + `command` make story/free close run only the covering commands. Coverage is by **path, not blast radius** (a break in an unselected surface is caught at sprint close, which keeps the full command), and `stack.test_command` must **cover every surface** — it is the fallback and what a full selection collapses to. `/xp-system-context` states both before you confirm.
 
 **Principles vs conventions:** a principle, `reversed, makes this a different project`; a convention reversed only changes behavior. Principles soft cap 15 / hard cap 20; `retire-principle` before `add-principle` over soft.
 

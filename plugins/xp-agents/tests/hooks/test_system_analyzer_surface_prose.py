@@ -57,5 +57,48 @@ class TestSurfaceAuthoringPrompt(unittest.TestCase):
         self.assertIn("no `command`", self.md)
 
 
+class TestNarrowingIsAnInformedChoice(unittest.TestCase):
+    """story-018 AC6/AC7, answering concerns 93c3a7f51618 and 7011f2040970.
+
+    Declaring `paths` switches a gate that MERGES WITHOUT ASKING from "run the
+    whole suite" to "run these commands". Two residual risks survive that no
+    code can remove, because both are undecidable language-agnostically:
+
+    1. The veto proves PATH coverage, not REGRESSION coverage. A change whose
+       blast radius lands in a surface the selection did not pick auto-merges
+       green at story close, and is caught only at sprint close, which keeps
+       the full command deliberately.
+    2. Collapse swaps N surface commands for `stack.test_command`, ASSUMING it
+       covers every surface. A multi-harness project (browser=playwright,
+       cli=pytest) whose test_command runs only one of them tests LESS after
+       collapsing than before.
+
+    So the answer is consent, not analysis: the person opting in has to be told
+    before they opt in, and this prose is the only place they are told.
+    """
+
+    def setUp(self) -> None:
+        self.md = _ANALYZER.read_text()
+
+    def test_it_requires_evidence_of_independence_before_proposing(self) -> None:
+        """Narrowing across coupled surfaces is where risk 1 actually bites, so
+        `paths` is proposed only where independence was observed."""
+        self.assertIn("independen", self.md.lower())
+
+    def test_it_declines_out_loud_rather_than_staying_silent(self) -> None:
+        """A silent non-proposal is indistinguishable from not having looked."""
+        self.assertIn("decline", self.md.lower())
+
+    def test_it_states_that_a_cross_surface_break_can_auto_merge(self) -> None:
+        """Risk 1, in the sentence the customer confirms against. Mutation:
+        drop it -> red, and the opt-in stops being informed."""
+        self.assertIn("sprint close", self.md)
+
+    def test_it_states_the_collapse_fallback_assumption(self) -> None:
+        """Risk 2. `stack.test_command` is what a full selection collapses TO
+        and what the gate falls back to, so it must cover every surface."""
+        self.assertIn("cover every surface", self.md)
+
+
 if __name__ == "__main__":
     unittest.main()
