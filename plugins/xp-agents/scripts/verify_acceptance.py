@@ -84,6 +84,62 @@ _MAX_FAILING_ITEMS = 20
 _DEFAULT_CMD_TIMEOUT_S = 7200
 
 
+# Batch-total budget for the UNATTENDED --sprint run. The bound above is PER
+# COMMAND, so a sprint with N verify-bearing items can legitimately run N x
+# 7200s — ~16h for eight items, unattended, inside sprint close. That is the
+# failure the pre-sprint-128 600s cap prevented only by accident, and
+# tightening the per-command bound back would false-red any suite over ten
+# minutes. Bounding the BATCH keeps both: a slow suite still gets its two
+# hours, and the run still cannot go overnight.
+#
+# 4h = 2x the per-command bound, so no single pathological item can exhaust the
+# batch on its own. VERIFY_BATCH_TIMEOUT_S overrides; NON-POSITIVE DISABLES the
+# budget entirely — see _batch_budget.
+#
+# TWO PROPERTIES A READER WILL OTHERWISE ASSUME WRONG.
+#
+# It is not a hard ceiling. The budget decides which items START; the
+# per-command bound still bounds each one, so the worst case is this budget
+# PLUS one per-command timeout. The two compose deliberately: a batch bound
+# that killed a running command would attribute the batch's exhaustion to
+# whichever item happened to be running, which is the misattribution the
+# separate-bounds decision exists to avoid.
+#
+# There is no resume. Skipping is deterministic in sprint order, so an
+# over-budget batch always skips the SAME tail — the newest, least-verified
+# stories — and raising the lever re-pays every already-green item from the
+# start. Nothing accumulates across runs. Skipped items gate the close as red,
+# so this can never surface as a false green; it is a cost, not a hole.
+_DEFAULT_BATCH_TIMEOUT_S = 14400
+
+
+def _batch_budget() -> int | None:
+    """Batch-total seconds for --sprint, or None when the budget is off.
+
+    Diverges from `_cmd_timeout`/`_subprocess_env._env_int` on purpose, and the
+    divergence IS the opt-out. For a per-command timeout a non-positive value
+    is nonsense — `timeout=0` makes the runner raise before the command has run
+    at all — so `_env_int` correctly folds zero and negatives into the default.
+    For a batch TOTAL, non-positive is the only way to say "do not bound my
+    batch": a project whose honest sprint verify runs eight hours needs that
+    door, and without it the only escape from a false stop is `--force-close`,
+    which bypasses the ENTIRE acceptance gate rather than this one bound.
+
+    Unset is NOT that door — it takes the default. An opt-in budget would leave
+    the unbounded batch in place for every project that never set the variable,
+    which is every project on upgrade: shipped and inert. Unparseable text is a
+    typo, not consent to run unbounded, so it takes the default too.
+    """
+    raw = os.environ.get("VERIFY_BATCH_TIMEOUT_S")
+    if not raw:
+        return _DEFAULT_BATCH_TIMEOUT_S
+    try:
+        seconds = int(raw)
+    except ValueError:
+        return _DEFAULT_BATCH_TIMEOUT_S
+    return seconds if seconds > 0 else None
+
+
 def _cmd_timeout() -> int:
     """Per-command timeout in seconds; a POSITIVE VERIFY_CMD_TIMEOUT_S overrides.
 
