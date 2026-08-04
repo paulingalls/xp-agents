@@ -22,6 +22,7 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -36,11 +37,16 @@ from event_schema import (
     EVENT_TYPE_SPRINT,
     SPRINT_ACTION_VERIFY,
     VERIFY_STATUS_GREEN,
-    VERIFY_STATUS_NONE,
     VERIFY_STATUS_RED,
 )
 from sprint_store import get_story
-from verify_acceptance_matrix import _gather_sprint_items, _print_matrix
+from verify_acceptance_record import (
+    _AGENT_ID,
+    _gather_sprint_items,
+    _last_verify,
+    _print_matrix,
+    describe_unverified,
+)
 
 # Exit codes for --query-verify-status, mirroring verify_paths.py: 1 is a gate
 # signal (red), not an error (2).
@@ -55,7 +61,6 @@ _EXIT_ERROR = 2
 # precisely why nothing would have caught the nonsense code the operator reads.
 _EXIT_TIMEOUT = 3
 
-_AGENT_ID = "verify-acceptance"
 
 # Tail of a failing command's output carried in the event so the close gate
 # can explain WHY a rerun went red without re-running it.
@@ -84,33 +89,26 @@ _MAX_FAILING_ITEMS = 20
 _DEFAULT_CMD_TIMEOUT_S = 7200
 
 
-# Batch-total budget for the UNATTENDED --sprint run. The bound above is PER
-# COMMAND, so a sprint with N verify-bearing items can legitimately run N x
-# 7200s — ~16h for eight items, unattended, inside sprint close. That is the
-# failure the pre-sprint-128 600s cap prevented only by accident, and
-# tightening the per-command bound back would false-red any suite over ten
-# minutes. Bounding the BATCH keeps both: a slow suite still gets its two
-# hours, and the run still cannot go overnight.
+# Batch total for the UNATTENDED --sprint run. The bound above is PER COMMAND,
+# so N verify-bearing items can legitimately run N x 7200s — ~16h for eight,
+# inside sprint close, which the pre-sprint-128 600s cap prevented only by
+# accident. Tightening the per-command bound back would false-red any suite over
+# ten minutes, so bound the BATCH instead: a slow suite keeps its two hours and
+# the run still cannot go overnight. 4h = 2x the per-command bound, so no single
+# pathological item can exhaust it alone.
 #
-# 4h = 2x the per-command bound, so no single pathological item can exhaust the
-# batch on its own. VERIFY_BATCH_TIMEOUT_S overrides; NON-POSITIVE DISABLES the
-# budget entirely — see _batch_budget.
-#
-# TWO PROPERTIES A READER WILL OTHERWISE ASSUME WRONG.
-#
-# It is not a hard ceiling. The budget decides which items START; the
-# per-command bound still bounds each one, so the worst case is this budget
-# PLUS one per-command timeout. The two compose deliberately: a batch bound
-# that killed a running command would attribute the batch's exhaustion to
-# whichever item happened to be running, which is the misattribution the
-# separate-bounds decision exists to avoid.
-#
-# There is no resume. Skipping is deterministic in sprint order, so an
-# over-budget batch always skips the SAME tail — the newest, least-verified
-# stories — and raising the lever re-pays every already-green item from the
-# start. Nothing accumulates across runs. Skipped items gate the close as red,
-# so this can never surface as a false green; it is a cost, not a hole.
+# TWO PROPERTIES A READER WILL OTHERWISE ASSUME WRONG. It is not a hard ceiling
+# — see the placement comment in _run_sprint. And there is no resume: skipping
+# is deterministic in sprint order, so an over-budget batch always skips the
+# SAME tail (the newest, least-verified stories) and raising the lever re-pays
+# every already-green item. Nothing accumulates across runs. Skipped items gate
+# the close as red, so this is a cost, never a false green.
 _DEFAULT_BATCH_TIMEOUT_S = 14400
+
+# The batch clock, rebindable so tests can script it. MONOTONIC: a deadline
+# built on time.time() moves under an NTP step or a DST change, stopping an
+# unattended batch for a reason unrelated to how long it had been running.
+_now = time.monotonic
 
 
 def _batch_budget() -> int | None:
@@ -222,7 +220,11 @@ def _run_sprint(smm_dir: Path) -> int:
     # NOT smm_dir, the nearest Path in scope: that would relocate every
     # declared command and break every relative path it uses.
     cwd = os.getcwd()
+    # The batch total, frozen once. None means the project disabled it.
+    budget = _batch_budget()
+    deadline = None if budget is None else _now() + budget
     rows: list[dict] = []
+    skipped: list[dict] = []
     for sid, ac_idx, surface, cmd, na in items:
         if na:
             # A command-less (manual) block — its check is human/agent
@@ -241,6 +243,27 @@ def _run_sprint(smm_dir: Path) -> int:
         # A non-N/A item always carries a command (see _gather_sprint_items);
         # only the command-less sentinel above uses cmd=None.
         assert cmd is not None
+        # PLACEMENT IS THE DESIGN. The batch bound decides which items START:
+        # before the run (checking after would let an item begin on an already
+        # exhausted budget) and after the N/A branch (a manual row is never
+        # shelled, so it costs no time and cannot be "not run"). Nothing here
+        # kills a RUNNING command — that would blame the batch's exhaustion on
+        # whichever item was in flight, the misattribution two separate bounds
+        # exist to avoid, and it leaves the worst case at budget + one
+        # per-command timeout. `continue`, not `break`: every remaining item
+        # still needs a row, or the matrix silently shortens instead of naming
+        # what went unrun.
+        if deadline is not None and _now() >= deadline:
+            row = {
+                "story": sid,
+                "ac_idx": ac_idx,
+                "surface": surface,
+                "command": cmd,
+                "skipped": True,
+            }
+            rows.append(row)
+            skipped.append(row)
+            continue
         # Run in its own session so the timeout kills the whole process GROUP:
         # a plain shell timeout reaps only the shell, leaving alive whatever
         # the acceptance command backgrounded (a dev server, a stack) to
@@ -281,19 +304,42 @@ def _run_sprint(smm_dir: Path) -> int:
         rows.append(row)
 
     _print_matrix(rows)
-    failing = [r for r in rows if not r.get("na") and r["returncode"] != 0]
-    status = VERIFY_STATUS_RED if failing else VERIFY_STATUS_GREEN
-    event = _common.make_event(
-        EVENT_TYPE_SPRINT,
-        _AGENT_ID,
-        f"Sprint verify: {sprint['sprint_id']} {status} ({len(failing)} failing)",
-        metadata={
-            "sprint_id": sprint["sprint_id"],
-            "action": SPRINT_ACTION_VERIFY,
-            "verify_status": status,
-            "failing": failing[:_MAX_FAILING_ITEMS],
-        },
-    )
+    # Skipped rows carry no returncode, so they must drop out BEFORE the
+    # comparison — and they are not failures anyway: an item that never ran did
+    # not lose.
+    failing = [
+        r
+        for r in rows
+        if not r.get("na") and not r.get("skipped") and r["returncode"] != 0
+    ]
+    # Skipped gates exactly as red does — some items green and the rest unknown
+    # is not a verified sprint — and red is the ONLY encoding available: the
+    # status set is enforced at append time, so an "incomplete" would be
+    # rejected on write and an unknowing reader would pass the close gate.
+    status = VERIFY_STATUS_RED if (failing or skipped) else VERIFY_STATUS_GREEN
+    summary = f"Sprint verify: {sprint['sprint_id']} {status} ({len(failing)} failing"
+    summary += f", {len(skipped)} skipped)" if skipped else ")"
+    metadata: dict = {
+        "sprint_id": sprint["sprint_id"],
+        "action": SPRINT_ACTION_VERIFY,
+        "verify_status": status,
+        "failing": failing[:_MAX_FAILING_ITEMS],
+    }
+    if skipped:
+        # Added only when it happened, so a batch nowhere near the budget emits
+        # exactly the event it always did. Capped for the same reason `failing`
+        # is (see that constant); the count stays TRUE, only detail is bounded.
+        metadata["skipped"] = skipped[:_MAX_FAILING_ITEMS]
+        metadata["skipped_count"] = len(skipped)
+        ran = len(rows) - len(skipped) - sum(1 for r in rows if r.get("na"))
+        print(
+            f"verify_acceptance: batch budget of {budget}s exhausted after "
+            f"{ran} item(s); {len(skipped)} not run. Re-running stops at the "
+            "same place — raise VERIFY_BATCH_TIMEOUT_S, or set it to 0 to "
+            "disable the batch budget.",
+            file=sys.stderr,
+        )
+    event = _common.make_event(EVENT_TYPE_SPRINT, _AGENT_ID, summary, metadata=metadata)
     _common.append_safe(smm_dir, event)
     # append_safe swallows validation errors and lock timeouts; a dropped
     # verify event reads as "none" (green) at the close gate. Confirm the
@@ -306,38 +352,17 @@ def _run_sprint(smm_dir: Path) -> int:
     return _EXIT_OK
 
 
-def _last_verify(smm_dir: Path, sprint_id: str) -> tuple[str, list[dict]]:
-    """Status + failing items of the last verify event for this sprint.
-
-    Returns ("none", []) when no verify event exists for the sprint — the
-    close gate treats that identically to green (nothing was gated).
-    """
-    events = _common.read_events_locked(smm_dir, _AGENT_ID)
-    for e in reversed(events):
-        meta = e.get("metadata") or {}
-        if (
-            e.get("type") == EVENT_TYPE_SPRINT
-            and meta.get("action") == SPRINT_ACTION_VERIFY
-            and meta.get("sprint_id") == sprint_id
-        ):
-            return meta.get("verify_status", VERIFY_STATUS_NONE), meta.get(
-                "failing", []
-            )
-    return VERIFY_STATUS_NONE, []
-
-
 def _query_verify_status(smm_dir: Path) -> int:
     """Print the current sprint's last verify status; exit red(1)/ok(0)/error(2)."""
     sprint, code = _load_sprint(smm_dir)
     if sprint is None:
         return code
 
-    status, failing = _last_verify(smm_dir, sprint["sprint_id"])
+    status, failing, skipped = _last_verify(smm_dir, sprint["sprint_id"])
     print(status)
     if status == VERIFY_STATUS_RED:
-        for r in failing:
-            rc = r.get("returncode")
-            print(f"  {r.get('story', '?')} {r.get('command', '')} (exit {rc})")
+        for line in describe_unverified(failing, skipped).split(", "):
+            print(f"  {line}")
         return _EXIT_RED
     return _EXIT_OK
 

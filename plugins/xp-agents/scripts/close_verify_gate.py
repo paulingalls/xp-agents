@@ -119,13 +119,14 @@ def verify_gate_block(args: argparse.Namespace) -> str | None:
                 return None  # symlinked sprint path → fail open (matches touch gate)
             if sprint is None:
                 return None
-            status, failing = verify_acceptance._last_verify(
+            status, failing, skipped = verify_acceptance._last_verify(
                 smm_dir, sprint["sprint_id"]
             )
             if status == verify_acceptance.VERIFY_STATUS_RED and not args.force_verify:
-                items = ", ".join(
-                    f"{r.get('story', '?')} {r.get('command', '')}" for r in failing
-                )
+                # Shared with the CLI status printer: a sprint red purely
+                # because the batch budget SKIPPED items would otherwise refuse
+                # with an empty list — right to refuse, silent about why.
+                items = verify_acceptance.describe_unverified(failing, skipped)
                 return (
                     "merge refused: sprint acceptance is red: "
                     f"{items}; fix and re-run /xp-sprint-review, or "
