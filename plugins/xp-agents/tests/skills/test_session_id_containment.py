@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import _env_hygiene
 import hook_liveness
+import session_scope
 from conftest import _PLUGIN_ROOT
 
 
@@ -68,40 +69,68 @@ class TestSessionIdContainment(unittest.TestCase):
             _env_hygiene.TEST_SESSION_ID,
         )
 
-    def test_a_hosts_own_id_outranks_one_leaked_from_its_parent(self):
-        """Measured: one host's id reaches a child host's processes.
+    def test_two_disagreeing_ids_resolve_to_none_rather_than_a_guess(self):
+        """Nesting direction is runtime state, so preference cannot decide.
 
         A session launched from another agent inherits that agent's session-id
-        variable, so both are set at once and preference alone decides which
-        heartbeat the preload addresses. Getting this backwards is silent and
-        total: hooks scope their heartbeat by the id the HOST handed them, the
-        preload resolves a DIFFERENT id from the inherited variable, finds no
-        heartbeat under it and withholds every skill's context — while the
-        runtime it is testing is running perfectly.
+        variable, so two are set at once. Which one the host actually owns
+        depends on WHICH launched WHICH — unknowable from the environment, in
+        which both are just strings. Any fixed preference is therefore right in
+        one nesting direction and silently wrong in the mirrored one.
 
-        So a variable naming the session actually in charge must outrank one
-        that merely leaked into it.
+        Wrong is not a weaker check, it is a dangerous one: hooks scope their
+        heartbeat by the id the HOST handed them, so resolving the other id
+        addresses the LAUNCHER's heartbeat. That reads as live when this
+        session's hook runtime never loaded — a fail-open in the check whose
+        entire job is to detect exactly that.
 
-        Both names are spelled out rather than read off the chain by position.
-        Deriving the expectation from the same tuple under test asserts only
-        that the tuple has distinct entries: reorder it and the expectation
-        moves with it, so the one regression this pins would ship green.
+        So disagreement resolves to None: unresolvable evidence refuses. That
+        is the same direction as every other gate here, and it makes ordering
+        irrelevant to correctness rather than load-bearing in one direction.
         """
-        own = "CODEX_THREAD_ID"
-        leaks_downward = "CLAUDE_CODE_SESSION_ID"
         env = dict.fromkeys(hook_liveness.SESSION_ID_ENV_CANDIDATES, "")
-        env[own] = "the-hosts-own-id"
-        env[leaks_downward] = "an-id-leaked-from-the-launcher"
+        env["CODEX_THREAD_ID"] = "an-id-this-host-owns"
+        env["CLAUDE_CODE_SESSION_ID"] = "an-id-leaked-from-the-launcher"
 
         with patch.dict(os.environ, env):
             resolved = hook_liveness.resolve_session_id()
+            conflict = session_scope.conflicting_session_ids()
 
-        self.assertEqual(
+        self.assertIsNone(
             resolved,
-            "the-hosts-own-id",
-            f"{leaks_downward} leaks into a session launched from another "
-            f"agent, so {own} must rank ABOVE it — not merely be present",
+            "two disagreeing ids are unresolvable — refuse rather than pick "
+            "one, which would address the launcher's heartbeat",
         )
+        self.assertEqual(
+            conflict,
+            ("CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID"),
+            "the conflicting names must be reportable, so the refusal can say "
+            "which two disagree and which variable settles it",
+        )
+
+    def test_agreeing_duplicates_are_not_a_conflict(self):
+        """One id exported under two names is not ambiguous — it is one id.
+
+        A host that sets its own variable AND the neutral override to the same
+        value must not be refused; only DISAGREEMENT is unresolvable.
+        """
+        env = dict.fromkeys(hook_liveness.SESSION_ID_ENV_CANDIDATES, "")
+        env[_env_hygiene.PINNED_SESSION_ID_VAR] = "one-id"
+        env["CODEX_THREAD_ID"] = "one-id"
+
+        with patch.dict(os.environ, env):
+            self.assertEqual(hook_liveness.resolve_session_id(), "one-id")
+            self.assertEqual(session_scope.conflicting_session_ids(), ())
+
+    def test_a_single_candidate_still_resolves(self):
+        """The ordinary single-host case must be untouched by the refusal."""
+        for name in hook_liveness.SESSION_ID_ENV_CANDIDATES:
+            with self.subTest(var=name):
+                env = dict.fromkeys(hook_liveness.SESSION_ID_ENV_CANDIDATES, "")
+                env[name] = f"only-{name}"
+                with patch.dict(os.environ, env):
+                    self.assertEqual(hook_liveness.resolve_session_id(), f"only-{name}")
+                    self.assertEqual(session_scope.conflicting_session_ids(), ())
 
     def test_a_child_process_inherits_the_pin(self):
         """Preloads are SUBPROCESSES — an in-process patch would not reach them.

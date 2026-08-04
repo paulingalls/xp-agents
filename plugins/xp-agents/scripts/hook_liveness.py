@@ -76,6 +76,7 @@ STALE_AFTER_SECONDS = 4 * 60 * 60
 # without absorbing either failure above.
 FUTURE_SKEW_GRACE_SECONDS = 60
 
+CODE_ID_CONFLICT = "id-conflict"
 CODE_LIVE = "live"
 CODE_NO_MARKER = "no-marker"
 CODE_SESSION_MISMATCH = "session-mismatch"
@@ -98,7 +99,10 @@ _SESSION_GLOB = f"{marker_names.HOOK_HEARTBEAT}-*"
 # Codes meaning "could not determine" rather than "determined not live". Both
 # refuse — a check that cannot see is not a check that passed — but only the
 # determined ones support a diagnosis, so callers phrase them differently.
-UNDETERMINED_CODES = frozenset({CODE_UNREADABLE})
+# A conflict belongs here, not with the determined ones: nothing was learned
+# about the runtime: only that we cannot say whose session this is. It carries a
+# diagnosis anyway because the fix is known even when the verdict is not.
+UNDETERMINED_CODES = frozenset({CODE_UNREADABLE, CODE_ID_CONFLICT})
 
 # Exit statuses for the CLI. This tool fails CLOSED: only a positive verdict
 # exits zero. 2 is skipped because argparse spends it on usage errors, and a
@@ -132,6 +136,18 @@ _UNREADABLE_REASON = (
     "it has been replaced by a link. Whether the hook runtime is running "
     "cannot be determined, so it must not be assumed."
 )
+
+
+def _conflict_reason(names: tuple[str, ...]) -> str:
+    """Why disagreeing session ids refuse instead of degrading."""
+    return (
+        f"Two session-id variables disagree ({', '.join(names)}), so which "
+        "session this process belongs to cannot be determined — one of them "
+        "was inherited from an agent that launched this one. Whether the hook "
+        "runtime is running here must not be assumed. Export XP_SESSION_ID "
+        "with the id of the session actually in charge, or unset the inherited "
+        "variable before launching."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +385,15 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
             discoverable) AND the heartbeat is younger than the threshold.
     """
     now = time.time() if now is None else now
+    conflict = session_scope.conflicting_session_ids()
+    if conflict:
+        # Must precede every path below, because all of them treat a None id as
+        # "degrade to time-only, any fresh heartbeat counts". Under a conflict
+        # the launcher's heartbeat IS fresh, so degrading would report live for
+        # a session whose own hooks never ran — inverting this check rather than
+        # weakening it. Unresolvable identity refuses, like the rest of the
+        # gates here.
+        return Liveness(False, _conflict_reason(conflict), CODE_ID_CONFLICT)
     session_id = resolve_session_id()
     marker = heartbeat_marker(session_id)
     path = markers.marker_path(smm_dir, marker)
