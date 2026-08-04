@@ -14,7 +14,12 @@ Three modes:
   deterministically.
 - ``--query-verify-status``: report the last sprint-verify event's status for
   the current sprint (the reader the sprint-close gate consumes). Exit 0 =
-  green/none (no gate), 1 = red (gate), 2 = error.
+  green/none (no gate), 1 = gated, 2 = error. Gated covers ``red`` (a run
+  reported failures or skipped items) AND ``unverified`` (the sprint HAS
+  runnable acceptance but no run ever recorded a result — silence is not
+  green). ``unverified`` is a reader-side verdict, not a recorded status: the
+  event schema accepts only red/green/none, so it is derived here rather than
+  written.
 
 Back-compat: a single ``command: str`` is treated as a one-element list.
 """

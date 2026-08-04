@@ -118,7 +118,7 @@ The shared reference (Steps 5, 5b, 6, 6b) is emitted by the preload — see `scr
    ```
    Test numerically: `[ "$DESIGN_DECISION_COUNT" -gt 0 ]` → fall through to the shared Step 6 prompt.
 
-No block: report the preload's `GATE_DISABLED_REASON`, never assume unset. `not-set` — no `stack.test_command`; declare one via `system_context_cli.py edit-stack-field test_command`. `exit-status-masked` — set but its exit status never reaches the shell (`;`, a pipe, `&`, a `$(...)` capture), so it reports success when its runner failed; name it and suggest `&&`. `unresolved` — the resolver itself did not answer (e.g. corrupt system_context.json); say so, do NOT claim the field is unset.
+No block: report the preload's `GATE_DISABLED_REASON`, never assume unset. `not-set` — no `stack.test_command`; declare one via `system_context_cli.py edit-stack-field test_command`. `exit-status-masked` — set but its exit status never reaches the shell (`;`, a pipe, `&`, `||`, a `$(...)` capture), so it reports success when its runner failed; name the one it actually has and suggest `&&`. `unresolved` — the resolver itself did not answer (e.g. corrupt system_context.json); say so, do NOT claim the field is unset.
 
 When all four conditions hold, print exactly:
 "All reviewer findings addressed and tests green — proceeding to merge without confirmation."

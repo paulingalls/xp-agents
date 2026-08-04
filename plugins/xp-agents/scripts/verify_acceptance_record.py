@@ -138,9 +138,20 @@ def verify_report(smm_dir: Path, sprint: dict) -> tuple[str, list[dict], list[di
     `_gather_sprint_items` is the same enumeration the runner uses, so the two
     cannot disagree about what "verify-bearing" means: deferred stories and
     string-only acceptance contribute nothing to either.
+
+    RUNNABLE items only, and the `na` filter is the whole correctness of this
+    function. A command-less (manual) block contributes an `na=True` SENTINEL
+    to that enumeration so the story stays visible in the matrix — the runner
+    prints `[N/A]` and never shells it. Testing the list for truthiness would
+    therefore read "declares a prose checklist" as "has a run that should have
+    happened", and refuse a merge for a missing run that no amount of running
+    could ever produce: `--force-close` would be the only exit, permanently.
+    That lands on projects whose acceptance is prose, which are the least
+    likely to have a test runner at all.
     """
     status, failing, skipped = _last_verify(smm_dir, sprint["sprint_id"])
-    if status == VERIFY_STATUS_NONE and _gather_sprint_items(sprint):
+    runnable = any(not na for *_, na in _gather_sprint_items(sprint))
+    if status == VERIFY_STATUS_NONE and runnable:
         return VERIFY_REPORT_UNVERIFIED, [], []
     return status, failing, skipped
 

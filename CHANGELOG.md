@@ -22,16 +22,18 @@ and what is safe to stop; the plugin cannot and should not guess.
 `/xp-system-context` will record a teardown your project *already documents*, and
 will not invent or compose one.
 
-Bounded and non-fatal, deliberately: 120s (`XP_TEARDOWN_TIMEOUT_S` overrides), and
+Bounded and non-fatal, deliberately: 90s (`XP_TEARDOWN_TIMEOUT_S` overrides), and
 a non-zero exit, a timeout, a command that will not start, or an unreadable
 `system_context` are each reported on stderr and swallowed — cleanup that refuses
 to clean up is worse than the leak it exists to prevent. An unreadable context
 says so out loud rather than degrading silently, so an operator whose declared
 command stopped running finds out.
 
-It runs on the **forced** removal — the cleanup after a story closes — and not on
-the re-spawn path, where a live peer may still own that tree and stopping its
-stack out from under it would strand them mid-story.
+It runs wherever a worktree is removed by **force** — the cleanup after a story
+closes, and a re-spawn that owns the branch it is clearing. It does *not* run on
+the non-forced removal, which is what a re-spawn takes when a live peer may still
+own that tree: git refuses to remove a tree holding uncommitted work, and
+stopping that peer's stack out from under it would strand them mid-story.
 
 **Declared commands are now killed as a group.** Bootstrap, teardown and your
 acceptance commands each run in their own process group and are killed as one when
@@ -109,10 +111,14 @@ the close to the human prompt — it can never fail toward auto-merge.
 
 **If your `stack.test_command`'s exit status cannot reach the shell, close
 auto-merge now turns itself off.** `pytest -q; echo done` exits 0 when pytest
-*failed*; so does a bare pipe, and so does a trailing `&`. The gate reads that
-zero as a pass and merges without asking — it has been greenlighting red suites.
-Commands in that shape are now refused, and the close falls through to asking
-you. `&&` propagates failure and is unaffected.
+*failed*. So does a bare pipe, a trailing `&`, a `|| true` fallback, and a
+`$(...)` that captures the runner. The gate reads that zero as a pass and merges
+without asking — it has been greenlighting red suites. Commands in that shape are
+now refused, and the close falls through to asking you.
+
+`&&` propagates failure and is unaffected, and a substitution that only supplies
+an *argument* — `pytest -n $(nproc)` — is fine: the runner is still the command
+whose status the shell reports.
 
 This is a behavior change for anyone in that shape today: you lose an auto-merge
 you had. You were not getting the check you thought you were. The no-block hint

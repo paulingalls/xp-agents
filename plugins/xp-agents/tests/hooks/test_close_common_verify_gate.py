@@ -392,8 +392,8 @@ class TestMergeVerifyAcceptanceGate(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_passes_when_there_is_nothing_verify_bearing(self):
-        """The discriminator, and the half that must keep passing: a sprint
-        whose acceptance is all prose has no run to be missing."""
+        """All-prose acceptance has no run to be missing. The MANUAL shape,
+        where the predicate broke, is pinned on `verify_report` elsewhere."""
         with tempfile.TemporaryDirectory() as td:
             main = self._setup_unverified(td)
             smm = Path(td) / "smm"

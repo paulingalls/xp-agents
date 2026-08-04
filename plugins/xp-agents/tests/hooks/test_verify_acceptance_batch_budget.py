@@ -274,6 +274,36 @@ class TestTheBudgetIsABackstopNotAGate(_BatchRunTestCase):
         self.assertEqual(out.count("[SKIP]"), 1, out)
 
 
+class TestSilenceIsOnlyGatedWhenSomethingWasRUNNABLE(_BatchRunTestCase):
+    """`verify_report` turns "no verify event" into a gate — but only when the
+    sprint actually owed a run.
+
+    A command-less (manual) block contributes an `na=True` SENTINEL to
+    `_gather_sprint_items` so the story still shows as `[N/A]` in the matrix;
+    the runner never shells it. Testing that enumeration for truthiness reads
+    "declares a prose checklist" as "owes a run", and refuses the merge for a
+    run no amount of running could produce — `--force-close` would be the only
+    exit, permanently. It lands on the projects least likely to have a test
+    runner at all, which is who declares prose acceptance.
+    """
+
+    def _report(self):
+        sprint = sprint_store.load_sprint_required(self.smm_dir)
+        return verify_acceptance_record.verify_report(self.smm_dir, sprint)[0]
+
+    def test_a_manual_only_sprint_is_not_gated(self):
+        self._seed([None])  # one command-less acceptance_execution, nothing else
+        self.assertEqual(self._report(), verify_acceptance_record.VERIFY_STATUS_NONE)
+
+    def test_a_runnable_sprint_with_no_run_recorded_IS_gated(self):
+        """The discriminating partner. Without it the test above passes against
+        a predicate that never gates anything."""
+        self._seed(["true"])
+        self.assertEqual(
+            self._report(), verify_acceptance_record.VERIFY_REPORT_UNVERIFIED
+        )
+
+
 class TestBothReadersOfTheVerifyEvent(_BatchRunTestCase):
     """The verify event has TWO consumers, and a fix that reaches one is half a
     fix.

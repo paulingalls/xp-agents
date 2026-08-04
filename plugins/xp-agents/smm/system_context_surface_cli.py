@@ -49,8 +49,16 @@ def cmd_surface_commands(args: argparse.Namespace) -> int:
     (which has no story) and, worse, selected on the DECLARED file_domain —
     which the close gate lets drift, so a drifted file never entered the
     coverage input and its tests ran nowhere at an auto-merge. The changed
-    file set is the one input both close modes share and the only one that is
-    true, so it is the only door.
+    file set is the one input both close modes share and the only one true one.
+
+    NOT the close gate's door, and do not wire it up as one. Both close
+    preloads call `scripts/close_gate_commands.py`, which applies the SAME
+    coverage veto (both route through `commands_for_changed_paths`) and then
+    one guard this does not: it refuses a command whose own exit status cannot
+    reach the shell. A caller that fed this output to an auto-merge would get
+    narrowing WITHOUT that refusal. This is an inspection seam — read the
+    selection for a path set — and it currently has no production caller at
+    all; close review recorded whether it should be retired outright.
     """
     data = store.load_system_context(args.smm_dir)
     if data is None:

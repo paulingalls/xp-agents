@@ -206,13 +206,13 @@ Step 6 `AskUserQuestion` (Step 6b still runs) when ALL hold:
    No block is emitted when there is nothing to run, so the gate can
    **never run nothing** and report green.
 
-No block: report the preload's `GATE_DISABLED_REASON`, never assume unset.
-`not-set` — no `stack.test_command`; declare one via
+No block: report `GATE_DISABLED_REASON`, never assume unset.
+`not-set` — no `stack.test_command`; set it via
 `system_context_cli.py edit-stack-field test_command`.
-`exit-status-masked` — set but its exit status never reaches the shell (`;`, a
-pipe, `&`, a `$(...)` capture), so it reports success when its runner failed;
-suggest `&&`.
-`unresolved` — the resolver failed; do not claim the field is unset.
+`exit-status-masked` — set but its exit status never reaches the shell (`;`,
+pipe, `&`, `||`, `$(...)` capture), so it reports success when its runner
+failed; name the one it has and suggest `&&`.
+`unresolved` — resolver failed; do not claim it is unset.
 
 When all three conditions hold, print:
 "All reviewer findings addressed and tests green — proceeding to merge
