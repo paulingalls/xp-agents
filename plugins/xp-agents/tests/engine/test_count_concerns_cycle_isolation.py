@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _count_concerns_fixtures import _close_started
 from _scoped_gate_fixtures import (
     _CLI,
     _CYCLE,
@@ -184,9 +185,16 @@ class TestRuleIsOptIn(_ScopedGateTestCase):
         self.assertEqual(self._count([]), "3")
 
     def test_since_ts_still_bounds_pre_cycle_events(self) -> None:
+        # `_WINDOW_START` is a STORY close's CLOSE_START_TS, so the narrow bound
+        # it describes is still the right one — but the window is now read off
+        # the gated cycle's own close_started rather than off the flag, and
+        # without that event the mode is unknown and the floor drops entirely
+        # (fail closed). Seeding it restores what this test always meant; the
+        # widened counterpart lives in test_close_window_widening.py.
         write_events(
             self.events_file,
             [
+                _close_started(_CYCLE, "story", _WINDOW_START),
                 _concern(files=["plugins/xp-agents/smm/smm_count.py"]),
                 _concern(
                     files=["plugins/xp-agents/smm/smm_count.py"],
