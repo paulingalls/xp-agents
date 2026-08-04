@@ -29,7 +29,7 @@ from conftest import _PLUGIN_ROOT, _split_frontmatter_body
 MARKER = "Sequential discipline"
 
 _SKILLS_DIR = _PLUGIN_ROOT / "skills"
-_EXPECTED_INLINE = 15
+_EXPECTED_INLINE = 16
 _EXPECTED_FORKED = 3
 
 

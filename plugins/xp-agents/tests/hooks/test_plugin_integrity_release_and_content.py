@@ -38,6 +38,7 @@ _ALL_SKILL_NAMES = (
     "xp-quality-review",
     "xp-review-plan",
     "xp-scaffold-acceptance",
+    "xp-scaffold-worktree",
     "xp-assign",
     "xp-sprint-review",
     "xp-sprint-start",

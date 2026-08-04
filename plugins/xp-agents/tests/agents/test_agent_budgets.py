@@ -73,7 +73,22 @@ AGENT_BUDGETS: dict[str, int] = {
     # falls back to it (7011f2040970). Neither risk can be removed in code;
     # consent is the whole answer, so shrinking the sentence that obtains it
     # would ship the story's own defect. Trimmed first: 21120 -> 21056.
-    "xp-system-analyzer": 21600,
+    #
+    # Bumped 21600 -> 22800 (story-001): Step 3.75 now says that a command it
+    # recorded is UNVERIFIED and names the skill that can verify it. The rule
+    # against inventing a command was vindicated by measurement and is
+    # untouched; what was missing is that a DOCUMENTED command is not a
+    # MEASURED one — two plausible candidates both exited 0 and one closed
+    # nothing, so a recorded value that reads as verified is precisely the
+    # false green the measurement exists to kill.
+    #
+    # Trimmed first, but only by 62 chars (an illustrative parenthetical), and
+    # the bump is larger than the net addition of 242 on purpose. The entry
+    # arrived at 97.99% — two characters off the band — because each of the
+    # three bumps before this one bought back barely more than it spent, which
+    # is the drift this module's docstring names. 22800 leaves ~1400 chars, so
+    # the next true clarification here is an edit rather than a fourth bump.
+    "xp-system-analyzer": 22800,
 }
 
 _AGENTS_DIR = _PLUGIN_ROOT / "agents"
