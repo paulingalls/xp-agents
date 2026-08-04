@@ -130,16 +130,44 @@ class TestSurfacesForPaths(unittest.TestCase):
         self.assertEqual([s["name"] for s in matched], ["cli"])
 
 
+class TestUnclaimedPaths(unittest.TestCase):
+    """The residue a caller must see before it dares narrow anything."""
+
+    def test_paths_no_surface_claims_are_returned_sorted(self) -> None:
+        self.assertEqual(
+            surface_selection.unclaimed_paths(
+                [_surface("cli", paths=["src/cli/**"])],
+                {"src/cli/main.py", "src/db/schema.py", "README.md"},
+            ),
+            ["README.md", "src/db/schema.py"],
+        )
+
+    def test_total_coverage_leaves_no_residue(self) -> None:
+        surfaces = [_surface("cli", paths=["src/**"]), _surface("d", paths=["*.md"])]
+        self.assertEqual(
+            surface_selection.unclaimed_paths(surfaces, {"src/cli/main.py", "a.md"}), []
+        )
+
+    def test_a_surface_declaring_no_paths_claims_nothing(self) -> None:
+        self.assertEqual(
+            surface_selection.unclaimed_paths([_surface("cli")], {"src/cli/main.py"}),
+            ["src/cli/main.py"],
+        )
+
+
 class TestGlobSemanticsDiscriminateFromFnmatch(unittest.TestCase):
-    """The two measured shapes where glob_to_regex and fnmatch.translate
-    actually disagree. Swap `triage.compile_glob` for `fnmatch.translate` in
-    the implementation and BOTH of these go red while every other test in this
-    file stays green — that asymmetry is the proof the mandate is real.
+    """Two shapes where glob_to_regex and fnmatch.translate actually disagree.
+    Swap `triage.compile_glob` for `fnmatch.translate` in the implementation
+    and BOTH of these go red while every other test in this file stays green —
+    that asymmetry is the proof the mandate is real.
 
     Measured:
       tests/**/*.py  vs tests/a.py            -> ours True,  fnmatch False
       smm/*.py       vs smm/sub/a.py          -> ours False, fnmatch True
       (and `**` vs a nested path agrees, which is why it proves nothing)
+
+    Not the only two: `?` also crosses a slash under fnmatch and not under
+    ours. That third shape is pinned on the primitive, in test_glob_translator.
     """
 
     def test_zero_segment_recursion_matches(self) -> None:
@@ -229,6 +257,42 @@ class TestCommandsForStory(unittest.TestCase):
                 cwd=str(self._tree()),
             ),
             [],
+        )
+
+    def test_a_partly_claimed_story_selects_nothing(self) -> None:
+        """The fail-CLOSED direction: the story ALSO touches a file no surface
+        claims, so narrowing would leave it untested — strictly less than the
+        full command it replaces, on the gate that auto-merges."""
+        self.assertEqual(
+            surface_selection.commands_for_story(
+                self._context(),
+                self._sprint(
+                    "plugins/xp-agents/smm/surface_selection.py — claimed",
+                    "docs/ARCHITECTURE.md — claimed by nothing",
+                ),
+                "story-015",
+                cwd=str(self._tree()),
+            ),
+            [],
+        )
+
+    def test_a_claiming_surface_without_a_command_still_earns_coverage(self) -> None:
+        """The escape hatch that keeps the rule usable: a surface over the
+        prose/config paths with NO command claims them — coverage is total —
+        while contributing no command of its own."""
+        context = self._context()
+        context["acceptance_surfaces"].append(_surface("docs", paths=["docs/**"]))
+        self.assertEqual(
+            surface_selection.commands_for_story(
+                context,
+                self._sprint(
+                    "plugins/xp-agents/smm/surface_selection.py — claimed",
+                    "docs/ARCHITECTURE.md — claimed, uncommanded",
+                ),
+                "story-015",
+                cwd=str(self._tree()),
+            ),
+            ["pytest tests/smm"],
         )
 
     def test_a_context_declaring_no_surfaces_selects_nothing(self) -> None:
@@ -322,6 +386,16 @@ class TestSurfaceCommandsCli(_SMMTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
         self.assertNotIn(self.FULL_SUITE, result.stdout)
+
+    def test_partly_claimed_story_prints_nothing_and_exits_zero(self) -> None:
+        """One unclaimed file must send the caller back to the full command."""
+        self._seed(
+            [_surface("cli", paths=["src/cli/**"], command="pytest tests/cli")],
+            ["src/cli/main.py", "src/db/schema.py"],
+        )
+        result = self._run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
 
     def test_surfaces_declaring_no_paths_yield_nothing(self) -> None:
         """Every project's state today — the fields postdate their documents."""
