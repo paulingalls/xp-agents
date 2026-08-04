@@ -9,6 +9,24 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
             "additionalContextLimit": 0,
             "statusMessage": "spike: recording SessionStart..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_probe_resolve.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: resolving roots..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_start.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: real session_start (writes the heartbeat)..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_inject_marker.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: injecting marker..."
           }
         ]
       }
