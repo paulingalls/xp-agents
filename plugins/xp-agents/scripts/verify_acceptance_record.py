@@ -139,23 +139,26 @@ def _last_verify(smm_dir: Path, sprint_id: str) -> tuple[str, list[dict], list[d
     return VERIFY_STATUS_NONE, [], []
 
 
-def describe_unverified(failing: list[dict], skipped: list[dict]) -> str:
-    """One line naming what is unverified — for whichever reader is reporting.
+def unverified_items(failing: list[dict], skipped: list[dict]) -> list[str]:
+    """One description per unverified item — the shared source both readers use.
 
     Shared so the CLI status printer and the in-process merge gate cannot drift
     into describing the same event differently. The gate built its refusal from
     `failing` alone, so a sprint red purely because items were SKIPPED refused
     with nothing after the colon: correct to refuse, useless about why, at the
     one place a human is told a merge cannot proceed.
+
+    A LIST, not a pre-joined string: the line-per-item reader must not have to
+    re-split the joined form. A declared command may itself contain the
+    separator (``python3 -c "print(1, 2)"``), which would split one item into
+    two bogus lines and invent an item that does not exist.
     """
-    parts = [
+    return [
         f"{_label(r)} {r.get('command', '')} (exit {r.get('returncode')})"
         for r in failing
-    ]
-    parts += [
+    ] + [
         f"{_label(r)} {r.get('command', '')} (not run — batch budget)" for r in skipped
     ]
-    return ", ".join(parts)
 
 
 def _label(row: dict) -> str:

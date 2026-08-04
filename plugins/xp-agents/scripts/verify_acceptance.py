@@ -8,8 +8,9 @@ Three modes:
   object-shaped acceptance_criteria item carrying a command/commands verify
   block PLUS every story-level acceptance_execution. Prints a surface-grouped
   PASS/FAIL matrix and emits a deterministic ``sprint``/``action=verify``
-  event carrying verify_status + the failing items. The signal is
-  script-emitted (not reviewer prose) so the close gate reads it
+  event carrying verify_status + the failing items (plus the items a blown
+  batch budget never started — see ``_DEFAULT_BATCH_TIMEOUT_S``). The signal
+  is script-emitted (not reviewer prose) so the close gate reads it
   deterministically.
 - ``--query-verify-status``: report the last sprint-verify event's status for
   the current sprint (the reader the sprint-close gate consumes). Exit 0 =
@@ -45,7 +46,7 @@ from verify_acceptance_record import (
     _gather_sprint_items,
     _last_verify,
     _print_matrix,
-    describe_unverified,
+    unverified_items,
 )
 
 # Exit codes for --query-verify-status, mirroring verify_paths.py: 1 is a gate
@@ -361,7 +362,7 @@ def _query_verify_status(smm_dir: Path) -> int:
     status, failing, skipped = _last_verify(smm_dir, sprint["sprint_id"])
     print(status)
     if status == VERIFY_STATUS_RED:
-        for line in describe_unverified(failing, skipped).split(", "):
+        for line in unverified_items(failing, skipped):
             print(f"  {line}")
         return _EXIT_RED
     return _EXIT_OK

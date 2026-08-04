@@ -307,6 +307,21 @@ class TestBothReadersOfTheVerifyEvent(_BatchRunTestCase):
         self.assertIn("not run", out.getvalue())
         self.assertIn("story-001", out.getvalue())
 
+    def test_query_status_prints_one_line_per_item_not_per_comma(self):
+        """The two readers want different SHAPES of the same description — one
+        line each, one sentence — so the shared helper returns the items and the
+        line reader must never re-split the sentence. A declared command may
+        itself contain the separator, and re-splitting would report an item that
+        does not exist while truncating the one that does."""
+        self._seed(['python3 -c "import sys, os; sys.exit(1)"'])
+        self._run(_clock(0))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            verify_acceptance._query_verify_status(self.smm_dir)
+        lines = [ln for ln in out.getvalue().splitlines() if ln.startswith("  ")]
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn("sys.exit(1)", lines[0])
+
     def test_the_merge_gate_refusal_names_the_skipped_items(self):
         """The leg the first plan would have shipped broken: the refusal text
         was built from `failing` alone, so a red-because-skipped sprint refused
