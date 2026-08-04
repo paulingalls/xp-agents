@@ -36,6 +36,11 @@ SKILL_BUDGETS: dict[str, int] = {
     # dropped, and that an empty diff counts everything). Re-trimmed that
     # paragraph to a single sentence first; the full rationale lives once in
     # the shared close-pipeline reference, which the preload injects alongside.
+    # story-017 rewrote condition 3 to consume the resolved `### GATE_COMMANDS`
+    # set (aggregation + the collapse note) and NOT bumped: measured 8048 =
+    # 92.0%, so the existing budget absorbed it. Recorded because the next
+    # editor's question is "how much is left", and the answer is ~700 chars —
+    # a deliberate non-bump is as much a measurement as a bump.
     "xp-free-close": 8750,
     "xp-kickoff": 9020,
     # Bumped 10030 -> 10230: the skill gained an authored field (`schedules`)
