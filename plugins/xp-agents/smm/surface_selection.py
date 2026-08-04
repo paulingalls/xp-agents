@@ -129,14 +129,21 @@ def _declared_command(surface: dict) -> str | None:
     schema only type- and length-checks the field, so `"  "` reaches here, and
     a blank command is a bullet the gate cannot run.
 
-    The flattening is a SAFETY rule, not tidiness. The CLI's contract is one
-    command per line, and its consumer — the close preload's gate block —
-    splits on newlines and runs every line it finds, unattended, before an
-    auto-merge. A declared `command` of `"pytest -q\\nrm -rf build"` would
-    become TWO executed commands. Nothing in the schema rejects a newline
-    (`command` is only type- and length-checked), so the one predicate that
-    defines "the command" normalizes it, and de-duplication, the collapse rule
-    and the printed output then all agree on the same normal form.
+    The flattening keeps ONE NORMAL FORM, so de-duplication, the collapse rule
+    and the printed output all agree on the same string. The CLI's contract is
+    one command per line and its consumer splits on newlines, so a declared
+    `"pytest -q\\nrm -rf build"` must not arrive as two lines.
+
+    IT IS NOT A SAFETY RULE, and saying so here was wrong — corrected after a
+    close review disproved it by running the emitter. Flattening turns two
+    lines into one BULLET; it does nothing about what the shell then does with
+    that bullet. `"pytest -q\\n; echo X"` flattens to `pytest -q ; echo X` —
+    one bullet, two executed commands — and a plain `;` never needed a newline
+    to begin with.
+
+    The actual guard lives at the gate, not here: `close_gate_commands` refuses
+    any command whose own exit status does not reach the shell, which is the
+    property that matters when the consumer auto-merges on a zero exit.
     """
     command = surface.get("command")
     if not isinstance(command, str) or not command.strip():

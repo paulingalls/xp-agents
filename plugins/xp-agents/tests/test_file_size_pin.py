@@ -106,16 +106,11 @@ _BAND_CEILINGS = {
     # classes, one fixture, sharing nothing with the module/principle/
     # project_specific validation above them.
     "plugins/xp-agents/tests/engine/test_system_context_schema_fields.py": 480,
-    # Entered the band at review: the never-run-nothing class gained the two
-    # runnability cases (a whitespace-only `stack.test_command`, a blank
-    # surface `command`) that used to emit a scope claiming a command it could
-    # not run. Split the fallback classes out next — they share only the base.
-    "plugins/xp-agents/tests/integration/test_story_close_surface_gate.py": 480,
-    # Entered the band with story-017: the surface block gained the
-    # propose-confirm-write step and the residue rule, each pinned. The
-    # surface-authoring class is the cohesive group to extract next — it
-    # shares no fixture with the maxlength-sync tests above it.
-    "plugins/xp-agents/tests/hooks/test_system_analyzer_prompt.py": 468,
+    # RETIRED (story-018), both now under the 450 floor so deleted, not
+    # ratcheted: test_story_close_surface_gate.py 478->386 (three disagreeing
+    # gate harnesses consolidated into tests/integration/_gate_harness.py), and
+    # test_system_analyzer_prompt.py 468->445, which was AT its ceiling with
+    # prose pins still to add (-> test_system_analyzer_surface_prose.py).
     "plugins/xp-agents/tests/hooks/test_retrospective.py": 479,
     "plugins/xp-agents/tests/hooks/test_branching_cli_detection.py": 479,
     "plugins/xp-agents/tests/integration/test_core_hooks.py": 478,

@@ -23,23 +23,6 @@
 # shellcheck source=_preload_emit.sh
 source "$(dirname "${BASH_SOURCE[0]}")/_preload_emit.sh"
 
-# find_surface_commands STORY_ID [CWD] -> newline-joined surface commands, or
-# empty. Mirrors find_test_command: delegate to the CLI, swallow failure to
-# empty, let the caller decide. The CLI collapses no-match, PARTIAL coverage
-# and cannot-answer into that one empty signal, so empty here means exactly
-# "no narrowing available" and never "some of it is covered".
-#
-# Input is the CHANGED-PATH set on stdin, not a story id. Story close used to
-# pass its id and select on the DECLARED file_domain — but Step 1b tolerates
-# drift and continues, so a drifted file never entered the coverage input and
-# its tests ran nowhere at an auto-merge. Free close has no story at all. The
-# changed set is the one input both modes share and the only one that is true.
-find_surface_commands() {
-    python3 "${PLUGIN_ROOT}/smm/system_context_cli.py" \
-        --smm-dir "${SMM_DIR}" surface-commands --paths-from - 2>/dev/null \
-        || echo ""
-}
-
 # runnable_lines VALUE -> VALUE minus every blank or whitespace-only line.
 #
 # The runnability filter the never-run-nothing invariant rests on. Neither
@@ -58,8 +41,13 @@ runnable_lines() {
     printf '%s' "$out"
 }
 
-# emit_gate_commands CHANGED_PATHS FULL_COMMAND -> GATE_SCOPE + the block.
-# CHANGED_PATHS is newline-separated (`get_changed_files_range "$BASE"`).
+# emit_gate_commands BASE CWD FULL_COMMAND -> GATE_SCOPE + the block.
+#
+# BASE is a RESOLVED SHA (`_git merge-base "$TARGET_BRANCH" HEAD`), not a
+# branch name and not a path list: the resolver derives the changed set itself,
+# from BASE...HEAD unioned with CWD's working tree, so that an uncommitted
+# review fix is visible to the gate-time recheck. CWD is the checkout to read,
+# which is the teammate worktree during an /xp-accept fix cycle.
 #
 #   FULL_COMMAND unrunnable  -> GATE_SCOPE=none,    NO block at all
 #   else surface cmds found  -> GATE_SCOPE=surface, block lists them
@@ -67,23 +55,25 @@ runnable_lines() {
 #
 # "runnable"/"found" mean RUNNABLE, not merely non-empty — see runnable_lines.
 #
-# THE FULL COMMAND IS TESTED FIRST, AND THAT ORDER IS THE CONTRACT, not a
-# style choice. PROCESS_GUIDE documents an empty `stack.test_command` as the
-# switch that DISABLES the close auto-merge, and both close SKILL.md files
-# still print "set stack.test_command ... to enable" when no block is emitted.
-# Resolving surfaces first would re-arm unattended merging for a project that
-# turned it off on purpose, and the hint it never prints would be a lie.
-# It also makes `surface_selection.should_collapse`'s stated assumption — that
-# the caller's fallback command covers every surface — checkable rather than
-# merely hoped for: there is no narrowing without a fallback to narrow FROM.
+# THE DECISION IS NOT MADE HERE. `scripts/close_gate_commands.py` owns it —
+# opt-out first, then the exit-status check, then surface selection — so the
+# preload and the gate-time recheck cannot disagree. This function only
+# renders. Read that module's docstring for the ordering and why each step
+# exists; do not restate the rules here, or the two will drift.
 #
-# `flat` on FULL_COMMAND, not `runnable_lines` alone: FULL_COMMAND is ONE
-# command, while the block's contract is one command PER LINE and condition 3
-# runs every one of them. A newline in `stack.test_command` would otherwise be
-# split into a SECOND EXECUTED command at an unattended merge — an execution
-# escalation, not a formatting slip. (The surface leg's per-command flattening
-# lives in `surface_selection._declared_command`, so the CLI's one-per-line
-# output stays true at its source.)
+# WHAT THIS BLOCK DOES **NOT** GUARANTEE — corrected, because the previous
+# wording claimed otherwise and a close review disproved it by RUNNING this
+# function. `flat` normalises whitespace; it is NOT sanitisation. It closed the
+# unadorned newline and nothing else: `\n;` collapses to `pytest -q ; echo X`,
+# one bullet the shell executes as two, and bare `;`/`&`/`|` never went
+# through it at all.
+#
+# What IS guaranteed is narrower and structural: a declared command whose own
+# exit status does not reach the shell is REFUSED outright (no block, plus
+# GATE_DISABLED_REASON), because such a command reports success when its runner
+# failed — and this gate merges without asking. A command that survives that
+# check is a single command whose failure the gate will see. It may still be
+# compound (`a && b`), and that is fine: `&&` propagates failure.
 #
 # Each command is line-prefixed with "- ". strip_framing kills the
 # newline/CR/tab forgery vectors but does nothing about a value whose SHAPE is
@@ -91,25 +81,56 @@ runnable_lines() {
 # command, not only an attack — would forge a preload key. The prefix makes
 # that structurally impossible; test_preload_var_hygiene.py pins it.
 emit_gate_commands() {
-    local changed="${1-}" full="${2-}" fallback resolved scope line
-    fallback=$(runnable_lines "$(flat "$full")")
-    if [ -z "$fallback" ]; then
-        resolved=""
-        scope="none"
-    else
-        resolved=$(runnable_lines "$(printf '%s\n' "$changed" | find_surface_commands)")
-        if [ -n "$resolved" ]; then
-            scope="surface"
-        else
-            resolved="$fallback"
-            scope="full"
-        fi
-    fi
+    local base="${1-}" cwd="${2-}" full="${3-}" out scope reason dgst line body
+
+    out=$(python3 "${PLUGIN_ROOT}/scripts/close_gate_commands.py" \
+        --smm-dir "${SMM_DIR}" --base "$base" --cwd "${cwd:-.}" \
+        --full-command "$full" 2>/dev/null) || out=""
+
+    scope=$(printf '%s\n' "$out" | sed -n 's/^SCOPE=//p' | head -1)
+    reason=$(printf '%s\n' "$out" | sed -n 's/^REASON=//p' | head -1)
+    dgst=$(printf '%s\n' "$out" | sed -n 's/^DIGEST=//p' | head -1)
+    body=$(printf '%s\n' "$out" | sed -n '/^--$/,$p' | tail -n +2)
+
+    # A failed or unparseable resolve is the same as "nothing to run": no
+    # block, so the gate cannot run nothing and report green.
+    #
+    # The reason is `unresolved`, NOT `not-set`. The resolver can fail with the
+    # field perfectly well set — a corrupt system_context.json raises before it
+    # is even read — and telling that user to go set it is the same lying hint
+    # the reason variable exists to retire.
+    [ -n "$scope" ] || { scope="none"; reason="unresolved"; body=""; }
+
     emit_var GATE_SCOPE "$scope"
-    [ -n "$resolved" ] || return 0
+    body=$(runnable_lines "$body")
+    if [ -z "$body" ]; then
+        # Emitted ONLY with no block — it exists to explain an absent one.
+        [ -n "$reason" ] && emit_var GATE_DISABLED_REASON "$reason"
+        return 0
+    fi
     echo ""
     echo "### GATE_COMMANDS"
-    printf '%s\n' "$resolved" | while IFS= read -r line || [ -n "$line" ]; do
+    # The drift recheck, FIRST and only when the gate actually narrowed.
+    #
+    # Under GATE_SCOPE=full there is nothing to recheck: the full command is
+    # the fallback and the maximum, so a review fix landing after the preload
+    # ran cannot make it insufficient. Emitting it there would also change the
+    # block every existing project sees, for no safety gained.
+    #
+    # Under GATE_SCOPE=surface it is load-bearing. The set was frozen from the
+    # pre-review diff and both SKILL.md files forbid re-deriving it in prose;
+    # this bullet re-derives it in CODE and exits non-zero on drift, so
+    # condition 3's "every command exits 0" enforces the freeze. Failure falls
+    # through to the human prompt — it can never fail toward auto-merge.
+    #
+    # Absolute and quoted: the agent runs this in its own shell, where
+    # PLUGIN_ROOT and SMM_DIR do not exist, and a worktree path may hold spaces.
+    if [ "$scope" = "surface" ] && [ -n "$dgst" ]; then
+        printf -- '- python3 %q --smm-dir %q --base %q --cwd %q --full-command %q --expect-digest %q\n' \
+            "${PLUGIN_ROOT}/scripts/close_gate_commands.py" \
+            "${SMM_DIR}" "$base" "${cwd:-.}" "$full" "$dgst"
+    fi
+    printf '%s\n' "$body" | while IFS= read -r line || [ -n "$line" ]; do
         [ -n "$line" ] && printf -- '- %s\n' "$(strip_framing "$line")"
     done
 }

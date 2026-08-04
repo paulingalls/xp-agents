@@ -15,83 +15,43 @@ THE DEAD-TEST TRAP: this repo declares no surface `paths`, so every assertion
 here runs against an empty selection unless the fixture seeds one.
 """
 
-import json
 import os
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 from _bases import _PLUGIN_ROOT
+from _gate_harness import FULL as _FULL
+from _gate_harness import GateHarness
+from _gate_harness import surface as _surface
 
-_SURFACE_MODULE = _PLUGIN_ROOT / "skills" / "_preload_surface.sh"
 _FREE_CLOSE_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-free-close" / "scripts" / "preload.sh"
 )
 _FREE_CLOSE_SKILL = _PLUGIN_ROOT / "skills" / "xp-free-close" / "SKILL.md"
 
-_FULL = "pytest -n auto THE-WHOLE-SUITE"
 
+class _FreeCloseResolution(GateHarness):
+    """Naming shim over the shared harness — see `_gate_harness`.
 
-def _surface(name: str, **overrides: object) -> dict:
-    base: dict = {"name": name, "signals": ["detected"], "status": "covered"}
-    base.update(overrides)
-    return base
+    Values now travel by ENV instead of being interpolated into the bash
+    source, so these assertions can finally express a newline-, quote- or
+    separator-bearing command. Any assertion whose RESULT changed under that
+    switch is a finding — it was passing on mangled input — not a diff to
+    smooth over.
+    """
 
-
-class _FreeCloseResolution(unittest.TestCase):
     def _seed(self, surfaces: list[dict]) -> Path:
-        tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
-        smm = tmp / "data" / "proj" / "smm"
-        smm.mkdir(parents=True)
-        (smm / "events.jsonl").write_text("")
-        (smm / "system_context.json").write_text(
-            json.dumps(
-                {
-                    "product": "x",
-                    "architecture_overview": "x",
-                    "stack": {"languages": ["Python"], "test_command": _FULL},
-                    "modules": [],
-                    "conventions": [],
-                    "principles": [],
-                    "project_specific": [],
-                    "acceptance_surfaces": surfaces,
-                }
-            )
-        )
-        return smm
+        return self.seed(surfaces)
 
     def _resolve(self, smm: Path, paths: str) -> str:
-        script = (
-            f'PLUGIN_ROOT="{_PLUGIN_ROOT}"; SMM_DIR="{smm}"; '
-            f'source "{_SURFACE_MODULE}"; '
-            f'emit_gate_commands "{paths}" "{_FULL}"'
-        )
-        result = subprocess.run(
-            ["bash", "-c", script],
-            capture_output=True,
-            text=True,
-            env={**os.environ, "SMM_DIR": str(smm)},
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout
+        return self.resolve(smm, paths=paths)
 
-    @staticmethod
-    def _commands(stdout: str) -> list[str]:
-        lines = stdout.splitlines()
-        if "### GATE_COMMANDS" not in lines:
-            return []
-        out: list[str] = []
-        for ln in lines[lines.index("### GATE_COMMANDS") + 1 :]:
-            if ln.startswith("#"):
-                break
-            if ln.startswith("- "):
-                out.append(ln[2:])
-        return out
+    _commands = staticmethod(GateHarness.commands)
 
     @staticmethod
     def _three() -> list[dict]:
@@ -106,14 +66,14 @@ class TestFreeCloseNarrowsOnTheBranchDiff(_FreeCloseResolution):
     def test_a_diff_touching_one_surface_runs_only_its_command(self) -> None:
         out = self._resolve(self._seed(self._three()), "src/cli/main.py")
         self.assertIn("GATE_SCOPE=surface", out)
-        self.assertEqual(self._commands(out), ["pytest tests/cli"])
+        self.assertEqual(self.selected(out), ["pytest tests/cli"])
         self.assertNotIn(_FULL, out)
 
     def test_a_diff_touching_two_of_three_runs_both(self) -> None:
         out = self._resolve(
             self._seed(self._three()), "src/cli/main.py\nsrc/api/routes.py"
         )
-        self.assertEqual(self._commands(out), ["pytest tests/cli", "pytest tests/api"])
+        self.assertEqual(self.selected(out), ["pytest tests/cli", "pytest tests/api"])
 
     def test_an_unclaimed_path_in_the_diff_falls_back(self) -> None:
         """The veto, through the free-close door. A free branch that touches
@@ -145,7 +105,7 @@ class TestCollapseWhenTheDiffSelectsEverything(_FreeCloseResolution):
             "src/cli/main.py",
         )
         self.assertIn("GATE_SCOPE=surface", out)
-        self.assertEqual(self._commands(out), ["pytest tests/cli"])
+        self.assertEqual(self.selected(out), ["pytest tests/cli"])
 
 
 class TestFreeClosePreloadEmitsTheBlock(_FreeCloseResolution):
@@ -171,9 +131,13 @@ class TestFreeClosePreloadEmitsTheBlock(_FreeCloseResolution):
         directly, and the end-to-end one runs outside a git repo, so BOTH stay
         green against a call site that stopped passing the changed-path set —
         measured: the whole suite passes with the argument emptied, narrowing
-        permanently and silently inert. Only the call site names the input."""
+        permanently and silently inert. Only the call site names the input.
+
+        Pinned on `merge-base` specifically: a BRANCH NAME re-computes the
+        merge base at gate time, so a target advancing mid-close would shift
+        the range, trip the recheck, and disable narrowing for every close."""
         self.assertIn(
-            'emit_gate_commands "$(get_changed_files_range "${TARGET_BRANCH}")"',
+            'emit_gate_commands "$(_git merge-base "${TARGET_BRANCH}" HEAD',
             _FREE_CLOSE_PRELOAD.read_text(),
         )
 

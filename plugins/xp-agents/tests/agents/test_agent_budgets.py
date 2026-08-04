@@ -62,7 +62,18 @@ AGENT_BUDGETS: dict[str, int] = {
     # rule specifically, because all-or-nothing selection means one unclaimed
     # path vetoes narrowing and makes every declared command inert. Measured
     # 20161 after the edit.
-    "xp-system-analyzer": 20700,
+    #
+    # Bumped 20700 -> 21600 (story-018): the surface block gained the
+    # independence precondition and the two consent sentences. Deliberate, and
+    # deliberately NOT paid for by compressing: this prose is the ONLY place a
+    # customer is told what declaring `paths` costs them — that coverage is
+    # checked by path and not blast radius, so a break in an unselected surface
+    # merges at story close and is caught only at sprint close (93c3a7f51618),
+    # and that `stack.test_command` must cover every surface because collapse
+    # falls back to it (7011f2040970). Neither risk can be removed in code;
+    # consent is the whole answer, so shrinking the sentence that obtains it
+    # would ship the story's own defect. Trimmed first: 21120 -> 21056.
+    "xp-system-analyzer": 21600,
 }
 
 _AGENTS_DIR = _PLUGIN_ROOT / "agents"
