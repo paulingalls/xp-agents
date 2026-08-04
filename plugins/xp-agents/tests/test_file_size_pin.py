@@ -104,6 +104,11 @@ _BAND_CEILINGS = {
     # surface `command`) that used to emit a scope claiming a command it could
     # not run. Split the fallback classes out next — they share only the base.
     "plugins/xp-agents/tests/integration/test_story_close_surface_gate.py": 480,
+    # Entered the band with story-017: the surface block gained the
+    # propose-confirm-write step and the residue rule, each pinned. The
+    # surface-authoring class is the cohesive group to extract next — it
+    # shares no fixture with the maxlength-sync tests above it.
+    "plugins/xp-agents/tests/hooks/test_system_analyzer_prompt.py": 468,
     "plugins/xp-agents/tests/hooks/test_retrospective.py": 479,
     "plugins/xp-agents/tests/hooks/test_branching_cli_detection.py": 479,
     "plugins/xp-agents/tests/integration/test_core_hooks.py": 478,

@@ -93,11 +93,13 @@ class _GateResolutionBase(unittest.TestCase):
         (smm / "sprint.json").write_text(json.dumps(_sprint(file_domain)))
         return smm
 
-    def _resolve(self, smm: Path, story: str = "story-001", full: str = _FULL) -> str:
+    def _resolve(
+        self, smm: Path, *, paths: str = "src/cli/main.py", full: str = _FULL
+    ) -> str:
         script = (
             f'PLUGIN_ROOT="{_PLUGIN_ROOT}"; SMM_DIR="{smm}"; '
             f'source "{_SURFACE_MODULE}"; '
-            f'emit_gate_commands "{story}" "{full}"'
+            f'emit_gate_commands "{paths}" "{full}"'
         )
         result = subprocess.run(
             ["bash", "-c", script],
@@ -144,7 +146,7 @@ class TestResolutionPrefersSurfaceCommands(_GateResolutionBase):
             ],
             ["src/cli/main.py — the story's only file"],
         )
-        out = self._resolve(smm)
+        out = self._resolve(smm, paths="src/cli/main.py")
         self.assertIn("GATE_SCOPE=surface", out)
         self.assertEqual(self._commands(out), ["pytest tests/cli"])
         self.assertNotIn(_FULL, out)
@@ -170,10 +172,20 @@ class TestResolutionPrefersSurfaceCommands(_GateResolutionBase):
                     "paths": ["src/api/**"],
                     "command": "pytest -n auto tests/api",
                 },
+                # A third commanded surface so selecting two is a SUBSET —
+                # selecting every command collapses to the full suite by
+                # design, which would mask what this test is about.
+                {
+                    "name": "web",
+                    "signals": ["x"],
+                    "status": "covered",
+                    "paths": ["src/web/**"],
+                    "command": "pytest -n auto tests/web",
+                },
             ],
             ["src/cli/main.py, src/api/routes.py — both surfaces"],
         )
-        out = self._resolve(smm)
+        out = self._resolve(smm, paths="src/cli/main.py\nsrc/api/routes.py")
         self.assertEqual(
             self._commands(out),
             ["pytest -n auto tests/cli", "pytest -n auto tests/api"],
@@ -208,34 +220,30 @@ class TestResolutionFallsBackToTheFullSuite(_GateResolutionBase):
             ],
             ["src/cli/main.py, src/db/schema.py — db is unclaimed"],
         )
-        out = self._resolve(smm)
+        out = self._resolve(smm, paths="src/cli/main.py\nsrc/db/schema.py")
         self.assertIn("GATE_SCOPE=full", out)
         self.assertEqual(self._commands(out), [_FULL])
 
     def test_no_story_id_falls_back(self) -> None:
         smm = self._seed(None, ["src/cli/main.py"])
-        out = self._resolve(smm, story="")
+        out = self._resolve(smm, paths="")
         self.assertIn("GATE_SCOPE=full", out)
         self.assertEqual(self._commands(out), [_FULL])
 
 
-class TestSelectionExpandsGlobsUnderTheGivenCwd(_GateResolutionBase):
-    """`commands_for_story` expands a glob file_domain over DISK, so which
-    checkout it looks at is load-bearing. On a teammate close the story's new
-    files exist only in the worktree; computing against the main checkout
-    yields empty — which FAILS SAFE, and that is what makes it dangerous:
-    the feature would be permanently, undetectably inert.
+class TestSelectionSeesDriftedFiles(_GateResolutionBase):
+    """AC6 / concern 97ea86f85c80. Step 1b tolerates file_domain drift and
+    continues, so the DECLARED domain is not what the story changed. Selecting
+    on the declaration let a drifted file skip the coverage veto entirely and
+    run its tests nowhere — at an auto-merge. Selection now takes the close
+    diff, so the declaration cannot hide anything.
     """
 
-    def _tree(self) -> Path:
-        root = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
-        (root / "src" / "cli").mkdir(parents=True)
-        (root / "src" / "cli" / "main.py").write_text("")
-        return root
-
-    def _smm(self) -> Path:
-        return self._seed(
+    def test_a_drifted_path_outside_the_declared_domain_still_vetoes(self) -> None:
+        """Mutation: select on the declared file_domain instead of the diff
+        -> red. The story declares ONLY the claimed file; the diff also holds
+        an unclaimed one."""
+        smm = self._seed(
             [
                 {
                     "name": "cli",
@@ -245,46 +253,28 @@ class TestSelectionExpandsGlobsUnderTheGivenCwd(_GateResolutionBase):
                     "command": "pytest tests/cli",
                 }
             ],
-            ["src/**/main.py — a GLOB, so it only expands where the file is"],
+            ["src/cli/main.py — the ONLY declared file"],
         )
+        out = self._resolve(smm, paths="src/cli/main.py\nsrc/db/drifted.py")
+        self.assertIn("GATE_SCOPE=full", out)
+        self.assertEqual(self._commands(out), [_FULL])
 
-    def _resolve_at(self, smm: Path, cwd: str) -> str:
-        script = (
-            f'PLUGIN_ROOT="{_PLUGIN_ROOT}"; SMM_DIR="{smm}"; '
-            f'source "{_SURFACE_MODULE}"; '
-            f'emit_gate_commands "story-001" "{_FULL}" "{cwd}"'
+    def test_a_drifted_path_inside_a_surface_still_narrows(self) -> None:
+        smm = self._seed(
+            [
+                {
+                    "name": "cli",
+                    "signals": ["x"],
+                    "status": "covered",
+                    "paths": ["src/cli/**"],
+                    "command": "pytest tests/cli",
+                }
+            ],
+            ["src/cli/main.py — the ONLY declared file"],
         )
-        result = subprocess.run(
-            ["bash", "-c", script], capture_output=True, text=True, env=dict(os.environ)
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout
-
-    def test_the_cwd_argument_is_honored(self) -> None:
-        """Mutation: hardcode `--cwd .` in find_surface_commands -> red."""
-        smm = self._smm()
-        found = self._resolve_at(smm, str(self._tree()))
-        self.assertEqual(self._commands(found), ["pytest tests/cli"])
-
-    def test_the_wrong_checkout_yields_the_full_fallback(self) -> None:
-        smm = self._smm()
-        empty_root = Path(tempfile.mkdtemp())
-        self.addCleanup(
-            lambda: __import__("shutil").rmtree(empty_root, ignore_errors=True)
-        )
-        missed = self._resolve_at(smm, str(empty_root))
-        self.assertEqual(self._commands(missed), [_FULL])
-
-    def test_the_preload_passes_the_teammate_cwd(self) -> None:
-        """Source pin: the behavioral tests above prove the parameter works,
-        but only the call site decides which checkout it names. The sibling
-        verify_paths call in the same file already uses this expression."""
-        source = _STORY_CLOSE_PRELOAD.read_text()
-        self.assertIn('emit_gate_commands "$STORY_ID"', source)
-        self.assertRegex(
-            source,
-            r'emit_gate_commands "\$STORY_ID".*\$\{TEAMMATE_CWD:-\.\}',
-        )
+        out = self._resolve(smm, paths="src/cli/main.py\nsrc/cli/drifted.py")
+        self.assertIn("GATE_SCOPE=surface", out)
+        self.assertEqual(self._commands(out), ["pytest tests/cli"])
 
 
 class TestTheGateCanNeverRunNothingAndReportGreen(_GateResolutionBase):
@@ -337,7 +327,7 @@ class TestTheGateCanNeverRunNothingAndReportGreen(_GateResolutionBase):
             ],
             ["src/a.py, src/b.py"],
         )
-        out = self._resolve(smm)
+        out = self._resolve(smm, paths="src/a.py\nsrc/b.py")
         self.assertIn("GATE_SCOPE=surface", out)
         self.assertEqual(self._commands(out), ["pytest tests/b"])
 
@@ -456,6 +446,14 @@ class TestStoryClosePreloadEmitsTheGateBlock(unittest.TestCase):
             body.append(ln)
         stray = [ln for ln in body if ln.strip() and not ln.startswith("- ")]
         self.assertEqual(stray, [], f"non-command lines inside the block: {stray}")
+
+    def test_the_preload_passes_the_close_diff(self) -> None:
+        """Source pin: only the call site names the input. Replaced with "",
+        the whole suite still passed (measured) while narrowing was inert."""
+        self.assertIn(
+            'emit_gate_commands "$(get_changed_files_range "${TARGET_BRANCH}")"',
+            _STORY_CLOSE_PRELOAD.read_text(),
+        )
 
     def _real_preload_stdout(self) -> str:
         tmp = Path(tempfile.mkdtemp())
