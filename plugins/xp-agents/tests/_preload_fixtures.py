@@ -75,7 +75,11 @@ PRELOAD_BUDGETS: dict[str, int] = {
     "xp-plan-close": 8900,
     "xp-quality-review": 300,
     "xp-review-plan": 100,
-    "xp-scaffold-worktree": 100,
+    # First budget for the finished surface, from the formula: measured 108, so
+    # ceil(108 * 1.125 / 100) * 100 = 200. The registration increment's 100 was
+    # the floor applied to a 28-char skeleton, which is not this surface — the
+    # ratchet cannot raise, so the number is re-derived rather than nudged.
+    "xp-scaffold-worktree": 200,
     "xp-schedule": 200,
     "xp-sprint-close": 8900,
     "xp-sprint-review": 100,

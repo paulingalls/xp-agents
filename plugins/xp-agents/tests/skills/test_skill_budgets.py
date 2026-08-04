@@ -52,11 +52,11 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-quality-review": 6720,
     "xp-review-plan": 990,
     "xp-scaffold-acceptance": 20940,
-    # First budget, calibrated on the registration increment's skeleton (720
-    # chars). Re-derived from the finished surface once its steps land — the
-    # skeleton is not the surface, so this number is a placeholder measurement,
-    # not a ceiling the steps have to fit under.
-    "xp-scaffold-worktree": 810,
+    # First budget for the finished surface: measured 7853, formula 8830. The
+    # registration increment carried 810, calibrated on a 720-char skeleton
+    # that is not this surface — re-derived rather than nudged, since a ratchet
+    # can only ever lower and would have pinned the skill to its skeleton.
+    "xp-scaffold-worktree": 8830,
     "xp-schedule": 6710,
     "xp-sprint-close": 7540,
     "xp-sprint-review": 1420,
