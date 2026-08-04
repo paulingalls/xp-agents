@@ -217,14 +217,50 @@ injection that looks successful.
    `scripts/preload.sh`, one takes `--consume-gate`, one is
    `check_session_needs.sh`. A hardcoded filename is correct on 14 and wrong on 2
    — one of them the most-used skill.
-3. **Once per skill per session.** A chunk-read fires `PreToolUse` repeatedly (14
-   firings across two skills in the corpus), and `xp-assign`'s preload *consumes*
-   a gate marker — so a naive handler burns one gate per chunk.
+3. **Once per skill per session, claimed ATOMICALLY and before the run.** A
+   chunk-read fires `PreToolUse` repeatedly (14 firings across two skills in the
+   corpus), and `xp-assign`'s preload *consumes* a gate marker — so a naive
+   handler burns one gate per chunk. "Check the marker, then write it after a
+   successful run" is not enough: measured, 4 parallel firings all read it absent
+   and all ran the preload, so 4 gates would go. `O_CREAT|O_EXCL` before the run,
+   released again on any path that injects nothing so one transient failure does
+   not withhold state for the rest of the session.
 4. **A heartbeat must exist first.** The shipped preload refuses with
    "Hook Runtime: not live — skill context withheld" when none is found, and the
    injected payload becomes that refusal rather than state.
-5. **Constrain the resolved dir under the plugin root** before executing, since
-   the command comes out of a file whose path arrived in a payload.
+5. **Constrain the resolved FILE under the plugin root** before executing, since
+   the command comes out of a file whose path arrived in a payload. Constraining
+   only the *directory* is not enough, and both holes were measured executing an
+   arbitrary `!` line while the directory check reported safe: a `..` segment
+   normalises back inside the root, and a symlinked `SKILL.md` inside a contained
+   directory points wherever the link says.
+6. **A path mention is not an invocation.** The identity handle is a substring
+   match on `tool_input.command`, so *any* shell call that merely names a skill's
+   `SKILL.md` under the plugin root fires the mechanism — `wc -c`, `grep`, a
+   `git` argument. Measured on the `--consume-gate` preload: a `wc -c` on
+   `skills/xp-assign/SKILL.md` consumed the gate, injected, and claimed the
+   once-marker, so the genuine skill read that followed received **nothing** and
+   was recorded as `already injected this session`. Idempotence therefore reads as
+   working while the model got no state. A shipped version needs the read shape
+   constrained (the path as a reader's argument), or the claim deferred until the
+   skill body is actually delivered — this rig does neither.
+
+## Rig state story-010 leaves behind (updates the §"Rig state a later story inherits")
+
+- **`spike/_stop_block_probe.py` is now UNREGISTERED** from `Stop`. Its own question
+  is already answered and recorded above — `stop_hook_active` reads False on a
+  turn's first Stop and flips True after a block (run-F: False, True, True, True) —
+  and its block displaced the final assistant message, which had to be read out of
+  the transcript. The file and `test_stop_probe.py` are still in the tree, so
+  re-registering is a one-entry edit plus a `.codex-plugin/plugin.json` bump. A
+  later story measuring gate enforcement wants the real `scripts/stop_*.py` gates
+  anyway, not this probe.
+- **`spike/_skill_inject.py` is now REGISTERED on `PreToolUse:Bash`** and is not
+  inert: it runs a preload (up to 30 s) and injects on any Bash call naming a skill
+  path — see requirement 6. A later run measuring anything else on `PreToolUse:Bash`
+  should unregister it or set `XP_SPIKE_SUPPRESS_INJECT`, or it is a confound.
+- `scripts/session_start.py` (the heartbeat writer) and `spike/_inject_marker.py`
+  remain unwired from `SessionStart`, as story-003 left them.
 
 ## The main risk
 
@@ -233,6 +269,13 @@ Codex ever delivers skill bodies without a shell read, or the model uses a
 non-shell read tool, `PreToolUse:Bash` stops carrying the identity and the
 mechanism silently stops firing — silently, because "no marker" and "no injection"
 look identical. Every read observed so far went through `/bin/zsh -lc`.
+
+A smaller unknown of the same shape: the injecting entry was registered with
+`"additionalContextLimit": 0`, copied from the recorder entries where it means
+"this hook returns none", and 477 bytes still reached the model. So on
+`codex-cli 0.146.0` the field did not cap the injection — whether because 0 means
+unlimited or because the field is ignored is **not** settled here. A shipped
+version should set it deliberately rather than inherit the recorder's value.
 
 ## Cost of the alternative, if this is not adopted
 

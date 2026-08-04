@@ -21,9 +21,11 @@ Four properties are load-bearing, each because its opposite fails QUIETLY:
 2. **Once per skill per session.** A chunk-read SKILL.md fires PreToolUse
    repeatedly. One shipped preload takes `--consume-gate` and CONSUMES a marker,
    so re-running it would burn a gate per chunk.
-3. **The resolved dir must be under the plugin root.** This executes a command
+3. **The resolved FILE must be under the plugin root.** This executes a command
    read out of a file whose path arrived in a payload; without the check, any
    `/skills/<name>/SKILL.md`-shaped token makes it run that file's `!` line.
+   Checking only the directory is not enough — `..` normalises back inside it and
+   a symlinked `SKILL.md` leaves a contained directory naming an arbitrary file.
 4. **A failing preload injects NOTHING.** Injecting a partial payload that reads
    as success corrupts the observation rather than failing it.
 
@@ -31,6 +33,7 @@ Like the rest of the rig: never raises, always exit 0, stdout empty unless it is
 deliberately injecting.
 """
 
+import contextlib
 import hashlib
 import json
 import os
@@ -95,6 +98,23 @@ def _under(child: Path, parent: Path) -> bool:
     return True
 
 
+def resolved_skill_md(skill_dir: Path, plugin_root: Path) -> Path | None:
+    """The `SKILL.md` it is safe to read a command out of, or None.
+
+    Containment is checked on the FILE and not merely on the directory, because
+    two shapes leave a directory that reads as contained while the file is not:
+    a `..` segment normalises back inside the root, and a symlinked `SKILL.md`
+    points wherever the link says. Either one hands an arbitrary `!` line to the
+    shell with the directory check reporting safe.
+    """
+    if skill_dir.name in (".", ".."):
+        return None
+    skill_md = skill_dir / "SKILL.md"
+    if not _under(skill_dir, plugin_root) or not _under(skill_md, plugin_root):
+        return None
+    return skill_md
+
+
 def _once_marker(records: Path, skill: str, session: object) -> Path:
     """One path per (skill, session).
 
@@ -104,6 +124,17 @@ def _once_marker(records: Path, skill: str, session: object) -> Path:
     """
     key = f"{skill}\0{session}".encode()
     return records / f".injected-{hashlib.sha256(key).hexdigest()[:12]}"
+
+
+def _release(once: Path) -> None:
+    """Hand the claim back after a firing that injected nothing.
+
+    The claim is taken before the preload runs so concurrent firings cannot both
+    run it. A firing that then fails must un-claim, or one failed preload would
+    suppress every later attempt for the session.
+    """
+    with contextlib.suppress(OSError):
+        once.unlink(missing_ok=True)
 
 
 def _record(records: Path, entry: dict) -> None:
@@ -152,18 +183,40 @@ def main() -> int:
     }
 
     plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.environ.get("PLUGIN_ROOT")
-    if not plugin_root or not _under(skill_dir, Path(plugin_root)):
+    skill_md = resolved_skill_md(skill_dir, Path(plugin_root)) if plugin_root else None
+    if skill_md is None:
         _record(records, {**base, "reason": "outside plugin root"})
         return 0
 
-    once = _once_marker(records, skill, session)
-    if once.exists():
-        _record(records, {**base, "reason": "already injected this session"})
-        return 0
-
-    command_line = preload_command(skill_dir / "SKILL.md")
+    command_line = preload_command(skill_md)
     if command_line is None:
         _record(records, {**base, "reason": "no preload line"})
+        return 0
+
+    # Claim the once-marker BEFORE running, and atomically. `exists()` then write
+    # is not a claim: concurrent firings all read absent and all run the preload,
+    # which for a preload invoked `--consume-gate` consumes one marker per firing.
+    # O_EXCL makes exactly one firing the winner. Failing to claim at all means
+    # declining to run, because a run we cannot record we cannot bound.
+    once = _once_marker(records, skill, session)
+    try:
+        records.mkdir(parents=True, exist_ok=True)
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+        with open(os.open(once, flags, 0o600), "w") as fh:
+            fh.write(marker)
+    except FileExistsError:
+        _record(records, {**base, "reason": "already injected this session"})
+        return 0
+    except OSError as exc:
+        _dump_payload._report_write_failure("skill inject once-marker", exc)
+        _record(
+            records,
+            {
+                **base,
+                "preload_command": command_line,
+                "reason": "could not claim the once-marker; declined to inject",
+            },
+        )
         return 0
 
     # Expand exactly what the host would have. CLAUDE_SKILL_DIR is the whole
@@ -195,6 +248,7 @@ def main() -> int:
             cwd=run_cwd,
         )
     except Exception as exc:  # the failure text IS the finding
+        _release(once)
         _record(
             records,
             {
@@ -206,6 +260,7 @@ def main() -> int:
         return 0
 
     if result.returncode != 0:
+        _release(once)
         _record(
             records,
             {
@@ -221,25 +276,6 @@ def main() -> int:
         return 0
 
     context = f"{marker}\n{result.stdout}"
-
-    # Claim the once-marker BEFORE emitting. If the claim cannot be written we
-    # would re-run a state-mutating preload on the next chunk, so failing to
-    # claim means declining to inject.
-    try:
-        records.mkdir(parents=True, exist_ok=True)
-        once.write_text(marker, encoding="utf-8")
-    except OSError as exc:
-        _dump_payload._report_write_failure("skill inject once-marker", exc)
-        _record(
-            records,
-            {
-                **base,
-                "preload_command": command_line,
-                "exit_status": 0,
-                "reason": "could not claim the once-marker; declined to inject",
-            },
-        )
-        return 0
 
     # Suppressed mode is run G0's control: record the marker, inject nothing. It
     # beats unwiring the handler, because then the marker record would exist only

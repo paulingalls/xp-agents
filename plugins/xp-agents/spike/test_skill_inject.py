@@ -27,6 +27,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -205,6 +206,64 @@ class TestIdempotence(unittest.TestCase):
                 counter.read_text().count("ran"), 1, "preload must run exactly once"
             )
 
+    def test_concurrent_firings_run_the_preload_once(self) -> None:
+        # `exists()` then write is not a claim. Parallel firings all read the
+        # marker absent and all run the preload, so xp-assign's --consume-gate
+        # preload consumes one gate per firing. Measured before the fix: 4
+        # firings, 4 runs, 4 injections.
+        with tempfile.TemporaryDirectory() as td:
+            root, rec = Path(td) / "plug", Path(td) / "rec"
+            counter = Path(td) / "runs"
+            _fake_plugin(
+                root,
+                "race",
+                "${CLAUDE_SKILL_DIR}/scripts/preload.sh",
+                f'#!/bin/sh\nsleep 0.3\necho ran >> "{counter}"\necho STATE\n',
+            )
+            payload = _payload(f"cat {root}/skills/race/SKILL.md")
+            results: list[subprocess.CompletedProcess] = []
+            lock = threading.Lock()
+
+            def fire() -> None:
+                proc = _run(payload, rec, root)
+                with lock:
+                    results.append(proc)
+
+            threads = [threading.Thread(target=fire) for _ in range(4)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            self.assertEqual(
+                counter.read_text().count("ran"), 1, "preload must run exactly once"
+            )
+            self.assertEqual(
+                sum(1 for p in results if _injected(p) is not None),
+                1,
+                "exactly one firing may inject",
+            )
+
+    def test_a_failed_preload_does_not_suppress_a_later_firing(self) -> None:
+        # The claim is taken BEFORE the run, so a firing that injected nothing
+        # must hand it back — otherwise one transient failure silently withholds
+        # state for the rest of the session and reads as idempotence working.
+        with tempfile.TemporaryDirectory() as td:
+            root, rec = Path(td) / "plug", Path(td) / "rec"
+            flag = Path(td) / "fail-once"
+            flag.write_text("x")
+            _fake_plugin(
+                root,
+                "retry",
+                "${CLAUDE_SKILL_DIR}/scripts/preload.sh",
+                f'#!/bin/sh\nif [ -f "{flag}" ]; then rm "{flag}"; exit 7; fi\n'
+                "echo STATE\n",
+            )
+            cmd = _payload(f"cat {root}/skills/retry/SKILL.md")
+            self.assertIsNone(_injected(_run(cmd, rec, root)))
+            ctx = _injected(_run(cmd, rec, root))
+            self.assertIsNotNone(ctx, "the retry must get its state")
+            self.assertIn("STATE", ctx)
+
     def test_a_different_session_injects_again(self) -> None:
         # The once-marker is scoped to (skill, session). A new session is a new
         # invocation and must get its state, or the design breaks on resume.
@@ -274,6 +333,36 @@ class TestExecutionSurface(unittest.TestCase):
             entry = _records(rec)[0]
             self.assertFalse(entry["injected"])
             self.assertIn("outside plugin root", entry["reason"])
+
+    def test_refuses_a_symlinked_skill_md_that_points_outside(self) -> None:
+        # A dir-only containment check passes here: the DIRECTORY is inside the
+        # root, and only the file escapes. Measured before the fix: the `!` line
+        # of the linked-to file ran and its output was injected.
+        with tempfile.TemporaryDirectory() as td:
+            root, rec = Path(td) / "plug", Path(td) / "rec"
+            sdir = root / "skills" / "linked"
+            sdir.mkdir(parents=True)
+            outside = Path(td) / "elsewhere.md"
+            outside.write_text("!`echo ESCAPED-VIA-SYMLINK`\n")
+            (sdir / "SKILL.md").symlink_to(outside)
+            r = _run(_payload(f"cat {sdir}/SKILL.md"), rec, root)
+            self.assertIsNone(_injected(r))
+            self.assertNotIn("ESCAPED-VIA-SYMLINK", r.stdout.decode())
+            self.assertIn("outside plugin root", _records(rec)[0]["reason"])
+
+    def test_refuses_a_dotdot_segment_that_normalises_out_of_the_skill_tree(
+        self,
+    ) -> None:
+        # `.../skills/../SKILL.md` resolves to a file that is under the plugin
+        # root but is not a skill's, so a containment check alone admits it.
+        with tempfile.TemporaryDirectory() as td:
+            root, rec = Path(td) / "plug", Path(td) / "rec"
+            (root / "skills").mkdir(parents=True)
+            (root / "SKILL.md").write_text("!`echo ESCAPED-VIA-DOTDOT`\n")
+            r = _run(_payload(f"cat {root}/skills/../SKILL.md"), rec, root)
+            self.assertIsNone(_injected(r))
+            self.assertNotIn("ESCAPED-VIA-DOTDOT", r.stdout.decode())
+            self.assertIn("outside plugin root", _records(rec)[0]["reason"])
 
 
 class TestMarkerAndSuppression(unittest.TestCase):
