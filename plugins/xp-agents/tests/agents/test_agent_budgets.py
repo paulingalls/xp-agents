@@ -53,7 +53,16 @@ AGENT_BUDGETS: dict[str, int] = {
     # update mode replaces the whole surfaces array, so without it a declared
     # value is deleted silently (TestSystemAnalyzerPromptMaxlengthSync pins
     # it). Trimmed first; measured 19507 after the trim.
-    "xp-system-analyzer": 20370,
+    #
+    # Bumped 20370 -> 20700 (story-017): the surface block gained the
+    # propose-confirm-write step and the residue-surface rule. Deliberate, and
+    # deliberately NOT paid for by trimming: nothing populates `paths`/
+    # `command` unless this prose asks for them, so it is the only thing
+    # between the whole surface chain and permanent dormancy — and the residue
+    # rule specifically, because all-or-nothing selection means one unclaimed
+    # path vetoes narrowing and makes every declared command inert. Measured
+    # 20161 after the edit.
+    "xp-system-analyzer": 20700,
 }
 
 _AGENTS_DIR = _PLUGIN_ROOT / "agents"

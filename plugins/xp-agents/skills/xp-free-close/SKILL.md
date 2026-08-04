@@ -106,7 +106,9 @@ The shared reference (Steps 5, 5b, 6, 6b) is emitted by the preload — see `scr
    `--diff-paths -` drops an untagged concern whose recorded files this close never touches, so a concurrent teammate's unrelated open defect cannot abort a clean close; an empty or unreadable diff counts everything (fail closed). Name both branches rather than `HEAD` so the range does not depend on your checkout.
    Test `[ "$HIGH_CONCERN_COUNT" -gt 0 ]` → fall through to the shared Step 6 prompt.
 
-3. The preload emitted a non-empty `TEST_COMMAND=...` line (sourced from `system_context.stack.test_command`) AND running that command AFTER all Step 5c fixes landed exits 0. Any non-zero exit means tests aren't green — fall through to the shared Step 6 prompt.
+3. The preload emitted a `### GATE_COMMANDS` block AND **every** command in it, run AFTER all Step 5c fixes landed, exits 0. Run them in order and **name which command failed** on a non-zero exit — then fall through to the shared Step 6 prompt.
+
+   The preload already chose that set (surface-scoped where the branch diff maps onto declared surfaces, the full `TEST_COMMAND` otherwise) and reports which in `GATE_SCOPE`; do not re-derive it here — a gate decided in prose cannot be asserted. A selection covering every declared command collapses to the full command once, rather than running N. No block is emitted when there is nothing to run, so the gate can **never run nothing** and report green.
 
 4. Step 5c classified zero `design_decision` findings — even if the classifier routed one to `fix`. Free-close merges into an integration branch (plan or primary), and architectural calls deserve a human checkpoint. Verify via:
    ```bash
@@ -116,7 +118,7 @@ The shared reference (Steps 5, 5b, 6, 6b) is emitted by the preload — see `scr
    ```
    Test numerically: `[ "$DESIGN_DECISION_COUNT" -gt 0 ]` → fall through to the shared Step 6 prompt.
 
-When `TEST_COMMAND` is empty the gate cannot fire. Print this hint before falling through to the shared Step 6 prompt:
+When there is no `### GATE_COMMANDS` block the gate cannot fire. Print this hint before falling through to the shared Step 6 prompt:
 
 ```
 Auto-merge disabled — set stack.test_command in system_context.json to enable.

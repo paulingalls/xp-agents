@@ -436,5 +436,33 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
                 )
 
 
+class TestSurfaceAuthoringPrompt(unittest.TestCase):
+    """story-017 AC4/AC5. Nothing populates surface `paths`/`command` unless
+    the analyzer proposes them, so this prose is the only thing standing
+    between the whole 014-017 chain and permanent dormancy.
+    """
+
+    def setUp(self) -> None:
+        self.md = (
+            Path(__file__).parent.parent.parent / "agents" / "xp-system-analyzer.md"
+        ).read_text()
+
+    def test_it_proposes_and_confirms_rather_than_inferring(self) -> None:
+        self.assertIn("only what they confirm", self.md)
+
+    def test_it_says_why_a_guessed_command_is_dangerous(self) -> None:
+        """A rule without its reason gets trimmed by the next editor."""
+        self.assertIn("auto-merge", self.md)
+
+    def test_it_proposes_a_residue_surface(self) -> None:
+        """Without a command-less surface over the unclaimed paths, the
+        all-or-nothing veto means narrowing never fires and every declared
+        command is inert."""
+        self.assertIn("residue surface", self.md)
+
+    def test_the_residue_surface_carries_no_command(self) -> None:
+        self.assertIn("no `command`", self.md)
+
+
 if __name__ == "__main__":
     unittest.main()

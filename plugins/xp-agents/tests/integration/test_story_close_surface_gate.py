@@ -172,6 +172,16 @@ class TestResolutionPrefersSurfaceCommands(_GateResolutionBase):
                     "paths": ["src/api/**"],
                     "command": "pytest -n auto tests/api",
                 },
+                # A third commanded surface so selecting two is a SUBSET —
+                # selecting every command collapses to the full suite by
+                # design, which would mask what this test is about.
+                {
+                    "name": "web",
+                    "signals": ["x"],
+                    "status": "covered",
+                    "paths": ["src/web/**"],
+                    "command": "pytest -n auto tests/web",
+                },
             ],
             ["src/cli/main.py, src/api/routes.py — both surfaces"],
         )

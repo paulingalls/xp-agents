@@ -267,6 +267,41 @@ class TestCommandsForChangedPaths(unittest.TestCase):
         )
 
 
+class TestTheDoorCollapsesWhenItWouldSelectEverything(unittest.TestCase):
+    """Collapse is expressed as "no narrowing available", not as a separate
+    signal: a selection covering every declared command is not cheaper than
+    the one full command it replaces, so the door returns EMPTY and the
+    caller's existing fallback runs the full suite once instead of N times.
+    """
+
+    @staticmethod
+    def _ctx() -> dict:
+        return {
+            "acceptance_surfaces": [
+                _surface("a", paths=["a/**"], command="pytest a"),
+                _surface("b", paths=["b/**"], command="pytest b"),
+            ]
+        }
+
+    def test_selecting_every_command_returns_empty(self) -> None:
+        """Mutation: drop the collapse check from the door -> red, and a broad
+        branch runs N commands where 1 was cheaper."""
+        self.assertEqual(
+            surface_selection.commands_for_changed_paths(
+                self._ctx(), ["a/x.py", "b/y.py"]
+            ),
+            [],
+        )
+
+    def test_selecting_a_subset_still_narrows(self) -> None:
+        """Mutation: collapse unconditionally -> red, and narrowing never
+        fires at all."""
+        self.assertEqual(
+            surface_selection.commands_for_changed_paths(self._ctx(), ["a/x.py"]),
+            ["pytest a"],
+        )
+
+
 class TestShouldCollapse(unittest.TestCase):
     """Collapse = every DISTINCT declared command is selected, and there are
     at least two of them.
@@ -332,10 +367,13 @@ class TestSurfaceCommandsCli(_SMMTestCase):
         )
 
     def test_prints_one_command_per_line(self) -> None:
+        """Three commanded surfaces, two selected — a SUBSET, so the collapse
+        rule stays out of the way and the narrowing is what is asserted."""
         self._seed(
             [
                 _surface("cli", paths=["src/cli/**"], command="pytest tests/cli"),
                 _surface("api", paths=["src/api/**"], command="pytest tests/api"),
+                _surface("web", paths=["src/web/**"], command="pytest tests/web"),
             ]
         )
         result = self._run("src/cli/main.py", "src/api/routes.py")

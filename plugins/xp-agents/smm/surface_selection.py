@@ -168,4 +168,10 @@ def commands_for_changed_paths(system_context: dict, paths: Iterable[str]) -> li
         return []  # an empty diff is not "everything is covered"
     if unclaimed_paths(surfaces, path_list):
         return []
+    matched = surfaces_for_paths(surfaces, path_list)
+    if should_collapse(surfaces, matched):
+        # Selecting everything is not cheaper than the one command it
+        # replaces, so say "no narrowing available" and let the caller's
+        # existing fallback run the full suite ONCE rather than N times.
+        return []
     return commands_for_paths(surfaces, path_list)

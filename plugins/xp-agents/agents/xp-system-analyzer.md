@@ -116,7 +116,11 @@ Canonical acceptance harnesses per surface live in `scripts/scaffold_detect.py:_
 - `signals`: what you detected indicating this surface exists
 - `harness`: acceptance tooling name (omit if none found)
 - `status`: `"covered"` if harness exists, `"gap"` if not
-- `paths`, `command`: the globs this surface owns and the narrowed command covering it. Record only what the project documents — never infer a command. `command` requires `paths` or it is rejected at write.
+- `paths`, `command`: the globs this surface owns and the narrowed command covering it. `command` requires `paths` or it is rejected at write.
+
+**Propose `paths` and `command`, then confirm — do not infer silently.** Close gates narrow to these commands, so a guessed command runs the wrong tests before an auto-merge. Propose per surface from what you read (test layout, scripts, config), show the customer the proposed globs and command, and write **only what they confirm**. Anything unconfirmed is omitted, not guessed.
+
+**Also propose a residue surface.** List the repo paths no proposed surface claims — docs, config, prose — and propose one surface covering them with `paths` and **no `command`**. Selection is all-or-nothing: any unclaimed path vetoes narrowing entirely, so without the residue the gates fall back to the full command forever and every `paths`/`command` you just wrote does nothing. A command-less surface buys coverage without adding a run.
 
 **Update mode:** Patch via `edit-acceptance-surfaces` and compare detected surfaces against existing entries — add new surfaces, update signals, do NOT remove surfaces the user may have manually added. This replaces the WHOLE array, so re-emit any `paths`/`command` you found: a declared value you omit is DELETED, silently:
 ```bash
