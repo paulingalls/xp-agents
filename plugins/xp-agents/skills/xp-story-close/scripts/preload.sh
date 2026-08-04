@@ -7,6 +7,10 @@ set -euo pipefail
 # during sprint execution.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
+# Sourced directly rather than via _preload_base.sh: only the close skills need
+# surface-scoped gate commands, and the base is sourced by every preload.
+# shellcheck source=../../_preload_surface.sh
+source "$(dirname "$0")/../../_preload_surface.sh"
 
 # Implicit teammate-worktree discovery: when
 # /xp-accept dispatches /xp-story-close after promoting a teammate story
@@ -177,6 +181,14 @@ fi
 # path could otherwise survive raw into this KEY=value contract).
 emit_var VERIFY_UNTOUCHED "$UNTOUCHED"
 echo "VERIFY_DEFERRED=${VERIFY_DEFERRED}"
+
+# Condition 3's command set, RESOLVED here rather than left as prose branches
+# for the skill to judge — see _preload_surface.sh. Same `${TEAMMATE_CWD:-.}`
+# as the verify_paths call above: selection expands the story's file_domain
+# globs over DISK, so a hardcoded `.` would compute a teammate story's
+# selection against the main checkout, where its new files do not exist —
+# silently empty, silently never narrowing.
+emit_gate_commands "$STORY_ID" "$(find_test_command)" "${TEAMMATE_CWD:-.}"
 
 # Cadence routes Step 4.5: 'story' runs the full review cycle here (the
 # per-commit gate deferred it); 'commit'/unset keeps the close-reviewer
