@@ -15,6 +15,11 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_probe_resolve.py",
             "additionalContextLimit": 0,
             "statusMessage": "spike: resolving roots..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_start.py",
+            "statusMessage": "xp-agents: session start..."
           }
         ]
       }
@@ -43,9 +48,18 @@
           },
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_skill_inject.py",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_bash.py",
+            "statusMessage": "xp-agents: commit gate..."
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
             "additionalContextLimit": 0,
-            "statusMessage": "spike: hook-side skill preload injection..."
+            "statusMessage": "spike: recording PreToolUse (every tool)..."
           }
         ]
       },
@@ -151,6 +165,11 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
             "additionalContextLimit": 0,
             "statusMessage": "spike: recording Stop..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/tdd_stop_gate.py",
+            "statusMessage": "xp-agents: TDD stop gate..."
           }
         ]
       }
