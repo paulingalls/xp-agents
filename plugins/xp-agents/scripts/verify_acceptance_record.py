@@ -149,11 +149,23 @@ def describe_unverified(failing: list[dict], skipped: list[dict]) -> str:
     one place a human is told a merge cannot proceed.
     """
     parts = [
-        f"{r.get('story', '?')} {r.get('command', '')} (exit {r.get('returncode')})"
+        f"{_label(r)} {r.get('command', '')} (exit {r.get('returncode')})"
         for r in failing
     ]
     parts += [
-        f"{r.get('story', '?')} {r.get('command', '')} (not run — batch budget)"
-        for r in skipped
+        f"{_label(r)} {r.get('command', '')} (not run — batch budget)" for r in skipped
     ]
     return ", ".join(parts)
+
+
+def _label(row: dict) -> str:
+    """`story-007 ac2` / `story-007 ae` — the same identity the matrix prints.
+
+    Story id alone is not enough to act on: a story declaring several verify
+    commands contributes several rows, and a refusal listing the same story
+    three times leaves the reader to guess which criterion is unverified. The
+    matrix already distinguishes them, so the two reports agreeing costs one
+    field and stops them describing the same rows differently.
+    """
+    idx = row.get("ac_idx")
+    return f"{row.get('story', '?')} {'ae' if idx is None else f'ac{idx}'}"

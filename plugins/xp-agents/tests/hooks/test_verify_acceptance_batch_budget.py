@@ -323,6 +323,11 @@ class TestBothReadersOfTheVerifyEvent(_BatchRunTestCase):
         reason = self._assert_not_none(close_verify_gate.verify_gate_block(args))
         self.assertIn("story-001", reason)
         self.assertIn("not run", reason)
+        # Distinguishable per criterion, not three identical lines. One story
+        # contributing several verify commands is the ordinary case, and a
+        # refusal naming it three times leaves the reader guessing which one.
+        self.assertIn("ac1", reason)
+        self.assertIn("ac2", reason)
 
     def test_the_merge_gate_still_names_ordinary_failures(self):
         """The discriminating partner: adding skipped must not displace the
