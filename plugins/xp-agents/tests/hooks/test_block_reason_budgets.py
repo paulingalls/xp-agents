@@ -65,6 +65,7 @@ from conftest import _PLUGIN_ROOT, band_offender
 # reason added there must land under a budget rather than arriving unbounded.
 GATE_SCRIPTS: tuple[str, ...] = (
     "scripts/bash_failure.py",
+    "scripts/close_cycle_abandonment.py",
     "scripts/close_cycle_stop_gate.py",
     "scripts/close_verify_gate.py",
     "scripts/hook_io.py",
@@ -102,7 +103,14 @@ GATE_SCRIPTS: tuple[str, ...] = (
 # tightenings; the change here is the 98% band, not the numbers.
 REASON_BUDGETS: dict[str, int] = {
     "scripts/bash_failure.py": 60,
-    "scripts/close_cycle_stop_gate.py": 890,
+    # New entry: the abandonment concern three detectors share now lives here,
+    # so the prose the gate used to hold is bounded at its new home rather than
+    # arriving unbudgeted. Measured 473, fitted to the same formula.
+    "scripts/close_cycle_abandonment.py": 530,
+    # Ratcheted 890 -> 430 (measured 385). The abandonment content moved out to
+    # the module above; a budget left at 890 would hand back the 500 chars that
+    # move released, which is exactly what the monotonic ratchet is for.
+    "scripts/close_cycle_stop_gate.py": 430,
     # Bumped 840 -> 1010 (close review): the acceptance gate gained a THIRD
     # refusal — a sprint with verify-bearing acceptance that no run ever
     # recorded a result for, which the gate used to read as green. A whole new
@@ -143,7 +151,11 @@ REASON_BUDGETS: dict[str, int] = {
 # budget cannot: a gate whose reason was deleted outright sails under its cap.
 MIN_REASON_CHARS: dict[str, int] = {
     "scripts/bash_failure.py": 40,
-    "scripts/close_cycle_stop_gate.py": 670,
+    "scripts/close_cycle_abandonment.py": 400,
+    # Lowered with the budget above: the floor guards the direction a cap
+    # cannot, and one left at 670 would fail the module for prose that legitly
+    # moved rather than for prose that was deleted.
+    "scripts/close_cycle_stop_gate.py": 330,
     # Raised with the budget above (round(910 * 0.85 / 10) * 10): a floor left
     # at the old size would let the new refusal be deleted again for free.
     "scripts/close_verify_gate.py": 770,

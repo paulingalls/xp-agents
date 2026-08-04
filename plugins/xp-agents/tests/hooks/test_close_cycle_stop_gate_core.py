@@ -319,29 +319,11 @@ class TestCloseCycleStopGate(_HookTestCase):
             "young marker preserved through the Step 4b yield",
         )
 
-    def test_bypass_concern_content_fits_concern_budget(self):
-        """The bypass concern content + the recovery hint together must stay
-        under the concern event's CONTENT_BUDGET (read from the schema, not
-        hardcoded here — it was 400, raised to 500 by story-013). append_safe
-        silently drops over-budget events — pre-this-test, extending
-        _BYPASS_RECOVERY pushed the content to ~440 chars and the bypass
-        concern stopped landing, breaking abandonment surfacing entirely.
-        Pin the budget so future recovery-string edits fail this test
-        loudly before they ship."""
-        import close_cycle_stop_gate
-        from event_schema import CONTENT_BUDGETS, EVENT_TYPE_CONCERN
-
-        budget = self._assert_not_none(
-            CONTENT_BUDGETS[EVENT_TYPE_CONCERN],
-            "concern budget must remain enforced",
-        )
-        self.assertLessEqual(
-            len(close_cycle_stop_gate._BYPASS_CONCERN_CONTENT),
-            budget,
-            "_BYPASS_CONCERN_CONTENT must fit the concern budget — otherwise "
-            "append_safe silently drops the bypass concern and abandonment "
-            "never surfaces",
-        )
+    # The concern-budget pin moved with the content it bounds: three detectors
+    # now record this same abandonment from one shared constant, so the pin
+    # lives beside that constant in tests/hooks/test_close_cycle_abandonment.py.
+    # Leaving a copy here would bound whichever spelling this module still
+    # happened to import.
 
     def test_no_block_when_asking_user(self):
         """Defer when AskUserQuestion dialogue is in flight."""

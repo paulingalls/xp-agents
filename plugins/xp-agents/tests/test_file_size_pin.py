@@ -121,6 +121,12 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/tests/smm/test_system_context_schema_fields.py": 470,
     "plugins/xp-agents/tests/engine/test_sprint_frontier.py": 470,
     "plugins/xp-agents/tests/integration/test_story_close.py": 468,
+    # Entered the band with the close-cycle marker scrub: a close preload now
+    # leaves state a sibling preload reacts to, so the shared measurement loop
+    # has to clear it between runs. The cohesive group to extract next is the
+    # preload family (`_run_preload` + `assert_preload_under_budgets` + this
+    # scrub), which the emitter and md families do not use.
+    "plugins/xp-agents/tests/_budget_helpers.py": 467,
     "plugins/xp-agents/tests/integration/test_maintenance.py": 466,
     "plugins/xp-agents/tests/hooks/test_session_start_core.py": 466,
     "plugins/xp-agents/tests/scaffold/test_scaffold_skill.py": 466,
