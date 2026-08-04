@@ -47,6 +47,14 @@ emit_close_started_event sprint "${CLOSE_CYCLE_ID}"
 # files-relevance rule. It is never the reason a close fails to start.
 write_marker CLOSE_CYCLE_ID "${CLOSE_CYCLE_ID}"
 emit_system_context_rendered_for close-reviewer
+# A close-cycle marker still on disk HERE belongs to a previous close that
+# never reached its reviewer — starting this one proves that cycle is over.
+# Record it before arming, never overwrite it silently: aborting early and
+# retrying in the same session is the dominant way the marker leaks, and a
+# silent overwrite eats the evidence before any session-start sweep can see
+# it. Records nothing when there is no survivor, which is the normal case.
+python3 "${PLUGIN_ROOT}/scripts/close_cycle_abandonment.py" \
+    --smm-dir "${SMM_DIR}" --detector close_restart 2>/dev/null || true
 # Arm the close-cycle Stop gate deterministically — prose-driven write
 # was unreliable when the LLM skipped or reordered the invocation.
 write_marker CLOSE_CYCLE_ACTIVE ""

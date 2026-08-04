@@ -126,7 +126,22 @@ def sweep_stale_session_markers(smm_dir: Path) -> None:
     still inside its freshness window. That module owns the record's field
     names and its window, and imports this one — hence the lazy import, the
     same shape `markers.warn_once` uses to reach `concerns`.
+
+    CLOSE_CYCLE_ACTIVE is RECORDED before it is consumed, and it alone. This
+    sweep is the one component that positively knows a close cycle died — the
+    reviewer that releases the marker never ran — so consuming it silently
+    threw away the only evidence anyone would ever have. The other five leak
+    for ordinary reasons and stay silent, and a marker that is ABSENT (the
+    normal case, every session) records nothing: `record_abandonment` owns both
+    conditions, and it never raises, so a failed append cannot break a session
+    start.
     """
+    import close_cycle_abandonment
+
+    close_cycle_abandonment.record_abandonment(
+        smm_dir, close_cycle_abandonment.DETECTOR_SESSION_SWEEP
+    )
+
     for marker in _STALE_SESSION_MARKERS:
         marker_consume(smm_dir, marker)
 

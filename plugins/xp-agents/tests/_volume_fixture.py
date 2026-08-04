@@ -44,6 +44,7 @@ from _budget_helpers import (
     _run_emitter,
     _run_preload,
     band_offender,
+    scrub_close_cycle_marker,
 )
 from _event_fixtures import make_event, write_events
 
@@ -319,7 +320,13 @@ def assert_artifacts_under_budgets(
 
 
 def _preload_runner(name, smm_dir, repo):
-    return _run_preload(name, smm_dir, repo)
+    result = _run_preload(name, smm_dir, repo)
+    # The close preloads arm a marker the NEXT close preload reads as an
+    # abandoned cycle, recording a concern that a concern-rendering sibling
+    # would then measure. Same class of leak as `_MARKER_WRITERS` below, but
+    # ordering cannot fix this one — the readers are the writers.
+    scrub_close_cycle_marker(smm_dir)
+    return result
 
 
 # Surfaces that leave state behind in the SMM they run against:

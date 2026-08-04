@@ -34,11 +34,10 @@ For each NEW concern/block from xp-close-reviewer in Step 4.5
 **Code-fixable — fix now, then resolve via `Resolves-Event: <event-id>`
 in the fix commit body:**
 
-> When the fix lands in a teammate worktree, run from the orchestrator
-> with `git -C <worktree-path> commit ...` — never `cd <wt> && git
-> commit && cd -`. The cd-back fires before the trailer-extract hook,
-> so the hook reads the wrong HEAD and the auto-link breaks.
-> Substitute the path literally; an unresolvable `-C` is refused.
+> A fix in a teammate worktree commits with `git -C <worktree-path>
+> commit ...`, path substituted literally — never `cd <wt> && git
+> commit && cd -`, whose cd-back beats the trailer-extract hook and
+> silently breaks the auto-link.
 
 - `lint` → run the project's formatter and linter in fix mode, re-test
 - `test_failure` → read the test runner output, edit at named file:line, re-run
@@ -100,14 +99,12 @@ appended. The user can still pick Merge to override. When 0, keep
 default ordering (Merge first). `<SMM_DIR>`, `<CLOSE_CYCLE_ID>`,
 `<CLOSE_START_TS>` come from the preload above.
 
-Pipe the diff verbatim. `--no-renames` keeps a renamed file's OLD
-path in the list; `-z` NUL-separates, so a path holding a newline
-survives. `--diff-paths -` drops an untagged concern whose
-recorded files all lie outside the diff — the log is shared across
-worktrees, so one filed in this window may be about untouched code.
-Nothing else is dropped; an empty or unreadable diff counts everything
-(fail closed). Name both branches, not `HEAD` — the range must not
-depend on your cwd.
+Pipe the diff verbatim: `--no-renames` keeps a renamed file's OLD
+path, `-z` survives a newline in one. `--diff-paths -` drops ONLY an
+untagged concern whose files all lie outside the diff (the log is
+shared across worktrees); an empty or unreadable diff counts
+everything — fail closed. Name both branches, not `HEAD`: the range
+must not depend on your cwd.
 
 If the user picks abort, stop here — after Step 6b. Branch and PR stay
 intact.
@@ -115,7 +112,7 @@ intact.
 If the preload included a `### HOOK_GUIDANCE` section, follow it
 before confirming the merge.
 
-### Step 6b: Release the cycle id
+### Step 6b: Release the cycle markers
 
 On **every** exit — merge, auto-merge, abort — right after Step 6,
 including when the mode's gate skipped the Step 6 prompt:
@@ -123,9 +120,11 @@ including when the mode's gate skipped the Step 6 prompt:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/markers.py \
   --smm-dir <SMM_DIR> consume CLOSE_CYCLE_ID
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/markers.py \
+  --smm-dir <SMM_DIR> consume CLOSE_CYCLE_ACTIVE
 ```
 
-Concerns appended while it exists are tagged with this cycle. Left
-behind, it tags ones raised after the close ended, and the next close's
-`--cycle-id` count then EXCLUDES those. Safe to re-run or run absent.
+Left behind, the id tags concerns raised after this close ended and the
+next close's `--cycle-id` count then EXCLUDES those; the active marker
+keeps gating Stop. Both are safe to re-run or run absent.
 

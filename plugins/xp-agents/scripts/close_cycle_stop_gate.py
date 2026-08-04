@@ -57,6 +57,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import close_cycle_abandonment
 import event_schema
 import identity
 import markers
@@ -89,17 +90,11 @@ _BLOCK_MESSAGE = (
     "Step 4.5); then continue Steps 5-7."
 )
 
-_BYPASS_RECOVERY = (
-    "Recovery: next session, run /security-review then /code-review high via "
-    "the Workflow tool (if RUN_FULL_CODE_REVIEW=true) then invoke "
-    "xp-close-reviewer (Agent tool); then re-attempt /xp-{sprint,plan,free}-close."
-)
-_BYPASS_CONCERN_CONTENT = (
-    "Close-cycle gate bypassed: agent terminated via stop_hook_active "
-    "while CLOSE_CYCLE_ACTIVE marker was set. xp-close-reviewer was "
-    "expected to run but never did, leaving the close cycle mid-flight. "
-    f"{_BYPASS_RECOVERY}"
-)
+# The concern this gate records is one of three that report the SAME fact, so
+# its content and its budget pin live with the other two in
+# close_cycle_abandonment. Only the stderr line is this detector's own: it names
+# the platform flag that got here, which neither of the others can say.
+_BYPASS_RECOVERY = close_cycle_abandonment.RECOVERY
 _BYPASS_STDERR = (
     "close-cycle gate bypassed: stop_hook_active=True with "
     f"CLOSE_CYCLE_ACTIVE marker still set — high-severity concern recorded. "
@@ -220,21 +215,22 @@ def _record_bypass(smm_dir: Path, input_data: dict) -> None:
     Once the marker ages past the threshold the cycle is truly stuck/abandoned:
     emit the loud signal (stderr + high-severity concern) and consume the marker
     so subsequent Stops don't re-fire. A stat() race (marker vanished) counts as
-    not-young → falls through to consume (a harmless no-op).
+    not-young → falls through to the shared recorder, which finds no marker and
+    does nothing.
+
+    The record + consume itself belongs to close_cycle_abandonment: two other
+    detectors report this same fact, and one content is what stops them
+    drifting. What stays here is the AGE decision — only this detector has a
+    young/aged distinction to make.
     """
     if _marker_age_under(smm_dir, _CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC):
         return
     sys.stderr.write(_BYPASS_STDERR)
-    agent_id = identity.resolve_agent_id(input_data)
-    concern = _common.make_event(
-        _common.CONCERN,
-        agent_id,
-        _BYPASS_CONCERN_CONTENT,
-        severity="high",
-        metadata={"kind": event_schema.CONCERN_KIND_CLOSE_CYCLE_BYPASS},
+    close_cycle_abandonment.record_abandonment(
+        smm_dir,
+        close_cycle_abandonment.DETECTOR_AGED_STOP,
+        identity.resolve_agent_id(input_data),
     )
-    _common.append_safe(smm_dir, concern)
-    markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
