@@ -4,22 +4,27 @@
 Thin wrapper over system_context_store.py for shell scripts and
 Claude Code skills. Python scripts should import the store directly.
 
+`--smm-dir` is a GLOBAL argument and must precede the subcommand. Every line
+below previously trailed it (`exists --smm-dir DIR`), which argparse rejects
+with exit 2 for EVERY subcommand; no test caught it because run_cli leads.
+
 Usage:
-    system_context_cli.py exists --smm-dir DIR
-    system_context_cli.py validate --smm-dir DIR
-    system_context_cli.py render --smm-dir DIR
-    system_context_cli.py create --smm-dir DIR          < context.json
-    system_context_cli.py section NAME --smm-dir DIR
-    system_context_cli.py edit-field NAME --smm-dir DIR  < value.json
-    system_context_cli.py edit-stack-field NAME --smm-dir DIR  < value.json
-    system_context_cli.py get-stack-field NAME --smm-dir DIR
-    system_context_cli.py add-module --smm-dir DIR       < module.json
-    system_context_cli.py add-convention --smm-dir DIR   < convention.json
-    system_context_cli.py add-principle --smm-dir DIR     < decision.json
-    system_context_cli.py add-project-specific --smm-dir DIR < entry.json
-    system_context_cli.py edit-branching --smm-dir DIR   < branching.json
-    system_context_cli.py edit-acceptance-surfaces --smm-dir DIR < surfaces.json
-    system_context_cli.py add-acceptance-surface --smm-dir DIR   < surface.json
+    system_context_cli.py --smm-dir DIR exists
+    system_context_cli.py --smm-dir DIR validate
+    system_context_cli.py --smm-dir DIR render
+    system_context_cli.py --smm-dir DIR create           < context.json
+    system_context_cli.py --smm-dir DIR section NAME
+    system_context_cli.py --smm-dir DIR edit-field NAME  < value.json
+    system_context_cli.py --smm-dir DIR edit-stack-field NAME  < value.json
+    system_context_cli.py --smm-dir DIR get-stack-field NAME
+    system_context_cli.py --smm-dir DIR add-module       < module.json
+    system_context_cli.py --smm-dir DIR add-convention   < convention.json
+    system_context_cli.py --smm-dir DIR add-principle    < decision.json
+    system_context_cli.py --smm-dir DIR add-project-specific < entry.json
+    system_context_cli.py --smm-dir DIR edit-branching   < branching.json
+    system_context_cli.py --smm-dir DIR edit-acceptance-surfaces < surfaces.json
+    system_context_cli.py --smm-dir DIR add-acceptance-surface   < surface.json
+    system_context_cli.py --smm-dir DIR surface-commands STORY_ID [--cwd .]
 """
 
 import argparse
@@ -104,6 +109,9 @@ from system_context_retire_cli import (
     cmd_retire_project_specific as _cmd_retire_project_specific,
 )
 from system_context_schema import validate_system_context
+from system_context_surface_cli import (
+    cmd_surface_commands as _cmd_surface_commands,
+)
 
 # Back-compat shim: callers that imported these names from
 # system_context_cli before each family was extracted still find them
@@ -123,6 +131,7 @@ __all__ = [
     "_cmd_edit_stack_field",
     "_cmd_get_branching_field",
     "_cmd_get_stack_field",
+    "_cmd_surface_commands",
     "_emit_edit_event",
     "_emit_retire_event",
 ]
@@ -351,6 +360,14 @@ def main() -> None:
         "get-test-layout",
         help="Print test_layout as JSON (or `null` when unset)",
     )
+    surface_p = sub.add_parser(
+        "surface-commands",
+        help="Print surface commands covering a story's file domain, one per line",
+    )
+    surface_p.add_argument("story_id", help="Story id (e.g. story-015)")
+    surface_p.add_argument(
+        "--cwd", default=".", help="Root for expanding glob file_domain entries"
+    )
 
     for name, help_text in (
         ("retire-principle", "Retire a principle by topic"),
@@ -408,6 +425,7 @@ def main() -> None:
         "add-acceptance-surface": _cmd_add_acceptance_surface,
         "edit-test-layout": _cmd_edit_test_layout,
         "get-test-layout": _cmd_get_test_layout,
+        "surface-commands": _cmd_surface_commands,
         "edit-branching": _cmd_edit_branching,
         "edit-branching-field": _cmd_edit_branching_field,
         "get-branching-field": _cmd_get_branching_field,
