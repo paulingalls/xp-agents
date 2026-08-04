@@ -285,3 +285,101 @@ would breach their recorded per-skill cap**: `xp-review-plan` (short 117),
 `xp-system-context` (113), `xp-sprint-close` (81), `xp-free-close` (79),
 `xp-sprint-review` (74), `xp-story-close` (41). And it still rests on the model
 volunteering to run a command it read in a file.
+
+# story-004 — gate enforcement and model compliance
+
+Answers no-go **criterion 2** (does the model respect the gates?) and
+**criterion 3** (is there a shell path the commit gate cannot see?). Verdicts are
+recorded at the end of this section; nothing below is a verdict on its own.
+
+Criterion 3 has **two independent hole classes**, and they are reported
+separately because a gate can fail either way and the fixes differ:
+
+1. **Interception** — does the harness fire `PreToolUse` for every shell path?
+   *(Requires Codex runs; not yet measured.)*
+2. **Detection** — once fired, does our own detector RECOGNISE the command as a
+   commit? A gate that fires and then does not recognise `sh -c "git commit"` is
+   exactly as bypassable as one that never fired.
+
+## Detection coverage (harness-independent, measured offline)
+
+Produced by `spike/probe_commit_shapes.py`, which drives the **real**
+`scripts/pre_tool_bash.py` as a subprocess rather than reimplementing the
+detector, so it cannot drift from what ships. **This class is not a Codex
+finding** — it is the same on both harnesses, and it is why criterion 3 cannot be
+answered by interception alone.
+
+Measured on an armed gate (`cadence=commit`, no recorded review, 2 staged code
+files; `commits.REVIEW_CYCLE_THRESHOLD` is **2**, not 3):
+
+| shape | command | result |
+|---|---|---|
+| plain | `git commit -m "x"` | blocked |
+| env-prefix | `env FOO=1 git commit -m "x"` | blocked |
+| git-dir-env | `GIT_DIR=x git commit -m "y"` | blocked |
+| absolute-path | `/usr/bin/git commit -m "z"` | blocked |
+| and-chain | `git add -A && git commit -m "x"` | blocked |
+| dash-c-config | `git -c user.name=x commit -m "y"` | blocked |
+| merge | `git merge feature` | blocked |
+| sh-c-double | `sh -c "git commit -m x"` | **not blocked** |
+| sh-c-single | `sh -c 'git commit -m x'` | **not blocked** |
+| bash-c | `bash -c "git commit -m x"` | **not blocked** |
+| git-alias | `git ci -m x` | **not blocked** |
+| shell-alias | `gc -m x` | **not blocked** |
+| var-indirect | `GIT=git; $GIT commit -m x` | **not blocked** |
+| not-a-commit | `ls -la` | not blocked (correct) |
+
+Blocked shapes all carry the same verbatim reason, which is what AC-1 asks for:
+`Run /xp-quality-review before committing — 2 code files changed since last
+review.` Note that only `str(e)` reaches stderr — `BlockedError`'s
+`system_message` is constructed and dropped on this path
+(`pre_tool_bash.py:327-331`), so every system_message in the PreToolUse chain is
+dead weight.
+
+**Six spellings evade the detector.** `git_commits.GIT_PREFIX` tolerates `-C`,
+`-c`, `env`, a leading assignment and an absolute path, and `strip_heredocs`
+keeps a heredoc *message* intact — but `strip_quoted` deletes quoted spans before
+the scan, so anything inside `sh -c "..."` disappears, and a heredoc *body* is
+removed wholesale. Aliases and `$GIT` are invisible because the detector matches
+the literal token `git`.
+
+## A targeting hole, distinct from detection
+
+`git -C "<path>" commit` — path **quoted** — is neither detected-and-blocked nor
+correctly refused. Measured end to end through the real hook: the same command
+**blocks quoted and does not block unquoted**, because `parse_effective_cwd`
+reads the quote-stripped command, cannot see the path, and silently falls back to
+the hook's cwd, while `dash_c_unreachable` reports False (no `$`, `~` or glob).
+The two functions disagree — one cannot resolve the path, the other calls it
+resolvable — so the refusal that exists precisely because *"the parse can only
+resolve a path it can SEE"* (`pre_tool_bash_commit_gates.py:108-118`) never
+fires. The wrong-repo `git diff --cached` returns `""` rather than `None`, so the
+fail-closed at `:132` no-ops and the tier-1 secret scan, the staged-lint gate and
+the review-cycle gate all skip.
+
+That asymmetry — the gate's answer depending on quoting — is the fingerprint of a
+gate that scanned a repo the commit was never going to land in. Harness-
+independent, live on the Claude path shipping today, and reachable in normal use:
+a worktree path containing a space *must* be quoted, and `TEAMMATE_GUIDE.md:30`
+plus `xp-story-close/SKILL.md:242` both promise that an unresolvable `-C` is
+refused. Concern `6c5d02b11cda`; fix owned by **story-011**, deliberately not
+this throwaway story.
+
+## Instruments
+
+- `spike/probe_commit_shapes.py` — the matrix above. Refuses to produce one
+  unless a known-blocking control blocks first: the commit gate **skips itself
+  silently** when the SMM fails to validate (`pre_tool_bash.py:240`), so an
+  unarmed rig reports every shape as not-blocked, which reads exactly like total
+  bypass. Anything that is not a clean allow or a reasoned refusal is `error`,
+  never `allowed` — `blocked = (rc == 2)` would fold a traceback into permission.
+- `spike/arm_gates.py` — arms a real gate and **asserts** it bites, diagnosing
+  every known release path on failure. Mutation-verified: with the cadence write
+  removed, arming fails and names `cadence='story'` as the cause.
+
+**The cadence trap, recorded because it would have cost a run.** Under `story`
+cadence the commit gate never blocks — it emits an advisory
+(`pre_tool_bash_commit_gates.py:172-181`) — and this project's live cadence *is*
+`story`. Any Codex run measuring criterion 3 must pin the scratch SMM to `commit`
+and assert the pin, or it records "not blocked" for a reason that has nothing to
+do with the harness.
