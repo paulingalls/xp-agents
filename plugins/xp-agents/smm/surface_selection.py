@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Which acceptance surfaces a set of paths touches, and the commands covering them.
 
-Pure: every function takes plain dicts and loads nothing. The CLI seam
-(`system_context_surface_cli.py`) owns reading system_context.json, because a
-module that loaded it could not be reused by a caller that already has it.
+Pure: every function takes plain dicts and loads nothing. Callers own reading
+system_context.json, because a module that loaded it could not be reused by a
+caller that already has it — see `close_gate_commands.resolve`, the one
+production caller.
 
 Two reuse rules, both load-bearing:
 
