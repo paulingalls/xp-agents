@@ -56,7 +56,15 @@ _SHIPPED_ROOT_FLOORS = {
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 _BAND_CEILINGS = {
-    # shipped (16)
+    # shipped (17)
+    # Entered the band adding the disagreeing-session-id refusal, which needed a
+    # verdict code, its reason prose, and a branch that must precede every
+    # degrade-to-time-only path. The cohesive group to extract next is the
+    # per-session sibling scan — _within_window, _sibling_age,
+    # _reap_stale_siblings, _freshest_sibling and _SESSION_GLOB, ~75 lines with
+    # no importer outside this module (only three prose mentions), which would
+    # land it near 400 rather than 31 short of the hard cap.
+    "plugins/xp-agents/scripts/hook_liveness.py": 469,
     "plugins/xp-agents/smm/seed_smm.py": 499,
     "plugins/xp-agents/scripts/spawn_teammate.py": 498,
     "plugins/xp-agents/scripts/close_common.py": 496,
@@ -80,7 +88,7 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/scripts/pre_tool_write.py": 463,
     "plugins/xp-agents/scripts/session_start.py": 462,
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
-    # tests (57)
+    # tests (55)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
@@ -125,7 +133,6 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_spawn_teammate_markers.py": 462,
     "plugins/xp-agents/tests/smm/test_init_migration_lock.py": 462,
     "plugins/xp-agents/tests/smm/test_triage.py": 460,
-    "plugins/xp-agents/tests/skills/test_preload_liveness.py": 459,
     "plugins/xp-agents/tests/engine/test_sprint_cli.py": 458,
     "plugins/xp-agents/tests/hooks/test_subagent_tiers_sprint.py": 457,
     "plugins/xp-agents/tests/hooks/test_sprint_stop_gate.py": 455,

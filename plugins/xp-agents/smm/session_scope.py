@@ -23,30 +23,80 @@ shared name while the heartbeat follows the new host.
 
 import os
 
-# Session id candidates, ordered — first non-empty wins. A new host is a new
-# entry here, not a redesign. Own-variable first so a host we do not yet know
-# about can be taught by exporting one value.
+# Session id candidates. A new host is a new entry here, not a redesign.
 #
 # Read by `hook_liveness.resolve_session_id` (which re-exports this tuple) and
 # by every session-scoped marker's filename. tests/_env_hygiene.py pins the
 # first and strips the rest for the whole suite.
+#
+# ORDER IS NOT LOAD-BEARING, and deliberately so. A host launched from another
+# agent inherits that agent's variable, so two can be set at once — and which
+# one this host OWNS depends on which launched which, runtime state that the
+# environment does not record. Any fixed preference is therefore correct in one
+# nesting direction and silently wrong in the mirrored one, so disagreement
+# refuses instead (see `conflicting_session_ids`). Order only picks among values
+# that already agree, where it cannot change the answer.
+#
+# Measured, and the reason this is not theoretical: a second-harness session
+# carried the launching harness's id, resolved the LAUNCHER's heartbeat, and
+# withheld every skill's context while its own hooks were running fine.
 SESSION_ID_ENV_CANDIDATES: tuple[str, ...] = (
     "XP_SESSION_ID",
+    "CODEX_THREAD_ID",
     "CLAUDE_CODE_SESSION_ID",
 )
 
 
-def resolve_session_id() -> str | None:
-    """First non-empty session id in the candidate chain, else None.
+def conflicting_session_ids() -> tuple[str, ...]:
+    """Candidate names holding DIFFERENT ids, or empty when there is one answer.
 
-    None means "no id is discoverable here", not "no session" — callers
-    degrade rather than refuse, so an unfamiliar host is never bricked for
-    want of a variable name.
+    Two set to the same value is one id under two names, not ambiguity — only
+    disagreement is unresolvable. Returned in chain order so a caller can name
+    them in a stable, reproducible sentence.
+    """
+    seen: dict[str, str] = {}
+    for name in SESSION_ID_ENV_CANDIDATES:
+        value = os.environ.get(name, "").strip()
+        if value:
+            seen[name] = value
+    if len(set(seen.values())) < 2:
+        return ()
+    return tuple(seen)
+
+
+def resolve_session_id() -> str | None:
+    """The one discoverable session id, or None when there is not exactly one.
+
+    None means "no id is addressable here", not "no session" — every caller
+    falls back to the shared, unsuffixed marker name. Two shapes reach it, and
+    they must NOT be collapsed by a caller whose verdict can be positive: no
+    candidate set, and candidates that DISAGREE.
+
+    No candidate set is a degradation. Nothing is being hidden, so a liveness
+    caller may fall back to time alone rather than refuse, and an unfamiliar
+    host is never bricked for want of a variable name.
+
+    Disagreement is a refusal, and returns None rather than a preference
+    because picking wrong is worse than picking nothing. Hooks key their
+    heartbeat on the id the host handed them, so the other id addresses the
+    LAUNCHER's heartbeat — which reads as live when this session's hook runtime
+    never loaded, a fail-open in the check built to catch precisely that.
+    Degrading loses session scoping; guessing inverts the verdict. A caller
+    that can answer "live" must therefore distinguish the two shapes via
+    `conflicting_session_ids` before it degrades — the None alone cannot tell
+    them apart. Callers that only NAME a marker need no such split: the shared
+    name is the same safe answer either way.
+
+    The only way to settle a disagreement is to leave exactly one candidate
+    set. `XP_SESSION_ID` is a candidate like the rest, not an override, so
+    exporting it alongside an inherited id adds a third disagreeing value.
 
     Deliberately NOT memoised: the result depends on `os.environ`, and a
     cached env-derived value breaks test isolation in a source-order runner
     (see CLAUDE.md's test-isolation gotcha).
     """
+    if conflicting_session_ids():
+        return None
     for name in SESSION_ID_ENV_CANDIDATES:
         value = os.environ.get(name, "").strip()
         if value:

@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import hook_liveness
 import markers
+import session_scope
 from _heartbeat_fixtures import HOOK_LIVENESS_PY as _HOOK_LIVENESS_PY
 from _heartbeat_fixtures import env as _env
 from conftest import _HookTestCase, run_cli
@@ -199,9 +200,18 @@ class TestWriteHeartbeatNeverRaises(_HookTestCase):
 class TestSessionIdChain(_HookTestCase):
     """Adding a harness must be a data change, not a redesign."""
 
-    def test_first_candidate_wins(self):
+    def test_agreeing_candidates_resolve_to_the_one_id(self):
+        """Supersedes an earlier `first candidate wins` pin.
+
+        That pin set two candidates to DIFFERENT values and asserted the
+        earlier one won. Preference no longer decides that case — disagreement
+        refuses, because which variable a host owns is runtime state the
+        environment does not record. Order now only picks among values that
+        agree, where it cannot change the answer, so the observable rule is
+        stated that way instead.
+        """
         first, second = hook_liveness.SESSION_ID_ENV_CANDIDATES[:2]
-        with patch.dict(os.environ, _env(**{first: "one", second: "two"})):
+        with patch.dict(os.environ, _env(**{first: "one", second: "one"})):
             self.assertEqual(hook_liveness.resolve_session_id(), "one")
 
     def test_falls_through_to_a_later_candidate(self):
@@ -212,6 +222,86 @@ class TestSessionIdChain(_HookTestCase):
     def test_empty_value_counts_as_absent(self):
         with patch.dict(os.environ, _env()):
             self.assertIsNone(hook_liveness.resolve_session_id())
+
+
+class TestDisagreeingSessionIdsRefuse(_HookTestCase):
+    """A nested launch leaves two ids set, and picking wrong INVERTS the check.
+
+    Hooks key their heartbeat on the id the host handed them, so resolving the
+    inherited id addresses the LAUNCHER's heartbeat instead of this session's.
+    """
+
+    NOW = 2_000_000.0
+
+    def _conflicted(self):
+        return _env(
+            CODEX_THREAD_ID="this-hosts-own-id",
+            CLAUDE_CODE_SESSION_ID="an-id-from-the-launcher",
+        )
+
+    def test_a_launchers_fresh_heartbeat_does_not_read_as_live(self):
+        """The regression this class exists for.
+
+        Every not-live path treats an unresolvable id as "degrade to time-only,
+        any fresh heartbeat counts" — correct when NO id is discoverable, and a
+        fail-open here: under a conflict the launcher's heartbeat is fresh by
+        definition, so degrading would vouch for a session whose own hooks never
+        loaded. The conflict verdict must therefore precede that degradation.
+        """
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="the-launcher")):
+            hook_liveness.write_heartbeat(self.smm_dir, now=self.NOW)
+
+        with patch.dict(os.environ, self._conflicted()):
+            result = hook_liveness.check_liveness(self.smm_dir, now=self.NOW + 1)
+
+        self.assertFalse(
+            result.live,
+            "a conflict must not borrow the launcher's freshness: "
+            f"got live with reason {result.reason!r}",
+        )
+        self.assertEqual(result.code, hook_liveness.CODE_ID_CONFLICT)
+
+    def test_the_refusal_names_both_variables_and_the_way_out(self):
+        with patch.dict(os.environ, self._conflicted()):
+            result = hook_liveness.check_liveness(self.smm_dir, now=self.NOW)
+        for expected in ("CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "XP_SESSION_ID"):
+            with self.subTest(names=expected):
+                self.assertIn(expected, result.reason)
+        self.assertIn(
+            "Unset",
+            result.reason,
+            "naming the variables is half the message: the remedy is "
+            "SUBTRACTIVE, and this is the only banner the operator sees",
+        )
+
+    def test_the_remedy_the_refusal_prescribes_actually_settles_it(self):
+        """A refusal that prescribes an inert step is worse than a terse one.
+
+        Every candidate counts toward the disagreement, XP_SESSION_ID included,
+        so `export XP_SESSION_ID=<the real id>` leaves the conflict standing —
+        and now blames the variable the operator just set. Following the prose
+        must reach a verdict, so the prose is checked against the code that
+        judges it rather than reviewed by eye.
+        """
+        settled = self._conflicted()
+        settled["CLAUDE_CODE_SESSION_ID"] = ""  # the inherited one, unset
+        with patch.dict(os.environ, settled):
+            self.assertEqual(session_scope.conflicting_session_ids(), ())
+            self.assertEqual(hook_liveness.resolve_session_id(), "this-hosts-own-id")
+
+        added = {**self._conflicted(), "XP_SESSION_ID": "this-hosts-own-id"}
+        with patch.dict(os.environ, added):
+            self.assertEqual(
+                session_scope.conflicting_session_ids(),
+                ("XP_SESSION_ID", "CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID"),
+                "exporting a third id must NOT be described as a tie-break: it "
+                "is one more disagreeing candidate",
+            )
+            self.assertIsNone(hook_liveness.resolve_session_id())
+
+    def test_a_conflict_is_undetermined_not_determined_not_live(self):
+        """Nothing was learned about the runtime, only that identity is unclear."""
+        self.assertIn(hook_liveness.CODE_ID_CONFLICT, hook_liveness.UNDETERMINED_CODES)
 
 
 class TestStatusCLI(_HookTestCase):
