@@ -124,7 +124,7 @@ Canonical acceptance harnesses per surface live in `scripts/scaffold_detect.py:_
 
 **Say this when you ask for confirmation**, in your own words — it makes the opt-in informed, not merely agreed:
 
-- coverage is checked by PATH, not by blast radius. A change that breaks a surface the selection did not pick merges at story close and is caught only at **sprint close**, which keeps the full command deliberately.
+- coverage is checked by PATH, not by blast radius. A change that breaks a surface the selection did not pick can auto-merge at story close, and **no later step re-runs the full suite**: sprint close reviews the diff and asks a human, it never runs `stack.test_command`.
 - `stack.test_command` must **cover every surface**. It is what the gate falls back to, and what a selection covering everything collapses to — point it at a script calling each suite, not at one of them.
 
 **Also propose a residue surface.** List the repo paths no proposed surface claims — docs, config, prose — and propose one surface covering them with `paths` and **no `command`**. Selection is all-or-nothing: any unclaimed path vetoes narrowing entirely, so without the residue the gates fall back to the full command forever and every `paths`/`command` you just wrote does nothing. A command-less surface buys coverage without adding a run. Enumerate them — a catch-all glob claims code too, satisfying the veto for files no command tests.

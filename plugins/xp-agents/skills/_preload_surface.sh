@@ -23,23 +23,6 @@
 # shellcheck source=_preload_emit.sh
 source "$(dirname "${BASH_SOURCE[0]}")/_preload_emit.sh"
 
-# find_surface_commands STORY_ID [CWD] -> newline-joined surface commands, or
-# empty. Mirrors find_test_command: delegate to the CLI, swallow failure to
-# empty, let the caller decide. The CLI collapses no-match, PARTIAL coverage
-# and cannot-answer into that one empty signal, so empty here means exactly
-# "no narrowing available" and never "some of it is covered".
-#
-# Input is the CHANGED-PATH set on stdin, not a story id. Story close used to
-# pass its id and select on the DECLARED file_domain — but Step 1b tolerates
-# drift and continues, so a drifted file never entered the coverage input and
-# its tests ran nowhere at an auto-merge. Free close has no story at all. The
-# changed set is the one input both modes share and the only one that is true.
-find_surface_commands() {
-    python3 "${PLUGIN_ROOT}/smm/system_context_cli.py" \
-        --smm-dir "${SMM_DIR}" surface-commands --paths-from - 2>/dev/null \
-        || echo ""
-}
-
 # runnable_lines VALUE -> VALUE minus every blank or whitespace-only line.
 #
 # The runnability filter the never-run-nothing invariant rests on. Neither
@@ -58,8 +41,13 @@ runnable_lines() {
     printf '%s' "$out"
 }
 
-# emit_gate_commands CHANGED_PATHS FULL_COMMAND -> GATE_SCOPE + the block.
-# CHANGED_PATHS is newline-separated (`get_changed_files_range "$BASE"`).
+# emit_gate_commands BASE CWD FULL_COMMAND -> GATE_SCOPE + the block.
+#
+# BASE is a RESOLVED SHA (`_git merge-base "$TARGET_BRANCH" HEAD`), not a
+# branch name and not a path list: the resolver derives the changed set itself,
+# from BASE...HEAD unioned with CWD's working tree, so that an uncommitted
+# review fix is visible to the gate-time recheck. CWD is the checkout to read,
+# which is the teammate worktree during an /xp-accept fix cycle.
 #
 #   FULL_COMMAND unrunnable  -> GATE_SCOPE=none,    NO block at all
 #   else surface cmds found  -> GATE_SCOPE=surface, block lists them
@@ -106,7 +94,12 @@ emit_gate_commands() {
 
     # A failed or unparseable resolve is the same as "nothing to run": no
     # block, so the gate cannot run nothing and report green.
-    [ -n "$scope" ] || { scope="none"; reason="not-set"; body=""; }
+    #
+    # The reason is `unresolved`, NOT `not-set`. The resolver can fail with the
+    # field perfectly well set — a corrupt system_context.json raises before it
+    # is even read — and telling that user to go set it is the same lying hint
+    # the reason variable exists to retire.
+    [ -n "$scope" ] || { scope="none"; reason="unresolved"; body=""; }
 
     emit_var GATE_SCOPE "$scope"
     body=$(runnable_lines "$body")

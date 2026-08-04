@@ -66,8 +66,13 @@ class TestNarrowingIsAnInformedChoice(unittest.TestCase):
 
     1. The veto proves PATH coverage, not REGRESSION coverage. A change whose
        blast radius lands in a surface the selection did not pick auto-merges
-       green at story close, and is caught only at sprint close, which keeps
-       the full command deliberately.
+       green at story close — and NOTHING downstream re-runs the full suite.
+       Sprint close is a human-confirmed merge with reviews; no close preload
+       but story's and free's even reads `stack.test_command` (verified by
+       grepping `find_test_command`'s callers). Naming sprint close as a
+       full-suite backstop, as this prose first did, is the same
+       claim-vs-coverage defect the story exists to correct — and it was in
+       the one sentence the customer's consent rests on.
     2. Collapse swaps N surface commands for `stack.test_command`, ASSUMING it
        covers every surface. A multi-harness project (browser=playwright,
        cli=pytest) whose test_command runs only one of them tests LESS after
@@ -92,7 +97,20 @@ class TestNarrowingIsAnInformedChoice(unittest.TestCase):
     def test_it_states_that_a_cross_surface_break_can_auto_merge(self) -> None:
         """Risk 1, in the sentence the customer confirms against. Mutation:
         drop it -> red, and the opt-in stops being informed."""
-        self.assertIn("sprint close", self.md)
+        self.assertIn("auto-merge at story close", self.md)
+
+    def test_it_does_not_promise_a_full_suite_backstop(self) -> None:
+        """The correction. `stack.test_command` has exactly four readers
+        (`find_test_command`): story close, free close, quality review and
+        sprint start — sprint close is NOT one of them, so a customer told the
+        break is "caught at sprint close" is consenting against a backstop that
+        does not run.
+
+        Mutation: promise a later full-suite run -> red. Pinned on the
+        DISCLAIMER rather than on the absence of a phrase, so a reworded
+        promise cannot slip past.
+        """
+        self.assertIn("no later step re-runs the full suite", self.md)
 
     def test_it_states_the_collapse_fallback_assumption(self) -> None:
         """Risk 2. `stack.test_command` is what a full selection collapses TO

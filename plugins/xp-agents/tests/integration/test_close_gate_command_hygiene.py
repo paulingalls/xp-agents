@@ -25,7 +25,7 @@ properties of the block safety properties rather than formatting ones:
    for a project that switched it off on purpose.
 
 The harness drives `emit_gate_commands` through the real shell module and the
-real `surface-commands` CLI — the two files this file guards.
+real `close_gate_commands` resolver — the two files this file guards.
 """
 
 import sys
@@ -228,6 +228,10 @@ class TestBothCloseSkillsRunEveryBullet(unittest.TestCase):
                 self.assertIn("GATE_DISABLED_REASON", text)
                 self.assertIn("not-set", text)
                 self.assertIn("exit-status-masked", text)
+                # The preload's own reason for "the resolver did not answer" —
+                # a cause with the field SET, so it needs its own sentence or
+                # the hint is back to guessing.
+                self.assertIn("unresolved", text)
                 self.assertIn("edit-stack-field test_command", text)
 
 
@@ -347,6 +351,22 @@ class TestTheDisabledReasonDistinguishesUnsetFromUnusable(_BlockHarness):
             self._seed([], "irrelevant"), paths=_CLAIMED, full="pytest -q | tee log"
         )
         self.assertIn("GATE_DISABLED_REASON=exit-status-masked", out)
+
+    def test_a_resolver_that_cannot_ANSWER_reports_unresolved(self) -> None:
+        """The third cause, and the one the preload owns rather than the
+        resolver: the script did not answer at all. A corrupt
+        system_context.json raises inside it, and the field it would have read
+        may be perfectly well set.
+
+        Mutation: fall back to `not-set` -> red, and the prose tells a user
+        with a declared `stack.test_command` to go and declare it.
+        """
+        smm = self._seed([], "pytest -q")
+        (smm / "system_context.json").write_text("{ not json")
+        out = self._resolve(smm, paths=_CLAIMED, full="pytest -q")
+        self.assertEqual(self._scope(out), "none")
+        self.assertIn("GATE_DISABLED_REASON=unresolved", out)
+        self.assertNotIn("### GATE_COMMANDS", out)
 
     def test_no_reason_is_emitted_when_a_block_exists(self) -> None:
         """The variable exists to explain an ABSENT block. Emitting it beside a
