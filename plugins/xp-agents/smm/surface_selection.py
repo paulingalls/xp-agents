@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Which acceptance surfaces a set of paths touches, and the commands covering them.
 
-Pure: every function takes plain dicts and loads nothing. The CLI seam
-(`system_context_surface_cli.py`) owns reading system_context.json, because a
-module that loaded it could not be reused by a caller that already has it.
+Pure: every function takes plain dicts and loads nothing. Callers own reading
+system_context.json, because a module that loaded it could not be reused by a
+caller that already has it — see `close_gate_commands.resolve`, the one
+production caller.
 
 Two reuse rules, both load-bearing:
 
@@ -24,7 +25,8 @@ input for a second reason — the close gate tolerates drift, so a story's
 declaration is not what it changed.
 
 Selection is all-or-nothing (`commands_for_changed_paths`, and therefore the
-CLI): a path set only PARTLY claimed selects nothing. See `unclaimed_paths`.
+close gate): a path set only PARTLY claimed selects nothing. See
+`unclaimed_paths`.
 That is the one direction in which narrowing tests LESS than the full command
 it replaces, and the consumer is an auto-merge gate — so the veto lives in the
 one door callers use, never beside it.
@@ -130,9 +132,10 @@ def _declared_command(surface: dict) -> str | None:
     a blank command is a bullet the gate cannot run.
 
     The flattening keeps ONE NORMAL FORM, so de-duplication, the collapse rule
-    and the printed output all agree on the same string. The CLI's contract is
-    one command per line and its consumer splits on newlines, so a declared
-    `"pytest -q\\nrm -rf build"` must not arrive as two lines.
+    and the printed output all agree on the same string. `close_gate_commands`
+    prints one command per line and `emit_gate_commands` splits its body on
+    newlines, so a declared `"pytest -q\\nrm -rf build"` must not arrive as two
+    lines.
 
     IT IS NOT A SAFETY RULE, and saying so here was wrong — corrected after a
     close review disproved it by running the emitter. Flattening turns two

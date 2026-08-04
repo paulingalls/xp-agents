@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Tests for surface_selection.py and the `surface-commands` CLI seam.
+"""Tests for surface_selection.py, plus a guard that `surface-commands`
+stays gone from the CLI dispatch table.
 
-Module and CLI live in one file deliberately. Most `system_context_cli`
-tests sit in tests/engine/, but tests/smm/test_system_context_cli.py set
-the precedent that a story's OWN new CLI surface keeps its tests with its
-feature, and surface_selection's two dependencies (test_glob_translator,
-test_triage) are both here.
+The CLI subcommand was deleted outright — it had no production caller;
+`close_gate_commands.resolve` already answers the same question through
+`surface_selection.commands_for_changed_paths`, with the exit-status
+refusal the CLI never carried. surface_selection's two dependencies
+(test_glob_translator, test_triage) live here too.
 
 The load-bearing tests are the two glob discriminators in
 `TestGlobSemanticsDiscriminateFromFnmatch`. Every other test in this file
@@ -24,8 +25,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import surface_selection
-import system_context_surface_cli
-from _system_context_fixtures import valid_doc, write_doc
 from conftest import _SMMTestCase, run_cli
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "system_context_cli.py"
@@ -347,103 +346,18 @@ class TestShouldCollapse(unittest.TestCase):
         self.assertTrue(surface_selection.should_collapse([a, b, docs], [a, b]))
 
 
-class TestSurfaceCommandsCli(_SMMTestCase):
-    """The read seam, now paths-only. `--smm-dir` is a GLOBAL argument declared
-    before the subparsers, so it precedes the subcommand — `run_cli` builds it
-    that way. Changed paths arrive newline-separated on stdin.
-    """
+class TestSurfaceCommandsCliRemoved(_SMMTestCase):
+    """`surface-commands` had no production caller — `close_gate_commands`
+    already answers the same question through `commands_for_changed_paths`,
+    with the exit-status veto this CLI never carried. Deleted outright."""
 
-    #: Seeded into every case so the no-match assertions DISCRIMINATE.
-    #: valid_doc()'s stack carries no test_command, and without one a CLI
-    #: mutated to substitute the full suite prints nothing anyway — the
-    #: assertion would pass and prove nothing. Measured on story-015: the
-    #: mutation went 24-passed until this line existed.
-    FULL_SUITE = "pytest -n auto THE-WHOLE-SUITE"
+    def _run(self, *args: str) -> subprocess.CompletedProcess:
+        return run_cli(_CLI, list(args), self.smm_dir)
 
-    def _seed(self, surfaces: list[dict]) -> None:
-        doc = valid_doc()
-        doc["stack"] = {"languages": ["Python"], "test_command": self.FULL_SUITE}
-        doc["acceptance_surfaces"] = surfaces
-        write_doc(self.smm_dir, doc)
-
-    def _run(self, *paths: str) -> subprocess.CompletedProcess:
-        return run_cli(
-            _CLI,
-            ["surface-commands", "--paths-from", "-"],
-            self.smm_dir,
-            stdin_data="\n".join(paths) + "\n",
-        )
-
-    def test_prints_one_command_per_line(self) -> None:
-        """Three commanded surfaces, two selected — a SUBSET, so the collapse
-        rule stays out of the way and the narrowing is what is asserted."""
-        self._seed(
-            [
-                _surface("cli", paths=["src/cli/**"], command="pytest tests/cli"),
-                _surface("api", paths=["src/api/**"], command="pytest tests/api"),
-                _surface("web", paths=["src/web/**"], command="pytest tests/web"),
-            ]
-        )
-        result = self._run("src/cli/main.py", "src/api/routes.py")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            result.stdout.splitlines(), ["pytest tests/cli", "pytest tests/api"]
-        )
-
-    def test_partial_coverage_prints_nothing_and_exits_zero(self) -> None:
-        """The veto, through the door callers actually use. Mutation: have the
-        CLI call commands_for_paths (no veto) -> red."""
-        self._seed([_surface("cli", paths=["src/cli/**"], command="pytest tests/cli")])
-        result = self._run("src/cli/main.py", "src/db/schema.py")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "")
-        self.assertNotIn(self.FULL_SUITE, result.stdout)
-
-    def test_surfaces_declaring_no_paths_yield_nothing(self) -> None:
-        """Every project's state today — the fields postdate their documents."""
-        self._seed([_surface("cli"), _surface("automation")])
-        result = self._run("src/cli/main.py")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "")
-        self.assertNotIn(self.FULL_SUITE, result.stdout)
-
-    def test_the_cli_never_substitutes_the_full_command(self) -> None:
-        """Empty must mean 'no narrowing available', so the CALLER owns the
-        fallback. A CLI that printed the full suite here would make narrowing
-        indistinguishable from no selection."""
-        self._seed([_surface("cli", paths=["src/cli/**"], command="pytest x")])
-        result = self._run("docs/README.md")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "")
-
-    def test_missing_system_context_exits_one(self) -> None:
-        result = self._run("src/cli/main.py")
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stdout, "")
-
-
-class TestSurfaceCliExports(unittest.TestCase):
-    """Sibling of test_system_context_field_cli / _nested_field_cli / _caps_cli:
-    the extraction convention pins the extracted module's export surface AND
-    the aggregator's re-import shim, so a `mock.patch` on either path bites the
-    one object the dispatch table holds.
-    """
-
-    def test_command_is_callable(self) -> None:
-        self.assertTrue(callable(system_context_surface_cli.cmd_surface_commands))
-
-    def test_cli_module_reimports_the_same_object(self) -> None:
-        import system_context_cli
-
-        self.assertIs(
-            system_context_cli._cmd_surface_commands,
-            system_context_surface_cli.cmd_surface_commands,
-        )
-
-    def test_shim_name_is_declared_in_all(self) -> None:
-        import system_context_cli
-
-        self.assertIn("_cmd_surface_commands", system_context_cli.__all__)
+    def test_surface_commands_is_not_a_recognized_subcommand(self) -> None:
+        result = self._run("surface-commands")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid choice", result.stderr)
 
 
 if __name__ == "__main__":
