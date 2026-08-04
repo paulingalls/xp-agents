@@ -171,6 +171,61 @@ class TestFiringOrder(unittest.TestCase):
             self.assertEqual({e["run"] for e in seq}, {"run-1", "run-2"})
 
 
+class TestEmptyCorpusFailsLoud(unittest.TestCase):
+    """A silently-empty corpus is the one defect class this milestone can't ship.
+
+    An all-`not-observed` table is well-formed, complete-looking markdown that
+    reads exactly like "no hook ever fired on any event" — and the dump tells
+    story-007's reader to re-run the tabulator, on a machine where the
+    out-of-tree corpus may be absent or moved. Zero captures must therefore
+    raise, not render.
+    """
+
+    def test_missing_corpus_raises_instead_of_a_full_not_observed_table(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as td,
+            self.assertRaises(FileNotFoundError),
+        ):
+            tabulate_fields.render(Path(td) / "not-there", registered=["Stop"])
+
+    def test_a_run_dir_at_the_wrong_nesting_depth_raises(self) -> None:
+        # The plan had this layout one level off. Unguarded, that mistake reads
+        # as "every event unobserved" rather than as "I found no corpus".
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            wrong = tmp / "run-1" / "payloads"  # missing the second `payloads`
+            wrong.mkdir(parents=True)
+            (wrong / "0-1-Stop.raw").write_bytes(b'{"hook_event_name": "Stop"}')
+            with self.assertRaises(FileNotFoundError):
+                tabulate_fields.build_table(tmp)
+
+
+class TestRegisteredEvents(unittest.TestCase):
+    def test_reads_every_event_name_from_the_hooks_file(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            hooks = Path(td) / "hooks.json"
+            hooks.write_text(json.dumps({"hooks": {"Stop": [], "SessionStart": []}}))
+            self.assertEqual(
+                tabulate_fields.registered_events(hooks), ["SessionStart", "Stop"]
+            )
+
+    def test_unreadable_hooks_file_raises_rather_than_dropping_every_row(self) -> None:
+        # Returning [] made main() fall back to observed-only events, silently
+        # deleting exactly the unfired rows this function exists to add — and
+        # a dropped row reads downstream as "checked and fine".
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(OSError):
+                tabulate_fields.registered_events(Path(td) / "absent.json")
+            bad = Path(td) / "bad.json"
+            bad.write_text("{not json")
+            with self.assertRaises(json.JSONDecodeError):
+                tabulate_fields.registered_events(bad)
+            no_hooks = Path(td) / "no-hooks.json"
+            no_hooks.write_text(json.dumps({"name": "x"}))
+            with self.assertRaises(ValueError):
+                tabulate_fields.registered_events(no_hooks)
+
+
 class TestRender(unittest.TestCase):
     def test_every_registered_event_gets_a_row(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -180,6 +235,50 @@ class TestRender(unittest.TestCase):
             self.assertIn("Stop", md)
             self.assertIn("TeammateIdle", md)
             self.assertIn(NOT_OBSERVED, md)
+
+    def test_a_run_with_zero_captures_is_named_not_silently_dropped(self) -> None:
+        # Same reason `unparseable` exists, one level up: a dropped RUN shrinks
+        # the denominator far harder than a dropped file, and it is not
+        # hypothetical — the real corpus has one (the untrusted-plugin control,
+        # whose hooks were skipped silently). Unnamed, a reader cannot tell that
+        # run from one lost to a layout mistake.
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _corpus(tmp, "run-1", [{"hook_event_name": "Stop", "cwd": "/x"}])
+            (tmp / "run-2" / "payloads").mkdir(parents=True)
+            self.assertEqual(tabulate_fields.runs_without_captures(tmp), ["run-2"])
+            self.assertIn("run-2", tabulate_fields.render(tmp, registered=["Stop"]))
+
+    def test_a_decisive_field_sent_as_json_null_renders_as_present(self) -> None:
+        # Same falsy-vs-absent trap the three-state table exists to avoid, one
+        # section further down: filtering the firing list on `is not None` prints
+        # an explicit `null` identically to a field the host never sent. On a
+        # DECISIVE field that is a false reading of the sprint's whole question.
+        # (`False` already survives — this pins the remaining hole.)
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _corpus(
+                tmp,
+                "run-1",
+                [
+                    {"hook_event_name": "Stop", "stop_hook_active": None},
+                    {"hook_event_name": "Stop", "stop_hook_active": False},
+                    {"hook_event_name": "Stop"},
+                ],
+            )
+            lines = [
+                x
+                for x in tabulate_fields.render(tmp, registered=["Stop"]).splitlines()
+                if x.startswith("- run-1 Stop:")
+            ]
+            self.assertEqual(
+                lines,
+                [
+                    "- run-1 Stop: stop_hook_active=None",
+                    "- run-1 Stop: stop_hook_active=False",
+                    "- run-1 Stop: (none present)",
+                ],
+            )
 
     def test_unparseable_capture_is_reported_not_skipped(self) -> None:
         # A corrupt file silently ignored would shrink the denominator and could

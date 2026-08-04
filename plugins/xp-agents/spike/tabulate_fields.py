@@ -67,6 +67,14 @@ def _capture_files(corpus_root: Path) -> list[tuple[str, Path]]:
     The run name is carried through deliberately: two runs' records must stay
     attributable, and a flat merge would silently overwrite one run's sibling
     index files with another's.
+
+    Zero captures RAISES. An empty corpus otherwise renders a well-formed table
+    of `not-observed` in every cell, which is indistinguishable from "no hook
+    ever fired on any event" — the one observation this milestone must never
+    produce by accident. Both ways to get there are live: the dump tells
+    story-007's reader to re-run this on a machine where the out-of-tree corpus
+    may be absent, and the layout is nested two deep, which the plan first had
+    one level off.
     """
     out: list[tuple[str, Path]] = []
     for run_dir in sorted(p for p in corpus_root.glob("run-*") if p.is_dir()):
@@ -75,6 +83,12 @@ def _capture_files(corpus_root: Path) -> list[tuple[str, Path]]:
             continue
         for raw in sorted(payload_dir.glob("*.raw")):
             out.append((run_dir.name, raw))
+    if not out:
+        raise FileNotFoundError(
+            f"no captures under {corpus_root} — expected "
+            f"{corpus_root}/run-*/payloads/payloads/*.raw. Refusing to tabulate: "
+            "an empty corpus reads as 'no hook ever fired', not as 'no corpus'."
+        )
     return out
 
 
@@ -95,6 +109,21 @@ def unparseable(corpus_root: Path = _DEFAULT_CORPUS) -> list[str]:
     return [str(p) for _, p in _capture_files(corpus_root) if _load(p) is None]
 
 
+def runs_without_captures(corpus_root: Path = _DEFAULT_CORPUS) -> list[str]:
+    """Run dirs holding no captures — named, never silently dropped.
+
+    Same reason ``unparseable`` exists, one level up: a dropped run shrinks the
+    denominator far harder than a dropped file. One such run is a real finding
+    (the untrusted-plugin control, whose hooks were skipped silently); another
+    would be a layout mistake. Unnamed, the two read alike.
+    """
+    return [
+        run_dir.name
+        for run_dir in sorted(p for p in corpus_root.glob("run-*") if p.is_dir())
+        if not sorted((run_dir / "payloads" / "payloads").glob("*.raw"))
+    ]
+
+
 def _by_event(corpus_root: Path) -> dict[str, list[dict]]:
     grouped: dict[str, list[dict]] = {}
     for _, path in _capture_files(corpus_root):
@@ -112,13 +141,16 @@ def registered_events(hooks_file: Path) -> list[str]:
 
     Read from the file rather than hardcoded so an event we register but never
     see still gets a row. A missing row reads as "checked and fine".
+
+    Unreadable or malformed propagates rather than degrading to ``[]``: an empty
+    list makes the caller fall back to observed-only events, which deletes
+    exactly the unfired rows this function exists to add.
     """
-    try:
-        data = json.loads(hooks_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    hooks = data.get("hooks")
-    return sorted(hooks) if isinstance(hooks, dict) else []
+    data = json.loads(hooks_file.read_text(encoding="utf-8"))
+    hooks = data.get("hooks") if isinstance(data, dict) else None
+    if not isinstance(hooks, dict) or not hooks:
+        raise ValueError(f"{hooks_file} has no non-empty 'hooks' object")
+    return sorted(hooks)
 
 
 def build_table(
@@ -182,6 +214,11 @@ def firing_sequence(corpus_root: Path = _DEFAULT_CORPUS) -> list[dict]:
             "run": run,
             "event": payload.get("hook_event_name"),
             "file": path.name,
+            # Presence, carried separately, because `None` is an ambiguous value
+            # here: it is both "the host sent JSON null" and "the host sent
+            # nothing". On a DECISIVE field those are different answers to the
+            # sprint's question, so the renderer filters on this, not on the value.
+            "present": [f for f in DECISIVE_FIELDS if f in payload],
         }
         for field in DECISIVE_FIELDS:
             entry[field] = payload.get(field)
@@ -214,9 +251,15 @@ def render(
     lines += ["", "## Decisive fields, in firing order", ""]
     for entry in firing_sequence(corpus_root):
         vals = " ".join(
-            f"{f}={entry[f]!r}" for f in DECISIVE_FIELDS if entry[f] is not None
+            f"{f}={entry[f]!r}" for f in DECISIVE_FIELDS if f in entry["present"]
         )
         lines.append(f"- {entry['run']} {entry['event']}: {vals or '(none present)'}")
+
+    empty = runs_without_captures(corpus_root)
+    if empty:
+        lines += ["", "## Runs that produced no captures", ""] + [
+            f"- {r}" for r in empty
+        ]
 
     bad = unparseable(corpus_root)
     if bad:
@@ -235,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     sys.stdout.write(
-        render(args.corpus_root, registered=registered_events(args.hooks_file) or None)
+        render(args.corpus_root, registered=registered_events(args.hooks_file))
     )
     return 0
 

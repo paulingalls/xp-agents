@@ -130,6 +130,34 @@ class TestObservation(unittest.TestCase):
             observed = [json.loads(x)["stop_hook_active"] for x in lines]
             self.assertEqual(observed, [False, True])
 
+    def test_a_firing_at_the_cap_is_still_recorded_as_a_firing(self) -> None:
+        # The cap RELEASING is itself the observation: it is what shows the host
+        # kept firing Stop after the probe stopped blocking. Record only the
+        # blocking firings — a plausible refactor that moves the write inside the
+        # `count < CAP` branch — and the log becomes indistinguishable from a
+        # host that simply stopped firing at the cap.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("_probe_cap", _PROBE)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        cap = mod.CAP
+
+        with tempfile.TemporaryDirectory() as td:
+            outdir = Path(td)
+            for _ in range(cap + 1):
+                _run(outdir)
+            entries = [
+                json.loads(x)
+                for x in (outdir / "stop_firings.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual(
+                [e["blocked"] for e in entries],
+                [True] * cap + [False],
+                "every firing is recorded, and the log says which ones blocked",
+            )
+
     def test_absent_stop_hook_active_is_recorded_as_absent_not_false(self) -> None:
         # False and absent are different findings: False means the host sends the
         # field and has not set it; absent means no release channel exists at all.

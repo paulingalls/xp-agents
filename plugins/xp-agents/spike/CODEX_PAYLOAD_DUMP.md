@@ -8,7 +8,28 @@ paths, session UUIDs, transcript paths, verbatim prompts and an unreleased model
 id, and `--no-ff` merges mean a committing commit stays reachable from main
 forever — so deletion at close would not have contained it. The tables below are
 generated from that out-of-tree corpus by `tabulate_fields.py`; re-run with
-`python3 plugins/xp-agents/spike/tabulate_fields.py`.
+`python3 plugins/xp-agents/spike/tabulate_fields.py`. It refuses (non-zero, with
+the expected glob) rather than emitting an all-`not-observed` table when it finds
+no corpus, because those two look identical on the page.
+
+The generated "Runs that produced no captures" section names `run-C`. That is a
+finding, not a loss: run-C is story-002's **untrusted-plugin control**, whose
+hooks were skipped silently, so zero captures is its result. Any other run
+appearing there would be a layout mistake — which is why the section names runs
+instead of dropping them.
+
+## Rig state a later story inherits
+
+Isolating emitters for the `apply_patch` capture meant unwiring two SessionStart
+entries, and they are **still unwired**: `scripts/session_start.py` (the real
+handler, which writes the heartbeat) and `spike/_inject_marker.py` (the
+context-injection instrument). Only `_dump_payload.py` and `_probe_resolve.py`
+remain registered. Whoever needs either back re-adds it to the `SessionStart`
+array in `hooks/hooks.codex.json` **and bumps `.codex-plugin/plugin.json`** — the
+plugin cache is version-keyed, so without a bump the run silently executes the
+previously cached copy. Forgetting the re-add is detectable rather than silent:
+the injector records every marker it mints, so an absent
+`injected_markers.jsonl` means "never ran", not "injection failed".
 
 ## The three decisive fields
 
@@ -17,6 +38,23 @@ generated from that out-of-tree corpus by `tabulate_fields.py`; re-run with
 | `agent_type` / `agent_id` | **Present, but the value does not discriminate.** `'default'` for a Codex subagent, never our agent name. `_common.is_xp_agent` is `agent_type.startswith("xp-")`, so it returns False and **recursion prevention never fires**. Absent entirely on top-level tool events, `'default'` on subagent-scoped ones — hence three states below. |
 | `stop_hook_active` | **Present AND functional.** Reads False on a turn's first Stop, flips True after the first block and stays True. All four Stop gates bypass on True, so they release correctly. Gap #31's premise ("no known analogue") is falsified twice over. |
 | `source` | **Present** on SessionStart, value `'startup'`. |
+
+### The liveness caveat story-007 must not miss
+
+`stop_hook_active` working does **not** mean liveness works. Story-002 measured a
+separate, negative finding that belongs next to the positive one (concern
+`27a3f697f1b0`): **session-scoped liveness never engages on Codex.** The heartbeat
+is *written* keyed on the payload `session_id`, but `check_liveness` *reads* from
+the environment — and Codex exports none of `XP_SESSION_ID` / `CODEX_THREAD_ID` /
+`CLAUDE_CODE_SESSION_ID` to hook processes. So the read misses the session-scoped
+marker and degrades to time-only, where any sibling heartbeat under the 4-hour
+staleness window reads live.
+
+Consequence: on a **shared** SMM root, an unenforced Codex session started within
+four hours of an enforced one reports **LIVE**. Story-002's untrusted run only
+reported honestly because every run used its own scratch root. This is recorded in
+the SMM, but it is written here too because the rig is deleted at sprint close and
+a commit message is not an input story-007 reads.
 
 ## Corrections this dump makes to the compatibility table
 
@@ -137,3 +175,7 @@ generated from that out-of-tree corpus by `tabulate_fields.py`; re-run with
 - run-F Stop: stop_hook_active=True
 - run-F Stop: stop_hook_active=True
 - run-F SessionEnd: (none present)
+
+## Runs that produced no captures
+
+- run-C
