@@ -137,7 +137,10 @@ _RAW_DASH_C_RE = re.compile(
 # introduce any construct `dash_c_unreachable` keys on ($, backtick, ~, glob),
 # nor a quote, whitespace, or statement separator.
 _ESCAPED_QUOTE_RE = re.compile(r"\\['\"]")
-_QUOTED_SPAN_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
+# Shared with `git_commits.strip_quoted` — see the ordering warning there. This
+# site was always correct; the deleting twin was not, and one definition is what
+# stops them diverging again.
+_QUOTED_SPAN_RE = git_commits.QUOTED_SPAN_RE
 _HEREDOC_SPAN_RE = re.compile(r"<<-?\s*'?(\w+)'?.*?\n.*?\1", re.DOTALL)
 _MASK_FILL = "x"
 

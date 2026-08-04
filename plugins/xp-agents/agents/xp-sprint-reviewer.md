@@ -37,6 +37,8 @@ If `execution_plan_path` and `milestone` are both non-empty, read the file at `e
 
 Run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/verify_acceptance.py --sprint --smm-dir <SMM_DIR>`: it reruns every story's per-AC verify objects + story-level `acceptance_execution`, prints a PASS/FAIL matrix grouped by surface, and emits the deterministic `sprint`/`action=verify` event `/xp-sprint-close` gates on. When a sprint carries only string ACs, the run reports `no verify-bearing acceptance to rerun` and emits no event — note that in the report.
 
+**Give this call your tool's maximum timeout.** It reruns a whole sprint's acceptance, and a run killed by the default bound emits NO event — close then reads the sprint as never verified and refuses the merge. If it is killed anyway, say so in the report rather than leaving the refusal unexplained.
+
 ## Step 3: Execution Plan Update
 
 If `execution_plan_path` and `milestone` are both non-empty:

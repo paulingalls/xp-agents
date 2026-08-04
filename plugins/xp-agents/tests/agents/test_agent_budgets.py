@@ -46,7 +46,34 @@ AGENT_BUDGETS: dict[str, int] = {
     # description and the rule were cut ~670 chars before this bump.
     "xp-retrospective": 23100,
     "xp-sprint-reviewer": 4380,
-    "xp-system-analyzer": 19640,
+    # Bumped 19640 -> 20370 for the surface `paths`/`command` template fields
+    # plus the update-mode re-emit warning. A deliberate bump, not a ratchet:
+    # `ratchet` only ever lowers, and the file sat at 99.3% of the old budget
+    # once the two fields landed. The re-emit sentence is load-bearing —
+    # update mode replaces the whole surfaces array, so without it a declared
+    # value is deleted silently (TestSystemAnalyzerPromptMaxlengthSync pins
+    # it). Trimmed first; measured 19507 after the trim.
+    #
+    # Bumped 20370 -> 20700 (story-017): the surface block gained the
+    # propose-confirm-write step and the residue-surface rule. Deliberate, and
+    # deliberately NOT paid for by trimming: nothing populates `paths`/
+    # `command` unless this prose asks for them, so it is the only thing
+    # between the whole surface chain and permanent dormancy — and the residue
+    # rule specifically, because all-or-nothing selection means one unclaimed
+    # path vetoes narrowing and makes every declared command inert. Measured
+    # 20161 after the edit.
+    #
+    # Bumped 20700 -> 21600 (story-018): the surface block gained the
+    # independence precondition and the two consent sentences. Deliberate, and
+    # deliberately NOT paid for by compressing: this prose is the ONLY place a
+    # customer is told what declaring `paths` costs them — that coverage is
+    # checked by path and not blast radius, so a break in an unselected surface
+    # merges at story close and is caught only at sprint close (93c3a7f51618),
+    # and that `stack.test_command` must cover every surface because collapse
+    # falls back to it (7011f2040970). Neither risk can be removed in code;
+    # consent is the whole answer, so shrinking the sentence that obtains it
+    # would ship the story's own defect. Trimmed first: 21120 -> 21056.
+    "xp-system-analyzer": 21600,
 }
 
 _AGENTS_DIR = _PLUGIN_ROOT / "agents"

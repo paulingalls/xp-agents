@@ -363,3 +363,40 @@ class TestNoLineBeyondDeclaredSet(_IntegrationTestCase):
         )
         crafted = self._key_multiset(self._run_preload(_ACCEPT_PRELOAD).stdout)
         self.assertEqual(crafted, base, "the worktree block must add no KEY= line")
+
+    def _write_system_context(self, test_command: str) -> None:
+        import json
+
+        (self.smm_dir / "system_context.json").write_text(
+            json.dumps(
+                {
+                    "product": "x",
+                    "architecture_overview": "x",
+                    "stack": {"languages": ["Python"], "test_command": test_command},
+                    "modules": [],
+                    "conventions": [],
+                    "principles": [],
+                    "project_specific": [],
+                }
+            )
+        )
+
+    def test_story_close_gate_command_adds_no_key(self):
+        """The `### GATE_COMMANDS` block prints commands at line start, and
+        `strip_framing` does nothing about a value whose SHAPE is IDENT=value.
+        `CI=1 pytest tests/` is an ORDINARY command, not only an attack — so
+        without the `- ` line prefix this block forges a `CI` key.
+
+        Driven through the full-suite fallback because it reaches the same
+        block printer as a surface command, and needs no story-shaped branch.
+        """
+        self._write_sprint(
+            [_make_story(id="story-001", status="closing", dependencies=[])]
+        )
+        self._write_system_context("pytest -n auto")
+        base = self._key_multiset(self._run_preload(_STORY_CLOSE_PRELOAD).stdout)
+        self._write_system_context("TEAMMATE_ENABLED=false pytest -n auto")
+        crafted = self._key_multiset(self._run_preload(_STORY_CLOSE_PRELOAD).stdout)
+        self.assertEqual(
+            crafted, base, "a gate command must add/duplicate no KEY= line"
+        )

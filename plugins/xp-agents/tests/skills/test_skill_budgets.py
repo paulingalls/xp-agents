@@ -36,6 +36,11 @@ SKILL_BUDGETS: dict[str, int] = {
     # dropped, and that an empty diff counts everything). Re-trimmed that
     # paragraph to a single sentence first; the full rationale lives once in
     # the shared close-pipeline reference, which the preload injects alongside.
+    # story-017 rewrote condition 3 to consume the resolved `### GATE_COMMANDS`
+    # set (aggregation + the collapse note) and NOT bumped: measured 8048 =
+    # 92.0%, so the existing budget absorbed it. Recorded because the next
+    # editor's question is "how much is left", and the answer is ~700 chars —
+    # a deliberate non-bump is as much a measurement as a bump.
     "xp-free-close": 8750,
     "xp-kickoff": 9020,
     # Bumped 10030 -> 10230: the skill gained an authored field (`schedules`)
@@ -64,7 +69,23 @@ SKILL_BUDGETS: dict[str, int] = {
     # in the 21 chars that were left. Re-trimmed the note to three lines first —
     # the full rationale lives once in the shared close-pipeline reference,
     # which the preload injects alongside this skill.
-    "xp-story-close": 12770,
+    #
+    # Bumped 12770 -> 12960 (story-016): condition 3 stopped naming
+    # TEST_COMMAND directly and now consumes the `### GATE_COMMANDS` set the
+    # preload resolved (surface-scoped, else the full command). The two
+    # load-bearing sentences are the ones that cost the chars: "do not
+    # re-derive the choice here" and the never-run-nothing invariant. Both
+    # guard an AUTO-merge, and dropping either re-opens the vacuous-hold shape
+    # conditions 1 and 2 were converted away from. Re-trimmed first: the first
+    # draft measured 12700, trimmed to 12515, which still sat exactly on the
+    # 98% band.
+    #
+    # Review then spent 147 of the 445 chars that bump bought, naming the cwd
+    # condition 3's commands run from (the teammate path's checkout holds
+    # neither the story nor the Step 5c fixes). Measured 12662 = 97.7%: the
+    # bump is SPENT, 38 chars from the band. The next clause here trims one
+    # first — do not read the remainder as headroom.
+    "xp-story-close": 12960,
     "xp-system-context": 1070,
     "xp-work-selection": 8700,
 }

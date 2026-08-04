@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _repo_bases import _create_teammate_worktree
+from _system_context_fixtures import valid_doc, write_doc
 from conftest import _IntegrationTestCase, cleanup_test_worktrees
 
 
@@ -316,6 +317,65 @@ class TestCleanup(_IntegrationTestCase):
         _merge_branch(self.tmpdir, name)
 
         cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
+
+    def tearDown(self):
+        cleanup_test_worktrees(self.tmpdir)
+        super().tearDown()
+
+
+class TestCleanupTearsDownAndClearsCoordination(_IntegrationTestCase):
+    """AC1 + AC3, exercised through the real production caller.
+
+    story-002's wiring lives in worktree.remove_worktree_dir, but
+    cleanup_teammate.cleanup is what actually removes a teammate's tree in
+    production — it must pass smm_dir through worktree.remove_worktree for
+    any of that wiring to fire at all (the interface contract's pass-through
+    requirement). These tests prove the FULL chain, not just the choke point.
+    """
+
+    def test_cleanup_runs_the_declared_teardown_command(self):
+        """AC1: cleanup_teammate removing a teammate worktree runs its
+        declared teardown command at the worktree path."""
+        import cleanup_teammate
+
+        name = "worktree-story-401"
+        _create_teammate_worktree(self.tmpdir, name)
+        _merge_branch(self.tmpdir, name)
+        doc = valid_doc()
+        doc["stack"]["worktree_teardown"] = 'echo torn > "$SMM_DIR/torn.txt"'
+        write_doc(self.smm_dir, doc)
+
+        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
+
+        self.assertTrue(
+            (self.smm_dir / "torn.txt").is_file(),
+            "cleanup_teammate.cleanup must run the declared teardown command",
+        )
+
+    def test_cleanup_clears_the_coordination_entry_post_tool_use_registered(self):
+        """AC3: the entry a real hook registered for this teammate is gone
+        after cleanup_teammate removes its worktree."""
+        import cleanup_teammate
+        import coordination
+        import post_tool_use
+
+        name = "worktree-story-402"
+        wt_path = _create_teammate_worktree(self.tmpdir, name)
+        _merge_branch(self.tmpdir, name)
+
+        post_tool_use.run(
+            {
+                "tool_name": "Write",
+                "tool_input": {"file_path": "notes.txt"},
+                "cwd": wt_path,
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIn(name, coordination.read_coordination(self.smm_dir))
+
+        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
+
+        self.assertNotIn(name, coordination.read_coordination(self.smm_dir))
 
     def tearDown(self):
         cleanup_test_worktrees(self.tmpdir)

@@ -7,6 +7,10 @@ set -euo pipefail
 # during sprint execution.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
+# Sourced directly rather than via _preload_base.sh: only the close skills need
+# surface-scoped gate commands, and the base is sourced by every preload.
+# shellcheck source=../../_preload_surface.sh
+source "$(dirname "$0")/../../_preload_surface.sh"
 
 # Implicit teammate-worktree discovery: when
 # /xp-accept dispatches /xp-story-close after promoting a teammate story
@@ -116,7 +120,13 @@ echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 # TEST_COMMAND is customer-set free text (system_context.stack.test_command,
 # not a git-constrained ref) — route it through emit_var so a newline in it
 # cannot forge a line that shadows the VERIFY_DEFERRED gate emitted below.
-emit_var TEST_COMMAND "$(find_test_command)"
+#
+# Resolved into a variable rather than inlined twice: emit_gate_commands below
+# needs the same value, and find_test_command spawns a python3 that re-reads
+# system_context.json — a second read that could also disagree with this one if
+# the document changed mid-preload.
+TEST_COMMAND=$(find_test_command)
+emit_var TEST_COMMAND "$TEST_COMMAND"
 echo "CLOSE_START_TS=$(now_iso)"
 # Assign-then-use, not `echo "$(generate_id)"`: the id has to be reusable by
 # the two consumers below, and generating it inside the echo left nothing for
@@ -190,6 +200,21 @@ fi
 
 emit_system_context_rendered_for close-reviewer
 emit_hook_guidance "$HOOK_STATUS"
+
+# Condition 3's command set, RESOLVED here rather than left as prose branches
+# for the skill to judge — see _preload_surface.sh.
+#
+# Selects on the CLOSE DIFF, not the declared file_domain. Step 1b tolerates
+# drift and continues, so a file the story drifted onto is absent from the
+# declaration — and selecting on the declaration would leave that file's tests
+# running nowhere at an auto-merge. `get_changed_files_range` uses _git, which
+# is TEAMMATE_CWD-aware, so the range is computed in the right checkout.
+#
+# Emitted LAST of the preload's own output, so the `### GATE_COMMANDS` block
+# is bounded by the shared reference's first heading rather than trailing off
+# into unrelated KEY=value lines. The shared file's own `- ` bullets sit under
+# their own headings, past that boundary.
+emit_gate_commands "$(_git merge-base "${TARGET_BRANCH}" HEAD 2>/dev/null)" "${TEAMMATE_CWD:-.}" "$TEST_COMMAND"
 
 # Append shared close-pipeline reference (Steps 5, 5b, 6) so the LLM
 # sees one consistent set of shared instructions across all four close

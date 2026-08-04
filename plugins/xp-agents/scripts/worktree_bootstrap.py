@@ -121,13 +121,12 @@ def run_bootstrap(wt_path: str, smm_dir: Path) -> None:
         # input. cwd is the new worktree: provisioning it is the entire point,
         # and inheriting the process cwd would provision the main checkout
         # instead. SMM_DIR is resolved because a relative value would
-        # otherwise resolve against that new cwd.
-        proc = subprocess.run(
+        # otherwise resolve against that new cwd. Runs in its own process
+        # group (see _subprocess_env) so a timeout kills every descendant the
+        # command spawned, not just the shell.
+        proc = _subprocess_env.run_in_new_process_group(
             command,
-            shell=True,  # noqa: secret
             cwd=wt_path,
-            capture_output=True,
-            text=True,
             timeout=timeout,
             env=_subprocess_env.smm_child_env(smm_dir),
         )

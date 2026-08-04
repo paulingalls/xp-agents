@@ -157,6 +157,17 @@ class TestCmdTimeout(_SMMTestCase):
     def test_positive_override_is_honoured(self):
         self.assertEqual(self._timeout("42"), 42)
 
+    def test_default_bound_is_two_hours(self):
+        # The bound guarantees "never hangs forever" — it is NOT a fail-fast
+        # budget. One constant now serves BOTH the attended --story path and
+        # the unattended --sprint batch, and a real acceptance suite can
+        # legitimately run for an hour, so a tight default would convert a
+        # slow-but-passing suite into a red. Per-project tuning stays on
+        # VERIFY_CMD_TIMEOUT_S.
+        with patch.dict(os.environ):
+            os.environ.pop("VERIFY_CMD_TIMEOUT_S", None)
+            self.assertEqual(verify_acceptance._cmd_timeout(), 7200)
+
     def test_zero_falls_back_to_the_default(self):
         self.assertEqual(self._timeout("0"), verify_acceptance._DEFAULT_CMD_TIMEOUT_S)
 
@@ -191,8 +202,13 @@ class TestManualTypeStoryPath(_SMMTestCase):
     def test_manual_steps_only_is_na_and_never_shelled(self):
         self._save({"type": "manual", "steps": ["go read the logs and confirm X"]})
         # Call _run_story in-process (not via run_cli's subprocess) so the
-        # patched subprocess.run is actually observed.
-        with patch.object(verify_acceptance.subprocess, "run") as mock_run:
+        # patched runner is actually observed. Patched on _subprocess_env, the
+        # single door every declared command now goes through — a mock on the
+        # stdlib's subprocess.run would sit on a door this path stopped using
+        # and assert_not_called would pass vacuously.
+        with patch.object(
+            verify_acceptance._subprocess_env, "run_in_new_process_group"
+        ) as mock_run:
             rc = verify_acceptance._run_story(self.smm_dir, "story-001")
         self.assertEqual(rc, verify_acceptance._EXIT_OK)
         mock_run.assert_not_called()
