@@ -19,10 +19,6 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
-If the line above appears literally instead of as its output, your host did not
-expand it: run that command yourself first, substituting this file's own
-directory for `${CLAUDE_SKILL_DIR}`, and read its output as the preload.
-
 # Execution Plan
 
 > **Sequential discipline.** Run Mode Detection → System-Context Check → Create
