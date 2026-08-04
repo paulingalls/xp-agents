@@ -67,18 +67,29 @@ def conflicting_session_ids() -> tuple[str, ...]:
 def resolve_session_id() -> str | None:
     """The one discoverable session id, or None when there is not exactly one.
 
-    None means "no id is addressable here", not "no session" — callers degrade
-    to the shared marker name and a time-only liveness check rather than
-    refusing, so an unfamiliar host is never bricked for want of a variable
-    name. Two shapes reach it: no candidate set, and candidates that DISAGREE.
+    None means "no id is addressable here", not "no session" — every caller
+    falls back to the shared, unsuffixed marker name. Two shapes reach it, and
+    they must NOT be collapsed by a caller whose verdict can be positive: no
+    candidate set, and candidates that DISAGREE.
 
-    Disagreement returns None rather than a preference because picking wrong is
-    worse than picking nothing. Hooks key their heartbeat on the id the host
-    handed them, so the other id addresses the LAUNCHER's heartbeat — which
-    reads as live when this session's hook runtime never loaded, a fail-open in
-    the check built to catch precisely that. Degrading loses session scoping;
-    guessing inverts the verdict. `XP_SESSION_ID` is how a caller that knows
-    the answer settles it.
+    No candidate set is a degradation. Nothing is being hidden, so a liveness
+    caller may fall back to time alone rather than refuse, and an unfamiliar
+    host is never bricked for want of a variable name.
+
+    Disagreement is a refusal, and returns None rather than a preference
+    because picking wrong is worse than picking nothing. Hooks key their
+    heartbeat on the id the host handed them, so the other id addresses the
+    LAUNCHER's heartbeat — which reads as live when this session's hook runtime
+    never loaded, a fail-open in the check built to catch precisely that.
+    Degrading loses session scoping; guessing inverts the verdict. A caller
+    that can answer "live" must therefore distinguish the two shapes via
+    `conflicting_session_ids` before it degrades — the None alone cannot tell
+    them apart. Callers that only NAME a marker need no such split: the shared
+    name is the same safe answer either way.
+
+    The only way to settle a disagreement is to leave exactly one candidate
+    set. `XP_SESSION_ID` is a candidate like the rest, not an override, so
+    exporting it alongside an inherited id adds a third disagreeing value.
 
     Deliberately NOT memoised: the result depends on `os.environ`, and a
     cached env-derived value breaks test isolation in a source-order runner

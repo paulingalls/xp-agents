@@ -139,14 +139,14 @@ _UNREADABLE_REASON = (
 
 
 def _conflict_reason(names: tuple[str, ...]) -> str:
-    """Why disagreeing session ids refuse instead of degrading."""
+    """Refusal prose. Why the remedy is SUBTRACTIVE: `resolve_session_id`."""
     return (
         f"Two session-id variables disagree ({', '.join(names)}), so which "
-        "session this process belongs to cannot be determined — one of them "
-        "was inherited from an agent that launched this one. Whether the hook "
-        "runtime is running here must not be assumed. Export XP_SESSION_ID "
-        "with the id of the session actually in charge, or unset the inherited "
-        "variable before launching."
+        "session this process belongs to cannot be determined — one was "
+        "inherited from an agent that launched this one, and whether the hook "
+        "runtime is running HERE must not be assumed. Unset the variable this "
+        "session does not own, before launching it, so a single id is left; "
+        "setting XP_SESSION_ID too adds a third disagreement, not a tie-break."
     )
 
 

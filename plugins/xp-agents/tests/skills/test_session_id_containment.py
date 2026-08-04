@@ -126,6 +126,36 @@ class TestSessionIdContainment(unittest.TestCase):
             self.assertEqual(hook_liveness.resolve_session_id(), "one-id")
             self.assertEqual(session_scope.conflicting_session_ids(), ())
 
+    def test_the_two_functions_normalise_a_value_identically(self):
+        """One emptiness-and-padding rule, or the pair disagrees about reality.
+
+        `conflicting_session_ids` decides WHETHER there is an answer and
+        `resolve_session_id` decides WHAT it is, from the same environment. Each
+        strips before comparing, and neither can be the one that stops: padding
+        read as significant turns one id under two names into a refusal, while a
+        whitespace-only value read as set turns a single-host session into one.
+        Both are false refusals of a working runtime, so the agreement is pinned
+        rather than left to the two implementations happening to match.
+        """
+        one_id = "an-id-with-padding"
+        for other in (f"  {one_id}", f"{one_id}\n", f"\t{one_id} "):
+            with self.subTest(padded=other):
+                env = dict.fromkeys(hook_liveness.SESSION_ID_ENV_CANDIDATES, "")
+                env[_env_hygiene.PINNED_SESSION_ID_VAR] = one_id
+                env["CODEX_THREAD_ID"] = other
+                with patch.dict(os.environ, env):
+                    self.assertEqual(session_scope.conflicting_session_ids(), ())
+                    self.assertEqual(hook_liveness.resolve_session_id(), one_id)
+
+        for blank in ("   ", "\t", "\n"):
+            with self.subTest(whitespace_only=blank):
+                env = dict.fromkeys(hook_liveness.SESSION_ID_ENV_CANDIDATES, "")
+                env[_env_hygiene.PINNED_SESSION_ID_VAR] = one_id
+                env["CODEX_THREAD_ID"] = blank
+                with patch.dict(os.environ, env):
+                    self.assertEqual(session_scope.conflicting_session_ids(), ())
+                    self.assertEqual(hook_liveness.resolve_session_id(), one_id)
+
     def test_a_single_candidate_still_resolves(self):
         """The ordinary single-host case must be untouched by the refusal."""
         for name in hook_liveness.SESSION_ID_ENV_CANDIDATES:

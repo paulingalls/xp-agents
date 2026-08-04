@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import hook_liveness
 import markers
+import session_scope
 from _heartbeat_fixtures import HOOK_LIVENESS_PY as _HOOK_LIVENESS_PY
 from _heartbeat_fixtures import env as _env
 from conftest import _HookTestCase, run_cli
@@ -266,6 +267,37 @@ class TestDisagreeingSessionIdsRefuse(_HookTestCase):
         for expected in ("CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "XP_SESSION_ID"):
             with self.subTest(names=expected):
                 self.assertIn(expected, result.reason)
+        self.assertIn(
+            "Unset",
+            result.reason,
+            "naming the variables is half the message: the remedy is "
+            "SUBTRACTIVE, and this is the only banner the operator sees",
+        )
+
+    def test_the_remedy_the_refusal_prescribes_actually_settles_it(self):
+        """A refusal that prescribes an inert step is worse than a terse one.
+
+        Every candidate counts toward the disagreement, XP_SESSION_ID included,
+        so `export XP_SESSION_ID=<the real id>` leaves the conflict standing —
+        and now blames the variable the operator just set. Following the prose
+        must reach a verdict, so the prose is checked against the code that
+        judges it rather than reviewed by eye.
+        """
+        settled = self._conflicted()
+        settled["CLAUDE_CODE_SESSION_ID"] = ""  # the inherited one, unset
+        with patch.dict(os.environ, settled):
+            self.assertEqual(session_scope.conflicting_session_ids(), ())
+            self.assertEqual(hook_liveness.resolve_session_id(), "this-hosts-own-id")
+
+        added = {**self._conflicted(), "XP_SESSION_ID": "this-hosts-own-id"}
+        with patch.dict(os.environ, added):
+            self.assertEqual(
+                session_scope.conflicting_session_ids(),
+                ("XP_SESSION_ID", "CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID"),
+                "exporting a third id must NOT be described as a tie-break: it "
+                "is one more disagreeing candidate",
+            )
+            self.assertIsNone(hook_liveness.resolve_session_id())
 
     def test_a_conflict_is_undetermined_not_determined_not_live(self):
         """Nothing was learned about the runtime, only that identity is unclear."""
