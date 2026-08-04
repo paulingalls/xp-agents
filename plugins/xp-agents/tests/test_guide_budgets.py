@@ -44,8 +44,11 @@ GUIDE_BUDGETS: dict[str, int] = {
     # consent prose. Cutting either to buy room for a pointer would spend
     # something load-bearing on something that is not.
     #
-    # 8300 is still well under the formula's 9040 — measured 8035 = 96.8%,
-    # leaving ~100 chars. The next clause here trims first.
+    # 8300 is still well under the formula's 9040. Close review then dropped a
+    # stale "(teammate only)" qualifier from the plan cycle — /xp-assign is
+    # solo-first and runs in both modes; only its GATE is teammate-scoped, and
+    # the same line already says so. Measured 8019 = 96.6%, ~115 chars left.
+    # The next clause here trims first.
     "PROCESS_GUIDE": 8300,
     "TEAMMATE_GUIDE": 4240,
 }

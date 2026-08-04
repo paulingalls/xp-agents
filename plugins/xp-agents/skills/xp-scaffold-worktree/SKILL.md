@@ -9,10 +9,14 @@ allowed-tools:
   - Grep
   - Glob
   - AskUserQuestion
+  - Bash(*/init.sh)
+  - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/worktree_differential.py *)
   - Bash(python3 */smm/system_context_cli.py *)
   - Bash(git rev-parse *)
 ---
+
+!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
 # Scaffold Worktree Bootstrap
 
@@ -170,14 +174,6 @@ Over 100 characters the schema refuses the write. Do not truncate to fit — ask
 the customer to move the command into a script the repository owns and declare
 the path to that script instead. A command that long is one the project should
 be holding in a file.
-
-### Step 7b: Narrow the other door
-
-The system-analyzer records this field too, from what a repository documents.
-Its rule against inventing or assembling a command stays exactly as written —
-the measurement vindicated it. What its prose does not yet say is that a
-recorded command is **unverified**: documented is not measured. Add that, and
-point at this skill to verify it.
 
 ## Step 8: Report scope honestly
 

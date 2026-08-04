@@ -10,8 +10,11 @@ set -euo pipefail
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
+# SMM_DIR only. `PLUGIN_ROOT` is emitted by three older preloads and read by
+# none of them — every SKILL.md spells plugin paths `${CLAUDE_PLUGIN_ROOT}`,
+# including this one — so a fourth copy would be injected context with no
+# reader.
 echo "SMM_DIR=${SMM_DIR}"
-echo "PLUGIN_ROOT=${PLUGIN_ROOT}"
 
 # Both fields read `none` rather than empty when unset. An empty value cannot be
 # branched on: `CURRENT_BOOTSTRAP=` is indistinguishable from a preload that
