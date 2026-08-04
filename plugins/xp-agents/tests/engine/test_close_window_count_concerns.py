@@ -27,6 +27,8 @@ from _close_window_fixtures import (
     _sprint_start,
 )
 from _count_concerns_fixtures import _CLI, _close_started, _concern
+from _scoped_gate_fixtures import _DIFF, _OUTSIDE_DIFF, _ScopedGateTestCase
+from _scoped_gate_fixtures import _concern as _sg_concern
 from conftest import _SMMTestCase, make_event, make_sprint_dict, run_cli, write_events
 from event_schema import EVENT_TYPE_STATUS
 
@@ -205,6 +207,80 @@ class TestCountConcernsWidening(_SMMTestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "0")
+
+
+class TestWidenedCloseNarrowsTaggedConcernsByRelevance(_ScopedGateTestCase):
+    """Widening admits a sibling's tagged concerns; relevance must still narrow them.
+
+    Concern d41cba499bf3: the `--diff-paths` relevance carve-out was gated on
+    `tag is None`, so it never applied to a TAGGED concern. That was harmless while
+    an enclosing close excluded every foreign tag outright — the tagged population
+    reaching the count was effectively just its own. Widening changes that: a
+    sprint close now counts the whole sprint's tagged set, with nothing narrowing
+    it to the code the close actually touches, so one story's unrelated finding
+    blocks another's merge.
+
+    The rule this pins: relevance may drop a concern when its tag is ABSENT, or
+    when the window widened and the tag is not the gated cycle's. A concern
+    tagged with THIS close still always counts, however its files read — that is
+    `test_scoped_gate_tagging.test_a_concern_raised_during_the_close_counts_despite_its_files`,
+    and the tag is authoritative there by design.
+    """
+
+    def _count_widened(self, events: list[dict], paths: list[str]) -> str:
+        """Gate an ENCLOSING close over a sprint that already ran a story-close."""
+        write_events(self.events_file, events)
+        self._materialize_recorded_files()
+        return self._count(
+            [
+                "--cycle-id",
+                _ENCLOSING,
+                "--since-ts",
+                _CLOSE_START_TS,
+                "--diff-paths",
+                str(self._diff_file(paths)),
+            ]
+        )
+
+    def _scene(self, concern: dict, *, mode: str = "sprint") -> list[dict]:
+        return [
+            _sprint_start(),
+            _close_started(_STORY_CYCLE, "story", "2026-07-22T10:00:00+00:00"),
+            concern,
+            _close_started(_ENCLOSING, mode, _CLOSE_START_TS),
+        ]
+
+    def test_foreign_tagged_concern_outside_the_diff_is_dropped(self) -> None:
+        # The finding itself: a sibling story-close's concern, in-sprint so the
+        # widened window admits it, but provably about a file this close does not
+        # touch. Counting it blocks a merge on unrelated evidence.
+        events = self._scene(
+            _sg_concern(files=[_OUTSIDE_DIFF], cycle=_STORY_CYCLE),
+        )
+        self.assertEqual(self._count_widened(events, _DIFF), "0")
+
+    def test_the_gated_closes_own_tagged_concern_still_counts(self) -> None:
+        # The property that must NOT regress: a concern raised during THIS close
+        # carries its id, and the tag is authoritative — the files heuristic may
+        # never drop it, even though its file sits outside the diff.
+        events = self._scene(
+            _sg_concern(files=[_OUTSIDE_DIFF], cycle=_ENCLOSING),
+        )
+        self.assertEqual(self._count_widened(events, _DIFF), "1")
+
+    def test_foreign_tagged_concern_inside_the_diff_still_counts(self) -> None:
+        # Narrowing only ever fires on positive proof of irrelevance. A sibling's
+        # concern about code this close DOES touch is exactly what the gate exists
+        # to surface.
+        events = self._scene(
+            _sg_concern(files=[_DIFF[0]], cycle=_STORY_CYCLE),
+        )
+        self.assertEqual(self._count_widened(events, _DIFF), "1")
+
+    def test_untagged_concern_outside_the_diff_is_still_dropped(self) -> None:
+        # The shipped untagged carve-out is unchanged by the extension.
+        events = self._scene(_sg_concern(files=[_OUTSIDE_DIFF]))
+        self.assertEqual(self._count_widened(events, _DIFF), "0")
 
 
 if __name__ == "__main__":

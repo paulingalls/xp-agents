@@ -313,8 +313,8 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         # the producers whose concerns bash_post_tool clears on green.
         if args.cycle_id and tag is None and _is_transient_test_concern(event):
             continue
-        # Second untagged carve-out, same shape as the one above: exclude by
-        # PROVABLE IRRELEVANCE, never by absence of a tag. The invariant —
+        # Relevance carve-out — which tags it may drop is window.allows_
+        # relevance_drop's call (d41cba499bf3); exclude by PROVABLE IRRELEVANCE —
         # excluded-from-scoped-gate IFF the concern names files that all EXIST
         # in the working tree and none of which intersect the close diff, i.e.
         # it is provably about OTHER code that is present and untouched
@@ -331,7 +331,7 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
             args.cycle_id
             and diff_paths
             and repo_root is not None
-            and tag is None
+            and window.allows_relevance_drop(tag)
             and concern_relevance.provably_outside_diff(event, diff_paths, repo_root)
         ):
             continue

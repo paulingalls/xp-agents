@@ -125,6 +125,32 @@ class ConcernWindow:
             return False
         return ts < self.floor
 
+    def allows_relevance_drop(self, tag: str | None) -> bool:
+        """May the diff-relevance rule drop a concern carrying `tag`?
+
+        The relevance carve-out used to be gated on `tag is None`, which was
+        harmless while an enclosing close excluded every foreign tag outright:
+        the only tagged concerns reaching the count were its own, and those are
+        authoritative. Widening breaks that assumption — a sprint close now
+        counts the whole sprint's tagged set — so without this the gate blocks on
+        a sibling story's finding about code this close never touched
+        (concern d41cba499bf3).
+
+        Untagged still qualifies, unchanged. A foreign tag qualifies only where
+        the window widened, which is the only place foreign tags survive
+        `excludes_tag` at all. The gated cycle's OWN tag never qualifies: a
+        concern raised during this close is authoritative however its files read,
+        pinned by `test_scoped_gate_tagging`.
+
+        Permission, not a decision — the caller still requires positive proof of
+        irrelevance from `concern_relevance.provably_outside_diff`.
+        """
+        if tag is None:
+            return True
+        if not self.widened:
+            return False
+        return tag != self.cycle_id
+
 
 def close_started_index(events: list[dict]) -> dict[str, dict]:
     """Map each close-cycle id to the `close_started` event that opened it.
