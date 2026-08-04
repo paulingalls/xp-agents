@@ -344,5 +344,106 @@ class TestCoordinationNotClearedOnRemovalFailure(_IntegrationTestCase):
         )
 
 
+class TestFailedForceRemovalIsReported(_IntegrationTestCase):
+    """A forced removal that FAILS is the one outcome nobody hears about.
+
+    `force=False` raises `WorktreeNotEmpty`; `force=True` has no such exit —
+    the return value carries only the branch, and every caller reads it as
+    "the tree is gone". Withholding the coordination clear (the class above)
+    is a withheld side effect, not a report: without this the stale worktree
+    sits there unmentioned until someone trips over it.
+    """
+
+    def test_a_failed_force_removal_names_the_path_and_gits_reason(self):
+        import io
+        import subprocess
+        from contextlib import redirect_stderr
+
+        name = "worktree-story-306"
+        wt_path = Path(_create_teammate_worktree(self.tmpdir, name))
+        real_run = subprocess.run
+
+        def fake_run(cmd, *args, **kwargs):
+            if cmd[:3] == ["git", "worktree", "remove"]:
+                return subprocess.CompletedProcess(
+                    cmd, returncode=1, stdout="", stderr="simulated git refusal"
+                )
+            return real_run(cmd, *args, **kwargs)
+
+        err = io.StringIO()
+        with (
+            patch("worktree.subprocess.run", side_effect=fake_run),
+            redirect_stderr(err),
+        ):
+            worktree.remove_worktree_dir(
+                name, str(self.tmpdir), force=True, smm_dir=self.smm_dir
+            )
+
+        message = err.getvalue()
+        self.assertIn(str(wt_path), message, "the operator needs the PATH")
+        self.assertIn("simulated git refusal", message, "git's own reason must survive")
+
+    def test_a_successful_force_removal_says_nothing(self):
+        """The refutation: a report that fires on the happy path is noise, and
+        noise is how a real one gets ignored."""
+        import io
+        from contextlib import redirect_stderr
+
+        name = "worktree-story-307"
+        _create_teammate_worktree(self.tmpdir, name)
+
+        err = io.StringIO()
+        with redirect_stderr(err):
+            worktree.remove_worktree_dir(
+                name, str(self.tmpdir), force=True, smm_dir=self.smm_dir
+            )
+
+        self.assertNotIn("removal FAILED", err.getvalue())
+
+
+class TestRespawnRunsTheDeclaredTeardown(_TeardownWiringTestCase):
+    """The CALL SITE half of the wiring, which no `remove_worktree_dir` test
+    can reach.
+
+    Teardown is opt-in per call site (`smm_dir=None` by default, deliberately —
+    ~15 tests create throwaway worktrees through `create_worktree` and must not
+    fire the developer's own declared command). Opt-in means a call site that
+    forgets makes the feature inert THERE while the whole choke-point suite
+    stays green — which is exactly what happened to `cleanup_existing`'s forced
+    arm: a re-spawn clearing a stale tree with a live stack tore down nothing.
+    """
+
+    def test_respawn_clearing_a_stale_worktree_runs_the_teardown(self):
+        """Mutation: drop `smm_dir=smm_dir` from either `cleanup_existing`'s
+        `remove_worktree` call or `create_worktree`'s `cleanup_existing` call
+        -> red. The artifact is written to $SMM_DIR, OUTSIDE the worktree, so
+        the removal that follows cannot destroy the evidence."""
+        import spawn_teammate
+
+        name = "worktree-story-308"
+        self.declare_teardown('echo torn > "$SMM_DIR/respawn-torn.txt"')
+        _create_teammate_worktree(self.tmpdir, name)
+
+        spawn_teammate.create_worktree(name, str(self.tmpdir), smm_dir=self.smm_dir)
+
+        self.assertTrue(
+            (self.smm_dir / "respawn-torn.txt").is_file(),
+            "the re-spawn's forced removal must run the declared teardown; "
+            "without it a stale tree's services outlive the worktree",
+        )
+
+    def test_a_respawn_without_an_smm_dir_still_never_tears_down(self):
+        """The other half of opt-in: no ambient resolution, ever."""
+        import spawn_teammate
+
+        name = "worktree-story-309"
+        self.declare_teardown('echo leaked > "$SMM_DIR/respawn-leak.txt"')
+        _create_teammate_worktree(self.tmpdir, name)
+
+        spawn_teammate.create_worktree(name, str(self.tmpdir))
+
+        self.assertFalse((self.smm_dir / "respawn-leak.txt").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

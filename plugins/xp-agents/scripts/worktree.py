@@ -216,6 +216,23 @@ def remove_worktree_dir(
                 "worktree by hand, then re-run."
             )
         removed_ok = result.returncode == 0
+        if not removed_ok and force and wt.is_dir():
+            # A forced removal that failed is the one outcome nobody hears
+            # about otherwise: `force=True` has no WorktreeNotEmpty to raise,
+            # the return value carries only the branch, and every caller reads
+            # it as "the tree is gone". Coordination is already withheld above,
+            # but a withheld side effect is not a report — the stale worktree
+            # would sit there unmentioned until someone tripped over it.
+            # stderr, not an exception: this runs inside `cleanup_teammate` and
+            # a `finally` in `worktree_differential`, where raising would
+            # replace the diagnostic the caller was already carrying.
+            print(
+                f"worktree removal FAILED for {wt} "
+                f"({result.stderr.strip() or 'non-zero exit'}); the directory "
+                f"is still there. If nothing below clears it, remove it by "
+                f"hand and run `git worktree prune`.",
+                file=sys.stderr,
+            )
     subprocess.run(
         ["git", "worktree", "prune"],
         cwd=cwd,

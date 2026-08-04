@@ -30,8 +30,6 @@ from pathlib import Path
 # so the `sprint_store` import below resolves.
 import worktree  # isort: split
 
-import branch_lifecycle
-import branch_resolution
 import hook_liveness
 import identity
 import in_place_marker
@@ -42,6 +40,13 @@ import sprint_store
 # `spawn_args.parse_args`. main() calls it through THIS module's global, so
 # every caller and every `spawn_teammate.parse_args` test spelling is unchanged.
 from spawn_args import parse_args
+
+# The held-branch recovery lives in a sibling leaf module (split out when the
+# teardown wiring pushed this file past 500 lines); keep the name importable
+# here, for exactly the seam reason above — `create_worktree` reads THIS
+# module's global, so `patch.object(spawn_teammate, "_release_branch_from_main")`
+# is the interception point, and patching the leaf is not.
+from spawn_branch_release import _release_branch_from_main
 
 # Command-line construction (the claude -p argv shape) lives in a sibling leaf
 # module; keep the name importable here so `spawn_teammate.build_command` IS
@@ -102,7 +107,9 @@ def resolve_sprint_id(smm_dir: str | Path) -> str | None:
     return sprint_id if isinstance(sprint_id, str) and sprint_id else None
 
 
-def cleanup_existing(name: str, cwd: str, *, owns_branch: bool = True) -> None:
+def cleanup_existing(
+    name: str, cwd: str, *, owns_branch: bool = True, smm_dir: Path | None = None
+) -> None:
     """Clear a stale worktree before (re)creating one at the same path.
 
     ``owns_branch`` decides whether the worktree's BRANCH dies with it, and it
@@ -118,73 +125,25 @@ def cleanup_existing(name: str, cwd: str, *, owns_branch: bool = True) -> None:
       ``git worktree add <path> <branch>``, because the ref it was told to
       check out no longer existed.
 
-    The branch was only HALF the story, and this is the other half. Sparing the
-    branch spares what the teammate COMMITTED; the worktree DIRECTORY still went
-    away under `--force`, taking everything it had not committed yet. A live
-    teammate re-spawned under the same name lost its whole working tree, and the
-    branch it was spared pointed at the last commit before the loss. The in-place
-    path took an exclusive claim to stop exactly this (`claim_in_place_marker`);
-    the worktree path had no check at all. `force=False` hands the decision to
-    git, which refuses to remove a tree with modified or untracked files —
-    covering the live teammate and the crashed-before-commit one alike.
+    Sparing the branch was only HALF the story: it spares what the teammate
+    COMMITTED, while the worktree DIRECTORY still went away under `--force`,
+    so a live teammate re-spawned under the same name lost its whole working
+    tree and the spared branch pointed at the last commit before the loss. The
+    in-place path took an exclusive claim to stop exactly this
+    (`claim_in_place_marker`); the worktree path had none. `force=False` is
+    that half — git refuses to remove a tree holding modified or untracked
+    files, covering live and crashed-before-commit teammates alike.
+
+    ``smm_dir`` is what makes the declared ``stack.worktree_teardown`` run on
+    the FORCED arm; it is opt-in at ``remove_worktree_dir``, so omitting it
+    here left a re-spawn clearing a live stack's tree tearing down nothing.
+    The force=False arm still gets none by design (see that docstring), and
+    the None default is there for the reason ``create_worktree``'s is.
     """
     if owns_branch:
-        worktree.remove_worktree(name, cwd, force_branch=True)
+        worktree.remove_worktree(name, cwd, force_branch=True, smm_dir=smm_dir)
     else:
         worktree.remove_worktree_dir(name, cwd, force=False)
-
-
-def _release_branch_from_main(cwd: str, branch: str, smm_dir: Path | None) -> None:
-    """Check the main checkout away from `branch` so a worktree can take it.
-
-    No-op unless main is ON that exact branch — the recovery is conditional.
-
-    `branching.py create` leaves the main checkout on the branch it just cut, and
-    `git worktree add <path> <branch>` then refuses (exit 128) a branch that is
-    already checked out elsewhere, killing the spawn before the agent starts.
-    The only thing that ever prevented that was a second, hand-written
-    `git checkout "$BASE"` in the assign flow, with nothing enforcing it — so the
-    precondition lives here instead of in the caller.
-
-    The base is resolved through the SAME ``--required`` resolver the assign flow
-    uses, so the two cannot disagree about what "base" means and neither can
-    silently degrade to the release branch. With no `smm_dir` there is no honest
-    base to resolve, so this SKIPS rather than guessing one: behavior identical
-    to before it existed, git's 128 included. Only positional test callers reach
-    that leg — ``--smm-dir`` is required and `main` always passes it.
-
-    NEVER `--force`, and never a stash. Uncommitted work in the main checkout
-    must STOP the spawn: this is the same philosophy `cleanup_existing` documents
-    above — hand the decision to git, which refuses to clobber modified or
-    untracked files. The refusal is a RuntimeError naming the branch, the base
-    and git's stderr, because the caller needs an actionable reason and
-    CalledProcessError carries none of that in its message. It relays git's
-    reason rather than ASSERTING one: a blocked checkout is usually a dirty
-    tree, but not always, and prescribing "stash it" for a failure that was
-    never about local changes sends the operator after the wrong thing.
-
-    Routed through the SAME retry `branch_lifecycle` uses for its checkout, for
-    the same reason and in a strictly worse spot: this one runs immediately
-    before a `git worktree add`, i.e. in the middle of a fan-out where sibling
-    spawns are mutating the worktree registry and taking the index concurrently.
-    Both retried signatures (`index.lock`, a transient "already used by
-    worktree" registry misread) are live here, and either one would otherwise
-    surface as the refusal above — telling the operator to commit work that is
-    not there while the spawn dies.
-    """
-    if smm_dir is None or identity.get_current_branch(cwd) != branch:
-        return
-    base = branch_resolution.get_story_base_branch_required(smm_dir, cwd)
-    result = branch_lifecycle._git_retry_on_lock(["git", "checkout", base], cwd)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"The main checkout at {cwd} is on '{branch}', the branch this "
-            f"worktree needs, and git refused to check it away to the story "
-            f"base '{base}': {result.stderr.strip()}. Not forcing the checkout "
-            f"— that would discard whatever is uncommitted in the main "
-            f"checkout. Clear what git reports above (commonly: commit or stash "
-            f"the changes), then re-run the spawn."
-        )
 
 
 def create_worktree(
@@ -197,15 +156,15 @@ def create_worktree(
     to place teammates on story branches — and spawn does not own that
     branch, so a stale worktree is cleared without touching it.
 
-    When smm_dir is provided, the project's declared bootstrap command (if
-    any) runs in the new worktree before this returns — see run_bootstrap.
-    It is an explicit argument, and must NEVER become an ambient read of the
-    environment or init.sh: ~15 tests and fixtures create throwaway worktrees
-    through this function positionally, and an ambient read would fire the
-    developer's OWN declared bootstrap in every one of them. Default None =
-    no bootstrap, which is exactly what those callers want.
+    When smm_dir is provided the project's declared bootstrap runs in the new
+    worktree before this returns (see run_bootstrap), and its declared teardown
+    runs against the stale tree cleared first. It is an explicit argument and
+    must NEVER become an ambient read of the environment or init.sh: ~15 tests
+    and fixtures create throwaway worktrees through this function positionally,
+    and an ambient read would fire the developer's OWN declared commands in
+    every one of them. Default None = neither, which is what those callers want.
     """
-    cleanup_existing(name, cwd, owns_branch=branch is None)
+    cleanup_existing(name, cwd, owns_branch=branch is None, smm_dir=smm_dir)
 
     wt = worktree.worktree_path(name, cwd)
     wt.parent.mkdir(parents=True, exist_ok=True)

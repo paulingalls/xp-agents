@@ -319,6 +319,41 @@ class TestTheBootstrapPatchSeam(_BootstrapTestCase):
         )
 
 
+class TestTheBranchReleasePatchSeam(_BootstrapTestCase):
+    """The same seam question for `_release_branch_from_main`, which now lives
+    in `spawn_branch_release` and is re-imported here.
+
+    `test_spawn_teammate_branch_release.py` patches
+    `spawn_teammate._release_branch_from_main` and asserts it was NOT called on
+    the in-place path — an assertion that passes vacuously if the name it
+    patches stops being the one `create_worktree` reads. This is the positive
+    half that makes it non-vacuous: patching THIS module's global must actually
+    intercept. Mutation: have `create_worktree` call
+    `spawn_branch_release._release_branch_from_main` directly -> red here, and
+    the in-place test silently stops proving anything.
+    """
+
+    def test_patching_spawn_teammate_intercepts_create_worktree(self):
+        import subprocess
+
+        subprocess.run(["git", "branch", "handed-branch"], cwd=self.tmpdir, check=True)
+
+        with patch.object(spawn_teammate, "_release_branch_from_main") as stub:
+            spawn_teammate.create_worktree(
+                "worktree-story-seam", str(self.tmpdir), branch="handed-branch"
+            )
+
+        stub.assert_called_once()
+
+    def test_the_two_names_share_one_object_at_import(self):
+        import spawn_branch_release
+
+        self.assertIs(
+            spawn_teammate._release_branch_from_main,
+            spawn_branch_release._release_branch_from_main,
+        )
+
+
 class TestInPlaceSkipsBootstrap(_BootstrapTestCase):
     """AC4: --in-place never reaches the bootstrap — structurally."""
 
