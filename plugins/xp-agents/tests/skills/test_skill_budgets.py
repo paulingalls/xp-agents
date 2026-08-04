@@ -52,6 +52,11 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-quality-review": 6720,
     "xp-review-plan": 990,
     "xp-scaffold-acceptance": 20940,
+    # First budget, calibrated on the registration increment's skeleton (720
+    # chars). Re-derived from the finished surface once its steps land — the
+    # skeleton is not the surface, so this number is a placeholder measurement,
+    # not a ceiling the steps have to fit under.
+    "xp-scaffold-worktree": 810,
     "xp-schedule": 6710,
     "xp-sprint-close": 7540,
     "xp-sprint-review": 1420,
