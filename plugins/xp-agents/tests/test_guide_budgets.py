@@ -35,7 +35,18 @@ from conftest import (
 
 GUIDE_BUDGETS: dict[str, int] = {
     "XP_VALUES": 1150,
-    "PROCESS_GUIDE": 8090,
+    # Bumped 8090 -> 8300 (story-001) for one clause naming the skill that
+    # verifies `stack.worktree_bootstrap`. A deliberate bump, and NOT paid for
+    # by trimming, because there was nothing left to trim honestly: the guide
+    # measured 7915 = 97.84%, THIRTEEN characters off the band, and the two
+    # paragraphs with any bulk left are the System Context reader list (a
+    # sync contract a shipped helper's docstring points at) and the Narrowing
+    # consent prose. Cutting either to buy room for a pointer would spend
+    # something load-bearing on something that is not.
+    #
+    # 8300 is still well under the formula's 9040 — measured 8035 = 96.8%,
+    # leaving ~100 chars. The next clause here trims first.
+    "PROCESS_GUIDE": 8300,
     "TEAMMATE_GUIDE": 4240,
 }
 
