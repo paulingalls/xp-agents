@@ -55,6 +55,12 @@ class TestCommitGateArming(_ScratchTestCase):
         report = arm_gates.arm_commit_gate(repo=self.repo, smm_dir=self.smm_dir)
         self.assertEqual(arm_gates.read_cadence(self.smm_dir), "commit")
         self.assertTrue(report["armed"])
+        # And the overwrite is stated. The write is persistent with no paired
+        # restore (the measured run is a separate process), so pointed at a real
+        # SMM it changes that project's cadence for everyone afterwards —
+        # silently, unless the report says which value it replaced.
+        self.assertEqual(report["previous_cadence"], "story")
+        self.assertIn("OVERWROTE 'story'", arm_gates.describe(report))
 
     def test_arming_refuses_when_too_few_code_files_are_staged(self) -> None:
         # One staged code file is below REVIEW_CYCLE_THRESHOLD, so the gate
@@ -111,6 +117,11 @@ class TestStopGateArming(_ScratchTestCase):
         result = arm_gates.run_stop_gate(
             repo=self.repo, smm_dir=self.smm_dir, stop_hook_active=True
         )
+        # Exit status too: a handler that died on import also prints nothing to
+        # stdout, so empty-stdout alone would read a crash as a release — the
+        # same conflation `classify` refuses on the commit side.
+        self.assertEqual(result["returncode"], 0, result["stderr"])
+        self.assertEqual(result["stderr"], "")
         self.assertEqual(result["stdout"].strip(), "")
 
     def test_arming_works_when_the_cwd_is_a_worktree_teammate(self) -> None:

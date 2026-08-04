@@ -368,14 +368,22 @@ this throwaway story.
 ## Instruments
 
 - `spike/probe_commit_shapes.py` — the matrix above. Refuses to produce one
-  unless a known-blocking control blocks first: the commit gate **skips itself
-  silently** when the SMM fails to validate (`pre_tool_bash.py:240`), so an
-  unarmed rig reports every shape as not-blocked, which reads exactly like total
-  bypass. Anything that is not a clean allow or a reasoned refusal is `error`,
-  never `allowed` — `blocked = (rc == 2)` would fold a traceback into permission.
+  unless a known-blocking control blocks first, **and blocks with the review
+  gate's own reason**: the commit gate **skips itself silently** when the SMM
+  fails to validate (`pre_tool_bash.py:240`), so an unarmed rig reports every
+  shape as not-blocked, which reads exactly like total bypass — and a refusal
+  from a *different* gate in the same chain (tier-1 secret scan, unresolvable
+  `-C`) would read as armed while the measured gate sat released. Anything that
+  is not a clean allow or a reasoned refusal is `error`, never `allowed` —
+  `blocked = (rc == 2)` would fold a traceback into permission. Exits non-zero
+  when a measured row disagrees with the pinned expectation, so a detector change
+  fails rather than reprinting a stale matrix.
 - `spike/arm_gates.py` — arms a real gate and **asserts** it bites, diagnosing
   every known release path on failure. Mutation-verified: with the cadence write
-  removed, arming fails and names `cadence='story'` as the cause.
+  removed, arming fails and names `cadence='story'` as the cause. The cadence
+  write is deliberately **not** restored (the measured run is a separate
+  process), so pointed at a real project SMM it leaves that project on `commit`
+  — the report prints the value it overwrote.
 
 **The cadence trap, recorded because it would have cost a run.** Under `story`
 cadence the commit gate never blocks — it emits an advisory
@@ -409,9 +417,14 @@ closes the inference story-003 left open (it never quoted a shell payload):
 
 Two consequences. Our `Bash` matcher works *because* Codex normalises to it —
 not because a `Bash` tool exists. And the stripped dot means our `Agent` matcher
-(case-sensitive) never matches `collaborationspawn_agent`, so **no
-`PostToolUse` fired for subagent tool calls at all**. The matcher-less
-`PreToolUse` entry is the only reason they were observed.
+(case-sensitive) never matches `collaborationspawn_agent`, so **no `PostToolUse`
+HOOK ran for the subagent SPAWN call**. Stated that narrowly on purpose: there
+is no matcher-less `PostToolUse` entry registered, so the corpus cannot tell
+"Codex emitted no event" from "nothing we registered could match it" — and it is
+only the spawn call that is unseen, since `PostToolUse` fires normally for tool
+calls made *inside* a subagent (that is the `some-firings` `agent_type` column
+above). The matcher-less `PreToolUse` entry is the only reason the
+`collaboration*` calls were observed at all.
 
 ## AC-1 — interception, per shell path
 
@@ -525,9 +538,16 @@ session). It does not trigger the criterion because `--disable unified_exec`
 closes it and the replacement path is gated. Ship that flag as a spawn-time
 requirement or the gate is decorative.
 
-**Neither criterion fails. Two things carry forward as required work rather than
-no-gos:** the spawn-time `--disable unified_exec` requirement, and the
-unauthenticated review marker whose only legitimate writer cannot fire here.
+**Neither criterion fails. Three things carry forward as required work rather
+than no-gos:** the spawn-time `--disable unified_exec` requirement, the
+unauthenticated review marker whose only legitimate writer cannot fire here, and
+— on **both** harnesses, so outside the Codex verdict but not outside the
+findings — the six detector-evading spellings plus the quoted `-C` targeting hole
+(concern `6c5d02b11cda`, story-011). The evasions are the accepted cost of a
+deliberate design (`pre_tool_bash.py`: "bash isn't statically parseable", so
+trust+merge is the model), not a regression — but a findings doc that lists only
+the two Codex items would leave a reader believing the commit gate is airtight
+once the flag is set.
 
 ## Corrections this story makes to earlier findings
 
@@ -552,6 +572,13 @@ unauthenticated review marker whose only legitimate writer cannot fire here.
   `SessionStart`, `scripts/tdd_stop_gate.py` on `Stop`, plus a **matcher-less
   `PreToolUse`** recorder (keep it — it is the only thing that sees
   `collaboration*` tools).
+- Consequence of that matcher-less entry: a `Bash` or `apply_patch` `PreToolUse`
+  firing is now recorded **twice** (the matched entry and the matcher-less entry
+  each run the recorder, with distinct filenames). **Capture count is therefore
+  not firing count** — presence tables are unaffected, but any count, and
+  `tabulate_fields.py`'s firing-order listing, will double those events. The
+  negative observations above (`write_stdin` produced no capture at all) do not
+  depend on counting.
 - `spike/_skill_inject.py` is **unregistered** (it was a confound here).
 - `spike/_probe_resolve.py` stays on `SessionStart`; its `resolved_smm_dir` is the
   only evidence a shipped handler wrote the scratch SMM rather than the project's.

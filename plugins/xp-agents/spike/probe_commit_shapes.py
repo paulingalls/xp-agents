@@ -17,9 +17,12 @@ direction the criterion is measured in — toward a false "bypass":
 1. **The rig must be provably armed.** The commit gate skips itself entirely
    when the SMM fails to validate (`pre_tool_bash.py:240` guards the call on
    `smm_dir is not None`) and says nothing about it. An unarmed rig therefore
-   reports every shape as not-blocked — 15 rows that read exactly like total
+   reports every shape as not-blocked — 14 rows that read exactly like total
    bypass. A positive control is the only honest guard, so `assert_armed`
-   refuses to let a matrix be produced without one.
+   refuses to let a matrix be produced without one, and requires the control to
+   block with the REVIEW gate's reason: any other refusal (tier-1 secret scan,
+   an unresolvable `-C`) means some other gate bit and says nothing about the
+   one being measured.
 2. **A crashing hook is not a permissive hook.** `blocked = (rc == 2)` folds a
    traceback, an import error and a missing interpreter into "allowed".
 
@@ -29,6 +32,7 @@ Never guesses: a status it cannot interpret is ERROR, not ALLOWED.
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -46,6 +50,10 @@ ERROR = "error"
 # broken and no other row can be trusted.
 CONTROL_COMMAND = 'git commit -m "probe control"'
 
+# The reason the REVIEW-cycle gate gives. Pinned so a block from any other gate
+# in the same chain cannot be mistaken for this one being armed.
+CONTROL_REASON_FRAGMENT = "/xp-quality-review"
+
 _TIMEOUT_SECONDS = 60
 
 # Env that would otherwise steer git or the SMM resolver out from under us. Same
@@ -59,6 +67,9 @@ _STRIP = (
     "SMM_DIR",
     "XP_AGENTS_DATA",
     "XP_TEAMMATE_NAME",
+    # Read by init.sh, which build_rig runs: a dev shell exporting `force` would
+    # drive relocation past the guard the rig has no reason to exercise.
+    "XP_SMM_MIGRATE",
     "XP_SESSION_ID",
     "CLAUDE_CODE_SESSION_ID",
     "CODEX_THREAD_ID",
@@ -123,7 +134,13 @@ def classify(returncode: int, stderr: str) -> str:
     return ERROR
 
 
-def _hook_env(smm_dir: Path) -> dict:
+def hook_env(smm_dir: Path) -> dict:
+    """The contained environment every hook subprocess here runs under.
+
+    Public because `arm_gates` drives the Stop gate through the same
+    containment: one definition, so the two rigs cannot disagree about which
+    variables are allowed to steer git or the SMM resolver.
+    """
     env = {k: v for k, v in os.environ.items() if k not in _STRIP}
     env["SMM_DIR"] = str(smm_dir)
     env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
@@ -146,7 +163,7 @@ def run_shape(command: str, *, repo: Path, smm_dir: Path) -> dict:
             capture_output=True,
             text=True,
             timeout=_TIMEOUT_SECONDS,
-            env=_hook_env(smm_dir),
+            env=hook_env(smm_dir),
             cwd=str(repo),
         )
         returncode, stderr = result.returncode, result.stderr
@@ -227,7 +244,14 @@ def build_rig(
 
 
 def assert_armed(*, repo: Path, smm_dir: Path) -> dict:
-    """Refuse to produce a matrix unless the known-blocking shape blocks."""
+    """Refuse to produce a matrix unless the known-blocking shape blocks.
+
+    "Blocked" is not enough: the commit chain holds several gates, and a refusal
+    from a different one (tier-1 secret scan, unresolvable `-C`) would leave the
+    review gate released while the report said ARMED. So the reason is pinned
+    too, and the control's verbatim stderr travels with the refusal so the gate
+    that actually bit is readable.
+    """
     result = run_shape(CONTROL_COMMAND, repo=repo, smm_dir=smm_dir)
     if result["classification"] != BLOCKED:
         raise RigNotArmedError(
@@ -235,6 +259,13 @@ def assert_armed(*, repo: Path, smm_dir: Path) -> dict:
             "would be meaningless. The gate skips itself silently on an SMM "
             f"that fails to validate.\n  smm_dir: {smm_dir}\n"
             f"  exit: {result['returncode']}\n  stderr: {result['stderr']!r}"
+        )
+    if CONTROL_REASON_FRAGMENT not in result["stderr"]:
+        raise RigNotArmedError(
+            "control shape blocked, but not on the review gate — some other "
+            f"commit gate bit, so the one being measured is not proven armed.\n"
+            f"  expected reason to name: {CONTROL_REASON_FRAGMENT}\n"
+            f"  smm_dir: {smm_dir}\n  stderr: {result['stderr']!r}"
         )
     return result
 
@@ -300,12 +331,16 @@ def main() -> int:
                 print(
                     f"- {r['name']}: expected {r['expect']}, got {r['classification']}"
                 )
+            # Non-zero, so the pin FAILS rather than printing a warning a piped
+            # or tailed run never shows: the matrix in the findings doc is stale
+            # the moment any row moves.
+            return 1
         return 0
     finally:
         if args.keep:
             print(f"\nrig kept at {root}", file=sys.stderr)
         else:
-            subprocess.run(["rm", "-rf", str(root)], check=False)
+            shutil.rmtree(root, ignore_errors=True)
 
 
 if __name__ == "__main__":

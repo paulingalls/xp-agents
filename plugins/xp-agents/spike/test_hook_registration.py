@@ -25,6 +25,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 _HOOKS_CODEX = _PLUGIN_ROOT / "hooks" / "hooks.codex.json"
+_CODEX_MANIFEST = _PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
+_HOOKS_CODEX_REF = "./hooks/hooks.codex.json"
 _PLUGIN_ROOT_VAR = "${CLAUDE_PLUGIN_ROOT}/"
 
 
@@ -69,8 +71,9 @@ def commands_for(hooks: dict, event: str) -> list[str]:
     return [c for e, _m, c in registered_commands(hooks) if e == event]
 
 
-def matchers_for(hooks: dict, event: str) -> list[str]:
-    return [entry.get("matcher", "") for entry in hooks.get(event, [])]
+def matcherless_commands_for(hooks: dict, event: str) -> list[str]:
+    """Commands registered on an entry with NO matcher — the every-tool slot."""
+    return [c for e, m, c in registered_commands(hooks) if e == event and m == ""]
 
 
 class TestPathsResolve(unittest.TestCase):
@@ -111,6 +114,22 @@ class TestPathsResolve(unittest.TestCase):
                 load_hooks(bad)
 
 
+class TestTheManifestPointsAtTheFileUnderTest(unittest.TestCase):
+    """Everything above checks `hooks.codex.json`. This checks Codex reads it.
+
+    Without the explicit `hooks` field the harness auto-discovers
+    `hooks/hooks.json` — the Claude variant, with none of the recorders — and
+    every event this story measures produces no capture at all. That is the same
+    string a hook that never fired produces, and this diff edits the manifest.
+    """
+
+    def test_the_codex_manifest_names_the_codex_hooks_file(self) -> None:
+        manifest = json.loads(_CODEX_MANIFEST.read_text(encoding="utf-8"))
+        self.assertEqual(manifest.get("hooks"), _HOOKS_CODEX_REF)
+        self.assertTrue((_PLUGIN_ROOT / _HOOKS_CODEX_REF).is_file())
+        self.assertEqual((_PLUGIN_ROOT / _HOOKS_CODEX_REF).resolve(), _HOOKS_CODEX)
+
+
 class TestTheConfoundIsGone(unittest.TestCase):
     def test_skill_inject_is_not_registered(self) -> None:
         # story-010 left `_skill_inject.py` live on PreToolUse:Bash, where it
@@ -136,7 +155,13 @@ class TestTheHandlersThisStoryNeeds(unittest.TestCase):
         # AC-1's interception enumeration: with no matcher, the recorder sees
         # every tool the model calls, which is how the shell tool's `tool_name`
         # gets QUOTED rather than inferred. The dump currently infers it.
-        self.assertIn("", matchers_for(load_hooks(), "PreToolUse"))
+        #
+        # The RECORDER specifically, not merely "some matcher-less entry
+        # exists": that weaker assertion stays green if the entry is later
+        # repurposed for another handler, leaving nothing watching the
+        # unmatched tools while the check still reads as covering them.
+        commands = matcherless_commands_for(load_hooks(), "PreToolUse")
+        self.assertTrue(any("_dump_payload.py" in c for c in commands), commands)
 
     def test_session_start_runs_the_real_handler_for_the_guide(self) -> None:
         # AC-4 measures compliance with TEAMMATE_GUIDE prose, which only ever

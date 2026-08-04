@@ -22,6 +22,7 @@ Deleted with the rest of the rig at sprint close. Run explicitly:
 (`pytest.ini` sets `testpaths` to the tests dir, so the default run skips it.)
 """
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -68,7 +69,7 @@ class TestTheRigIsArmed(_RigTestCase):
 
     def test_assert_armed_raises_when_the_control_does_not_block(self) -> None:
         # The whole point. Guards a probe that reports a matrix regardless —
-        # which, on an unvalidatable SMM, is 15 rows of "not blocked" that read
+        # which, on an unvalidatable SMM, is 14 rows of "not blocked" that read
         # exactly like criterion 3 failing, and would be reported as the
         # verdict. An SMM dir that cannot validate is the realistic way in.
         with (
@@ -79,6 +80,25 @@ class TestTheRigIsArmed(_RigTestCase):
 
     def test_assert_armed_passes_on_the_real_rig(self) -> None:
         probe.assert_armed(repo=self.repo, smm_dir=self.smm_dir)
+
+    def test_assert_armed_refuses_a_block_from_a_different_gate(self) -> None:
+        # "Blocked" alone does not prove the REVIEW gate is armed. The tier-1
+        # secret scan runs earlier in the same chain and refuses the very same
+        # control command, so a probe that accepted any refusal would report
+        # ARMED while the gate it measures sat released — and every later row
+        # would be attributed to it. (AWS's own documented example key.)
+        (self.repo / "leak.py").write_text(
+            'aws_key = "AKIAIOSFODNN7EXAMPLE"\n', encoding="utf-8"
+        )
+        subprocess.run(
+            ["git", "add", "leak.py"],
+            cwd=str(self.repo),
+            check=True,
+            capture_output=True,
+        )
+        with self.assertRaises(probe.RigNotArmedError) as ctx:
+            probe.assert_armed(repo=self.repo, smm_dir=self.smm_dir)
+        self.assertIn("Tier 1", str(ctx.exception))
 
 
 class TestClassification(unittest.TestCase):
@@ -148,10 +168,11 @@ class TestQuotedDashCSignature(_RigTestCase):
     Not a fix and not a duplicate record — concern `6c5d02b11cda` owns it. What
     belongs here is the observable signature, so criterion 3's matrix reports
     it as a measured row rather than an anecdote: the same command blocks
-    unquoted and does not block quoted.
+    QUOTED and does not block unquoted — the direction matters, because the
+    quoted form is the one that blocks after scanning the wrong repo.
     """
 
-    def test_unquoted_dash_c_blocks_but_quoted_does_not(self) -> None:
+    def test_quoted_dash_c_blocks_but_unquoted_does_not(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             other, _ = probe.build_rig(Path(td), stage_files=False)
             unquoted = self._run(f"git -C {other} commit -m x")

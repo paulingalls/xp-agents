@@ -102,7 +102,15 @@ def _diagnose_commit_gate(repo: Path, smm_dir: Path) -> str:
 
 
 def arm_commit_gate(*, repo: Path, smm_dir: Path) -> dict:
-    """Arm the review-cycle commit gate and assert it bites."""
+    """Arm the review-cycle commit gate and assert it bites.
+
+    The cadence write is PERSISTENT and is not restored — it must survive into
+    the separate process the measured run happens in, so there is no paired
+    exit here. Pointed at a real project SMM (`--repo`/`--smm-dir`) it therefore
+    changes that project's live cadence for everyone afterwards, which is why
+    the previous value is carried into the report and printed.
+    """
+    previous_cadence = read_cadence(smm_dir)
     write_cadence(smm_dir, "commit")
     try:
         control = probe.assert_armed(repo=repo, smm_dir=smm_dir)
@@ -115,6 +123,7 @@ def arm_commit_gate(*, repo: Path, smm_dir: Path) -> dict:
         "armed": True,
         "gate": "commit",
         "cadence": read_cadence(smm_dir),
+        "previous_cadence": previous_cadence,
         "staged_code_files": staged_code_files(repo),
         "threshold": commits.REVIEW_CYCLE_THRESHOLD,
         "agent_id": agent_id_for(repo),
@@ -150,7 +159,7 @@ def run_stop_gate(*, repo: Path, smm_dir: Path, stop_hook_active: bool = False) 
         capture_output=True,
         text=True,
         timeout=_TIMEOUT_SECONDS,
-        env=probe._hook_env(smm_dir),
+        env=probe.hook_env(smm_dir),
         cwd=str(repo),
     )
     return {
@@ -208,7 +217,12 @@ def arm_tdd_stop_gate(*, repo: Path, smm_dir: Path) -> dict:
         except json.JSONDecodeError:
             decision = None
     if not (decision and decision.get("decision") == "block"):
-        agent_id = agent_id_for(repo)
+        # The gate reads `agent_id` off the STOP PAYLOAD, which carries none on
+        # either harness — so its self-exclusion never applies and even this
+        # rig's OWN coordination entry counts as "another agent". Diagnosing
+        # with `agent_id_for(repo)` instead would exclude that entry and report
+        # "no other agents" for the release it actually caused.
+        payload_agent_id = ""
         raise NotArmedError(
             "TDD Stop gate did not block after arming, so any 'did not block' "
             "observation from Run L would be meaningless.\n"
@@ -216,9 +230,11 @@ def arm_tdd_stop_gate(*, repo: Path, smm_dir: Path) -> dict:
             f"  stdout: {result['stdout']!r}\n"
             f"  stderr: {result['stderr']!r}\n"
             f"  diagnosis: other active agents="
-            f"{coordination.has_active_teammates(smm_dir, agent_id)} "
+            f"{coordination.has_active_teammates(smm_dir, payload_agent_id)} "
             f"(a live sibling releases this gate, since it may own the failing "
-            f"tests); agent_id={agent_id!r}; smm_dir={smm_dir}"
+            f"tests; Stop carries no agent_id, so ANY coordination entry counts "
+            f"— including this rig's own); signal author="
+            f"{agent_id_for(repo)!r}; smm_dir={smm_dir}"
         )
     return {
         "armed": True,
@@ -227,6 +243,7 @@ def arm_tdd_stop_gate(*, repo: Path, smm_dir: Path) -> dict:
         "returncode": result["returncode"],
         "block_reason": decision.get("reason", ""),
         "agent_id": agent_id_for(repo),
+        "fail_signal": _FAIL_CONCERN,
         "smm_dir": str(smm_dir),
     }
 
@@ -245,9 +262,15 @@ def describe(report: dict) -> str:
         )
     if report["gate"] == "commit":
         code = report["staged_code_files"]
+        previous = report.get("previous_cadence")
+        restore = (
+            ""
+            if previous == report["cadence"]
+            else f" — OVERWROTE {previous!r}, persistent, restore it afterwards"
+        )
         return (
             f"commit gate ARMED in {report['smm_dir']}\n"
-            f"  - cadence: {report['cadence']} "
+            f"  - cadence: {report['cadence']}{restore} "
             f"(story would only advise, never block)\n"
             f"  - staged code files: {len(code)} >= "
             f"{report['threshold']} — {code}\n"
@@ -261,7 +284,10 @@ def describe(report: dict) -> str:
         f"  - mechanism: {report['mechanism']} (exit {report['returncode']}, "
         f"not stderr+exit 2)\n"
         f"  - agent id: {report['agent_id']}\n"
-        f"  - blocked with: {report['block_reason']!r}"
+        f"  - blocked with: {report['block_reason']!r}\n"
+        f"  - armed by an appended concern: {report['fail_signal']!r}. The log "
+        f"is append-only, so nothing here disarms it — resolve that concern, or "
+        f"this SMM keeps blocking Stop for every agent scoped to it."
     )
 
 
