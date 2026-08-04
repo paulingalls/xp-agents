@@ -13,9 +13,13 @@ behaviour they used to share a module with:
   ever will — plus `lefthook.yml`, which strips them before the interpreter
   starts and so cannot be covered from inside it.
 
-- **Ordering.** The chain is ordered by OWNERSHIP, not arrival: one host
-  launched from another inherits the launcher's variable, so several can be set
-  at once and preference alone picks the marker.
+- **Refusal, not preference.** One host launched from another inherits the
+  launcher's variable, so two can be set at once — and which one this host owns
+  depends on which launched which, runtime state the environment does not
+  record. Disagreement therefore resolves to None rather than to whichever the
+  chain lists first, which makes ORDER irrelevant to correctness. Guessing
+  would address the launcher's heartbeat and read as live for a session whose
+  own hooks never loaded.
 """
 
 import os
