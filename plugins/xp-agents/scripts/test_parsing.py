@@ -1,161 +1,21 @@
 #!/usr/bin/env python3
-"""Test framework detection and result parsing.
+"""Test result parsing — one output shape per framework.
 
-Pure functions for identifying test commands and parsing their output.
-No SMM dependencies — stdlib only (re).
+Pure functions, no SMM dependencies. Two siblings do the work either side of
+this module: `framework_detect` names the framework from the COMMAND before
+the run, `result_counts` pulls the numbers out of the OUTPUT after it. This
+module owns only what a count means for each framework.
 
-Extracted from bash_post_tool.py for module size management.
+Extracted from bash_post_tool.py for module size management; the detection
+half split off to `framework_detect` when the per-framework summary anchors
+landed. `is_test_run` is re-exported below so existing importers and
+`mock.patch("...test_parsing.is_test_run")` sites are unaffected.
 """
 
 import re
 
-# ---------------------------------------------------------------------------
-# Command classification
-# ---------------------------------------------------------------------------
-
-# Bounded lazy-quantifier "0-5 intervening tokens" — the upper bound keeps
-# regex engines from backtracking pathologically on long arg lists.
-_FLAG_GAP = r"(?:\s+\S+){0,5}?"
-# Reject characters that would extend `test` into a different identifier.
-# Includes `.` (file extensions: `bun build test.ts` shouldn't match `test`),
-# `-` (kebab tool names: `pnpm exec test-fixture-builder`), and word chars
-# (script names: scripts already capture via the colon-suffix group).
-_NOT_IDENT_TAIL = r"(?![\w.-])"
-# Allow colon-suffixed script names: test, test:unit, test:e2e-live (hyphens
-# allowed within the suffix for kebab-case scripts).
-_TEST_SCRIPT_TAIL = r"test(?::[\w:-]+)?" + _NOT_IDENT_TAIL
-
-# Package-script / workspace launcher patterns used by is_test_run — the test
-# target lives in package.json/config, NOT on the command line. Named as
-# constants because the regexes are dense and flag-tolerant; verify_paths'
-# classify_path_strategy keys off is_test_run's *return value*, so the
-# launcher vocabulary stays here as the single source.
-_TURBO_RE = (
-    r"\b(?:npx\s+|bunx\s+|pnpm\s+|yarn\s+|bun\s+x\s+)?turbo"
-    + _FLAG_GAP
-    + r"\s+(?:run\s+)?"
-    + _TEST_SCRIPT_TAIL
-)
-_NX_RES = (
-    r"\bnx\s+test\b",
-    r"\bnx\s+run\s+\S+:test\b",
-    r"\bnx\s+\S+\s+--targets?=test(?:[,\s]|$)",
-)
-_BUN_SCRIPT_RE = r"\bbun" + _FLAG_GAP + r"\s+(?:run\s+)?" + _TEST_SCRIPT_TAIL
-_NPM_SCRIPT_RE = (
-    r"\b(?:npm|pnpm|yarn|lerna)" + _FLAG_GAP + r"\s+(?:run\s+)?" + _TEST_SCRIPT_TAIL
-)
-
-
-def is_test_run(command: str) -> str | None:
-    """Check if the command is a test run. Returns framework name or None."""
-    # Python
-    if re.search(r"\bpytest\b", command) or re.search(
-        r"python3?\s+-m\s+pytest\b", command
-    ):
-        return "pytest"
-    if re.search(r"python3?\s+-m\s+unittest\b", command):
-        return "unittest"
-
-    # JavaScript/TypeScript
-    # Playwright — check before generic script aliases; covers
-    # `playwright test`, `npx/bunx/pnpm-exec/yarn playwright test`, and
-    # `./node_modules/.bin/playwright test` (\b matches at `/`).
-    if re.search(r"\bplaywright\s+test\b", command):
-        return "playwright"
-
-    # Direct runners. `\b` already matches at `/` boundaries, so a single
-    # word-bounded match covers bare invocation, npx/bunx/pnpm-exec/yarn-dlx
-    # wrappers, and direct-binary path tails (`./node_modules/.bin/jest`).
-    if re.search(r"\bjest\b", command):
-        return "jest"
-    if re.search(r"\bvitest\b", command):
-        return "vitest"
-    if re.search(r"\bmocha\b", command):
-        return "mocha"
-
-    # Node built-in test runner: `node --test`, `node --test test/**/*.js`
-    if re.search(r"\bnode\s+--test\b", command):
-        return "node-test"
-    # Deno test runner: `deno test`, `deno test src/`
-    if re.search(r"\bdeno\s+test\b", command):
-        return "deno"
-
-    # Workspace task runners (turbo). Check turbo before bun/pnpm so that
-    # `pnpm turbo test` returns "turbo" rather than the pnpm-script form.
-    # Turbo accepts `turbo test`, `turbo run test`, with or without a
-    # wrapping `npx`/`bunx`/`pnpm`. `--filter=<pkg>` and other flags may
-    # appear after `test`.
-    if re.search(_TURBO_RE, command):
-        return "turbo"
-
-    # nx workspace runner: `nx test <pkg>`, `nx run <pkg>:test`,
-    # `nx run-many --target=test`, `nx run-many --targets=test,build`.
-    if any(re.search(p, command) for p in _NX_RES):
-        return "nx"
-
-    # bun: bare `bun test[:script]` or `bun run test[:script]`, and the
-    # workspace form `bun --filter <pkg> test[:script]` (and similar
-    # flag-tolerant variants up to 5 intervening tokens).
-    if re.search(_BUN_SCRIPT_RE, command):
-        return "bun"
-
-    # npm/pnpm/yarn/lerna script aliases — flag-tolerant (covers --filter,
-    # --workspace, -w, -F, -r, workspace foreach, workspace <pkg>, run, etc.)
-    # bound to 5 intervening tokens. lerna folded in here since it shares
-    # the script-alias shape (`lerna run test [--scope=<pkg>]`).
-    if re.search(_NPM_SCRIPT_RE, command):
-        return "jest"
-
-    # Go
-    if re.search(r"\bgo\s+test\b", command):
-        return "go"
-    # Swift/Xcode
-    if re.search(r"\bxcodebuild\b.*\btest\b", command):
-        return "xcodebuild"
-    if re.search(r"\bswift\s+test\b", command):
-        return "swift"
-    # Rust
-    if re.search(r"\bcargo\s+test\b", command):
-        return "cargo"
-    # Java/Kotlin — flag-tolerant for monorepo/multi-module forms like
-    # `mvn -pl <module> test`, `mvn -pl <module> verify`.
-    if re.search(r"\bmvn" + _FLAG_GAP + r"\s+(?:test|verify)\b", command):
-        return "maven"
-    # Gradle accepts `gradle test`, `./gradlew test`, `./gradlew :module:test`,
-    # `./gradlew :module:sub:test` (path-prefixed task name). `\bgradlew\b`
-    # subsumes both `./gradlew` and bare `gradlew` invocations.
-    if re.search(
-        r"\b(?:gradle|gradlew)" + _FLAG_GAP + r"\s+(?::?[\w:-]+:)?test\b",
-        command,
-    ):
-        return "gradle"
-    # Ruby
-    if re.search(r"\brspec\b", command):
-        return "rspec"
-    if re.search(r"\bruby\s+-Itest\b", command) or re.search(
-        r"\brake\s+test\b", command
-    ):
-        return "minitest"
-    # PHP
-    if re.search(r"\bphpunit\b", command):
-        return "phpunit"
-    # C# / .NET
-    if re.search(r"\bdotnet\s+test\b", command):
-        return "dotnet"
-    # Dart/Flutter
-    if re.search(r"\bdart\s+test\b", command) or re.search(
-        r"\bflutter\s+test\b", command
-    ):
-        return "dart"
-    # Elixir
-    if re.search(r"\bmix\s+test\b", command):
-        return "elixir"
-    # C/C++ (Google Test, CTest)
-    if re.search(r"\bctest\b", command):
-        return "ctest"
-    return None
-
+import result_counts
+from framework_detect import is_test_run  # noqa: F401  (re-export)
 
 # ---------------------------------------------------------------------------
 # Test result parsing
@@ -174,50 +34,47 @@ PARSER_STATUS_FAILED = "parser_failed"
 _RE_N_PASSED = r"(\d+)\s+passed"
 _RE_N_FAILED = r"(\d+)\s+failed"
 
-
-def _count(pattern: str, tool_response: str, last: bool) -> int | None:
-    """One count — the LAST match when `last`, else the FIRST. Which one is
-    authoritative is per-framework policy, NOT a universal rule.
-
-    Summary-last runners need the last match: live, a file whose own source
-    read "the batch must report 1 failed" was echoed back inside bun's error
-    context and beat the `0 fail` summary. Jest shares the shape — its
-    `Test Suites:` line precedes the `Tests:` line that actually counts tests.
-
-    Summary-first runners are the opposite: mocha prints its numbered failure
-    list, test titles and all, AFTER the counts; cargo appends a `0 passed;
-    0 failed` doc-test block after every run; turbo/nx and dotnet interleave
-    per-package summaries with no aggregate, so the last one seen erases a red
-    package. Reading last there moves the phantom-count bug, or disarms.
-
-    Not line-anchored either way — deno's `ok | 5 passed | 2 failed` and
-    cargo's `test result: ok. 15 passed` are mid-line.
-    """
-    found = re.findall(pattern, tool_response)
-    return int(found[-1 if last else 0]) if found else None
-
-
-def _parse_two_counts(
-    tool_response: str, pass_re: str, fail_re: str, last: bool
-) -> tuple[int, int, bool]:
-    """Extract two named numeric counts. Returns (passed, failed, matched)."""
-    p = _count(pass_re, tool_response, last)
-    f = _count(fail_re, tool_response, last)
-    return p or 0, f or 0, p is not None or f is not None
+# Summary-line anchors (see `_apply_two_counts`). Each names the ONE line a
+# runner puts its counts on, so several sub-runs sum instead of overwriting and
+# an echoed count on any other line is simply not a summary.
+_RE_JEST_SUMMARY = r"\bTests:"  # NOT "Test Suites:" — that counts files
+_RE_CARGO_SUMMARY = r"\btest result:"
+_RE_DOTNET_SUMMARY = r"(?:Passed|Failed|Skipped)!\s*-"
+_RE_MOCHA_SUMMARY = r"^\s*\d+\s+(?:passing|failing)\b"
 
 
 def _apply_two_counts(
-    result: dict, tool_response: str, pass_re: str, fail_re: str, last: bool = True
+    result: dict,
+    tool_response: str,
+    pass_re: str,
+    fail_re: str,
+    summary_line: str | None = None,
 ) -> None:
     """Parse counts into result and set status from match outcome.
 
     matched + non-zero counts → PARSED; matched + zero counts → ZERO
     (the framework's summary line proves it ran with zero tests, even when
     a framework-specific zero marker isn't recognized). Unmatched leaves
-    status at the caller's default (PARSER_FAILED). `last` is the ordering
-    policy documented on `_count` — pass False for a summary-first runner.
+    status at the caller's default (PARSER_FAILED).
+
+    *summary_line* is a per-framework anchor for runners whose counts sit on an
+    identifiable summary line: those are SUMMED across every match, so a run
+    that emits one summary per sub-run and no aggregate (cargo's test binaries
+    plus its doc-test block, a dotnet solution, a workspace launcher) reports
+    the whole run instead of one arbitrary member of it. When the anchor finds
+    nothing the whole-response fallback runs, so an unfamiliar reporter shape
+    degrades to the old answer rather than to zero. See `result_counts`.
     """
-    passed, failed, matched = _parse_two_counts(tool_response, pass_re, fail_re, last)
+    passed = failed = 0
+    matched = False
+    if summary_line is not None:
+        passed, failed, matched = result_counts.summary_line_counts(
+            tool_response, summary_line, pass_re, fail_re
+        )
+    if not matched:
+        passed, failed, matched = result_counts.two_counts(
+            tool_response, pass_re, fail_re
+        )
     result["passed"] = passed
     result["failed"] = failed
     if matched:
@@ -253,11 +110,14 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             if re.search(r"\bno tests ran\b|\bcollected 0 items\b", tool_response):
                 result["status"] = PARSER_STATUS_ZERO
                 return result
-            _apply_two_counts(result, tool_response, _RE_N_PASSED, _RE_N_FAILED)
-            # Last match, for the same reason the counts above use it: errors
-            # fold into `failed`, so a count echoed from a traceback above the
-            # summary arms the failure gate.
-            errors = _count(r"(\d+)\s+error", tool_response, True)
+            # Every count comes from pytest's OWN summary line, never from the
+            # rest of the response. Chained tools share one Bash call and one
+            # tool_response (`pytest -q; pyright`), and `errors` folds into
+            # `failed` — so a stray "0 errors" from the tool that ran next used
+            # to zero the collection errors that were the run's only signal.
+            region = result_counts.pytest_summary_region(tool_response)
+            _apply_two_counts(result, region, _RE_N_PASSED, _RE_N_FAILED)
+            errors = result_counts.last_count(r"(\d+)\s+error", region)
             if errors is not None:
                 result["errors"] = errors
                 # Fold errors into failed so consumers see one disjoint
@@ -267,14 +127,27 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
 
         case "jest" | "vitest" | "playwright":
             # "Tests:  2 failed, 3 passed, 5 total" or "Tests:  5 passed, 5 total"
-            # Zero markers: "Tests: ... 0 passed, 0 total" or "No tests found".
-            if re.search(
-                r"Tests:\s*0\s+passed,\s*0\s+total|\bNo tests found\b",
-                tool_response,
-            ):
+            # "No tests found" is the only zero marker that needs its own
+            # branch: it carries no counts. A `Tests: 0 passed, 0 total` line
+            # does, so the summed path below reaches ZERO on its own — and it
+            # must, because a short-circuit on the FIRST such line reported a
+            # whole workspace as zero when one package happened to be empty.
+            if re.search(r"\bNo tests found\b", tool_response):
                 result["status"] = PARSER_STATUS_ZERO
                 return result
-            _apply_two_counts(result, tool_response, _RE_N_PASSED, _RE_N_FAILED)
+            # Anchor on the `Tests:` line: it is the one that counts TESTS
+            # (`Test Suites:` precedes it and counts files), and a workspace
+            # launcher — `pnpm -r test`, `yarn workspaces foreach`, lerna, all
+            # of which land in this arm — prints one per package with no
+            # aggregate, so the counts have to be summed or a red package is
+            # erased by a green one. Playwright has no such line and falls back.
+            _apply_two_counts(
+                result,
+                tool_response,
+                _RE_N_PASSED,
+                _RE_N_FAILED,
+                summary_line=_RE_JEST_SUMMARY,
+            )
 
         case "go":
             # Count ok lines (passes) and FAIL lines. Go has no distinct
@@ -326,10 +199,16 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
 
         case "cargo":
             # "test result: ok. 15 passed; 0 failed; 0 ignored" — one such line
-            # per test binary, and a trailing Doc-tests block (usually
-            # "0 passed; 0 failed") closes every run, so read the FIRST.
+            # per test binary, plus a trailing Doc-tests block that closes every
+            # run. Summed: the doc-tests block contributes its own real counts
+            # (usually 0/0), and under --no-fail-fast a red binary is not
+            # erased by a green one that ran after it.
             _apply_two_counts(
-                result, tool_response, _RE_N_PASSED, _RE_N_FAILED, last=False
+                result,
+                tool_response,
+                _RE_N_PASSED,
+                _RE_N_FAILED,
+                summary_line=_RE_CARGO_SUMMARY,
             )
 
         case "maven" | "gradle":
@@ -394,13 +273,13 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
 
         case "dotnet":
             # "Passed!  - Failed: 0, Passed: 5, Skipped: 0, Total: 5" — one per
-            # project on a solution run, with no aggregate; FIRST match.
+            # project on a solution run, with no aggregate, so they sum.
             _apply_two_counts(
                 result,
                 tool_response,
                 r"Passed:\s*(\d+)",
                 r"Failed:\s*(\d+)",
-                last=False,
+                summary_line=_RE_DOTNET_SUMMARY,
             )
 
         case "dart":
@@ -446,14 +325,17 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             _apply_two_counts(result, tool_response, r"(\d+)\s+pass", r"(\d+)\s+fail")
 
         case "mocha":
-            # "  10 passing (123ms)" and optional "  2 failing", printed BEFORE
-            # the numbered failure list whose titles can echo counts; FIRST.
+            # "  10 passing (123ms)" and optional "  2 failing", each alone on
+            # its line — which is what makes them safe to read. The numbered
+            # failure list that follows carries test TITLES, and a title
+            # reading "must report 7 failing rows" is indistinguishable from a
+            # count in any whole-response scan, first or last.
             _apply_two_counts(
                 result,
                 tool_response,
                 r"(\d+)\s+passing",
                 r"(\d+)\s+failing",
-                last=False,
+                summary_line=_RE_MOCHA_SUMMARY,
             )
 
         case "node-test":
@@ -469,12 +351,18 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             )
 
         case "nx" | "turbo":
-            # nx/turbo wrap underlying frameworks; their summary lines vary.
-            # Best-effort: fall through to the same N passed/N failed shape
-            # that jest/vitest/pytest also use. One summary per package and no
-            # aggregate line, so FIRST — reading last erases a red package.
+            # nx/turbo wrap underlying frameworks, one summary per package and
+            # no aggregate line, so the package summaries sum. The jest/vitest
+            # `Tests:` anchor covers the common wrapped runner; a package
+            # running something else has no line this can key on and falls back
+            # to the whole-response scan, which still reports only ONE package.
+            # That residue is the recorded multi-sub-run debt.
             _apply_two_counts(
-                result, tool_response, _RE_N_PASSED, _RE_N_FAILED, last=False
+                result,
+                tool_response,
+                _RE_N_PASSED,
+                _RE_N_FAILED,
+                summary_line=_RE_JEST_SUMMARY,
             )
 
     return result

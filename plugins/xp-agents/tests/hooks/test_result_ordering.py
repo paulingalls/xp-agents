@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Which regex match is the authoritative count — ordering policy only.
+"""WHICH matches become the recorded count — extraction policy only.
 
-The count regexes scan the WHOLE tool response, so when a payload contains
-several matches, ordering decides what gets recorded and whether the failure
-gate arms. That policy is per-framework, so it gets its own file rather than
-living among the per-framework shape tests in test_result_parsing.py.
+The per-framework shape tests in test_result_parsing.py all feed one clean
+summary. Real output is not that: a runner emits several sub-run summaries with
+no aggregate, echoes source text or test titles that read like counts, or
+shares one Bash call with a second tool. What gets counted then decides whether
+the failure gate arms, so it is its own question and gets its own file.
+
+Two strategies are pinned here (see `result_counts`): summing over an anchored
+summary LINE, and the whole-response last-match fallback for runners with no
+such line.
 """
 
 import sys
@@ -73,13 +78,14 @@ class TestCountsComeFromTheSummaryNotTheNoise(unittest.TestCase):
         self.assertEqual(result["failed"], 4)
 
 
-class TestSummaryIsNotAlwaysLast(unittest.TestCase):
-    """Summary-first runners: the FIRST match is the authoritative one.
+class TestCountsComeFromTheSummaryLine(unittest.TestCase):
+    """Anchored runners: every summary line counts, and only summary lines.
 
-    These print their counts BEFORE trailing text that also matches the count
-    regexes. Reading the last match moves the phantom-count bug rather than
-    fixing it — and for cargo and the workspace runners it moves it in the
-    disarming direction, which is the worse one.
+    First-vs-last is a false choice for these. Each can emit SEVERAL summaries
+    with no aggregate, so any single-match rule reports one sub-run and erases
+    the others — last-match hides a red earlier package, first-match hides a
+    red later one, and both let text that merely LOOKS like a count win.
+    Anchoring on the summary line and summing answers all three.
     """
 
     def test_mocha_failure_list_does_not_overwrite_the_counts(self):
@@ -131,7 +137,7 @@ class TestSummaryIsNotAlwaysLast(unittest.TestCase):
         result = test_parsing.parse_test_results(output, "turbo")
         self.assertEqual(result["failed"], 2)
 
-    def test_dotnet_reads_the_first_project_summary(self):
+    def test_dotnet_sums_every_project_summary(self):
         """A solution run prints one summary per project, no aggregate."""
         output = (
             "Failed!  - Failed: 2, Passed: 8, Skipped: 0, Total: 10\n"
@@ -139,6 +145,7 @@ class TestSummaryIsNotAlwaysLast(unittest.TestCase):
         )
         result = test_parsing.parse_test_results(output, "dotnet")
         self.assertEqual(result["failed"], 2)
+        self.assertEqual(result["passed"], 38, "both projects ran")
 
     def test_pytest_error_count_comes_from_the_summary(self):
         """Errors fold into `failed`, so an echoed count arms the gate."""
@@ -149,6 +156,98 @@ class TestSummaryIsNotAlwaysLast(unittest.TestCase):
         result = test_parsing.parse_test_results(output, "pytest")
         self.assertEqual(result["errors"], 2)
         self.assertEqual(result["failed"], 3, "1 failed + 2 errors")
+
+
+class TestASubRunIsNeverErasedByAnother(unittest.TestCase):
+    """One summary per sub-run and no aggregate — so they sum.
+
+    The failure mode all of these share: a run whose sub-runs disagree gets
+    recorded as whichever one the extraction happened to land on. When that is
+    a GREEN one, no failure concern is filed and the resolver records the red
+    suite as passing — the gate is disarmed, not merely noisy.
+    """
+
+    def test_cargo_does_not_report_only_the_first_test_binary(self):
+        """A green lib binary must not hide a red integration binary."""
+        output = (
+            "test result: ok. 12 passed; 0 failed; 0 ignored\n\n"
+            "     Running tests/integration.rs\n"
+            "test result: FAILED. 3 passed; 2 failed; 0 ignored\n\n"
+            "   Doc-tests mycrate\n"
+            "test result: ok. 0 passed; 0 failed; 0 ignored\n"
+        )
+        result = test_parsing.parse_test_results(output, "cargo")
+        self.assertEqual(result["failed"], 2, "the second binary was red")
+        self.assertEqual(result["passed"], 15, "12 + 3 across both binaries")
+
+    def test_a_workspace_launcher_does_not_report_only_one_package(self):
+        """`pnpm -r test` and friends resolve to the jest arm.
+
+        Every npm/pnpm/yarn/lerna script alias lands there, and those are
+        exactly the multi-package/no-aggregate shape — the same one the
+        workspace task runners have. A red package must survive a green one
+        whichever order they print in.
+        """
+        red_first = (
+            "Tests:       2 failed, 8 passed, 10 total\n"
+            "Tests:       0 failed, 30 passed, 30 total\n"
+        )
+        for output in (red_first, "".join(reversed(red_first.splitlines(True)))):
+            with self.subTest(order=output.splitlines()[0]):
+                result = test_parsing.parse_test_results(output, "jest")
+                self.assertEqual(result["failed"], 2)
+                self.assertEqual(result["passed"], 38)
+
+    def test_one_empty_package_does_not_zero_the_whole_workspace(self):
+        """The zero marker short-circuited on the FIRST `0 passed, 0 total`.
+
+        A workspace where one package has no tests is ordinary, and it used to
+        return ZERO for the entire run — recording 0 tests for a suite that ran
+        30. The summed path reaches ZERO on its own when everything is zero, so
+        the marker was never needed for count-bearing lines.
+        """
+        output = "Tests:       0 passed, 0 total\nTests:       30 passed, 30 total\n"
+        result = test_parsing.parse_test_results(output, "jest")
+        self.assertEqual(result["status"], "parsed")
+        self.assertEqual(result["passed"], 30)
+
+
+class TestTextThatMerelyLooksLikeACount(unittest.TestCase):
+    """A count is only a count when it is on the runner's summary line."""
+
+    def test_a_mocha_test_title_is_not_a_failure_count(self):
+        """The original bun incident, relocated to a runner with no anchor.
+
+        A fully green mocha run prints NO `failing` line at all, so any
+        whole-response scan reads the number out of a passing test's TITLE and
+        files the high-severity concern that arms the Stop gate on a green
+        suite. Neither match ordering helps; only the anchor does.
+        """
+        output = (
+            "  2 passing (12ms)\n\n"
+            "  Batch\n"
+            "    ✓ the batch must report 7 failing rows\n"
+            "    ✓ the batch must report 3 passing rows\n"
+        )
+        result = test_parsing.parse_test_results(output, "mocha")
+        self.assertEqual(result["failed"], 0, "there is no failing line")
+        self.assertEqual(result["passed"], 2)
+
+    def test_a_second_tool_in_the_same_bash_call_cannot_zero_the_errors(self):
+        """`pytest -q; pyright` shares one command and one tool_response.
+
+        pytest's errors fold into `failed`, so reading the LAST `N error(s)`
+        anywhere took pyright's tail instead — zeroing a run whose only failure
+        signal was collection errors and promoting it to a clean parse.
+        """
+        output = (
+            "2 errors in 0.42s\n"
+            "0 errors, 0 warnings, 0 informations\n"
+            "Completed in 1.05sec\n"
+        )
+        result = test_parsing.parse_test_results(output, "pytest")
+        self.assertEqual(result["errors"], 2)
+        self.assertEqual(result["failed"], 2, "collection errors did not pass")
 
 
 if __name__ == "__main__":

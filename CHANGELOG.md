@@ -14,20 +14,25 @@ regexes scan the whole payload and took the first match they saw. Running the
 suite, the one action that should clear such a gate, re-parsed the same phantom
 every time.
 
-Counts now come from the summary. Which match *is* the summary turned out to be
-per-framework, and the rule that felt universal is not: taking the last match
-everywhere fixes bun, jest, pytest, deno and node-test — and breaks cargo,
-mocha, nx/turbo and dotnet. Cargo appends a `Doc-tests` block ending
-`test result: ok. 0 passed; 0 failed` to **every** run, so a green 15-test run
-would parse as zero tests, and under `--no-fail-fast` a real `19 passed;
-1 failed` would parse as **0 failed with no concern filed**. Mocha prints its
-counts first and its failure list after, so a test *title* mentioning failures
-becomes the count — the same bug, relocated.
+Counts now come from the summary **line**, and every summary line counts.
+First-vs-last was a false choice: cargo prints one `test result:` per test
+binary plus a `Doc-tests` block, a dotnet solution prints one per project, and
+a workspace launcher (`pnpm -r test`, turbo, nx) prints one per package — none
+of them emit an aggregate. Reading a single match reports one sub-run and
+erases the rest, so a green package hid a red one, in whichever order they
+happened to print. Anchoring on the runner's own summary line and summing
+across them reports the run, and text that merely *looks* like a count — the
+echoed source line, a mocha test title reading "must report 7 failing rows" —
+is simply not on a summary line. Runners with no line-identifiable summary
+(bun, deno, playwright, node-test) keep the last-match scan as a fallback.
 
-Two more parses were wrong before anyone looked: jest had been reporting
-`Test Suites:` counts as test counts (that line precedes `Tests:`), and
-pytest's `errors` count still came from the first match, so a traceback quoting
-a number inflated the gate-arming total.
+Three more parses were wrong before anyone looked: jest reported `Test Suites:`
+counts as test counts (that line precedes `Tests:`); a red cargo run under
+`--no-fail-fast` reported **0 failed with no concern filed**, because the
+doc-test block that closes every run says `0 failed`; and pytest's `errors`
+count came from anywhere in the payload, so a second tool sharing the Bash call
+(`pytest -q; pyright`) could zero the collection errors that were the run's
+only failure signal.
 
 ### Your own reviewer is not a competing agent
 
@@ -55,10 +60,24 @@ every other path-valued preload variable.
 
 `close_common merge --archive-sprint` without `--smm-dir` refused *after* the
 merge commit had landed, a state no retry resolves; it is static argument
-validation and now precedes every side effect. Its "nothing archived" warning
-folded together a completed earlier attempt and a wrong `--smm-dir` — the
-second ends a close with no snapshot at all — and now reports the evidence it
-actually has instead of asserting a cause.
+validation and now precedes every side effect. A `--smm-dir` that is not an SMM
+is refused there too: it used to exit **0** while merging, writing an
+`events.jsonl` and a `sprints/` tree into the typo'd directory, recording no
+merge-commit event in the real SMM, archiving nothing, and deleting the source
+branch anyway. Without `--archive-sprint` only the fail-open accounting event
+is at stake, so that case warns instead of aborting a correct merge. The
+"nothing archived" warning now reports the evidence it actually has rather than
+asserting a cause.
+
+`cleanup_teammate` proves a teammate branch is merged, then removes the
+worktree and deletes the branch — two steps, and the deletion can still refuse
+if a commit lands between them (the parallel-teammate case). It discarded that
+refusal, deleting the markers, report and story assignment that were the only
+records naming the branch, and exiting 0. It now keeps them and says so.
+
+`session_end`'s summary read the same never-cleared `working_on` claims the
+conflict detector was reporting on, so plugin subagents showed as in-flight
+work in every session summary; it applies the same `xp-` fence.
 
 ## v5.5.0 — A bootstrap command you verified, and a close cycle that cannot die quietly
 

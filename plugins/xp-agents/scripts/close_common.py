@@ -213,20 +213,16 @@ def cmd_merge(args: argparse.Namespace) -> int:
     already emitted), so we trust it to bail. delete_branch returns
     False on failure (e.g. unmerged commits) — we surface and abort.
     """
-    # Static arg validation, so it precedes every side effect. Both values are
-    # known at parse time; refusing later once left a merge commit on the
-    # target under a nonzero exit, a state no retry resolves.
-    if getattr(args, "archive_sprint", False) and not args.smm_dir:
-        sys.stderr.write("merge refused: --archive-sprint requires --smm-dir\n")
-        return 1
-
-    # Probed HERE, before the merge-event append below creates events.jsonl in
-    # whatever directory it was handed — after that, a typo'd --smm-dir is
-    # indistinguishable from a real SMM. The archive's "nothing to archive"
-    # branch reads this to name which of its two causes it hit.
-    smm_preexisting = (
-        bool(args.smm_dir) and (Path(args.smm_dir) / "events.jsonl").exists()
+    # --smm-dir/--archive-sprint validation FIRST, before every side effect —
+    # both are knowable at parse time and both refusals are unrecoverable once
+    # the merge has landed. close_archive_step owns the reasoning.
+    notice = close_archive_step.smm_dir_notice(
+        args.smm_dir, getattr(args, "archive_sprint", False)
     )
+    if notice is not None:
+        sys.stderr.write(notice.message)
+        if notice.fatal:
+            return 1
 
     block = close_verify_gate.verify_gate_block(args)
     if block:
@@ -318,7 +314,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
     # before delete_branch. Both bounds are load-bearing — see
     # close_archive_step, which owns the reasoning and the step.
     if getattr(args, "archive_sprint", False) and smm_dir is not None:
-        rc = close_archive_step.archive_step(smm_dir, smm_preexisting)
+        rc = close_archive_step.archive_step(smm_dir)
         if rc != 0:
             return rc
 

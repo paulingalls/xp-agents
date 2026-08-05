@@ -20,14 +20,64 @@ retries.
 
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 
-def archive_step(smm_dir: Path, smm_preexisting: bool) -> int:
+class SmmDirNotice(NamedTuple):
+    """Something to say about `--smm-dir`, and whether it stops the chain."""
+
+    message: str
+    fatal: bool
+
+
+def smm_dir_notice(smm_dir: str, archive_sprint: bool) -> SmmDirNotice | None:
+    """Validate `--smm-dir` against `--archive-sprint`. None when it is fine.
+
+    STATIC validation — both inputs are known at parse time, so the caller runs
+    this before the merge. Refusing later once left a merge commit on the
+    target under a nonzero exit, a state no retry resolves.
+
+    Two fatal cases, both requiring --archive-sprint, which makes the whole
+    chain SMM-dependent: no --smm-dir at all (the archive would be silently
+    skipped), and a --smm-dir carrying no events.jsonl. init.sh touches that
+    file on every SMM it resolves, so its absence is proof the path is not one,
+    not a heuristic — and it must be read BEFORE the merge-event append, which
+    creates events.jsonl in whatever directory it was handed. Continuing past
+    it writes an events.jsonl/lock and a sprints/ tree into the typo'd
+    directory, records NO merge-commit event in the real SMM (silently
+    reopening the merge-gap hole cmd_merge exists to close), archives nothing,
+    and still deletes the source branch, all under exit 0.
+
+    Without --archive-sprint only the accounting event is at stake and that
+    step is fail-open by design, so a bad path warns rather than aborting a
+    correct merge. It never passes silently either way.
+    """
+    if archive_sprint and not smm_dir:
+        return SmmDirNotice(
+            "merge refused: --archive-sprint requires --smm-dir\n", True
+        )
+    if not smm_dir or (Path(smm_dir) / "events.jsonl").exists():
+        return None
+    if archive_sprint:
+        return SmmDirNotice(
+            f"merge refused: --smm-dir {smm_dir} is not an SMM "
+            "(no events.jsonl) — check the path\n",
+            True,
+        )
+    return SmmDirNotice(
+        f"warn: --smm-dir {smm_dir} is not an SMM (no events.jsonl); the merge "
+        "commit event will not reach the real one\n",
+        False,
+    )
+
+
+def archive_step(smm_dir: Path) -> int:
     """Archive sprint.json under *smm_dir*. Returns 0 to continue, 1 to abort.
 
-    *smm_preexisting* must be probed by the caller BEFORE the merge-event
-    append, which creates events.jsonl in whatever directory it was handed —
-    after that a typo'd --smm-dir is indistinguishable from a real SMM.
+    *smm_dir* is a proven SMM by the time this runs: cmd_merge refuses
+    --archive-sprint against a directory carrying no events.jsonl, before the
+    merge and before anything writes one there. So the reasons a snapshot can
+    be missing here are only the two `absent_cause` weighs.
     """
     # smm/ is already on sys.path (the caller imports sprint_store from it).
     import sprint_archive
@@ -46,14 +96,14 @@ def archive_step(smm_dir: Path, smm_preexisting: bool) -> int:
         # weight, so name which one on the evidence available.
         sys.stderr.write(
             f"warn: no sprint.json under {smm_dir} — nothing archived "
-            f"({absent_cause(smm_dir, smm_preexisting)})\n"
+            f"({absent_cause(smm_dir)})\n"
         )
     else:
         print(f"archived sprint: {archived}")
     return 0
 
 
-def absent_cause(smm_dir: Path, smm_preexisting: bool) -> str:
+def absent_cause(smm_dir: Path) -> str:
     """Why there was nothing to archive, on structural evidence only.
 
     "Nothing archived" has two causes with opposite weight: a prior attempt of
@@ -62,10 +112,6 @@ def absent_cause(smm_dir: Path, smm_preexisting: bool) -> str:
     reports the evidence and says which reading it supports — it never asserts
     a cause it cannot see.
     """
-    if not smm_preexisting:
-        # An SMM always carries events.jsonl, so a directory without one was
-        # never an SMM — the cheapest structural tell for a wrong --smm-dir.
-        return "not an SMM directory (no events.jsonl) — check --smm-dir"
     import sprint_archive  # lazy for the sys.path reason above
 
     try:

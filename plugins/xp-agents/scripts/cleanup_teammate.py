@@ -36,9 +36,20 @@ def verify_merged(branch: str, cwd: str, base: str) -> bool:
     return branch_lifecycle.is_merged_into(cwd, branch, base)
 
 
-def cleanup(name: str, cwd: str, smm_dir: Path, base: str) -> None:
-    """Remove worktree, branch, agent markers, and report file."""
-    worktree.remove_worktree(name, cwd, merge_target=base, smm_dir=smm_dir)
+def cleanup(name: str, cwd: str, smm_dir: Path, base: str) -> bool:
+    """Remove worktree, branch, agent markers, and report file.
+
+    Returns False when the branch removal REFUSED because the branch was not
+    provably merged. main() checks the merge first, but that is a separate,
+    earlier step: a commit landing in between (the parallel-teammate case this
+    project runs) reaches the refusal with the worktree directory already gone.
+    Discarding the verdict there deletes the markers, the report and the
+    story assignment — the only records naming that branch — and exits 0, so
+    the teammate's commits survive with nothing left to find them by.
+    """
+    outcome = worktree.remove_worktree(name, cwd, merge_target=base, smm_dir=smm_dir)
+    if outcome is worktree.BranchRemoval.REFUSED_UNMERGED:
+        return False
     markers.cleanup_agent_markers(smm_dir, name)
     report = worktree.teammate_report_path(smm_dir, name)
     with contextlib.suppress(OSError):
@@ -49,6 +60,7 @@ def cleanup(name: str, cwd: str, smm_dir: Path, base: str) -> None:
     assignment = worktree.story_assignment_path(smm_dir, name)
     with contextlib.suppress(OSError):
         assignment.unlink()
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -95,7 +107,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    cleanup(args.name, cwd, Path(args.smm_dir), base)
+    if not cleanup(args.name, cwd, Path(args.smm_dir), base):
+        print(
+            f"Branch {branch} gained unmerged commits after the merge check; "
+            "worktree removed, branch and records kept. Merge it, then re-run.",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

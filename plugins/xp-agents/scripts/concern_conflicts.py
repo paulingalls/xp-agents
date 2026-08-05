@@ -208,11 +208,18 @@ def detect_conflicts(
         for aid, files in agent_files.items():
             # Skip self, and skip the plugin's own subagents: this pattern is
             # about two INDEPENDENT actors racing one file, and an xp-* claim
-            # is a subagent THIS session spawned onto the work in hand — a
-            # reviewer handed the very diff being committed reads as a rival
-            # otherwise. Same `xp-` rule the hooks use for recursion
-            # prevention. A CLI teammate's id is not xp-* prefixed, so the
-            # cross-worktree conflict this exists for still fires.
+            # is a subagent working the diff in hand — a reviewer handed the
+            # very diff being committed reads as a rival otherwise. Same `xp-`
+            # rule the hooks use for recursion prevention.
+            #
+            # The skip is on the id alone, deliberately: the SMM is shared
+            # across worktrees, so ANOTHER teammate's reviewer is suppressed
+            # too. Accepted, because the events carry no reliable ownership
+            # fence — the session index anchors on the most recent
+            # SESSION_STARTED, which may be a different worktree's — and a
+            # false negative on a rare relayed claim beats the false positive
+            # this fired on every commit. The teammate's OWN id is not xp-*
+            # prefixed, so the cross-worktree conflict still fires on it.
             if aid == agent_id or is_xp_agent_id(aid):
                 continue
             norm_files = {normalize_path(f, cwd) for f in files}

@@ -49,7 +49,15 @@ def _compute_summary(events: list[dict], resolutions: dict) -> dict:
             case _common.CONCERN if eid:
                 concern_ids.add(eid)
             case _common.STATUS:
-                latest_status[e.get("agent_id", "")] = e
+                aid = e.get("agent_id", "")
+                # Same `xp-` fence the conflict detector and the subagent
+                # dispatcher apply to this map. A plugin subagent's claim is
+                # scoped to the run that spawned it and is never cleared, so
+                # counting it here reports the files a long-finished planning
+                # or sprint-start subagent touched as still in flight, in every
+                # session summary from now on.
+                if not _common.is_xp_agent_id(aid):
+                    latest_status[aid] = e
 
     # Duration spans from the current session's start to now. The anchor is
     # the most recent SESSION_STARTED event (current_session_start_index);

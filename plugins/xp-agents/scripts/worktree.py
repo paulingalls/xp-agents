@@ -289,7 +289,9 @@ def remove_worktree(
     there, at the single choke point both removal entry points share.
 
     The dir goes BEFORE the merge is proven, so REFUSED_UNMERGED keeps a branch
-    whose worktree is gone. Neither caller reaches it — reordering ships inert.
+    whose worktree is gone — reachable once a commit lands after a caller's own
+    earlier merge check, and the verdict is the only handle left on it. Act on
+    it; discarding it strands the branch.
     """
     branch_to_delete = remove_worktree_dir(name, cwd, smm_dir=smm_dir)
     if branch_to_delete is None:

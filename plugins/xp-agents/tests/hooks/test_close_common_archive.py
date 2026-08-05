@@ -363,14 +363,16 @@ class TestMergeArchiveSprint(unittest.TestCase):
                 "the target when the invocation was refused",
             )
 
-    def test_nothing_to_archive_names_which_of_the_two_causes_it_is(self):
-        """ "Nothing archived" has two causes with opposite consequences.
+    def test_a_smm_dir_that_is_not_an_smm_is_refused_before_anything_moves(self):
+        """The probe proves it BEFORE the first side effect — so act on it.
 
-        An earlier attempt already archived (benign, the snapshot exists) and a
-        wrong --smm-dir (the close ends with NO snapshot at all) both land in
-        the same branch. One message for both leaves the reader unable to tell
-        a completed close from a misconfigured one.
-        """
+        `--archive-sprint --smm-dir <typo>` used to exit 0 while merging,
+        writing an events.jsonl/lock and a sprints/ tree into the typo'd
+        directory, recording no merge-commit event in the REAL SMM (silently
+        reopening the merge-gap hole cmd_merge exists to close), archiving
+        nothing, and deleting the source branch. All knowable before the
+        merge: init.sh touches events.jsonl on every SMM, so its absence is
+        proof, not a guess."""
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)
             main = _bf.get_current_branch(td)
@@ -378,6 +380,7 @@ class TestMergeArchiveSprint(unittest.TestCase):
             not_an_smm.mkdir()
             _bf.make_commit(td, "feature-typo", "f.txt", "x", "feature commit")
             _bf.checkout_main(td)
+            before = _bf.get_head_sha(td)
             typo = _run(
                 [
                     "merge",
@@ -392,15 +395,30 @@ class TestMergeArchiveSprint(unittest.TestCase):
                     str(not_an_smm),
                 ]
             )
-            self.assertEqual(typo.returncode, 0, typo.stderr)
-            self.assertIn("no sprint.json", typo.stderr)
-            self.assertIn(
-                "not an SMM directory",
-                typo.stderr,
-                "a directory with no events.jsonl is a wrong --smm-dir, and "
-                "the close just ended with no snapshot — say so",
+            self.assertNotEqual(typo.returncode, 0, typo.stderr)
+            self.assertIn("not an SMM", typo.stderr)
+            self.assertEqual(
+                _bf.get_head_sha(td),
+                before,
+                "nothing may land on the target when the SMM path is wrong",
+            )
+            self.assertTrue(
+                _bf.branch_exists(td, "feature-typo"),
+                "the source branch must survive a refused merge",
+            )
+            self.assertEqual(
+                sorted(p.name for p in not_an_smm.iterdir()),
+                [],
+                "a refused merge must not write into the directory it refused",
             )
 
+    def test_nothing_to_archive_names_the_benign_cause_on_a_real_smm(self):
+        """ "Nothing archived" is reported, never silent.
+
+        A wrong --smm-dir can no longer reach here (refused above), so the
+        remaining reading is an earlier attempt of this close having already
+        archived — stated as the evidence it is, naming the file it found.
+        """
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)
             main = _bf.get_current_branch(td)

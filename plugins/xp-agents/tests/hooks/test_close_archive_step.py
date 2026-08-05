@@ -3,9 +3,14 @@
 
 The step itself is exercised end-to-end through cmd_merge in
 `test_close_common_archive.py`. What lives here is the cause-naming branch
-alone: it has four outcomes, two of them (an unreadable `sprints/`, an SMM with
+alone: it has three outcomes, two of them (an unreadable `sprints/`, an SMM with
 no archives at all) that a subprocess merge cannot reach without contorting the
 fixture. Unit-level is where they are cheap and legible.
+
+A wrong --smm-dir is NOT among them: cmd_merge refuses --archive-sprint against
+a directory with no events.jsonl before the merge, so by the time this module
+runs the directory is a proven SMM. That refusal is pinned in
+`test_close_common_archive.py`.
 """
 
 import os
@@ -22,23 +27,9 @@ import close_archive_step
 
 
 class TestAbsentCause(unittest.TestCase):
-    def test_a_dir_with_no_events_log_reads_as_a_wrong_smm_dir(self):
-        """`smm_preexisting` is the caller's probe, taken before any append.
-
-        A false one means the directory carried no events.jsonl when the merge
-        began, and an SMM always carries one — so the invocation named a
-        directory that was never an SMM, and the close just ended with no
-        snapshot at all. That has to be said out loud, not folded into the
-        benign reading.
-        """
-        with tempfile.TemporaryDirectory() as td:
-            cause = close_archive_step.absent_cause(Path(td), False)
-        self.assertIn("not an SMM directory", cause)
-        self.assertIn("--smm-dir", cause)
-
     def test_a_real_smm_with_no_archives_says_none_was_ever_written(self):
         with tempfile.TemporaryDirectory() as td:
-            cause = close_archive_step.absent_cause(Path(td), True)
+            cause = close_archive_step.absent_cause(Path(td))
         self.assertIn("no sprint was ever written", cause)
         self.assertNotIn("already archived", cause)
 
@@ -52,7 +43,7 @@ class TestAbsentCause(unittest.TestCase):
             sprints = Path(td) / "sprints"
             sprints.mkdir()
             (sprints / "sprint_20260101T000000.json").write_text("{}")
-            cause = close_archive_step.absent_cause(Path(td), True)
+            cause = close_archive_step.absent_cause(Path(td))
         self.assertIn("already archived", cause)
         self.assertIn(
             "sprint_20260101T000000.json",
@@ -79,7 +70,7 @@ class TestAbsentCause(unittest.TestCase):
             (sprints / "sprint_20260101T000000.json").write_text("{}")
             sprints.chmod(0o000)
             try:
-                cause = close_archive_step.absent_cause(Path(td), True)
+                cause = close_archive_step.absent_cause(Path(td))
             finally:
                 sprints.chmod(0o755)
         self.assertIn("cannot tell", cause)
