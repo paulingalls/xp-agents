@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import coordination
+import identity
 import tdd_check
 
 _WATERMARK_ID = "tdd-stop-gate"
@@ -33,11 +34,25 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not events:
         return None
 
-    signal = tdd_check.find_last_test_signal(
-        events, input_data.get("cwd", "."), smm_dir
-    )
+    # Bound once and shared with every reader below. Two independently-written
+    # spellings of the reader's cwd is the same defect shape as the agent-id
+    # disagreement this gate was fixed for.
+    cwd = input_data.get("cwd", ".")
+
+    signal = tdd_check.find_last_test_signal(events, cwd, smm_dir)
     if signal == "fail":
-        agent_id = input_data.get("agent_id", "")
+        # RESOLVED, never the raw payload field. The harness sends `agent_id`
+        # only when a hook fires inside a subagent call, and Stop fires on the
+        # main thread — so the raw read was always `""`, nothing in
+        # coordination equals `""`, and `has_active_teammates` answered yes
+        # against every entry. `post_tool_use` writes one on every file write
+        # with a 30-minute TTL, so this gate released unconditionally.
+        #
+        # `resolve_agent_id` specifically, not a richer resolution: it is the
+        # same function `post_tool_use` uses to WRITE the coordination key
+        # being compared against, and a reader that does not share the writer's
+        # key space cannot answer this question at all.
+        agent_id = identity.resolve_agent_id(input_data)
         if coordination.has_active_teammates(smm_dir, agent_id):
             return None  # Teammates may own the failing tests
         return "Tests are failing. Fix failing tests before stopping."

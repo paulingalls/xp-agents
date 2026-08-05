@@ -28,10 +28,32 @@ def filler(n: int) -> list[dict]:
 class _GateTestCase(_HookTestCase):
     """Drives the Stop gate with a mocked working tree."""
 
-    def _stop(self, events: list[dict], *, dirty: bool, cwd: str = ".") -> str | None:
+    def _stop(
+        self,
+        events: list[dict],
+        *,
+        dirty: bool,
+        cwd: str = ".",
+        agent_id: str | None = "main",
+    ) -> str | None:
+        """Drive the Stop gate against a mocked working tree.
+
+        `agent_id=None` DROPS the key, which is the shape a real Stop payload
+        has: the harness sends `agent_id` only when a hook fires inside a
+        subagent call, and Stop fires on the main thread. `_make_stop_input`
+        always injects `"main"`, so without this keyword no test reachable
+        through this fixture can express that payload — which is how the gate's
+        absent-id fail-open survived. Passing `""` gives the empty spelling;
+        the default keeps every pre-existing caller byte-identical.
+        """
         self._write_events(events)
         uncommitted = ["src/app.py"] if dirty else []
+        payload = _make_stop_input(cwd=cwd)
+        if agent_id is None:
+            payload.pop("agent_id", None)
+        else:
+            payload["agent_id"] = agent_id
         with patch("commits.get_uncommitted_files", return_value=uncommitted) as mock:
-            result = tdd_stop_gate.run(_make_stop_input(cwd=cwd), smm_dir=self.smm_dir)
+            result = tdd_stop_gate.run(payload, smm_dir=self.smm_dir)
         self.tree_was_checked = mock.called
         return result

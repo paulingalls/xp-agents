@@ -287,6 +287,58 @@ class TestTeammateReaderAgentScope(_GateTestCase):
         self.assertIsNotNone(result)
 
 
+class TestAbsentAgentIdIsNotASibling(_GateTestCase):
+    """The absent-`agent_id` fail-open.
+
+    Having found a failure, the gate asks
+    `coordination.has_active_teammates(smm_dir, agent_id)` — "is some OTHER
+    agent active?" — and releases if so, because a teammate may own it. It read
+    the RAW payload `agent_id`, but the harness sends that field only when a
+    hook fires inside a subagent call and Stop fires on the main thread, so the
+    value was always `""`. Nothing in coordination equals `""`, so the predicate
+    answered yes against ANY entry — and `post_tool_use` writes one under the
+    resolved id on every file write, with a 30-minute TTL. The gate that keeps a
+    red suite from being abandoned released unconditionally.
+
+    Read the first two tests as a PAIR. The release direction passes today for
+    the wrong reason — today it releases for every input — so only the block
+    direction fails first, and only together do they say the answer TRACKS
+    coordination rather than ignoring it.
+    """
+
+    def _coordinate(self, *agent_ids: str) -> None:
+        import coordination
+
+        for aid in agent_ids:
+            coordination.update_coordination(self.smm_dir, aid, [])
+
+    def test_no_agent_id_and_no_sibling_blocks(self):
+        """AC-1. The lead, alone, with its own red suite. `main` IS in
+        coordination — the lead writes there itself on every file write, which
+        is exactly why comparing against `""` disarmed the gate."""
+        self._coordinate("main")
+        events = [session_anchor(), *filler(3), failing_tests_concern()]
+        self.assertIsNotNone(self._stop(events, dirty=False, agent_id=None))
+
+    def test_no_agent_id_and_a_real_sibling_releases(self):
+        """AC-2. Same payload, but a genuine teammate is active, so the failure
+        may be its own and the lead must not be held."""
+        self._coordinate("main", "worktree-story-007")
+        events = [session_anchor(), *filler(3), failing_tests_concern()]
+        self.assertIsNone(self._stop(events, dirty=False, agent_id=None))
+
+    def test_the_empty_spelling_matches_the_absent_key(self):
+        """Non-vacuity. A missing key and `""` must not diverge — both reach
+        `resolve_agent_id`'s falsy branch. Pinning the equality stops a later
+        "fix" that special-cases one spelling and leaves the other fail-open."""
+        events = [session_anchor(), *filler(3), failing_tests_concern()]
+        self._coordinate("main")
+        absent = self._stop(events, dirty=False, agent_id=None)
+        empty = self._stop(events, dirty=False, agent_id="")
+        self.assertIsNotNone(empty)
+        self.assertEqual(absent, empty)
+
+
 class TestTeammateWindowE2E(_HookTestCase):
     """AC4: drive a real gate end to end with a teammate-worktree cwd."""
 
