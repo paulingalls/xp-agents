@@ -50,15 +50,29 @@ Three detectors now record the abandonment — the session-start sweep, a new cl
 starting over a dead one, and the existing aged-stop detector — all sharing one
 content, one budget owner, and one age rule so they cannot drift.
 
-The age rule is what makes the record mean anything. The marker is not
+**The owning session is what makes the record mean anything.** The marker is not
 session-scoped and the SMM is shared across your windows and worktrees, so bare
 existence cannot tell a dead cycle from one that is still running: a second
 window's fresh start sees your live close, and a close whose own first gate
 refused re-arms seconds after the survivor it just left. Recording either would
 file a high-severity concern that the LIVE close's own merge prompt then reads as
 a reason to abort — a close that never failed, told to abort by its neighbour.
-So a marker records only once it has aged past the abandonment window, and a
-young one is left exactly where it is. A healthy session still pays nothing.
+
+A duration cannot separate the two, and we tried one first. A close's runtime is
+unbounded — the close that shipped this very change ran seventy minutes while
+perfectly healthy — so any threshold long enough for a slow live close is also
+long enough to let a dead one sit undetected, and any threshold short enough to
+catch the dead one starts firing on the live one. It moves the false record
+later; it does not remove it.
+
+So arming now stamps the marker with the session that owns the close, and a
+detector in another window asks that session directly whether it is still
+running. A live owner is never abandoned however long it has run; a dead one is
+abandoned however recently it died. Age survives only as the fallback for a
+marker whose owner cannot be named — one armed by an older version — because the
+two mistakes are not symmetric: a false record breaks a healthy close, while a
+missed one is only the silent loss that predates all of this. A healthy session
+still pays nothing.
 
 A record that does not land no longer consumes the marker either: the append is
 reported rather than swallowed, so a dropped one leaves the evidence for the next

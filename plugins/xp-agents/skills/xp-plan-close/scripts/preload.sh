@@ -55,7 +55,14 @@ write_marker CLOSE_CYCLE_ID "${CLOSE_CYCLE_ID}"
 emit_system_context_rendered_for close-reviewer
 # Arm the close-cycle Stop gate deterministically — prose-driven write
 # was unreliable when the LLM skipped or reordered the invocation.
-write_marker CLOSE_CYCLE_ACTIVE ""
+#
+# Armed through the recorder rather than write_marker so the marker carries
+# the session that OWNS this close. That payload is the only thing letting a
+# detector in another window tell a running close from an abandoned one; a
+# duration cannot, because a close's runtime is unbounded.
+python3 "${PLUGIN_ROOT}/scripts/close_cycle_abandonment.py" \
+    --smm-dir "${SMM_DIR}" --arm-only 2>/dev/null \
+    || write_marker CLOSE_CYCLE_ACTIVE ""
 emit_hook_guidance "$HOOK_STATUS"
 
 # Append the close-pipeline reference so the LLM sees one consistent set of

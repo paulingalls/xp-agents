@@ -52,8 +52,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import event_schema
+import hook_liveness
 import identity
 import markers
+import session_markers
 
 # Which component found the survivor. Carried in metadata, never in the
 # content — one content is the point of this module.
@@ -77,7 +79,8 @@ CONCERN_CONTENT = (
     f"the branch was left mid-close. {RECOVERY}"
 )
 
-# How old the marker must be before its survival counts as abandonment.
+# Fallback only. The marker's OWNING SESSION decides abandonment; age decides
+# only when that session cannot be named or its heartbeat cannot be read.
 #
 # Bare existence cannot decide it. The marker is not session-scoped and the SMM
 # is shared across windows and worktrees, so a detector routinely sees a cycle
@@ -86,9 +89,71 @@ CONCERN_CONTENT = (
 # it created seconds ago. Recording either files a high-severity concern that
 # the close's own count reads as a reason to abort a close that never failed.
 #
+# A DURATION cannot decide it either, which is why this is no longer the
+# primary rule. The marker carries only an mtime, and a close's runtime is
+# unbounded: the close that shipped this very change ran 4429s while perfectly
+# healthy, past the hour this constant allows. No fixed threshold is
+# simultaneously long enough for a slow live close and short enough for a dead
+# one — it only moves the false record later.
+#
 # Longer than `close_cycle_stop_gate`'s defer window by design: a slow but
 # legitimate close must age out of the defer before it can age into this.
 ABANDONMENT_MIN_AGE_SEC = 3600
+
+
+def owner_session_is_live(smm_dir: Path, session_id: str) -> bool | None:
+    """Is the session that armed the marker still running?
+
+    The discriminator a duration was standing in for. Every session writes a
+    per-session heartbeat into this same shared SMM, so a detector in ANOTHER
+    window can address the arming session's heartbeat by id and ask directly
+    whether that close is still alive.
+
+    Returns None for "cannot tell" — no id recorded (a marker armed by an
+    older version), or a heartbeat that is absent, symlinked or unageable.
+    Callers fall back to the age rule there rather than guessing, because the
+    two mistakes are not symmetric: a false record breaks a healthy close,
+    while a missed one is only the silent loss that predates this module.
+    """
+    if not session_id:
+        return None
+    data = markers.marker_read(smm_dir, hook_liveness.heartbeat_marker(session_id))
+    if not isinstance(data, dict):
+        return None
+    age = session_markers.marker_age_seconds(time.time(), data.get("written_at"))
+    if age is None:
+        return None
+    return age < hook_liveness.STALE_AFTER_SECONDS
+
+
+def arm_close_cycle(smm_dir: Path) -> None:
+    """Arm the marker, stamping the session that owns this close.
+
+    The payload is what makes `owner_session_is_live` answerable at all: a
+    detector in another window has no other way to tell whose close it found.
+    An unresolvable session id writes empty, which is the same state every
+    marker armed by an older version is in — decidable by age alone, and
+    exactly what the fallback exists for.
+    """
+    markers.marker_write(
+        smm_dir, markers.CLOSE_CYCLE_ACTIVE, hook_liveness.resolve_session_id() or ""
+    )
+
+
+def _is_abandoned(smm_dir: Path) -> bool:
+    """Decide abandonment: owning session first, age only as a fallback."""
+    age = marker_age_seconds(smm_dir)
+    if age is None:
+        return False
+    owner = markers.marker_read(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+    owner_id = owner.strip() if isinstance(owner, str) else ""
+    live = owner_session_is_live(smm_dir, owner_id)
+    if live is not None:
+        # The owner answered. A live owner is a running close no matter how
+        # long it has run; a dead one is abandoned no matter how recently it
+        # died — neither reading depends on the clock.
+        return not live
+    return age >= ABANDONMENT_MIN_AGE_SEC
 
 
 def marker_age_seconds(smm_dir: Path) -> float | None:
@@ -115,8 +180,8 @@ def record_abandonment(smm_dir: Path, detector: str, agent_id: str = "") -> bool
 
     - no marker (the normal case on every path that calls this — recording
       there would turn a real signal into a per-session tax nobody reads);
-    - a marker younger than `ABANDONMENT_MIN_AGE_SEC`, which is a live cycle in
-      this window or another, not an abandoned one;
+    - a marker whose owning session is still LIVE, which is a running close in
+      this window or another, not an abandoned one (see `_is_abandoned`);
     - a dropped append, which leaves the marker for the next detector rather
       than destroying the evidence along with the record of it.
 
@@ -125,8 +190,7 @@ def record_abandonment(smm_dir: Path, detector: str, agent_id: str = "") -> bool
     """
     if detector not in DETECTORS:
         raise ValueError(f"unknown detector {detector!r}; expected one of {DETECTORS}")
-    age = marker_age_seconds(smm_dir)
-    if age is None or age < ABANDONMENT_MIN_AGE_SEC:
+    if not _is_abandoned(smm_dir):
         return False
     if not _append_record(smm_dir, detector, agent_id):
         return False
@@ -179,10 +243,26 @@ def main(argv: list[str] | None = None) -> int:
         description="Record an abandoned close cycle and clear its marker"
     )
     parser.add_argument("--smm-dir", required=True)
-    parser.add_argument("--detector", required=True, choices=DETECTORS)
     parser.add_argument("--agent-id", default="")
+    # Mutually exclusive and required so argparse writes the "one of these is
+    # required" message itself. A hand-rolled equivalent would be prose this
+    # module ships, and its reason budget is spent on the two strings that
+    # reach a user's context window, not on CLI plumbing.
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--detector", choices=DETECTORS)
+    # Arming is a SEPARATE invocation from recording, not a tail of it, because
+    # the two must straddle the close's CLOSE_START_TS stamp: the record is
+    # about the PREVIOUS cycle and has to land before the window this close
+    # counts high concerns in, while the marker being armed belongs to this
+    # one. Folding them into one call moved the record after the stamp and
+    # reintroduced the false abort-default a prior commit had just closed.
+    mode.add_argument("--arm-only", action="store_true", help="Arm; no record")
     args = parser.parse_args(argv)
-    record_abandonment(Path(args.smm_dir), args.detector, args.agent_id)
+    smm_dir = Path(args.smm_dir)
+    if args.arm_only:
+        arm_close_cycle(smm_dir)
+        return 0
+    record_abandonment(smm_dir, args.detector, args.agent_id)
     return 0
 
 

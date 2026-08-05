@@ -55,10 +55,19 @@ class TestClosePreloadRecordsBeforeArming(_AbandonmentAssertions, _IntegrationTe
         # Marker first, concern second — deliberately. A silent consume
         # satisfies this half, so reading the failure top-down shows exactly
         # which half a regression broke.
-        self.assertEqual(
-            markers.marker_read(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
-            "",
+        armed = markers.marker_read(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+        self.assertNotEqual(
+            armed,
+            "survivor",
             "the armed marker must be THIS close's, not the survivor",
+        )
+        # And it must NAME this close's session, not merely differ from the
+        # survivor's payload: that id is the only thing a detector in another
+        # window can use to tell a running close from an abandoned one, so an
+        # empty payload here silently drops the whole discriminator back to the
+        # duration that could not decide it.
+        self.assertTrue(
+            armed, "arming must stamp the owning session, not an empty payload"
         )
         concern = self._one_bypass_concern()
         self.assertEqual(concern["severity"], "high")
