@@ -455,7 +455,11 @@ is steering users away from.
                      "standard": {"low","medium","high","xhigh","max","ultra"},
                      "advanced": {"low","medium","high","xhigh","max","ultra"},
                      "frontier": {"low","medium","high","xhigh","max","ultra"}},
-  # per-tier DEFAULT effort — a NEW field, see below
+  # per-tier DEFAULT effort — a NEW field, see below.
+  # UNVERIFIED: advanced and frontier share one model, so `high` vs `ultra` is the
+  # entire separator between the top two tiers — and nothing here confirms the
+  # effort is honoured (the rollout echoes the REQUEST). Re-measure on a real
+  # prompt before shipping frontier as distinct from advanced.
   "default_effort": {"economy": "medium", "standard": "medium",
                      "advanced": "high", "frontier": "ultra"},
   "model_flag":  ["-m", "{model}"],

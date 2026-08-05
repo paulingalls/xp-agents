@@ -462,8 +462,12 @@ HARNESSES = {
                        "standard": {"low","medium","high","xhigh","max","ultra"},
                        "advanced": {"low","medium","high","xhigh","max","ultra"},
                        "frontier": {"low","medium","high","xhigh","max","ultra"}},
+    # NEW FIELD. UNVERIFIED: advanced and frontier share one model, so high-vs-ultra
+    # is the entire separator between the top two tiers, and nothing confirms the
+    # effort is honoured (the rollout echoes the REQUEST). Re-measure on a real
+    # prompt before shipping frontier as distinct from advanced.
     "default_effort": {"economy": "medium", "standard": "medium",
-                       "advanced": "high", "frontier": "ultra"},   # NEW FIELD
+                       "advanced": "high", "frontier": "ultra"},
     "model_flag":  ["-m", "{model}"],
     "effort_flag": ["-c", "model_reasoning_effort={effort}"],
   },
