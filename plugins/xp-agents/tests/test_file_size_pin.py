@@ -59,7 +59,7 @@ _BAND_CEILINGS = {
     # shipped (16)
     "plugins/xp-agents/smm/seed_smm.py": 499,
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
-    "plugins/xp-agents/scripts/close_common.py": 496,
+    "plugins/xp-agents/scripts/close_common.py": 474,  # ratcheted from 496 (split)
     "plugins/xp-agents/smm/sprint_cli_mutate.py": 496,
     "plugins/xp-agents/scripts/in_place_marker.py": 490,
     "plugins/xp-agents/scripts/retro_metrics.py": 490,
@@ -121,7 +121,8 @@ _BAND_CEILINGS = {
     # break. Extract next: `_PreloadCase`, unused by its prose suites.
     "plugins/xp-agents/tests/skills/test_scaffold_worktree_skill.py": 475,
     "plugins/xp-agents/tests/engine/test_compact_concurrency.py": 473,
-    "plugins/xp-agents/tests/smm/test_system_context_schema_fields.py": 470,
+    "plugins/xp-agents/tests/test_file_size_pin.py": 451,  # this file, self-pinned
+    "plugins/xp-agents/tests/smm/test_integration_branch_ref.py": 470,
     "plugins/xp-agents/tests/engine/test_sprint_frontier.py": 470,
     "plugins/xp-agents/tests/integration/test_story_close.py": 468,
     # Entered the band with the close-cycle marker scrub: a close preload now

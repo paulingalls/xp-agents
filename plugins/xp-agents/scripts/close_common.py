@@ -28,6 +28,7 @@ import _common
 import acceptance_env
 import branch_lifecycle
 import branching
+import close_archive_step
 import close_review_support
 import close_verify_gate
 import git_remote
@@ -212,6 +213,21 @@ def cmd_merge(args: argparse.Namespace) -> int:
     already emitted), so we trust it to bail. delete_branch returns
     False on failure (e.g. unmerged commits) — we surface and abort.
     """
+    # Static arg validation, so it precedes every side effect. Both values are
+    # known at parse time; refusing later once left a merge commit on the
+    # target under a nonzero exit, a state no retry resolves.
+    if getattr(args, "archive_sprint", False) and not args.smm_dir:
+        sys.stderr.write("merge refused: --archive-sprint requires --smm-dir\n")
+        return 1
+
+    # Probed HERE, before the merge-event append below creates events.jsonl in
+    # whatever directory it was handed — after that, a typo'd --smm-dir is
+    # indistinguishable from a real SMM. The archive's "nothing to archive"
+    # branch reads this to name which of its two causes it hit.
+    smm_preexisting = (
+        bool(args.smm_dir) and (Path(args.smm_dir) / "events.jsonl").exists()
+    )
+
     block = close_verify_gate.verify_gate_block(args)
     if block:
         sys.stderr.write(block + "\n")
@@ -289,17 +305,6 @@ def cmd_merge(args: argparse.Namespace) -> int:
         except Exception as exc:  # advisory must never block the merge chain
             sys.stderr.write(f"warn: trailer advisory skipped ({exc})\n")
 
-    # --archive-sprint with no --smm-dir is a misconfigured invocation, and it
-    # must not invisibly skip the archive (matches --verify-gate's loud refusal
-    # posture). Checked BEFORE the push so the whole chain stops on the same
-    # footing an archive failure would: nonzero, source intact, nothing pushed.
-    if getattr(args, "archive_sprint", False) and smm_dir is None:
-        sys.stderr.write(
-            "merge refused after the merge commit; source branch kept for "
-            "retry: --archive-sprint requires --smm-dir\n"
-        )
-        return 1
-
     if git_remote.has_remote(args.cwd):
         rc = _run_or_relay(
             ["git", "push", "origin", args.target],
@@ -309,40 +314,13 @@ def cmd_merge(args: argparse.Namespace) -> int:
         if rc != 0:
             return rc
 
-    # Archive LAST-but-one: after the merge commit AND the target push, before
-    # delete_branch (the one irreversible step). Both bounds are load-bearing.
-    # Later than any step that can still fail, because sprint.json is the
-    # acceptance verify-gate's only input and that gate fails OPEN without it
-    # (close_verify_gate.verify_gate_block) — archiving before a push that then
-    # failed would leave every retry of an unfinished close ungated. Earlier
-    # than the delete, because a failed archive returns nonzero with the source
-    # intact, and re-running this same command re-merges idempotently ("Already
-    # up to date"), re-pushes as a no-op, and retries the archive.
+    # Archive LAST-but-one: after the merge commit AND the target push,
+    # before delete_branch. Both bounds are load-bearing — see
+    # close_archive_step, which owns the reasoning and the step.
     if getattr(args, "archive_sprint", False) and smm_dir is not None:
-        # smm/ is already on sys.path (see the sprint_store import above).
-        from sprint_archive import archive as archive_sprint
-
-        try:
-            archived = archive_sprint(smm_dir)
-        except OSError as exc:
-            sys.stderr.write(
-                f"sprint archive failed after merge; source branch kept for "
-                f"retry: {exc}\n"
-            )
-            return 1
-        if archived is None:
-            # Nothing to archive. Never silent, and never dressed up as
-            # "already archived" — this path cannot tell a completed prior
-            # attempt from a sprint that was never there (a wrong --smm-dir),
-            # and the second leaves the close with no snapshot at all. Not
-            # fatal either: the merge and push have landed, and no retry can
-            # make an absent file appear.
-            sys.stderr.write(
-                f"warn: no sprint.json under {smm_dir} — nothing archived "
-                "(already archived by an earlier attempt, or never written)\n"
-            )
-        else:
-            print(f"archived sprint: {archived}")
+        rc = close_archive_step.archive_step(smm_dir, smm_preexisting)
+        if rc != 0:
+            return rc
 
     if not branching.delete_branch(args.cwd, args.source, merge_target=args.target):
         # Source held by a teammate worktree → cleanup_teammate.py owns

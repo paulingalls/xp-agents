@@ -287,6 +287,9 @@ def remove_worktree(
     *smm_dir* passes through to ``remove_worktree_dir`` unchanged — the
     teardown-before-removal and coordination-clear-after-removal wiring lives
     there, at the single choke point both removal entry points share.
+
+    The dir goes BEFORE the merge is proven, so REFUSED_UNMERGED keeps a branch
+    whose worktree is gone. Neither caller reaches it — reordering ships inert.
     """
     branch_to_delete = remove_worktree_dir(name, cwd, smm_dir=smm_dir)
     if branch_to_delete is None:
