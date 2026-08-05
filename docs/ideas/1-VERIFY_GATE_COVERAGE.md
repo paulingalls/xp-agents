@@ -99,6 +99,16 @@ Fix B is framework-agnostic, catches the whole class rather than one regex shape
 
 **Files.** `scripts/test_parsing.py:178-193` (`_parse_two_counts`) and every `case` arm's regexes (`:239-448`), `scripts/bash_post_tool.py:226`/`:261` (the cross-check), `scripts/test_attribution.py::exit_status_proves_runner_passed`. Tests: the parser fixtures alongside `tests/hooks/` — add a case per framework where the echoed-source text contains a plausible count, since that fixture shape does not exist today.
 
+## 5. The file-size ratchet cannot fire for a shell file — **small**
+
+Promoted from concern `db225b2065bf`, filed at `low`. It proved itself during this triage: the ratchet caught a Python file crossing the 450 band within minutes, and would not have caught the same growth in a shell file.
+
+`tests/_pin_helpers.py:38` and `:154` both scan `rglob("*.py")`, and `_BAND_CEILINGS` carries only `.py` entries. `skills/_preload_base.sh` is **492 lines** — inside the 450–500 band, 8 lines from the cap, entirely unratcheted. Every shipped shell file is ungoverned by a gate whose docstring describes itself as tree-wide.
+
+**Direction.** Add shell to the scan and the band table, or state the scope limit in the module docstring so the gap is legible rather than assumed-covered. The first is preferable: the cap is a project convention, not a Python one — and a gate silently narrower than its stated scope is the same defect class as the other four items here.
+
+**Files.** `tests/_pin_helpers.py`, `tests/test_file_size_pin.py`.
+
 ---
 
 ## Sequencing

@@ -60,6 +60,16 @@ backups/archive-*.jsonl -- retry with --include-archived)
 
 That message alone closes most of the practical damage, converting a false "does not exist" into a true "not here, look there".
 
+## Follow-on: the unlinkable-trailer producer, and an id-namespace collision
+
+Two related items promoted from concerns filed at `low` by auto-producers.
+
+**The producer is this reader's natural second consumer.** `scripts/commit_event.py:306-327` warns that a `Resolves-Event:` target is absent from the live log, honestly listing three possible causes. Verified on one instance: both ids resolved in `backups/archive-20260804T224300.jsonl` — the benign compacted case, so the warning carried nothing actionable. Once the archive reader lands, this call site should check the archives on the miss path and stay silent when the target is found there.
+
+**But one cause it lists is not the real one** (concern `f266bdd59be3`). The id `eab677c3ed92` was searched across `events.jsonl` and all 216 archives and is not an event at all — it is a curated **Risk pillar-item id** (`backups/SMM-20260804-070747.json` → `risks[4]`). `smm_cli render` prints pillar ids as bare `[12-hex]`, indistinguishable from event ids, so commit `ba470dd7` picked one up for its trailer. All three causes named in the warning are therefore wrong for this instance.
+
+Fix either by resolving trailers against pillar items too, or by making the two id namespaces distinguishable on sight. Whichever is chosen, the concern text needs rewriting rather than retaining — it currently teaches a reader three wrong things.
+
 ## Files
 
 `smm/smm_store.py::lookup_event` (primary), `smm/smm_cli.py::_cmd_get_event` + parser at `:372`, plus a new archive-reading helper — **nothing in `smm/` currently reads `archive-*.jsonl` back**; `compact.py` and `archive.py` only write.
