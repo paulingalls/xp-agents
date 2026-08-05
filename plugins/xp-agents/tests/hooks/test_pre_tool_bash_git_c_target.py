@@ -336,12 +336,35 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
         if pending:
             yield start, " ".join(part.strip() for part in pending).strip()
 
+    # story-013: `cd <path> && … git commit` is refused too, so prose mandating
+    # one must be caught by the same scan. Kept as a second pattern rather than a
+    # widened first one so each keeps asking ITS OWN gate predicate — the whole
+    # point of this class is that the pin never carries its own copy of the rule.
+    _CD_COMMIT_SHAPED = re.compile(
+        r"\bcd\s+(?P<cdpath>\S+)[^\n]*?\bgit\s+(?:-\S+\s+)*"
+        r"(?:commit|add|stash|merge|push)\b"
+    )
+
     @staticmethod
     def _gate_refuses(path: str) -> bool:
         """Ask the gate, on a minimal commit built from the prose's own path."""
         return commit_command.dash_c_unreachable(f"git -C {path} commit -m x")
 
-    def test_no_shipped_md_instructs_a_dash_c_commit_the_gate_refuses(self):
+    @staticmethod
+    def _gate_refuses_cd(path: str) -> bool:
+        return commit_command.cd_target_unreachable(f"cd {path} && git commit -m x")
+
+    def _offending_paths(self, line: str) -> bool:
+        """True when this logical line mandates a form either gate refuses."""
+        return any(
+            self._gate_refuses(m.group("path") or m.group("solo") or "")
+            for m in self._COMMIT_SHAPED.finditer(line)
+        ) or any(
+            self._gate_refuses_cd(m.group("cdpath"))
+            for m in self._CD_COMMIT_SHAPED.finditer(line)
+        )
+
+    def test_no_shipped_md_instructs_a_commit_the_gate_refuses(self):
         plugin_root = Path(__file__).parent.parent.parent
         offenders: list[str] = []
 
@@ -349,25 +372,22 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
             if "/tests/" in str(md):
                 continue
             for lineno, line in self._logical_lines(md.read_text(encoding="utf-8")):
-                for m in self._COMMIT_SHAPED.finditer(line):
-                    path = m.group("path") or m.group("solo") or ""
-                    if self._gate_refuses(path):
-                        rel = md.relative_to(plugin_root)
-                        offenders.append(f"{rel}:{lineno}: {line.strip()}")
+                if self._offending_paths(line):
+                    rel = md.relative_to(plugin_root)
+                    offenders.append(f"{rel}:{lineno}: {line.strip()}")
 
         self.assertEqual(
             offenders,
             [],
-            "shipped prose instructs a `git -C` commit the gate will refuse; "
-            "substitute the literal absolute path:\n" + "\n".join(offenders),
+            "shipped prose instructs a `git -C` or `cd` commit the gate will "
+            "refuse; substitute a single literal path:\n" + "\n".join(offenders),
         )
 
     def _flagged(self, text: str) -> list[int]:
         return [
             lineno
             for lineno, line in self._logical_lines(text)
-            for m in self._COMMIT_SHAPED.finditer(line)
-            if self._gate_refuses(m.group("path") or m.group("solo") or "")
+            if self._offending_paths(line)
         ]
 
     def test_the_pin_is_not_vacuous(self):
@@ -399,6 +419,19 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
         """`<worktree-path>` is a placeholder the agent substitutes, not a
         shell variable — flagging it would forbid writing the rule at all."""
         self.assertEqual(self._flagged("`git -C <worktree-path> commit ...`"), [])
+
+    def test_the_pin_covers_the_cd_leg_too(self):
+        """story-013 gave `cd` the same refusal, so prose mandating an
+        unresolvable `cd` must be caught by the same scan.
+
+        Green on arrival — no shipped `.md` carries a `cd` whose path holds `$`,
+        `~` or a glob — so this is a GUARD, not a red-first proof, and saying so
+        matters: a guard claimed as red-first is the reachability-not-behaviour
+        trap. The placeholder leg keeps it from forbidding the sentence our own
+        guides use to tell agents NOT to `cd`.
+        """
+        self.assertEqual(self._flagged('run `cd "$WT" && git commit -m x`'), [1])
+        self.assertEqual(self._flagged("`cd <worktree> && git commit` is wrong"), [])
 
 
 if __name__ == "__main__":
