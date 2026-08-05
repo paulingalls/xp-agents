@@ -545,3 +545,206 @@ This was the plan's highest-variance unknown and the cheapest thing to observe.
   observation than the other three, and labelled as such.
 - **Implicit skill invocation is real.** A session started running `/xp-kickoff`
   unprompted — the risk gap #26 names, observed rather than theorised. See R4.
+
+---
+
+## Skills and subagents
+
+### Frontmatter is not rejected — and three of the four "unknown" keys are Codex's own
+
+Gap #25 calls rejection a blocker that would force generated per-harness skill files.
+**The premise is mostly wrong and the blocker branch is falsified.** Codex's own
+embedded skill-authoring guidance documents this set verbatim:
+
+```
+name, description, argument-hint, disable-model-invocation,
+user-invocable, allowed-tools, context / agent / model
+```
+
+We ship four keys beyond `name`/`description`: `allowed-tools` (19 skills), `effort`
+(6), `context` (3), `agent` (3). **Three of the four are documented Codex fields.**
+Only `effort` is genuinely undocumented — and Codex documents `model` in the slot we
+use `effort` for, which is the real finding hiding inside gap #25.
+
+**Verdict: NOT REJECTED, and not warned about on the loader channel.** Scoped
+deliberately, because the shorter word overclaims: this channel cannot separate
+*warned-about* from *silently ignored*, and a quiet `app-server` stderr is not silence
+on every channel. For gap #25 the distinction does not matter — a warning is not a
+blocker either. For any shipped decision resting on the word "silent", it does.
+
+The verdict is only worth having because the instrument was armed first: `errors: []`
+reads identically whether the loader forgave our keys or the array is never populated.
+Two controls were injected into the installed cache and read in the same call — a
+skill with an unclosed `---` produced `errors: 1` and was **dropped from the listing**,
+while a well-formed skill carrying an invented key loaded exactly like our real ones.
+The arming row is what makes the other two mean anything.
+
+**A contradiction inside Codex worth knowing about:** its own bundled
+`skill-creator/scripts/quick_validate.py` allows only
+`{name, description, license, allowed-tools, metadata}` and would **reject `effort`,
+`context` and `agent`** — three keys the same binary's guidance documents. That
+validator is an authoring lint, not the loader. A user who runs Codex's own validator
+against our skills gets failures the runtime never raises.
+
+### Implicit invocation can be disabled — per skill, invisibly
+
+`policy.allow_implicit_invocation: false` in `<skill>/agents/openai.yaml` works on
+**both legs**: with it set on one skill, a live session listing every `xp-agents:`
+skill returned 18 of 19 with that one absent, and an explicit `$`-mention still
+delivered the body.
+
+**Caveat a shipped version must not miss:** the policy is **invisible to the loader
+channel.** A skill with the policy and one without return byte-identical `skills/list`
+records. A per-skill opt-out cannot be audited from `app-server` — only by asking a
+live model what it can see. See R4 for the conflict this creates.
+
+### `skill_approval` gates nothing
+
+**Verdict: it does not gate skill invocation in either direction**, falsifying gap #28
+both ways — so install docs need not require it enabled.
+
+Shape first, because the plan has it wrong: it is not a standalone top-level boolean
+but a field of `GranularAskForApproval` (alongside `sandbox_approval`, `rules`,
+`request_permissions`, `mcp_elicitations`), defaulting to `false`.
+
+| setting | result |
+|---|---|
+| `false` (the default) | skill invoked normally; **no auto-reject** |
+| `true`, interactive session | **no approval prompt appeared**; skill delivered anyway |
+
+The negative is trustworthy because the config shape was validated first: the granular
+policy is **accepted** by `--strict-config`, while a nonsense field in the same object
+is **rejected** (`missing field sandbox_approval`). So the policy parses and the shape
+is right. Scoped honestly: one version, and the field defaults to false, so a later
+release could activate it.
+
+`codex exec` cannot exercise it at all — `approval: never` was reported in every
+headless run, including with a validated granular policy, and nothing in the user's
+config sets it. `codex exec` pins it.
+
+### `async: true` on `SessionEnd` runs synchronously
+
+**Not skipped.** Codex says so itself: `warning: running async SessionEnd hook
+synchronously`. Measured on the real pairing the shipped `hooks.json` already uses
+(`session_end.py` async false, `compact.py` async true), and corroborated by side
+effect — `session_end.py` wrote its event in the same run. Three outcomes were
+distinguished, not two: ran-sync / ran-async / skipped.
+
+**Open, and worth one follow-up run:** `SessionEnd` hook timeouts are **clamped to 3s**
+— both a 2500 ms and a 1500 ms entry drew `warning: clamping SessionEnd hook timeout to
+3s`. On Claude semantics both are already under 3s, so a clamp is a reduction that
+cannot apply. Two readings fit: Codex caps every `SessionEnd` timeout at 3s regardless,
+**or Codex reads the number as seconds** — in which case every `timeout` in a Codex
+hooks file is off by 1000×, and only the `SessionEnd` cap is hiding it. These are the
+file's only `timeout` values, so nothing else exercises it. **Do not write a shipped
+timeout for Codex until one run distinguishes them.**
+
+### No manifest field ships subagents
+
+**Verdict: NO. The config/setup-directory path is the only route.** `"agents":
+"./agents/"` was added to the manifest and installed; `plugin/read` returned
+`appTemplates, apps, description, hooks, marketplaceName, marketplacePath, mcpServers,
+scheduledTasks, shareUrl, skills, summary` — **no `agents` key**. Silently ignored, no
+error, while `skills: 19` and `hooks: 20` surfaced normally. The directory *was* copied
+into the cache; it is simply never surfaced. The key was reverted rather than left in
+the manifest as a no-op.
+
+Gap #14 rests on an overloaded name. `agents` means three things and only one ships
+subagents:
+
+| sense | what it is | ships subagents? |
+|---|---|---|
+| `<skill>/agents/openai.yaml` | per-skill UI + policy metadata — the implicit-invocation mechanism | no |
+| manifest `agents` key | accepted, ignored | no |
+| `config.toml` | `default_subagent_model`, `default_subagent_reasoning_effort`, `max_depth`, `AgentRoleToml` | **yes** |
+
+Secondary sources claiming a marketplace `agents` field most plausibly saw sense 1.
+
+### Skill bodies: only the locator reaches the model
+
+The single largest delivery finding, and it outranks every hook question. **Codex
+places only the skill's LOCATOR in context, never the body** — the model's own words:
+*"only the skill's locator, not its body, was placed in context."* Nothing from
+`SKILL.md` arrives until the model reads the file itself, and **a skill's `!` shell
+preload is never expanded.** 16 of 18 skills depend on that preload for their state
+input.
+
+Two viable answers were measured, and neither requires generated per-harness files:
+
+1. **Single-source, model-driven (validated).** One added sentence directing the model
+   to *substitute and run* the preload itself worked end to end: it resolved the skill
+   dir from the path it had just read and acted on the result. The sentence must direct
+   **substitution**, not verbatim execution — running the line as written yields an
+   empty prefix and a file-not-found, which looks at a glance like the sentence
+   failing. Reverted after measurement; the finding is the deliverable.
+2. **Hook-side injection (validated end to end).** A `PreToolUse:Bash` handler reads the
+   skill's identity from `tool_input.command` — the model reads `SKILL.md` *with a
+   shell command*, so the path arrives in a payload — runs that skill's own preload, and
+   injects the result. Proven falsifiable: a `uuid4` marker minted in-hook and never
+   placed in the prompt came back byte-identical, while the suppressed-injection control
+   answered NO; and the model quoted real seeded ids from 477 injected bytes.
+
+**If injection is adopted, six requirements were each found the hard way and each fails
+quietly** — exit 0, no error, an injection that looks successful: run the preload in the
+*session's* cwd (not the skill dir, or it resolves a different project's state); run the
+command the skill's own `!` line names (14 of 16 differ from a hardcoded guess in ways
+that matter); claim once-per-skill **atomically and before the run** (four parallel
+firings all read the marker absent and all ran); require a heartbeat first; constrain
+the resolved **file** under the plugin root, not just the directory (a `..` segment
+normalises back inside, and a symlinked `SKILL.md` points wherever the link says — both
+measured executing an arbitrary `!` line while the directory check reported safe); and
+**do not treat a path mention as an invocation** — a `wc -c` on a skill file consumed a
+gate, injected, and claimed the once-marker, so the genuine read that followed received
+nothing while idempotence reported working.
+
+**The main risk in the injection route:** the handle depends on the model reading
+`SKILL.md` *through a shell command*. If Codex ever delivers bodies without a shell
+read, `PreToolUse:Bash` stops carrying the identity and the mechanism stops firing —
+silently, because "no marker" and "no injection" look identical.
+
+**Cost of the in-body alternative, measured from its own reverted commit:** +227 bytes
+per skill × 16 = 3,632 bytes, and **6 of 16 would breach their recorded per-skill byte
+cap**. The binding cost is budgets, not bytes.
+
+---
+
+## Not observed, with reasons
+
+Listed because silent omission reads as covered.
+
+| Item | Why not |
+|---|---|
+| **The minimum Codex version** | Only 0.146.0 was ever installed; no older build obtained. A floor cannot be inferred from one passing version. |
+| **Whether `allowed-tools` is HONOURED** | Not readable from the loader channel. Codex documenting the key means it may be *enforcing* a tool restriction on our skills — a behaviour change, not a no-op. Needs a model-in-the-loop tool-list check. |
+| **`SessionEnd` timeout units** | Cap-regardless and read-as-seconds are both consistent with the observation; these two entries are the only `timeout` values in the file. |
+| **Whether `additionalContextLimit: 0` caps or is ignored** | 477 bytes reached the model through an entry set to 0. Whether 0 means unlimited or the field is ignored is unsettled; a shipped version should set it deliberately rather than inherit a recorder's value. |
+| **Whether `ultra` delegates under load** | The prompt was "reply ok" — nothing to delegate — and the session ran `collaboration_mode: default`. |
+| **Whether luna truly reasons at `ultra`** | It accepts the unadvertised value and answers; the rollout records the request, not the effect. The one cheap signal (`reasoning_output_tokens`) is n=1 and points the other way. |
+| **Whether `SubagentStart` `additionalContext` reaches a Codex subagent** | The hook fires and the event is not on the six-event no-context list, but delivery was never measured. Load-bearing: `RETRO_INPUT` and `CURATION_INPUT` reach the retrospective and housekeeper agents *only* this way. Separately, the routing that would select what to inject is measured broken — `agent_type` is always `'default'`. |
+| **`PermissionRequest`** | Never observed firing in any run. Gap #23 proposes it as the interceptor for skill activation; on this evidence that route is doubly dead, since `skill_approval` also gates nothing and headless teammates run `--ask-for-approval never`. |
+| **Sequential-discipline compliance** | Behaviour was consistent with the note, but no run deliberately tempted a batch. |
+| **Whether Codex ignores `disable-model-invocation`** | Reported upstream, never measured here — and Codex's own embedded guidance documents the key, which contradicts the report. Recorded as a conflict rather than a finding. See R4. |
+| **A successful commit under `workspace-write`** | `.git` is read-only there, so a commit fails *after* the gate allows it. Gate decisions stay observable; demonstrating a landed commit needs a wider sandbox. |
+| **`danger-full-access`** | Never tried — least privilege sufficed, so the escalation was never needed. |
+
+---
+
+## Rig disposal
+
+The spike rig — `plugins/xp-agents/spike/`, `hooks/hooks.codex.json`,
+`.codex-plugin/plugin.json` — is **throwaway by construction** and deleting it is
+**sprint close's obligation**, per the customer decision recorded in commit
+`c4865f38`: the rig lives on the sprint branch through this story and is deleted once
+at close, rather than being restored and re-deleted per story.
+
+story-007 guarantees only what it can: **its own diff carries no rig file.** The
+original AC ("only the findings doc and the plan-doc corrections merge") was amended
+this session because it became unsatisfiable when stories 011-016 joined the sprint —
+`main...sprint-004` carries 21 committed `spike/` files *and* three shipped-code fix
+stories that are meant to merge.
+
+A counter-argument was put by an external reviewer and is recorded rather than buried:
+a findings document ages the moment Codex changes, whereas a durable conformance rig
+plus sanitized payload fixtures would stay *checkable*. That case is sound. The
+customer reaffirmed throwaway. If the rig proves worth having, a later milestone builds
+a supported version deliberately — it should not be inherited by accident from a spike.
