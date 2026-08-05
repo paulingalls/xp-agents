@@ -175,35 +175,49 @@ _RE_N_PASSED = r"(\d+)\s+passed"
 _RE_N_FAILED = r"(\d+)\s+failed"
 
 
+def _count(pattern: str, tool_response: str, last: bool) -> int | None:
+    """One count — the LAST match when `last`, else the FIRST. Which one is
+    authoritative is per-framework policy, NOT a universal rule.
+
+    Summary-last runners need the last match: live, a file whose own source
+    read "the batch must report 1 failed" was echoed back inside bun's error
+    context and beat the `0 fail` summary. Jest shares the shape — its
+    `Test Suites:` line precedes the `Tests:` line that actually counts tests.
+
+    Summary-first runners are the opposite: mocha prints its numbered failure
+    list, test titles and all, AFTER the counts; cargo appends a `0 passed;
+    0 failed` doc-test block after every run; turbo/nx and dotnet interleave
+    per-package summaries with no aggregate, so the last one seen erases a red
+    package. Reading last there moves the phantom-count bug, or disarms.
+
+    Not line-anchored either way — deno's `ok | 5 passed | 2 failed` and
+    cargo's `test result: ok. 15 passed` are mid-line.
+    """
+    found = re.findall(pattern, tool_response)
+    return int(found[-1 if last else 0]) if found else None
+
+
 def _parse_two_counts(
-    tool_response: str, pass_re: str, fail_re: str
+    tool_response: str, pass_re: str, fail_re: str, last: bool
 ) -> tuple[int, int, bool]:
     """Extract two named numeric counts. Returns (passed, failed, matched)."""
-    passed = 0
-    failed = 0
-    matched = False
-    m = re.search(pass_re, tool_response)
-    if m:
-        passed = int(m.group(1))
-        matched = True
-    m = re.search(fail_re, tool_response)
-    if m:
-        failed = int(m.group(1))
-        matched = True
-    return passed, failed, matched
+    p = _count(pass_re, tool_response, last)
+    f = _count(fail_re, tool_response, last)
+    return p or 0, f or 0, p is not None or f is not None
 
 
 def _apply_two_counts(
-    result: dict, tool_response: str, pass_re: str, fail_re: str
+    result: dict, tool_response: str, pass_re: str, fail_re: str, last: bool = True
 ) -> None:
     """Parse counts into result and set status from match outcome.
 
     matched + non-zero counts → PARSED; matched + zero counts → ZERO
     (the framework's summary line proves it ran with zero tests, even when
     a framework-specific zero marker isn't recognized). Unmatched leaves
-    status at the caller's default (PARSER_FAILED).
+    status at the caller's default (PARSER_FAILED). `last` is the ordering
+    policy documented on `_count` — pass False for a summary-first runner.
     """
-    passed, failed, matched = _parse_two_counts(tool_response, pass_re, fail_re)
+    passed, failed, matched = _parse_two_counts(tool_response, pass_re, fail_re, last)
     result["passed"] = passed
     result["failed"] = failed
     if matched:
@@ -240,9 +254,11 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                 result["status"] = PARSER_STATUS_ZERO
                 return result
             _apply_two_counts(result, tool_response, _RE_N_PASSED, _RE_N_FAILED)
-            m = re.search(r"(\d+)\s+error", tool_response)
-            if m:
-                errors = int(m.group(1))
+            # Last match, for the same reason the counts above use it: errors
+            # fold into `failed`, so a count echoed from a traceback above the
+            # summary arms the failure gate.
+            errors = _count(r"(\d+)\s+error", tool_response, True)
+            if errors is not None:
                 result["errors"] = errors
                 # Fold errors into failed so consumers see one disjoint
                 # "did-not-pass" count — matches unittest/maven/minitest convention.
@@ -309,8 +325,12 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                 result["status"] = PARSER_STATUS_PARSED
 
         case "cargo":
-            # "test result: ok. 15 passed; 0 failed; 0 ignored"
-            _apply_two_counts(result, tool_response, _RE_N_PASSED, _RE_N_FAILED)
+            # "test result: ok. 15 passed; 0 failed; 0 ignored" — one such line
+            # per test binary, and a trailing Doc-tests block (usually
+            # "0 passed; 0 failed") closes every run, so read the FIRST.
+            _apply_two_counts(
+                result, tool_response, _RE_N_PASSED, _RE_N_FAILED, last=False
+            )
 
         case "maven" | "gradle":
             # Maven: "Tests run: 10, Failures: 2, Errors: 1"
@@ -373,9 +393,14 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                     result["status"] = PARSER_STATUS_PARSED
 
         case "dotnet":
-            # "Passed!  - Failed: 0, Passed: 5, Skipped: 0, Total: 5"
+            # "Passed!  - Failed: 0, Passed: 5, Skipped: 0, Total: 5" — one per
+            # project on a solution run, with no aggregate; FIRST match.
             _apply_two_counts(
-                result, tool_response, r"Passed:\s*(\d+)", r"Failed:\s*(\d+)"
+                result,
+                tool_response,
+                r"Passed:\s*(\d+)",
+                r"Failed:\s*(\d+)",
+                last=False,
             )
 
         case "dart":
@@ -421,12 +446,14 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             _apply_two_counts(result, tool_response, r"(\d+)\s+pass", r"(\d+)\s+fail")
 
         case "mocha":
-            # "  10 passing (123ms)" and optional "  2 failing"
+            # "  10 passing (123ms)" and optional "  2 failing", printed BEFORE
+            # the numbered failure list whose titles can echo counts; FIRST.
             _apply_two_counts(
                 result,
                 tool_response,
                 r"(\d+)\s+passing",
                 r"(\d+)\s+failing",
+                last=False,
             )
 
         case "node-test":
@@ -444,7 +471,10 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
         case "nx" | "turbo":
             # nx/turbo wrap underlying frameworks; their summary lines vary.
             # Best-effort: fall through to the same N passed/N failed shape
-            # that jest/vitest/pytest also use.
-            _apply_two_counts(result, tool_response, _RE_N_PASSED, _RE_N_FAILED)
+            # that jest/vitest/pytest also use. One summary per package and no
+            # aggregate line, so FIRST — reading last erases a red package.
+            _apply_two_counts(
+                result, tool_response, _RE_N_PASSED, _RE_N_FAILED, last=False
+            )
 
     return result

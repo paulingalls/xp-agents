@@ -79,6 +79,10 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/scripts/pre_tool_write.py": 463,
     "plugins/xp-agents/scripts/session_start.py": 462,
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
+    # Entered the band when count ordering became per-framework policy (last
+    # match for summary-last runners, first for mocha/cargo/workspace ones).
+    # Extract next: the `case` arms, a table pretending to be control flow.
+    "plugins/xp-agents/scripts/test_parsing.py": 480,
     # tests (57)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
@@ -121,7 +125,7 @@ _BAND_CEILINGS = {
     # break. Extract next: `_PreloadCase`, unused by its prose suites.
     "plugins/xp-agents/tests/skills/test_scaffold_worktree_skill.py": 475,
     "plugins/xp-agents/tests/engine/test_compact_concurrency.py": 473,
-    "plugins/xp-agents/tests/test_file_size_pin.py": 451,  # this file, self-pinned
+    "plugins/xp-agents/tests/test_file_size_pin.py": 455,  # this file, self-pinned
     "plugins/xp-agents/tests/smm/test_integration_branch_ref.py": 470,
     "plugins/xp-agents/tests/engine/test_sprint_frontier.py": 470,
     "plugins/xp-agents/tests/integration/test_story_close.py": 468,
