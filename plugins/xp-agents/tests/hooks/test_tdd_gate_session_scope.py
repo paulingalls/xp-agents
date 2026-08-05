@@ -25,7 +25,12 @@ import bash_failure
 import task_completed
 import tdd_stop_gate
 import teammate_idle
-from _tdd_gate_fixtures import _GateTestCase, filler, session_anchor
+from _tdd_gate_fixtures import (
+    TEAMMATE_CWD,
+    _GateTestCase,
+    filler,
+    session_anchor,
+)
 from concerns import TEST_CONCERN_RE
 from conftest import (
     _HookTestCase,
@@ -196,7 +201,6 @@ class TestGateStillBlocks(_GateTestCase):
             )
 
 
-_TEAMMATE_CWD = "/Users/dev/xp-agents/.claude/worktrees/worktree-story-003"
 _LEAD_CWD = "/Users/dev/xp-agents"
 
 
@@ -225,7 +229,7 @@ class TestTeammateReaderWindow(_GateTestCase):
             session_anchor(),
             *filler(3),
         ]
-        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False)
         self.assertIsNotNone(result)
         self.assertIn("failing", str(result).lower())
 
@@ -245,7 +249,7 @@ class TestTeammateReaderWindow(_GateTestCase):
             failing_tests_concern(agent_id="worktree-story-003"),
             *filler(300),
         ]
-        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False)
         self.assertIsNotNone(result)
 
 
@@ -261,18 +265,18 @@ class TestTeammateReaderAgentScope(_GateTestCase):
     def test_sibling_fail_concern_does_not_block_the_teammate(self):
         # Authored by a SIBLING teammate; read by worktree-story-003, clean tree.
         events = [failing_tests_concern(agent_id="worktree-story-007"), *filler(3)]
-        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False)
         self.assertIsNone(result)
 
     def test_lead_fail_concern_does_not_block_the_teammate(self):
         events = [failing_tests_concern(agent_id="main"), *filler(3)]
-        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False)
         self.assertIsNone(result)
 
     def test_own_fail_concern_still_blocks_the_teammate(self):
         # Control: the teammate's OWN unresolved failure still gates it.
         events = [failing_tests_concern(agent_id="worktree-story-003"), *filler(3)]
-        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False)
         self.assertIsNotNone(result)
 
     def test_sibling_pass_does_not_un_gate_the_teammates_own_failure(self):
@@ -283,60 +287,8 @@ class TestTeammateReaderAgentScope(_GateTestCase):
             passing_tests_status(agent_id="worktree-story-007"),
             *filler(3),
         ]
-        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False)
         self.assertIsNotNone(result)
-
-
-class TestAbsentAgentIdIsNotASibling(_GateTestCase):
-    """The absent-`agent_id` fail-open.
-
-    Having found a failure, the gate asks
-    `coordination.has_active_teammates(smm_dir, agent_id)` — "is some OTHER
-    agent active?" — and releases if so, because a teammate may own it. It read
-    the RAW payload `agent_id`, but the harness sends that field only when a
-    hook fires inside a subagent call and Stop fires on the main thread, so the
-    value was always `""`. Nothing in coordination equals `""`, so the predicate
-    answered yes against ANY entry — and `post_tool_use` writes one under the
-    resolved id on every file write, with a 30-minute TTL. The gate that keeps a
-    red suite from being abandoned released unconditionally.
-
-    Read the first two tests as a PAIR. The release direction passes today for
-    the wrong reason — today it releases for every input — so only the block
-    direction fails first, and only together do they say the answer TRACKS
-    coordination rather than ignoring it.
-    """
-
-    def _coordinate(self, *agent_ids: str) -> None:
-        import coordination
-
-        for aid in agent_ids:
-            coordination.update_coordination(self.smm_dir, aid, [])
-
-    def test_no_agent_id_and_no_sibling_blocks(self):
-        """AC-1. The lead, alone, with its own red suite. `main` IS in
-        coordination — the lead writes there itself on every file write, which
-        is exactly why comparing against `""` disarmed the gate."""
-        self._coordinate("main")
-        events = [session_anchor(), *filler(3), failing_tests_concern()]
-        self.assertIsNotNone(self._stop(events, dirty=False, agent_id=None))
-
-    def test_no_agent_id_and_a_real_sibling_releases(self):
-        """AC-2. Same payload, but a genuine teammate is active, so the failure
-        may be its own and the lead must not be held."""
-        self._coordinate("main", "worktree-story-007")
-        events = [session_anchor(), *filler(3), failing_tests_concern()]
-        self.assertIsNone(self._stop(events, dirty=False, agent_id=None))
-
-    def test_the_empty_spelling_matches_the_absent_key(self):
-        """Non-vacuity. A missing key and `""` must not diverge — both reach
-        `resolve_agent_id`'s falsy branch. Pinning the equality stops a later
-        "fix" that special-cases one spelling and leaves the other fail-open."""
-        events = [session_anchor(), *filler(3), failing_tests_concern()]
-        self._coordinate("main")
-        absent = self._stop(events, dirty=False, agent_id=None)
-        empty = self._stop(events, dirty=False, agent_id="")
-        self.assertIsNotNone(empty)
-        self.assertEqual(absent, empty)
 
 
 class TestTeammateWindowE2E(_HookTestCase):
@@ -351,7 +303,7 @@ class TestTeammateWindowE2E(_HookTestCase):
         self._write_events(events)
         with patch("commits.get_uncommitted_files", return_value=[]):
             result = teammate_idle.run(
-                _make_teammate_idle_input(cwd=_TEAMMATE_CWD), smm_dir=self.smm_dir
+                _make_teammate_idle_input(cwd=TEAMMATE_CWD), smm_dir=self.smm_dir
             )
         self.assertIsNotNone(result)
 

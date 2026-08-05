@@ -104,6 +104,31 @@ def _reader_scope(
     return (anchor if anchor >= 0 else 0), None
 
 
+def reader_scope_owner(
+    events: list[dict], cwd: str = ".", smm_dir: Path | None = None
+) -> str | None:
+    """The agent this read was SCOPED to, or None when reading as the lead.
+
+    Public face of `_reader_scope`'s second return value, for callers that need
+    the scope but not the window. The Stop gate needs exactly this: having found
+    a failure, it must know whether that failure could belong to someone else.
+    Only the lead reads unscoped, so only the lead may release on another agent
+    being active — a teammate's failure is provably its own.
+
+    Named for the reader's scope, NOT for the signal's author: the two differ,
+    and this returns None for the lead even though the signal it found does have
+    an author.
+
+    A wrapper rather than a rename of `_reader_scope`, which is referenced by
+    name in `identity`, `pre_tool_skill`, `commit_event`, three test modules and
+    `docs/ARCHITECTURE.md`. Sharing it (rather than re-deriving teammate-ness
+    through `identity.is_worktree_teammate`, whose process-cwd fallback this
+    reader deliberately avoids) is what keeps the gate from answering "who am I"
+    two different ways in one function.
+    """
+    return _reader_scope(events, cwd, smm_dir)[1]
+
+
 def find_last_test_signal(
     events: list[dict], cwd: str = ".", smm_dir: Path | None = None
 ) -> str | None:

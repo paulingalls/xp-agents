@@ -13,6 +13,13 @@ import tdd_stop_gate
 from conftest import _HookTestCase, _make_stop_input, make_event
 from event_schema import EVENT_TYPE_SESSION_STARTED, EVENT_TYPE_STATUS
 
+TEAMMATE_CWD = "/Users/dev/xp-agents/.claude/worktrees/worktree-story-003"
+"""A worktree teammate's hook cwd — the `worktree-story-` segment
+`extract_worktree_name` keys on. Shared because two modules now assert against
+this exact path (session scoping and the coordination release), and two
+independently-written copies of a path a resolver parses is a drift hazard, not
+a convenience."""
+
 
 def session_anchor() -> dict:
     """The boundary event. Emitted on startup/clear only — NOT on resume or

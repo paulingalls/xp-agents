@@ -20,7 +20,19 @@ _WATERMARK_ID = "tdd-stop-gate"
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
-    """Return block reason if tests failing, None otherwise."""
+    """Return block reason if tests failing, None otherwise.
+
+    **This function asks "who am I?" once, and the answer comes from one
+    source.** It has three identity-shaped decisions — whose test signals count
+    (`find_last_test_signal`), whether this reader may release on a sibling
+    (`reader_scope_owner`), and which coordination key to compare against
+    (`resolve_agent_id`) — and every one of them derives from the hook payload's
+    `cwd` plus the in-place marker, never from the raw `agent_id` field. That
+    field is present only when a hook fires inside a subagent call; Stop fires on
+    the main thread, so reading it directly yielded `""` on every firing and
+    disarmed the gate entirely. A second spelling of any of these three is how
+    the fail-open comes back.
+    """
     if _common.is_xp_agent(input_data):
         return None
     if input_data.get("stop_hook_active"):
@@ -52,9 +64,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # same function `post_tool_use` uses to WRITE the coordination key
         # being compared against, and a reader that does not share the writer's
         # key space cannot answer this question at all.
-        agent_id = identity.resolve_agent_id(input_data)
-        if coordination.has_active_teammates(smm_dir, agent_id):
-            return None  # Teammates may own the failing tests
+        #
+        # The release is the LEAD's alone. `find_last_test_signal` has already
+        # scoped this read — a teammate saw only its own signals — so a teammate
+        # reaching here is looking at a failure that is provably its own, and
+        # "a teammate may own it" is false by construction. Only the lead reads
+        # unscoped and can be looking at someone else's red suite. Same source
+        # as the scoping above, so the two cannot disagree; paid only on this
+        # branch, where we would otherwise block.
+        if tdd_check.reader_scope_owner(events, cwd, smm_dir) is None:
+            agent_id = identity.resolve_agent_id(input_data)
+            if coordination.has_active_teammates(smm_dir, agent_id):
+                return None  # A sibling may own the failing tests
         return "Tests are failing. Fix failing tests before stopping."
 
     return None
