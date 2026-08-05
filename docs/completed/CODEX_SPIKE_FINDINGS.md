@@ -729,6 +729,60 @@ Listed because silent omission reads as covered.
 
 ---
 
+## Corrections applied to the plan doc
+
+Every claim below was corrected **in place** in `docs/ideas/CODEX_DUAL_TARGET_PLAN.md`
+rather than only contradicted here — a later milestone reads that doc and would
+otherwise trust a falsified claim. The marker there is `**Measured 2026-08-05 (P0
+spike):**`, matching the doc's own existing convention. **Severity cells moved with the
+bodies**, so a reader scanning severities is not misled by a row whose text now says
+the opposite.
+
+### Falsified — the stated resolution cannot be implemented
+
+| Gap | What the doc said | What was measured |
+|---|---|---|
+| **#3** | Fold failure detection into `PostToolUse`, keyed on exit status | A failed tool call fires **no `PostToolUse` at all**. Nothing to key on; needs a new design |
+| **#11** | "The feared hole appears not to exist as described" (**Low**) | The hole is real, by an undocumented mechanism. `--disable unified_exec` becomes mandatory config |
+| **#14** | A marketplace `agents` field would let plugins ship subagents | No such key exists; accepted and silently ignored |
+| **#31** | `stop_hook_active` has "no known analogue" (**Blocker**) | Present **and functional** — the Blocker dissolves and the P1 decoupling is unnecessary for Codex |
+| **#28** | `skill_approval: false` silently auto-rejects (**Medium**) | Gates nothing in either direction, and it is not the top-level boolean assumed |
+| **#25** | Codex SKILL.md supports only `name`/`description`; rejection would be a blocker | Three of four extra keys are **documented Codex fields**; nothing is rejected |
+| **#27** | Two Codex surfaces disagree, so model a per-surface dimension | The catalog is authoritative; there is no surface split. The CLI list was the drifted one |
+| **#12**, tier axis | Codex has `minimal`, lacks `max`; axis is `minimal…max` | Wrong at both ends. No `minimal`; `max` and `ultra` both real. Axis is `low…ultra` |
+| Effort key | `effort_support` keyed per **model** | Must be keyed per **tier** — and that changes the **Claude** row too |
+| `-e` shorthand | "Codex also accepts a `-e <effort>` shorthand" | No `-e`/`--effort` flag exists. Only `-m` |
+| Subagent models | `gpt-5.6`, `gpt-5.4`, `gpt-5.6-terra`, `gpt-5.3-codex-spark` | Two of four are not in the live catalog; one of the rest is hidden |
+
+### Confirmed, and sharpened
+
+| Gap | Refinement |
+|---|---|
+| **#2** | `apply_patch` confirmed — and `Edit`/`Write`/`MultiEdit` are **dead names**; `Bash` exists only by normalisation |
+| **#18** | Untrusted hooks are skipped silently — **confirmed**; but the prescribed mitigation is **broken on Codex** |
+| **#20** | Explicit `hooks` path **replaces** discovery; unknown events silently ignored, so the variant is tidy, not mandatory |
+| **#32** | `SubagentStart`/`Stop` **do** fire — but `agent_type` is always `'default'`, so identical naming will not fix routing |
+| **#6** | The deadlock is real and the prescribed CLI leg is right; the *framing* needed correcting — Codex can ask, in chat |
+| **#9a** | Least privilege suffices; `danger-full-access` never needed |
+| **#26** | Control works, risk is real (observed firing `/xp-kickoff`) — but it now conflicts with this sprint's own sidecar ban |
+| **#23** | The `PermissionRequest` route is doubly dead; the in-skill check is the only option |
+| **#19** | One working version established; **the floor is not** |
+
+### Structural
+
+- **Payload compatibility surface: 14 fields → 15.** `session_id` was omitted and
+  shipped code reads it in four places. The `Codex status` column is now *observed*
+  rather than *documented*.
+- **`HARNESSES["codex"]`**: both `PLACEHOLDER — P0` holes filled; zero placeholder
+  markers remain in the document.
+- **Open questions 1, 2, 5, 7 and 8 answered**; 6 answered in half. **A ninth was
+  added** — how skill bodies and preloads reach a Codex model, the largest open design
+  question the spike surfaced.
+- **Risks**: the gap #11 row's likelihood was wrong and its mitigation is now mandatory
+  config; the silent-non-enforcement row has **no working mitigation** until R2 lands;
+  the gate-compliance row is measured and did not occur; **one new risk added** — a
+  retry policy mistaking an unsupported pair for a flaky connection.
+
 ## Rig disposal
 
 The spike rig — `plugins/xp-agents/spike/`, `hooks/hooks.codex.json`,

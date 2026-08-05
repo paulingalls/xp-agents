@@ -884,13 +884,14 @@ each story; behavior on Claude Code unchanged.
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
 | Codex hooks churn/regress between releases (experimental) | High | Version pin + canary CI; hooks variants generated so retargeting is one emitter change |
-| PreToolUse shell-coverage hole (gap #11) unfixable | **Low** (was Medium — the docs' only documented exception is hosted tools like WebSearch, and our gate rides `PreToolUse:Bash`) | P0 no-go gate retained as cheap insurance; upstream issue; Codex-teammate feature flag stays off |
+| PreToolUse shell-coverage hole (gap #11) unfixable | ~~**Low**~~ **Occurred — and the mitigation is now mandatory config, not a feature flag.** The hole is real by an undocumented mechanism (`exec_command` + `write_stdin`), so the "only hosted tools are exempt" reasoning was wrong. It is *fixable*, which is why the no-go did not trigger | **`--disable unified_exec` on every Codex spawn — a hard requirement.** Without it every `PreToolUse:Bash` gate is bypassable and the enforcement story is decorative. The P0 gate earned its keep here |
+| **A retry policy mistakes an unsupported model/effort pair for a flaky connection** | **Medium — new, found in P0** | An unsupported pair is neither rejected up front nor clamped: it burns ~16 s and dies with `stream disconnected before completion`. Validate the pair against our own `effort_support` table **before** spawning; never infer support from a failed run |
 | Trust-review UX tax alienates Codex users | Medium | Batch hook changes per release; document; prefer `requirements.toml` managed hooks (trusted by policy, cannot be disabled) for org deployments |
-| **Silent non-enforcement**: hooks not trusted (gap #18) or a too-old Codex (gap #19) yields a session that looks enforced but is not — teammates commit unreviewed code and nothing reports it | **High** | The P1 liveness heartbeat is the mitigation, and it is why that item is P1 rather than P4. Treat any gate that can vanish quietly as a correctness bug, not a UX issue |
+| **Silent non-enforcement**: hooks not trusted (gap #18) or a too-old Codex (gap #19) yields a session that looks enforced but is not — teammates commit unreviewed code and nothing reports it | **High — CONFIRMED in P0, and the mitigation is currently broken** | ~~The P1 liveness heartbeat is the mitigation~~ — **it does not work on Codex as shipped.** The heartbeat is written keyed on the payload `session_id` but read from the environment, and Codex exports no session id to hook processes, so the read degrades to time-only and **an unenforced session started within 4h of an enforced one reports LIVE** on a shared SMM root. Compounded: the SessionStart context surfaces only at the first turn, not at startup, so the banner cannot tell you either. **Fix the liveness read before any Codex teammate ships** — until then this risk has no mitigation, only a name. Treat any gate that can vanish quietly as a correctness bug, not a UX issue |
 | Codex model ids and effort support churn (versions move fast) | High | The `HARNESSES` table is data; keep model ids in one place, pin a canary CI job, and never infer a tier mapping in code |
 | ~~**SMM destroyed by a plugin uninstall** (gap #9c)~~ — happened today on Claude, no Codex needed, and silently | ~~**High / already live**~~ **CLOSED in v5.0.0** | P1 item 7 shipped ahead of the phase. Residual, tracked as concerns rather than re-opened here: relocation declines while a stale worktree directory exists (mitigated by a SessionStart advisory), and only `smm/` relocates, so a forced relocation cuts the sibling worktree directories loose. A handle pinned before the move is NOT residual — both resolvers follow the `.migrated-to` pointer one hop |
 | Lifecycle skills fire out of order via implicit invocation (gap #26) — also already live on Claude | Medium | `policy.allow_implicit_invocation: false` on Codex; audit `description` fields on both harnesses so they do not read as task-matching bait |
-| GPT-5.x-codex responds differently to gate pressure (stop-gate loops, block-reason compliance) | **Medium likelihood, high impact — and entirely unmeasured.** The only risk here with no supporting evidence either way | **Observed in P0**, not deferred to P3: the spike already runs a real teammate, so watching gate compliance is nearly free there, and it is a no-go criterion. P3's deliberately-blocked integration test then becomes a regression test rather than the first look. Tune `TEAMMATE_GUIDE` prose per harness if needed. Compounds with gap #31 — a looping model plus a gate that cannot release is an unbounded token burn |
+| GPT-5.x-codex responds differently to gate pressure (stop-gate loops, block-reason compliance) | ~~**Medium likelihood, high impact — and entirely unmeasured**~~ → **Measured in P0 and it did NOT occur.** It obeyed a blocked commit, ran a real independent review, explicitly declined to bypass, followed test-first and the review cycle from prose alone, and continued productively through a Stop block without looping. Residual: **cost**, not compliance — 61k tokens to answer a one-word prompt through one gate cycle. And sequential-discipline was consistent but never stress-tested | **Observed in P0**, not deferred to P3: the spike already runs a real teammate, so watching gate compliance is nearly free there, and it is a no-go criterion. P3's deliberately-blocked integration test then becomes a regression test rather than the first look. Tune `TEAMMATE_GUIDE` prose per harness if needed. Compounds with gap #31 — a looping model plus a gate that cannot release is an unbounded token burn |
 | Maintenance: every new hook now has two targets | Certain | Generation + pin test makes drift a test failure, not a code-review hope |
 | Tier rename (gap #12) touches persisted sprint data and 5 prose-pin tests at once — a botched migration mislabels stories' executors | Medium | Read-side aliasing rather than data rewrite, so old values keep loading; land the rename as its own P1 story with the alias table tested against real `sprint.json` fixtures before any prose changes |
 | SMM-root change (gap #9b) relocates a live SMM without its worktree siblings, orphaning in-flight teammate state | Medium — **partly live** | SHIPPED: relocation is a COPY (the old path stays readable and authoritative on any failure), refuses while any teammate worktree or in-place marker is live, and leaves a `.migrated-to` pointer both resolvers follow. STILL OPEN: only `smm/` moves, so a `--force` relocation cuts the sibling worktree directories loose — worktree placement derives from the SMM's parent, and putting them back needs `git worktree move` |
@@ -909,16 +910,30 @@ each story; behavior on Claude Code unchanged.
 
 ## Open questions (resolve in P0/P1)
 
-1. Does `codex exec` load a marketplace-installed plugin in every intended
-   mode (interactive, headless, and a worktree cwd)? Resolve with the Phase 0
-   clean-install smoke test; do not pre-seed trust configuration from the spawn
-   script unless the result proves it is required.
+1. ~~Does `codex exec` load a marketplace-installed plugin in every intended mode?~~
+   **ANSWERED (P0): yes, in all three.** Headless `codex exec`, an interactive
+   session, and a real git worktree all loaded a marketplace-installed plugin and ran
+   its bundled hooks. `${CLAUDE_PLUGIN_ROOT}` expands and a script in a non-standard
+   subdirectory is copied into the cache and executed from there.
+   **Trust configuration IS required and the result proves it**: untrusted plugin
+   hooks are skipped **silently**, so headless spawns need
+   `--dangerously-bypass-hook-trust` and interactive leads need the `/hooks` step.
+   **New operational trap:** the plugin cache is **version-keyed** and
+   `marketplace upgrade` is Git-only, so without a manifest version bump a run
+   silently executes the previously cached copy — which reads exactly like "the hook
+   did not fire".
 2. Exact Codex hook stdin field names for tool payloads — **partly answered**
    (2026-07-24): common fields are `session_id`, `cwd`, `hook_event_name`, plus
    `turn_id` on turn-scoped hooks; tool events add `tool_name`, `tool_input`,
    `tool_use_id`, and `tool_response` on PostToolUse. Both Bash and `apply_patch`
-   carry their payload in `tool_input.command`. Still capture a real apply_patch
-   payload in P0 before writing the path extractor.
+   carry their payload in `tool_input.command`. ~~Still capture a real apply_patch
+   payload in P0 before writing the path extractor.~~ **ANSWERED (P0): captured.** The
+   payload is recorded with field names verbatim in
+   `docs/completed/CODEX_SPIKE_FINDINGS.md`. `tool_input.command` for `apply_patch`
+   carries **patch TEXT**, so the extractor parses `*** Update File:` / `*** Add File:`
+   / `*** Delete File:` lines. Also observed: `tool_response` is a plain **string**;
+   the payload carries `session_id`, `turn_id`, `transcript_path`, `model`,
+   `permission_mode` and `tool_use_id`, none of which this doc listed.
 3. ~~Does the Codex JSONL stream expose enough for the watchdog's
    activity-detection?~~ **Answered: yes.** `--json` streams `thread.started`,
    `turn.started`/`turn.completed`, `item.started`/`item.completed`/`item.failed`,
@@ -931,22 +946,45 @@ each story; behavior on Claude Code unchanged.
    ship a static per-model price table (drifts, needs maintenance) or report tokens
    only and drop dollar figures for Codex teammates. Leaning tokens-only —
    an honest token count beats a silently stale dollar amount.
-5. **Codex model identifiers per abstract tier** — still open and P0-gated. The
-   effort *value set* is now known (`minimal, low, medium, high, xhigh`, with
-   `xhigh` model-dependent), but which concrete model backs
-   `economy`/`standard`/`advanced`/`frontier`, and each model's effort support,
-   must be observed. Do not hardcode ids from memory; they churn.
+5. ~~**Codex model identifiers per abstract tier** — still open and P0-gated.~~
+   **ANSWERED (P0):** `economy = gpt-5.6-luna`, `standard = gpt-5.6-terra`,
+   `advanced = gpt-5.6-sol @ high`, `frontier = gpt-5.6-sol @ ultra` — see the filled
+   `HARNESSES["codex"]` row above. The effort value set stated in this question was
+   **wrong** (no `minimal`; `max` and `ultra` are both real). Two things the answer
+   carries that the question did not anticipate: **Codex has only three visible coding
+   tiers**, so the top two share a model and differ only by default effort; and
+   **advertised support is not enforced support** — `gpt-5.6-luna` accepts an `ultra`
+   it does not advertise. "They churn" is now evidence: the previously documented
+   subagent ids were already stale.
 6. **Codex tool vocabulary for TOML agent definitions** — the `--allowedTools`
    half is answered (no CLI equivalent; config-level `features.shell_tool` /
    `apps.*.enabled_tools` only, in Codex's namespace), so `_ALLOWED_TOOLS` is
    omitted for Codex. Still needed: the concrete tool names to write into TOML
-   agent definitions, and whether a manifest/marketplace `agents` field can ship
-   them at all (gap #14).
-7. **Does compaction need a third trigger?** (gap #4). `SessionEnd` exists on
-   Codex, so this reduces to whether an `async: true` handler runs there at all. If
-   it does not, decide in P1 between dropping the `async` flag and adding a
-   `SessionStart` size check.
-8. **Does an explicit manifest `hooks` path suppress `./hooks/hooks.json`
-   auto-discovery** (gap #20), and what does Codex do with event names it does not
-   recognize — ignore, warn, or reject the whole file? The last case would make the
-   generated Codex variant mandatory rather than merely tidy.
+   agent definitions, and ~~whether a manifest/marketplace `agents` field can ship
+   them at all (gap #14)~~ — **that half is ANSWERED (P0): NO.** `plugin/read` returns
+   no `agents` key; the field is accepted and silently ignored, so the
+   `.codex/agents/` setup path is the only route. **Still open:** the concrete tool
+   names for TOML agent definitions.
+7. ~~**Does compaction need a third trigger?** (gap #4).~~ **ANSWERED (P0): no.** An
+   `async: true` handler on `SessionEnd` **runs synchronously** — Codex says so itself
+   (`warning: running async SessionEnd hook synchronously`) — so compaction fires and
+   neither remedy is needed. **But a new question replaces it:** `SessionEnd` hook
+   timeouts are **clamped to 3s**, and it is unresolved whether Codex caps every
+   `SessionEnd` timeout or **reads the number as seconds** — the latter would mean
+   every `timeout` in a Codex hooks file is off by 1000×. Do not write a shipped Codex
+   timeout until one run distinguishes them.
+8. ~~**Does an explicit manifest `hooks` path suppress `./hooks/hooks.json`
+   auto-discovery** (gap #20), and what does Codex do with unrecognised event names?~~
+   **ANSWERED (P0), both halves.** An explicit `hooks` entry **REPLACES** discovery
+   rather than merging, so setting it is mandatory. Unrecognised event names are
+   **silently ignored** — four were registered deliberately and nothing errored or
+   warned — so **the generated Codex variant is tidy, not mandatory**.
+9. **NEW (P0), and the largest open design question: how do skill bodies and their
+   preloads reach a Codex model?** Codex places only the skill's **locator** in
+   context, never the body, and a `!` shell preload is never expanded — so 16 of 18
+   skills would load without their state input. Two routes were validated end to end
+   (a single added sentence telling the model to substitute-and-run its own preload;
+   or hook-side injection off `PreToolUse:Bash`, which works because the model reads
+   `SKILL.md` *with a shell command*). Neither is adopted yet. See
+   `docs/completed/CODEX_SPIKE_FINDINGS.md` for the six requirements the injection
+   route must honour, each of which fails quietly.
