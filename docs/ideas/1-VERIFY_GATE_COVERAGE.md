@@ -87,17 +87,39 @@ re.findall(r'^\s*(\d+)\s+fail\b', out, re.M)      # -> ['0'] (the summary)
 - **First match, not the summary.** The summary block comes *after* the error context, so on a failing-looking-but-green run the parser reads the earliest, least authoritative number.
 - **`fail` is a prefix match.** The bun branch's `r"(\d+)\s+fail"` (`:421`) matches `1 failed` inside prose. Same for `pass`.
 
-**Direction — two independent fixes, both worth taking.**
+**SHIPPED 2026-08-05 — counts come from the runner's own summary LINE, summed across every one** (`scripts/result_counts.py`, called from the per-framework arms in `scripts/test_parsing.py`). Pinned by `tests/hooks/test_result_ordering.py`.
 
-*A. Anchor the counts to the framework's summary line.* Add `^\s*` + `re.MULTILINE` and a trailing `\b` in `_parse_two_counts`, and prefer the **last** match over the first. Line-anchoring alone kills the reported case (the echoed comment is preceded by `//`), and last-match handles a framework that prints a per-file tally before its total. This is per-framework policy in a module that already routes per-framework — not a guardrail leak — but it must be re-validated against every existing branch's fixture, since some summaries are mid-line (`ok | 5 passed | 2 failed`, `test result: ok. 15 passed; 0 failed`).
+First-vs-last turned out to be a false choice, and the intermediate per-framework-ordering fix was itself wrong. cargo prints one `test result:` per test binary plus a `Doc-tests` block, a dotnet solution one per project, and a workspace launcher (`pnpm -r test`, turbo, nx) one per package — none emit an aggregate. **Any single-match rule reports one sub-run and erases the rest**: first-match hides a red later package, last-match hides a red earlier one. Anchoring on the summary line and summing reports the run.
 
-*B. Cross-check against the exit status the recorder already computes.* `bash_post_tool.py:226` already derives `exit_proves_pass` via `test_attribution.exit_status_proves_runner_passed(command)`, but consults it **only on the `failed == 0` legs** (`:227`, `:270`, `:287`). The `failed > 0` concern branch at `:261` never looks at it. `bash_post_tool.py` is registered on `PostToolUse` (the success path; `bash_failure.py` handles `PostToolUseFailure`), so exit 0 **plus** shell structure proving the runner's status reached the shell means the runner exited 0 — and a runner that exited 0 cannot have real failures. `failed > 0 and exit_proves_pass` is therefore a *provable* parse artifact.
+The same mechanism closes the phantom-count bug rather than relocating it: an echoed source line, or a mocha title reading "must report 7 failing rows", is not on a summary line. Runners with no line-identifiable summary — bun, deno, playwright, node-test — keep the whole-response last-match scan as an explicit **fallback, not policy**; it still reports a single sub-run when one of them emits several.
 
-Fix B is framework-agnostic, catches the whole class rather than one regex shape, and is a natural guard to keep even after A lands. Suggested behavior: suppress the concern, record the STATUS with a `parser_status` marking the contradiction (do not silently rewrite `failed` to 0 — the honest record is "the parse and the exit status disagree"), and surface it so the mis-parse gets fixed rather than hidden.
+Anchors are matched per line, but whether one also pins the line START is per-arm. Mocha's does (`^\s*\d+\s+(?:passing|failing)`) — its counts open the line. The jest/cargo/dotnet anchors deliberately do not: turbo and nx prefix the wrapped runner's summary with the package name (`@acme/api:test:  Tests: 2 failed …`), so requiring a line start drops every workspace-runner summary. The jest arm's anchor also makes the colon optional, since vitest prints `      Tests  5 passed (5)` where jest prints `Tests:  5 passed, 5 total`.
 
-**Why the impact is out of proportion to the bug.** The concern is `severity: high` with `CONCERN_ACTION_TRANSIENT_TEST`, and the Stop gate refuses to let the agent stop while it is open. Every green full-suite run re-filed it, so the gate could not be cleared by doing the correct thing (running the suite) — the operator had to diagnose a regex. This is also why item 3 matters: the concern content gave no way to tell a phantom from a real red.
+Three further parses were wrong before anyone looked: jest reported `Test Suites:` counts (that line precedes `Tests:`); a red cargo run under `--no-fail-fast` reported 0 failed, because the doc-test block closing every run says so; and pytest's `errors` count came from anywhere in the payload, so a second tool sharing the Bash call (`pytest -q; pyright`) could zero the collection errors that were the run's only failure signal. `result_counts.pytest_summary_region` now requires a count token AND the run duration on one line — the `=` fencing alone breaks under `-q`.
 
-**Files.** `scripts/test_parsing.py:178-193` (`_parse_two_counts`) and every `case` arm's regexes (`:239-448`), `scripts/bash_post_tool.py:226`/`:261` (the cross-check), `scripts/test_attribution.py::exit_status_proves_runner_passed`. Tests: the parser fixtures alongside `tests/hooks/` — add a case per framework where the echoed-source text contains a plausible count, since that fixture shape does not exist today.
+The lesson worth carrying, twice learned here: a property that feels framework-independent ("the summary comes last") is a property of each runner's reporter. Recorded as decision `e0cb215f2915` (topic `test-output-count-extraction`) so a later "just take the last match everywhere" lands as superseding rather than silently re-introducing this.
+
+**Residual** — debt `5adee880f990`: an nx/turbo package wrapping a framework with no line-identifiable summary, and two chained pytest invocations, still report one sub-run.
+
+**An exit-status cross-check was tried and REVERTED — do not re-propose it.** The idea: `bash_post_tool.py:226` already derives `exit_proves_pass`, but the `failed > 0` concern branch never consults it, so `failed > 0 and exit_proves_pass` looked like a provable parse artifact. It rests on a false premise. `bash_post_tool` is **not** the success-only path: `scripts/bash_failure.py:20` states outright that it "does NOT own every failing test run — the parsed-counts path in `bash_post_tool` sees the ones that exit non-zero with a readable summary, and it always has." A genuinely failing `bun test` (exit 1, bare command, `exit_proves_pass` true) would have had its concern suppressed — disarming the gate, the direction this codebase repeatedly names as the worse one. Sixteen existing tests went red and caught it.
+
+The generalizable lesson, since the reasoning was superficially strong: *"which hook fires on failure"* is a platform fact to verify against the hooks reference and the code's own docstrings, never to infer from a hook's name or its registration matcher.
+
+**Why the impact was out of proportion to the bug.** The concern is `severity: high` with `CONCERN_ACTION_TRANSIENT_TEST`, and the Stop gate refuses to let the agent stop while it is open. Every green full-suite run re-filed it, so the gate could not be cleared by doing the correct thing (running the suite) — the operator had to diagnose a regex. This is also why item 3 matters: the concern content gave no way to tell a phantom from a real red.
+
+**Residual worth knowing.** With the count now read from each runner's summary, a *repeated* mis-parse is less likely, but nothing yet detects that a parse and an exit status disagree. If that is ever built, it must key on something that genuinely proves the runner's result — not on the hook that received the payload.
+
+The sub-run erasure this paragraph once listed as still-open (cargo and nx/turbo/dotnet reporting only their first summary) is what the summing fix above closed — the worry that summing would inflate counts on an echoed digit is answered by the line anchor, since an echo is not on a summary line.
+
+## 5. The file-size ratchet cannot fire for a shell file — **small**
+
+Promoted from concern `db225b2065bf`, filed at `low`. It proved itself during this triage: the ratchet caught a Python file crossing the 450 band within minutes, and would not have caught the same growth in a shell file.
+
+`tests/_pin_helpers.py:38` and `:154` both scan `rglob("*.py")`, and `_BAND_CEILINGS` carries only `.py` entries. `skills/_preload_base.sh` is **492 lines** — inside the 450–500 band, 8 lines from the cap, entirely unratcheted. Every shipped shell file is ungoverned by a gate whose docstring describes itself as tree-wide.
+
+**Direction.** Add shell to the scan and the band table, or state the scope limit in the module docstring so the gap is legible rather than assumed-covered. The first is preferable: the cap is a project convention, not a Python one — and a gate silently narrower than its stated scope is the same defect class as the other four items here.
+
+**Files.** `tests/_pin_helpers.py`, `tests/test_file_size_pin.py`.
 
 ---
 

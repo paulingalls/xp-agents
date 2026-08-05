@@ -2,6 +2,83 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.5.1 — Three gates that were reporting things that weren't happening
+
+### A green suite could file a failure, and then refuse to let go of it
+
+A Bun suite at 4373 pass / 0 fail recorded `1 failed`, filed it at high
+severity, and armed the Stop gate — three green runs running. The number came
+from a test file whose own source reads *"the batch must report 1 failed"*,
+echoed back inside the runner's error context ahead of the summary. The count
+regexes scan the whole payload and took the first match they saw. Running the
+suite, the one action that should clear such a gate, re-parsed the same phantom
+every time.
+
+Counts now come from the summary **line**, and every summary line counts.
+First-vs-last was a false choice: cargo prints one `test result:` per test
+binary plus a `Doc-tests` block, a dotnet solution prints one per project, and
+a workspace launcher (`pnpm -r test`, turbo, nx) prints one per package — none
+of them emit an aggregate. Reading a single match reports one sub-run and
+erases the rest, so a green package hid a red one, in whichever order they
+happened to print. Anchoring on the runner's own summary line and summing
+across them reports the run, and text that merely *looks* like a count — the
+echoed source line, a mocha test title reading "must report 7 failing rows" —
+is simply not on a summary line. Runners with no line-identifiable summary
+(bun, deno, playwright, node-test) keep the last-match scan as a fallback.
+
+Three more parses were wrong before anyone looked: jest reported `Test Suites:`
+counts as test counts (that line precedes `Tests:`); a red cargo run under
+`--no-fail-fast` reported **0 failed with no concern filed**, because the
+doc-test block that closes every run says `0 failed`; and pytest's `errors`
+count came from anywhere in the payload, so a second tool sharing the Bash call
+(`pytest -q; pyright`) could zero the collection errors that were the run's
+only failure signal.
+
+### Your own reviewer is not a competing agent
+
+`Overlapping working_on: agent 'xp-code-reviewer' is also working on …` — filed
+at medium severity, into the Risks view, against a subagent the session had
+just spawned onto the diff it was reviewing. The conflict detector skipped only
+the caller's own id, so every plugin subagent read as an independent party.
+
+Two shipped skill templates made this permanent rather than occasional:
+`/xp-plan` claims `execution_plan.json` and `/xp-sprint-start` claims
+`sprint.json`, and nothing ever clears a self-named claim — so both were set to
+fire against every future writer of those files, indefinitely. Teammate
+worktrees are unaffected: their ids carry no `xp-` prefix, and the cross-agent
+conflict the detector exists for still fires.
+
+### A directory name could forge a preload line
+
+`/xp-scaffold-worktree`'s preload emitted `REPO_ROOT` with a raw `echo`, which
+cannot neutralize a newline in the value. A checkout whose path contains one
+emitted two lines, the second entirely attacker-named — and `REPO_ROOT` is
+substituted verbatim into `--cwd`. It now routes through `emit_path_var`, like
+every other path-valued preload variable.
+
+### Also
+
+`close_common merge --archive-sprint` without `--smm-dir` refused *after* the
+merge commit had landed, a state no retry resolves; it is static argument
+validation and now precedes every side effect. A `--smm-dir` that is not an SMM
+is refused there too: it used to exit **0** while merging, writing an
+`events.jsonl` and a `sprints/` tree into the typo'd directory, recording no
+merge-commit event in the real SMM, archiving nothing, and deleting the source
+branch anyway. Without `--archive-sprint` only the fail-open accounting event
+is at stake, so that case warns instead of aborting a correct merge. The
+"nothing archived" warning now reports the evidence it actually has rather than
+asserting a cause.
+
+`cleanup_teammate` proves a teammate branch is merged, then removes the
+worktree and deletes the branch — two steps, and the deletion can still refuse
+if a commit lands between them (the parallel-teammate case). It discarded that
+refusal, deleting the markers, report and story assignment that were the only
+records naming the branch, and exiting 0. It now keeps them and says so.
+
+`session_end`'s summary read the same never-cleared `working_on` claims the
+conflict detector was reporting on, so plugin subagents showed as in-flight
+work in every session summary; it applies the same `xp-` fence.
+
 ## v5.5.0 — A bootstrap command you verified, and a close cycle that cannot die quietly
 
 ### Scaffold a worktree bootstrap, don't guess one

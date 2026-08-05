@@ -251,7 +251,7 @@ def _render_branching_strategy(lines: list[str], bs: dict) -> None:
         # fallback named here is branch_resolution._DEFAULT_PRIMARY; it is
         # spelled out rather than imported (smm/ must not depend on
         # scripts/), and kept in sync by a pin in
-        # tests/smm/test_system_context_schema_fields.py.
+        # tests/smm/test_integration_branch_ref.py.
         value = bs["integration_branch"]
         mark = (
             ""

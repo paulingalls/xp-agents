@@ -211,6 +211,35 @@ class TestCleanup(_IntegrationTestCase):
             "Branch should be deleted",
         )
 
+    def test_a_refused_branch_delete_keeps_the_records_naming_it(self):
+        """The TOCTOU window main() cannot close by checking first.
+
+        main() proves the merge in an earlier, separate step; the branch can
+        gain a commit before this call reaches the delete (the parallel-teammate
+        case). By then the worktree directory is already gone, so the markers,
+        the report and the story assignment are the only records naming that
+        branch. Discarding the refusal would delete all three and return
+        success, leaving the teammate's commits with nothing to find them by.
+        """
+        import cleanup_teammate
+
+        name = "worktree-story-018"
+        _create_teammate_worktree(self.tmpdir, name)  # deliberately NOT merged
+        report = self.smm_dir / f".teammate-report-{name}.txt"
+        report.write_text("Teammate report content")
+
+        ok = cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
+
+        self.assertFalse(ok, "an unmerged branch must not report clean cleanup")
+        result = subprocess.run(
+            ["git", "branch", "--list", name],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.stdout.strip(), "", "branch must survive")
+        self.assertTrue(report.exists(), "the report still names the branch")
+
     def test_removes_agent_markers(self):
         """Cleanup removes agent-scoped marker files."""
         import cleanup_teammate

@@ -81,6 +81,16 @@ Three refinements for the plan:
 
 ---
 
+## 5. A heredoc body containing `-m` becomes the commit message — **small, root-caused**
+
+Promoted from concern `3a59b2018e99`, which an auto-producer filed at `low`. Not a regression of the heredoc family fixed in v4.16.0 — a different function.
+
+`commit_message.recover_commit_message` (`:123-135`) searches `_SIMPLE_MSG_RE` over the **whole command** before it ever reaches the `-F -` stdin branch at `:136`. Commit `9d403643`'s heredoc body contained the line `pytest -m "user's" & ruff check 'src'`, so the recovered message was `"user's"` instead of the subject. Confirmed by minimal repro: the identical heredoc without a `-m` token in the body parses correctly.
+
+**The blast radius is the reason this isn't cosmetic.** `_head_matches_command` failed → **no commit event was recorded at all**; the commit's `Resolves-Event: a162e74896be` never linked, leaving a fixed high-severity concern open through the merge gate; and `is_escape_hatch_commit` could not see the `[sprint-direct]` prefix, so the branch guard and review-cycle gate both misjudged the commit.
+
+**Direction.** Prefer the `-F -` / `-F <path>` branch whenever its flag is present, or bound the `-m` search to the text before the heredoc opener. **Files.** `scripts/commit_message.py`.
+
 ## Also worth a look (unverified — do not plan as a defect yet)
 
 `dash_c_unreachable` only judges `git -C` tokens. A `cd "$WT" && git commit` shape hides the target repo the same way; `pre_tool_bash_commit_gates.py:106` resolves it via `parse_effective_cwd`, which **silently falls back to the hook's `cwd` on an unresolvable path** — the exact silent-wrong-repo failure the `-C` block (`:119-127`, shipped v5.1.0) was written to close. Nobody has confirmed this path is reachable in practice. Investigate before filing.

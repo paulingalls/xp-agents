@@ -48,6 +48,11 @@ PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
     "review_cycle_done",
 )
 
+# Members whose casing is load-bearing. Lives beside the vocabulary it
+# describes because two suites need it: the helper's own contract pin
+# (test_md_helpers.py) and the §1 mutation proof in the agent-prose suites.
+MIXED_CASE_VOCAB_MEMBERS: tuple[str, ...] = ("ACCEPT_IN_FLIGHT", " LOC")
+
 
 def assert_project_agnostic(
     testcase: unittest.TestCase,

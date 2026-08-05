@@ -3,7 +3,8 @@
 
 Pre-compact tests in test_pre_compact.py; kickoff gate tests in
 test_kickoff.py; housekeeping handler tests in test_subagent.py::
-TestHousekeepingDone.
+TestHousekeepingDone; the summary's working_on aggregation in
+test_session_end_summary.py.
 """
 
 import sys
@@ -136,19 +137,6 @@ class TestSessionEnd(_HookTestCase):
         events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertNotIn(c["id"], se["unresolved_items"])
-
-    def test_active_working_on(self):
-        import session_end
-
-        s = make_event(EVENT_TYPE_STATUS, agent_id="main", working_on=["src/app.ts"])
-        self._write_events([s])
-        session_end.run(
-            {"session_id": "test", "reason": "logout"},
-            smm_dir=self.smm_dir,
-        )
-        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
-        self.assertIn("src/app.ts", se["working_on"])
 
     def test_empty_events(self):
         import session_end
