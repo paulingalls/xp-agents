@@ -611,3 +611,250 @@ saw the earlier version knows what became of it.
   a commit fails after the gate allows it. Gate decisions stay observable (the
   host prints `Command blocked by PreToolUse hook`), but a *successful* commit
   cannot be demonstrated without widening the sandbox.
+
+# story-005 — skill and subagent configuration surface
+
+Observed on `codex-cli 0.146.0`, model `gpt-5.6-sol`, plugin installed from the
+local repo marketplace at manifest versions 5.3.11 → 5.3.13.
+
+Answers Phase 0 checklist items 13–16 (gaps #25, #26, #28, #14, #4). Four of the
+five ACs were answered **without** a model in the loop, because four of them ask
+about the LOADER rather than about behaviour — see §Instruments.
+
+## The headline: three of the four "unknown" keys are Codex's own
+
+Gap #25 asks whether Codex rejects unknown `SKILL.md` frontmatter keys, and calls
+rejection a blocker that forces generated per-harness skill files. **The premise is
+mostly wrong, and the blocker branch is falsified.**
+
+Codex's embedded skill-authoring guidance documents this frontmatter set verbatim:
+
+```
+- name: <skill-name> (lowercase letters, numbers, hyphens only; <= 64 chars)
+- description: 1-2 lines; include concrete triggers/cues in user-like language
+- argument-hint: optional; e.g. "[branch]" or "[path] [mode]"
+- disable-model-invocation: true for workflows with side effects
+- user-invocable: false for background/reference-only skills
+- allowed-tools: optional; list what the skill needs (e.g., Read, Grep, Glob, Bash)
+- context / agent / model: optional; use only when truly needed (e.g., context: fork)
+```
+
+We ship four keys beyond `name`/`description`: `allowed-tools` (19 skills),
+`effort` (6), `context` (3), `agent` (3). **Three of those four are documented
+Codex fields.** Only `effort` is undocumented — and Codex documents `model` in the
+slot we use `effort` for, which is the real finding hiding inside gap #25.
+
+## AC-1 — rejects, warns, or ignores?
+
+**Verdict: SILENTLY IGNORES.** No error, no warning, no field in any output.
+
+This verdict is only worth having because the instrument was armed first. `errors: []`
+reads identically whether the loader forgave our keys or whether the array is never
+populated, so two controls were injected into the installed cache and measured in the
+same `skills/list` call:
+
+| control | frontmatter | loader result |
+|---|---|---|
+| **arming** (positive) | `---` never closed | `errors: 1`, `"missing YAML frontmatter delimited by ---"`, **dropped from the listing** |
+| **discrimination** (negative) | well-formed, carries `xp-spike-nonsense-key` **and** `effort` | listed, `enabled: true`, `errors: []`, neither key surfaced |
+| our 19 shipped skills | real | listed, `enabled: true`, `errors: []` |
+
+The arming row is what makes the other two mean anything: the rejection path
+demonstrably works, and unknown keys still sail through it.
+
+**Blocker-class? No.** Gap #25 does not force generated per-harness `SKILL.md` files.
+
+### The contradiction inside Codex
+
+Codex's own bundled `skill-creator/scripts/quick_validate.py` allows only
+`{name, description, license, allowed-tools, metadata}` and returns
+`Unexpected key(s) in SKILL.md frontmatter: … Allowed properties are: …`. It would
+**reject `effort`, `context`, and `agent`** — three keys the same binary's guidance
+documents. That validator is an authoring lint, not the loader, and the distinction
+is the finding: a user who runs Codex's own validator against our skills gets
+failures the runtime never raises.
+
+## AC-2 — implicit invocation, per skill
+
+**Verdict: works exactly as documented, both legs.**
+
+`<skill>/agents/openai.yaml` with `policy.allow_implicit_invocation: false` was
+injected into the cache copy of `xp-plan` only. Codex documents it as *"When false,
+the skill is not injected into the model context by default, but can still be invoked
+explicitly via `$skill`. Defaults to true."*
+
+| leg | measurement | result |
+|---|---|---|
+| suppression | asked a live session to list every `xp-agents:` skill | **18 of 19 returned; `xp-plan` absent** |
+| explicit mention | `$xp-agents:xp-plan`, asked to quote its first heading | body delivered; quoted `# Execution Plan`, which is its real first heading |
+
+**Caveat a shipped version must not miss:** the policy is **invisible to the loader
+channel.** `xp-plan` with the policy and `xp-accept` without it return byte-identical
+`skills/list` records — same five fields, both `enabled: true`, empty field-set diff.
+A per-skill opt-out therefore cannot be audited from `app-server`; only by asking a
+live model what it can see.
+
+## AC-3 — skill approval
+
+`skill_approval` is **not the standalone boolean the plan doc assumes.** It is a
+field of `GranularApprovalConfig`, alongside `sandbox_approval`, `rules`,
+`request_permissions` and `mcp_elicitations`. The plan doc's "Confirm
+`skill_approval: false` silently auto-rejects" needs correcting on that basis alone.
+
+Measurement of the approval flow itself is **customer-gated and interactive** — see
+§"What is deliberately not observed".
+
+## AC-4 — an `async` handler on `SessionEnd`
+
+**Verdict: RUNS SYNCHRONOUSLY. Not skipped.** Codex says so itself:
+
+```
+warning: running async SessionEnd hook synchronously
+```
+
+`smm/compact.py` was registered with `"async": true` and `scripts/session_end.py`
+with `"async": false` — the exact pairing the shipped `hooks.json` already uses, so
+this is the real configuration rather than a fixture. Corroborated by side effect:
+`session_end.py` wrote its `session_end` event to the scratch SMM in the same run.
+
+Three outcomes were distinguished, not two: ran-sync / ran-async / skipped. The host
+warning settles it directly, which is stronger than inferring from a side effect
+whose absence would also be consistent with retention policy declining to archive.
+
+### Two findings that fell out of the same run
+
+1. **Six events cannot emit `additionalContext` at all**, each named by its own host
+   warning — `PermissionRequest`, `PreCompact`, `PostCompact`, `SessionEnd`,
+   `SubagentStop`, `Stop`: *"this event cannot emit additionalContext"*. This bears
+   directly on the injection model and settles story-010's open
+   `additionalContextLimit` question in the negative for these events.
+2. **`SessionEnd` hook timeouts are clamped to 3s** — both our 2500 ms and 1500 ms
+   entries drew `warning: clamping SessionEnd hook timeout to 3s`.
+
+## AC-5 — does any manifest field ship subagents?
+
+**Verdict: NO. The config/setup-directory path is the only route.**
+
+`"agents": "./agents/"` was added to `.codex-plugin/plugin.json` and installed at
+5.3.12. `plugin/read` returned:
+
+```
+appTemplates, apps, description, hooks, marketplaceName, marketplacePath,
+mcpServers, scheduledTasks, shareUrl, skills, summary
+```
+
+**No `agents` key.** Silently ignored — no error, zero stderr — while `skills: 19`
+and `hooks: 20` surfaced normally. The `agents/` directory *was* copied into the
+cache; it is simply never surfaced as anything. The key has been reverted rather than
+left in the shipped manifest as a no-op.
+
+### Gap #14 rests on an overloaded name
+
+`agents` means three different things in Codex, and only one of them is real:
+
+| sense | what it is | ships subagents? |
+|---|---|---|
+| `<skill>/agents/openai.yaml` | per-skill UI + policy metadata — **AC-2's mechanism** | no |
+| manifest `agents` key | accepted, ignored | no |
+| `config.toml` | `default_subagent_model`, `default_subagent_reasoning_effort`, `max_depth`, `AgentRoleToml` | **yes** |
+
+Secondary sources claiming a marketplace `agents` field most plausibly saw sense 1.
+Senses 1 and 3 are both gifts to story-006: `default_subagent_model` and
+`default_subagent_reasoning_effort` are exactly its tier-table knobs.
+
+## The BLOCKER probe (not an AC)
+
+Recorded as a finding for story-007; **story-005's acceptance does not depend on it
+in either direction.**
+
+`request_user_input` reproduced its BLOCKER spontaneously during the AC-4 run, with
+no prompting from the probe:
+
+```
+ERROR codex_core::tools::router: error=request_user_input is unavailable in Default mode
+```
+
+Two candidate remedies were then tested and **both failed**, the error unchanged and
+still naming "Default mode":
+
+| remedy | result |
+|---|---|
+| `tools.experimental_request_user_input={mode="allow"}` | unchanged |
+| `collaboration_mode="full"` | unchanged |
+
+(`CollaborationMode` has three variants — `default`, `full`, `plan`.) Concern
+`3fbe5322b458` therefore stands, now measured against its two most plausible fixes
+rather than against silence. Note the first attempt, `…=true`, was rejected outright:
+`invalid type: boolean true, expected struct ExperimentalRequestUserInput` — the key
+is a struct, not a flag.
+
+## Instruments
+
+- `spike/probe_skill_surface.py` — drives `codex app-server` over stdio JSON-RPC
+  (`initialize` → `skills/list` with `forceReload`). Refuses rather than emit a
+  false-negative table: an empty skills list, or a list containing none of ours,
+  raises instead of reporting "no rejections" — the `tabulate_fields.py` discipline,
+  because a broken probe and a clean result look identical on the page.
+- `spike/test_skill_surface.py` — 16 pins, this story's declared
+  `acceptance_execution`. **Mutation-verified**: four mutations were applied and all
+  four were caught — arming disabled, frontmatter detector always-empty, `effort`
+  misclassified as documented, refusal-on-empty removed.
+- The AC-1 census is read **off the filesystem**, never from a literal count. This
+  is not decoration: the 5.3.10 cache held 18 skills against the tree's 19
+  (`xp-scaffold-worktree` was missing), so a hard-coded 19 would have manufactured a
+  false "one skill rejected" row.
+
+### What the loader channel cannot answer
+
+`SkillMetadata` carries `name`, `description`, `path`, `scope`, `enabled` (plus
+`dependencies`, `interface`, `shortDescription` across all 26 skills on this
+machine) — **no frontmatter key whatsoever**. So:
+
+| question | answerable from `app-server`? |
+|---|---|
+| rejects | **yes** — via `errors` |
+| warns vs silently ignores | no — session channel only |
+| honoured | no — needs a model turn |
+
+Pinned by `TestLoaderCannotSeeFrontmatter`, so a Codex upgrade that starts surfacing
+frontmatter fails the suite instead of quietly widening what this channel can prove.
+
+## What is deliberately not observed
+
+- **AC-3's approval flow.** Interactive by nature, and `codex exec` cannot prompt.
+  Customer-gated; to be run by hand.
+- **Whether `allowed-tools` is HONOURED.** Codex documenting the key means it may be
+  *enforcing* a tool restriction on our skills, which would be a behaviour change
+  rather than a no-op. Not readable from the loader; needs a model-in-the-loop check
+  using story-004's ask-the-model-for-its-tool-list technique.
+
+## Rig state story-005 leaves behind
+
+- **Manifest at 5.3.13.** Bump before any further run — the cache is version-keyed,
+  and a reinstall also **wipes any cache-injected probe**, so bump → reinstall →
+  re-inject is one atomic sequence, never three separate steps.
+- **`hooks.codex.json` `SessionEnd` now registers three handlers**: the spike
+  recorder, `scripts/session_end.py` (`async: false`), `smm/compact.py`
+  (`async: true`). Left registered — AC-4's evidence depends on it and story-007 may
+  want to re-observe.
+- **`.codex-plugin/plugin.json` `agents` key: REMOVED** after measurement.
+- **Cache-only injections, all wiped by any reinstall**: `xp-spike-malformed` and
+  `xp-spike-nonsense` (AC-1 controls), and `xp-plan/agents/openai.yaml` (AC-2). None
+  of these ever existed in the repo; a collected pin
+  (`tests/skills/test_frontmatter_budgets.py::TestNoHarnessSpecificConfigLeaksIntoSkills`)
+  fails if an `agents/` sidecar is ever left in a shipped skill.
+- **Config mutations: none persisted.** Every one was a `-c` per-invocation override.
+- Scratch SMM for the AC-4 run under the session scratchpad, not the project SMM.
+
+## Corrections this story makes to earlier findings
+
+1. **Gap #25's premise.** "Unknown frontmatter keys" is wrong for three of our four
+   keys; they are documented Codex fields. Only `effort` is genuinely unknown, and
+   `model` is Codex's spelling for it.
+2. **`skill_approval`'s shape.** `docs/ideas/CODEX_DUAL_TARGET_PLAN.md` treats it as
+   a boolean; it is a field of `GranularApprovalConfig`. Correct in place per
+   story-007 AC-3.
+3. **Gap #14's `agents` field.** Real as config and as per-skill metadata, absent as
+   a manifest/marketplace field. The plan doc should say which sense it means.
+4. **story-001's "all 18 skills discoverable"** is extended here from *listed* to
+   *loaded without error*, and the count is now 19 — read from disk, not asserted.
