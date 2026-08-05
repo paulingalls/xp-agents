@@ -696,13 +696,40 @@ live model what it can see.
 
 ## AC-3 — skill approval
 
-`skill_approval` is **not the standalone boolean the plan doc assumes.** It is a
-field of `GranularApprovalConfig`, alongside `sandbox_approval`, `rules`,
-`request_permissions` and `mcp_elicitations`. The plan doc's "Confirm
-`skill_approval: false` silently auto-rejects" needs correcting on that basis alone.
+**Verdict: `skill_approval` does not gate skill invocation, in either direction.**
 
-Measurement of the approval flow itself is **customer-gated and interactive** — see
-§"What is deliberately not observed".
+Shape first: it *is* a boolean, but a field of `GranularAskForApproval` with
+`"default": false` — not the standalone top-level key the plan doc assumes,
+alongside `sandbox_approval`, `rules`, `request_permissions`, `mcp_elicitations`.
+
+| setting | how measured | result |
+|---|---|---|
+| `false` (the default) | AC-2's two runs + an explicit run | skill invoked normally; **no auto-reject** |
+| `true` | **interactive session, customer-driven** | **no approval prompt appeared**; skill delivered anyway |
+
+The plan doc's worry — "confirm `skill_approval: false` silently auto-rejects, and
+decide whether install docs must require it enabled" — is falsified in *both*
+directions. **Install docs need not require it enabled**, because on this version it
+gates nothing.
+
+### Why the negative is trustworthy
+
+A missing prompt could equally mean "the setting was silently ignored", so the config
+shape was validated with a control before the negative was believed:
+
+| config | `--strict-config` |
+|---|---|
+| `approval_policy={granular={skill_approval=true,rules=false,sandbox_approval=false,mcp_elicitations=false}}` | **accepted**, exit 0 |
+| `approval_policy={granular={nonsense_field=true}}` | **rejected**: `missing field sandbox_approval`, exit 1 |
+
+So the policy parses and the shape is right. Scoped honestly: this is one version
+(0.146.0) and the field defaults to false, so a later release could activate it.
+
+### And `codex exec` cannot exercise it at all
+
+`approval: never` was reported in **every** headless run — bare, with
+`collaboration_mode="full"`, and with the validated granular policy above. Nothing
+in the user's `config.toml` sets it. `codex exec` pins it.
 
 ## AC-4 — an `async` handler on `SessionEnd`
 
@@ -788,6 +815,13 @@ rather than against silence. Note the first attempt, `…=true`, was rejected ou
 `invalid type: boolean true, expected struct ExperimentalRequestUserInput` — the key
 is a struct, not a flag.
 
+**This and AC-3 are one structural fact, not two.** `codex exec` has no
+user-interaction surface at all: approval is pinned to `never` and
+`request_user_input` is unavailable in Default mode, neither overridable by `-c`. A
+headless Codex teammate can never be asked anything — not a question, not an
+approval. Every lifecycle flow that needs either must be **redesigned, not
+configured**. That is the shape story-007's verdict has to carry.
+
 ## Instruments
 
 - `spike/probe_skill_surface.py` — drives `codex app-server` over stdio JSON-RPC
@@ -821,12 +855,36 @@ frontmatter fails the suite instead of quietly widening what this channel can pr
 
 ## What is deliberately not observed
 
-- **AC-3's approval flow.** Interactive by nature, and `codex exec` cannot prompt.
-  Customer-gated; to be run by hand.
 - **Whether `allowed-tools` is HONOURED.** Codex documenting the key means it may be
   *enforcing* a tool restriction on our skills, which would be a behaviour change
   rather than a no-op. Not readable from the loader; needs a model-in-the-loop check
   using story-004's ask-the-model-for-its-tool-list technique.
+
+## Two shipped defects the interactive run surfaced
+
+Neither is in story-005's `file_domain`; recorded here and in the SMM per the
+convention that a shipped defect found in a spike gets its own story, never a
+spike commit.
+
+1. **`SessionStart` ships a self-contradicting pair when SMM init fails.** Observed
+   verbatim in the interactive run: the injected context said
+   `SMM init failed — xp-agents disabled.` while the status line said
+   `XP agents (v5.5.0) active. Run /xp-kickoff.` `session_start.main` emits
+   `_system_message` unconditionally beside the context, and `_system_message`
+   consults only `source` and the **unvalidated** `smm_dir` — so it advertises
+   itself active and directs the model into kickoff on a session that has no SMM.
+   Harness-independent. Concern `e32c04a46599`.
+2. **`plugin_loader.plugin_version()` hardcodes `.claude-plugin/plugin.json`**, so a
+   Codex session reports the *Claude* manifest version. Measured: the model was told
+   `v5.5.0` while the installed Codex manifest — and the version-keyed cache path it
+   actually executed from — was `5.3.13`. A harness-specific path in shipped code,
+   and it hides the one number that identifies which cached copy is running, which
+   is precisely the confusion the version-keyed cache already causes.
+   Concern `08bdfb8403cd`.
+
+The interactive run also **independently reproduced** the six-event
+`additionalContext` finding and the `SessionEnd` clamp/sync warnings on the
+interactive harness, not just under `exec`.
 
 ## Rig state story-005 leaves behind
 
