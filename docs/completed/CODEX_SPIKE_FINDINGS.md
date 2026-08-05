@@ -36,7 +36,7 @@ contain it. Field *names* are verbatim; values are placeholders.
 ## The verdict
 
 **GO — none of the three no-go criteria triggers, conditional on four pieces of named
-work that are listed below and recorded as constraints, not left as prose.**
+work that are listed below and recorded in the SMM, not left as prose.**
 
 | # | No-go criterion | Verdict | The evidence that decided it |
 |---|---|---|---|
@@ -67,8 +67,18 @@ wrong version says "impossible" where the right one says "expensive".
 
 | Mode | Can write? | Can ask? |
 |---|---|---|
-| **Default** | yes | **in chat, yes** — `request_user_input` (the structured picker) is unavailable |
-| **Plan** | **no** — refuses every write, including via a shell command | yes, structured |
+| **Default, interactive** | yes | **in chat, yes** — `request_user_input` (the structured picker) is unavailable |
+| **Plan** | **no** — refuses every write, including via a shell command | structured, *inferred* — see below |
+| **`codex exec` (headless)** | yes | **no, at all** — no user-interaction surface: `request_user_input` unavailable *and* `approval: never` is pinned |
+
+Two of those cells are inference, not observation, and the distinction is the whole
+point of this section: **no run exercised the structured picker in Plan mode** — that it
+works there is read off the error string's own wording ("unavailable in *Default* mode")
+— and no run scripted an interactive Default-mode question either. What was measured is
+the negative: the picker is unavailable in Default mode, and Plan mode refuses to write.
+The headless row is the load-bearing one for Phases 3–4 and it *is* measured: a headless
+Codex teammate can never be asked anything, so every lifecycle flow needing an answer
+must be redesigned, not configured.
 
 Observed verbatim in Default mode:
 
@@ -131,8 +141,16 @@ broken on Codex. Detail and the required fix are under *Required work* below.
 
 ## Required work carried forward
 
-The GO is conditional on these. Each is recorded as an SMM decision event so it
-surfaces in the Constraints view rather than only in this file.
+The GO is conditional on these. R1–R3 are recorded as SMM **decision** events so they
+surface in the Constraints view rather than only in this file. R4 is recorded as a
+**concern**, deliberately — it is an unresolved conflict, not a settled constraint, and
+recording it as a decision would assert a resolution nobody has made.
+
+A fifth item is *not* listed here because it is not Codex-specific, but it is a
+precondition for Phase 3 all the same: **the review-cycle release marker has no
+legitimate writer on this harness** (scope limit 2). A Codex teammate cannot satisfy the
+commit gate except by forging the marker, so the explicit CLI leg gap #1 prescribes is
+required before a Codex teammate ships, on the same footing as R2.
 
 ### R1 — `--disable unified_exec` on every Codex spawn *(decision `ef018590d623`)*
 
@@ -156,7 +174,7 @@ hours of an enforced one reports **LIVE**. The spike's own untrusted control run
 reported honestly because every run used a separate scratch root. This is precisely
 the failure gap #18 exists to prevent, so the mitigation currently defeats itself.
 
-Compounding it, two shipped defects the interactive run surfaced:
+Compounding it, three shipped defects the interactive run surfaced:
 
 - `SessionStart` emits a **self-contradicting pair** when SMM init fails — the injected
   context said `SMM init failed — xp-agents disabled.` while the status line said
@@ -164,6 +182,12 @@ Compounding it, two shipped defects the interactive run surfaced:
 - That context **surfaces only at the first turn, not at startup**, so a user reading
   the startup banner cannot tell whether enforcement is live until after they have
   begun working (concern `7c688f1295d6`).
+- `plugin_loader.plugin_version()` **hardcodes `.claude-plugin/plugin.json`**, so a
+  Codex session reports the *Claude* manifest version — the model was told `v5.5.0`
+  while the installed Codex manifest, and the version-keyed cache path it actually
+  executed from, was `5.3.13`. A harness-specific path in shipped code, and it hides
+  the one number that says which cached copy is running. This is gap #15, measured
+  (concern `08bdfb8403cd`).
 
 ### R3 — A CLI leg for `QUESTION_GATE` before Phase 4 *(decision `85a5f3eca5d2`)*
 
@@ -666,8 +690,9 @@ The single largest delivery finding, and it outranks every hook question. **Code
 places only the skill's LOCATOR in context, never the body** — the model's own words:
 *"only the skill's locator, not its body, was placed in context."* Nothing from
 `SKILL.md` arrives until the model reads the file itself, and **a skill's `!` shell
-preload is never expanded.** 16 of 18 skills depend on that preload for their state
-input.
+preload is never expanded.** 16 of the 18 skills present when this was measured depend
+on that preload for their state input — 17 of 19 as the tree stands now; the ratio is
+what matters, not the snapshot.
 
 Two viable answers were measured, and neither requires generated per-harness files:
 
@@ -687,8 +712,10 @@ Two viable answers were measured, and neither requires generated per-harness fil
 **If injection is adopted, six requirements were each found the hard way and each fails
 quietly** — exit 0, no error, an injection that looks successful: run the preload in the
 *session's* cwd (not the skill dir, or it resolves a different project's state); run the
-command the skill's own `!` line names (14 of 16 differ from a hardcoded guess in ways
-that matter); claim once-per-skill **atomically and before the run** (four parallel
+command the skill's own `!` line names (14 of 16 say `scripts/preload.sh`, so a
+hardcoded filename is right on 14 and **wrong on 2** — one takes `--consume-gate`, one is
+`check_session_needs.sh`, and one of the two is the most-used skill); claim
+once-per-skill **atomically and before the run** (four parallel
 firings all read the marker absent and all ran); require a heartbeat first; constrain
 the resolved **file** under the plugin root, not just the directory (a `..` segment
 normalises back inside, and a symlinked `SKILL.md` points wherever the link says — both
@@ -715,6 +742,7 @@ Listed because silent omission reads as covered.
 | Item | Why not |
 |---|---|
 | **The minimum Codex version** | Only 0.146.0 was ever installed; no older build obtained. A floor cannot be inferred from one passing version. |
+| **Whether the heartbeat DISTINGUISHES hooks-live from hooks-absent** | Only the not-live arm is evidence. The untrusted control ran on its own scratch root with no sibling heartbeat, so it reads not-live whether or not the marker discriminates anything — a mechanism hardwired to not-live would pass that test. No trusted run exercised the in-session liveness read, and R2 shows the read is broken anyway. Concern `31e942bc97b0`. |
 | **Whether `allowed-tools` is HONOURED** | Not readable from the loader channel. Codex documenting the key means it may be *enforcing* a tool restriction on our skills — a behaviour change, not a no-op. Needs a model-in-the-loop tool-list check. |
 | **`SessionEnd` timeout units** | Cap-regardless and read-as-seconds are both consistent with the observation; these two entries are the only `timeout` values in the file. |
 | **Whether `additionalContextLimit: 0` caps or is ignored** | 477 bytes reached the model through an entry set to 0. Whether 0 means unlimited or the field is ignored is unsettled; a shipped version should set it deliberately rather than inherit a recorder's value. |
@@ -767,6 +795,9 @@ the opposite.
 | **#26** | Control works, risk is real (observed firing `/xp-kickoff`) — but it now conflicts with this sprint's own sidecar ban |
 | **#23** | The `PermissionRequest` route is doubly dead; the in-skill check is the only option |
 | **#19** | One working version established; **the floor is not** |
+| **#1** | Both marker paths are dead: skills are not tool calls, *and* the spawn tool's stripped name never matches the `Agent` matcher. `SubagentStart`/`Stop` fire, but `agent_type` is `'default'`, so the keyed routing selects nothing. The explicit CLI leg is mandatory, not belt-and-braces |
+| **#4** | An `async: true` handler on `SessionEnd` **runs synchronously**, so compaction needs no third trigger — but a new open item replaces it: the 3s `SessionEnd` timeout clamp, units unresolved |
+| **#15** | Confirmed and **raised from Low**: `plugin_version()` misreports the Claude manifest on Codex *today*, not at Phase 2 |
 
 ### Structural
 
@@ -778,6 +809,12 @@ the opposite.
 - **Open questions 1, 2, 5, 7 and 8 answered**; 6 answered in half. **A ninth was
   added** — how skill bodies and preloads reach a Codex model, the largest open design
   question the spike surfaced.
+- **Phase 0 checklist ticked**: 19 observed, 3 partly observed, 1 not observed. The
+  three that are not a clean tick are called out above the list, so a reader scanning
+  ticks cannot miss them.
+- **Research summary** (top of the doc): the stale `stop_hook_active`-is-absent premise,
+  the 14-field count, and the "only `name`/`description`" frontmatter claim are struck
+  where the spike falsified them.
 - **Risks**: the gap #11 row's likelihood was wrong and its mitigation is now mandatory
   config; the silent-non-enforcement row has **no working mitigation** until R2 lands;
   the gate-compliance row is measured and did not occur; **one new risk added** — a
