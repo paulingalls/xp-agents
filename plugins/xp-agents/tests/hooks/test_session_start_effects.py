@@ -86,11 +86,13 @@ class TestSessionStartStaleMarkerSweep(_HookTestCase):
 
         # Fresh-start sources (startup, clear) sweep stale markers from
         # prior sessions before any logic branches on them.
+        # `.close-cycle-active` is deliberately absent: it is the one marker a
+        # LIVE session in another window can own (not session-scoped, shared
+        # SMM), so it is age-gated by close_cycle_abandonment rather than swept
+        # — see TestSessionStartLeavesALiveCloseAlone below.
         cases = [
-            (".close-cycle-active", "startup"),
             (".accept", "startup"),
             (".accept-in-flight", "startup"),
-            (".close-cycle-active", "clear"),
             (".accept", "clear"),
             (".accept-in-flight", "clear"),
         ]
@@ -136,6 +138,27 @@ class TestSessionStartStaleMarkerSweep(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
+
+    def test_a_fresh_start_leaves_a_live_close_alone(self):
+        """The close marker is NOT session-scoped and the SMM is shared across
+        windows and worktrees, so a fresh start here can be looking straight at
+        another window's running close. Consuming it disarms that close's Stop
+        gate; recording it files a high-severity concern the live close's own
+        Step 6 count then reads as a reason to abort. Age is the only evidence
+        that separates the two, and `close_cycle_abandonment` owns it.
+        """
+        import session_start
+
+        marker = self.smm_dir / ".close-cycle-active"
+        marker.write_text("live")
+
+        session_start.run(
+            {"session_id": "test", "source": "startup"}, smm_dir=self.smm_dir
+        )
+
+        self.assertTrue(marker.exists())
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(concerns, [])
 
 
 # ===========================================================================

@@ -251,9 +251,9 @@ def run(
         smm_dir, session_id=hook_liveness.payload_session_id(input_data)
     )
 
-    # Sweep stale CLOSE_CYCLE_ACTIVE/ACCEPT markers only on fresh starts —
-    # resume/compact mid-session may have a close-skill or /xp-accept in
-    # flight that legitimately holds them.
+    # Sweep stale ACCEPT/cycle-id markers (and record an aged-out close cycle)
+    # only on fresh starts — resume/compact mid-session may have a close-skill
+    # or /xp-accept in flight that legitimately holds them.
     if _is_fresh_start(source):
         session_markers.sweep_stale_session_markers(smm_dir)
         # Cadence is session-scoped: a fresh start resets to the careful

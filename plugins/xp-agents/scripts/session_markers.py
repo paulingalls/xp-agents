@@ -22,7 +22,6 @@ import session_scope
 from markers import (
     ACCEPT,
     ACCEPT_IN_FLIGHT,
-    CLOSE_CYCLE_ACTIVE,
     CLOSE_CYCLE_ID,
     SISTER_TEST_LAYOUT_WARN,
     TEAMMATE_CONFIG,
@@ -84,13 +83,20 @@ def marker_age_seconds(now: float, written_at: object) -> float | None:
 # Session-start sweep
 # ---------------------------------------------------------------------------
 
-# Markers that should never survive across SessionStart. CLOSE_CYCLE_ACTIVE
-# leaks when a close-skill aborts before the xp-close-reviewer fork; ACCEPT
-# leaks after teammate-worktree close-cycle Edits when /xp-accept's
-# no-reviewing-stories path skips the consume; ACCEPT_IN_FLIGHT leaks when
-# /xp-accept is abandoned before its terminal dispatch (/xp-schedule or
-# /xp-sprint-review completion, where accept_terminal drains it). This sweep
-# is the abandonment backstop.
+# Markers that should never survive across SessionStart. ACCEPT leaks after
+# teammate-worktree close-cycle Edits when /xp-accept's no-reviewing-stories
+# path skips the consume; ACCEPT_IN_FLIGHT leaks when /xp-accept is abandoned
+# before its terminal dispatch (/xp-schedule or /xp-sprint-review completion,
+# where accept_terminal drains it). This sweep is the abandonment backstop.
+#
+# CLOSE_CYCLE_ACTIVE is deliberately NOT in this set. It is the one marker here
+# that CAN belong to a live session other than this one — it is not
+# session-scoped, and the SMM is shared across windows and worktrees — so an
+# unconditional consume silently disarms a close another window is still
+# running, and (once the sweep started recording) files a high-severity
+# abandonment concern against it, which that close's own Step 6 count then
+# reads as a reason to abort. `close_cycle_abandonment.record_abandonment` owns
+# it instead, on the same age rule the other two detectors use.
 #
 # CLOSE_CYCLE_ID is the one entry that is session-SCOPED, and it is here for a
 # different reason from the rest. Scoping already stops a previous session's id
@@ -103,7 +109,6 @@ def marker_age_seconds(now: float, written_at: object) -> float | None:
 # environment resolves) and must be: it can belong to a teammate's close that
 # is still running against this shared SMM.
 _STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (
-    CLOSE_CYCLE_ACTIVE,
     CLOSE_CYCLE_ID,
     ACCEPT,
     ACCEPT_IN_FLIGHT,
@@ -119,14 +124,30 @@ def sweep_stale_session_markers(smm_dir: Path) -> None:
     and compact are mid-session continuations where these markers may
     be load-bearing for in-flight close-skills or pending /xp-accept.
 
-    Every marker above is unconditionally consumed because none of them can
-    belong to another LIVE session. The housekeeping in-flight record can: the
-    SMM is shared across windows and worktrees, so its orphans are swept by
-    `housekeeping_flight.sweep_orphan_records`, which keeps a record that is
-    still inside its freshness window. That module owns the record's field
-    names and its window, and imports this one — hence the lazy import, the
-    same shape `markers.warn_once` uses to reach `concerns`.
+    Every marker in the set above is unconditionally consumed because none of
+    them can belong to another LIVE session. Two records here can, and neither
+    is in that set. The housekeeping in-flight record is swept by
+    `housekeeping_flight.sweep_orphan_records`, which keeps one still inside
+    its freshness window; that module owns the record's field names and its
+    window, and imports this one — hence the lazy import, the same shape
+    `markers.warn_once` uses to reach `concerns`.
+
+    The close-cycle marker is the other, and it is RECORDED rather than
+    consumed. This sweep is one of the three components that can positively
+    learn a close cycle died — the reviewer that releases the marker never ran
+    — so deleting it silently threw away the only evidence anyone would ever
+    have. `close_cycle_abandonment.record_abandonment` owns every condition:
+    absent (the normal case, every session) and still young (a close running in
+    another window, or in this one before a `/clear`) both record nothing and
+    consume nothing. It never raises, so a failed append cannot break a session
+    start.
     """
+    import close_cycle_abandonment
+
+    close_cycle_abandonment.record_abandonment(
+        smm_dir, close_cycle_abandonment.DETECTOR_SESSION_SWEEP
+    )
+
     for marker in _STALE_SESSION_MARKERS:
         marker_consume(smm_dir, marker)
 

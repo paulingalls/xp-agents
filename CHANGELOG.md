@@ -2,6 +2,99 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.5.0 — A bootstrap command you verified, and a close cycle that cannot die quietly
+
+### Scaffold a worktree bootstrap, don't guess one
+
+`stack.worktree_bootstrap` brings a fresh teammate worktree up — installs
+dependencies, generates types, starts what the project needs. Writing that
+command was on you, and getting it wrong is worse than leaving it empty: an
+unverified command restores exactly the false-green the field exists to kill.
+
+A measurement over two real repos is why this ships the way it does. Two
+plausible candidates were tried. **Both exited 0.** One installed 2208 packages,
+looked perfect, and fixed neither failure it was supposed to fix. A command's own
+exit status proves nothing about whether it closed the gap.
+
+`/xp-scaffold-worktree` therefore never trusts a candidate. It measures your
+declared command in your checkout and in a throwaway bare worktree, compares the
+two true exit codes, proposes a candidate by reading your repo, and then
+**re-measures**. It declares `stack.worktree_bootstrap` only when the gap
+actually closed — and refuses, asking you to author the command yourself, when it
+did not.
+
+Three conditions must all hold before it declares, and each one closes a way the
+measurement can lie: the exit codes must now match, the worktree leg must exit
+**0** (matching failures also "match"), and the measurement must not be flagged
+degraded (a throwaway that lands inside the repo reaches your installed
+dependencies by walking up, so a real gap reads as none).
+
+It also discloses, before asking, that verification runs the candidate in your
+**primary checkout** as well as the throwaway — installs and generated files land
+on your real working tree. A degraded measurement stops the skill at detection,
+whichever way it came out: that flag reports where a worktree base resolves, so
+it will be there again on the re-measurement that refuses on it, and stopping
+early saves you two full command runs and those installs.
+
+The system analyzer still records a bootstrap command your repo already
+documents, which a measurement vindicated. It now says plainly that a recorded
+command is **unverified**, and points at this skill to verify it.
+
+### An abandoned close cycle leaves a record
+
+A close cycle that died mid-flight was indistinguishable from one that finished:
+the marker was swept silently at the next session start, so "the reviewer never
+ran" and "the reviewer ran and passed" looked the same from outside.
+
+Three detectors now record the abandonment — the session-start sweep, a new close
+starting over a dead one, and the existing aged-stop detector — all sharing one
+content, one budget owner, and one age rule so they cannot drift.
+
+**The owning session is what makes the record mean anything.** The marker is not
+session-scoped and the SMM is shared across your windows and worktrees, so bare
+existence cannot tell a dead cycle from one that is still running: a second
+window's fresh start sees your live close, and a close whose own first gate
+refused re-arms seconds after the survivor it just left. Recording either would
+file a high-severity concern that the LIVE close's own merge prompt then reads as
+a reason to abort — a close that never failed, told to abort by its neighbour.
+
+A duration cannot separate the two, and we tried one first. A close's runtime is
+unbounded — the close that shipped this very change ran seventy minutes while
+perfectly healthy — so any threshold long enough for a slow live close is also
+long enough to let a dead one sit undetected, and any threshold short enough to
+catch the dead one starts firing on the live one. It moves the false record
+later; it does not remove it.
+
+So arming now stamps the marker with the session that owns the close, and a
+detector in another window asks that session directly whether it is still
+running. A live owner is never abandoned however long it has run; a dead one is
+abandoned however recently it died. Age survives only as the fallback for a
+marker whose owner cannot be named — one armed by an older version — because the
+two mistakes are not symmetric: a false record breaks a healthy close, while a
+missed one is only the silent loss that predates all of this. A healthy session
+still pays nothing.
+
+A record that does not land no longer consumes the marker either: the append is
+reported rather than swallowed, so a dropped one leaves the evidence for the next
+detector instead of destroying it along with the report. The aged-stop detector's
+stderr line claims a concern was recorded only when one actually was.
+
+Step 6b now releases the Stop-gate marker as well as the cycle id — for the three
+close modes that arm it. Story-close arms none, and reads the same shared
+reference, so consuming there would release an enclosing close's live gate.
+
+The Stop gate's behavior under the platform's re-entry flag is deliberately
+**unchanged** and now pinned as a regression: it yields, exactly as every sibling
+Stop gate does, because blocking there risks the infinite loop those guards exist
+to prevent.
+
+### Removed: `system_context_cli surface-commands`
+
+Two doors answered "which commands cover this changed set", and only one carried
+the exit-status refusal that stops a command whose failure never reaches the shell
+from auto-merging a red suite. The unguarded one had no caller. It is gone;
+`scripts/close_gate_commands.py` is the single door.
+
 ## v5.4.0 — Teammate worktrees stop what they started, and story close stops paying for the whole suite
 
 Two threads. The first closes a leak your machine has been carrying; the second
