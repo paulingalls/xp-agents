@@ -48,9 +48,11 @@ _PATH_TOKEN = r"([^\s;&|]+)"
 # reuse-message flag) is never mistaken for the global `-C`.
 _GLOBAL_FLAG_CHAIN = r"(?:-c\s+\S+\s+|-\S+\s+)*?"
 
-_GIT_DASH_C_RE = re.compile(
-    _BOUNDARY + r"git\s+" + _GLOBAL_FLAG_CHAIN + r"-C\s+" + _PATH_TOKEN
-)
+# No `-C` regex over the stripped text lives here any more: it could only ever
+# see a path `strip_quoted` had already deleted. `_dash_c_tokens` (below) is the
+# single reader for `-C` paths, shared with `dash_c_unreachable` and
+# `head_probe_target`. `cd` keeps its stripped-text regex — a quoted message body
+# mentioning a real `cd /tmp` must stay invisible.
 _CD_RE = re.compile(_BOUNDARY + r"cd\s+" + _PATH_TOKEN)
 
 
@@ -68,13 +70,25 @@ def parse_effective_cwd(
     chained `cd <wt> && git commit && cd -` (the cd-back means input_data.cwd
     is no longer the worktree by the time the hook fires).
 
-    Quoted strings and heredoc bodies are stripped before scanning so a
-    commit message that quotes `cd /tmp` or `git -C /elsewhere` cannot
-    retarget cwd — real paths inside message bodies pass `is_dir()`.
+    The two kinds are read from DIFFERENT sources, deliberately:
+
+    - `-C` paths come from `_dash_c_tokens` — located on the offset-preserving
+      mask, read from the RAW command. This is the same reader
+      `dash_c_unreachable` and `head_probe_target` use, and sharing it is the
+      point: this function used to scan the quote-STRIPPED text, where
+      `git -C "/p" commit` has become `git -C  commit`, so it captured the
+      literal token `commit` as the path, failed `is_dir()`, and silently
+      returned `fallback`. Every gate downstream then read the caller's repo
+      while the commit landed elsewhere. Three readers, one token source, so
+      they cannot disagree about which repo a command names again.
+    - `cd` paths stay on the quote-stripped text, where a commit message
+      quoting a REAL `cd /tmp` must remain invisible. `cd` was never broken and
+      its immunity depends on the deletion.
 
     `scan_target` lets callers pass a pre-stripped command (via
     `git_commits.strip_quoted`) so the same Bash invocation isn't
-    quote-stripped twice when downstream functions also need it.
+    quote-stripped twice when downstream functions also need it. It applies to
+    the `cd` pass only — the `-C` pass needs the raw command by construction.
     """
     if not command:
         return fallback
@@ -98,17 +112,21 @@ def parse_effective_cwd(
             path = Path(fallback) / path
         return str(path) if path.is_dir() else None
 
-    def _last_validated(regex: re.Pattern[str]) -> str | None:
-        for m in reversed(list(regex.finditer(scan_target))):
-            resolved = _resolve(m.group(1))
+    def _last_validated(candidates: list[str]) -> str | None:
+        for candidate in reversed(candidates):
+            resolved = _resolve(candidate)
             if resolved is not None:
                 return resolved
         return None
 
     # Two passes encode precedence: -C beats cd. Within each kind, last
-    # validated match wins so `cd /A && cd -` lands back on /A.
-    for regex in (_GIT_DASH_C_RE, _CD_RE):
-        resolved = _last_validated(regex)
+    # validated candidate wins so `cd /A && cd -` lands back on /A, and
+    # `-C /a add && -C /b commit` targets /b — the precedence
+    # `head_probe_target` is pinned to agree with.
+    dash_c_paths = [path for _quoting, path in _dash_c_tokens(command)]
+    cd_paths = [m.group(1) for m in _CD_RE.finditer(scan_target)]
+    for candidates in (dash_c_paths, cd_paths):
+        resolved = _last_validated(candidates)
         if resolved is not None:
             return resolved
 
@@ -118,7 +136,8 @@ def parse_effective_cwd(
 # Matches `-C <path>` on the RAW command, before strip_quoted removes quoted
 # tokens. `git -C "$WT" commit` otherwise loses its path entirely and the repo
 # silently resolves to the hook's own cwd. Shares `_GLOBAL_FLAG_CHAIN` so the
-# `-c key=val` CI-identity form is skipped the same way as in `_GIT_DASH_C_RE`.
+# `-c key=val` CI-identity form is skipped, and is now the ONLY `-C` reader:
+# `parse_effective_cwd` reads its paths from here too, via `_dash_c_tokens`.
 _RAW_DASH_C_RE = re.compile(
     r"git\s+" + _GLOBAL_FLAG_CHAIN + r"""-C\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"""
 )

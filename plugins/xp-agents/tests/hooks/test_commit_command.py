@@ -33,6 +33,64 @@ class TestCommitCommandDirectImport(unittest.TestCase):
         result = commit_command.parse_effective_cwd("git status", "/fallback")
         self.assertEqual(result, "/fallback")
 
+    def test_parse_effective_cwd_resolves_a_QUOTED_literal_path(self):
+        """A quoted literal `-C` path must resolve to that path.
+
+        The defect this story exists to close, and the reason it survived: every
+        other quoted-`-C` fixture in the suite uses a path that is unresolvable
+        either way (`$WT`, `~/wt`, `wt*`), so none of them could tell a correct
+        parse from one that silently returned the caller's cwd.
+
+        `parse_effective_cwd` scanned `strip_quoted(command)`, which DELETES the
+        quoted span and its delimiters — `git -C "/p" commit` becomes
+        `git -C  commit`, so the regex captured the literal token `commit` as the
+        path, failed `is_dir()`, and fell through to the fallback. Its two
+        siblings (`dash_c_unreachable`, `head_probe_target`) already read the path
+        from the RAW command via the offset-preserving mask; this function was
+        the one never migrated.
+
+        Both quote styles, because the raw-token regex has a separate
+        alternation branch for each.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            commands = (
+                f'git -C "{tmp}" commit -m x',
+                f"git -C '{tmp}' commit -m x",
+            )
+            for command in commands:
+                with self.subTest(command=command):
+                    self.assertEqual(
+                        commit_command.parse_effective_cwd(command, "/HOOK/CWD"), tmp
+                    )
+
+    def test_a_quoted_literal_path_is_not_refused(self):
+        """The other half of the same fix: resolving it must not also refuse it.
+
+        A quoted literal path carries no shell construct, so widening the
+        refusal to cover the parse's old blind spot would trade a silent
+        wrong-repo scan for a loud obstruction on the documented
+        `git -C <path>` teammate form — which MUST be quoted when the path
+        contains a space.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse(
+                commit_command.dash_c_unreachable(f'git -C "{tmp}" commit -m x')
+            )
+
+    def test_head_probe_target_agrees_on_a_quoted_path(self):
+        """Extends the existing agreement pin to the quoted form.
+
+        The two functions disagreeing about which repo a commit lands in is the
+        root cause here, so the agreement is pinned for the shape that broke it,
+        not only for the bare shape that always worked.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            command = f'git -C "{tmp}" commit -m x'
+            self.assertEqual(
+                commit_command.head_probe_target(command, "/HOOK/CWD"),
+                commit_command.parse_effective_cwd(command, "/HOOK/CWD"),
+            )
+
     def test_parse_effective_cwd_relative_dash_c_resolves_against_fallback(self):
         """A RELATIVE literal `-C` path must keep resolving exactly as it does
         today, against the caller's cwd.
