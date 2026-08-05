@@ -89,6 +89,59 @@ class TestDetectConflictsCommon(_HookTestCase):
         overlap_concerns = [c for c in found if "overlap" in c["content"].lower()]
         self.assertEqual(len(overlap_concerns), 0)
 
+    def test_a_plugin_subagent_is_not_a_competing_party(self):
+        """An xp-* claim is this session's own subagent, not a rival actor.
+
+        The pattern exists for two INDEPENDENT actors racing one file. A
+        reviewer the session just spawned onto the diff it was handed is the
+        opposite: same session, same intent, working the same file by design.
+        Reported live as a false positive against `main` naming
+        `xp-code-reviewer`, whose claim landed while it reviewed the very diff
+        the lead was committing.
+
+        The plugin already draws this line — hooks skip when the agent type is
+        `xp-`-prefixed (recursion prevention). This applies the same rule to
+        the one detector that never got it.
+        """
+        for agent in ("xp-code-reviewer", "xp-close-reviewer", "xp-housekeeper"):
+            with self.subTest(agent=agent):
+                events = [
+                    make_event(
+                        EVENT_TYPE_STATUS,
+                        agent_id=agent,
+                        working_on=["/tmp/src/app.ts"],
+                    ),
+                ]
+                found = concerns.detect_conflicts(
+                    events, "main", file_path="/tmp/src/app.ts", cwd="/tmp"
+                )
+                overlap = [c for c in found if "overlap" in c["content"].lower()]
+                self.assertEqual(
+                    overlap,
+                    [],
+                    f"{agent} is a plugin subagent, not a competing party",
+                )
+
+    def test_a_teammate_claim_still_conflicts(self):
+        """The guard must not swallow the case the pattern was written for.
+
+        A CLI teammate in its own worktree IS an independent actor, and its
+        agent_id is not xp-* prefixed. Pinned alongside the exemption so a
+        broader skip (e.g. one keyed on 'any subagent') goes red here.
+        """
+        events = [
+            make_event(
+                EVENT_TYPE_STATUS,
+                agent_id="worktree-story-002",
+                working_on=["/tmp/src/app.ts"],
+            ),
+        ]
+        found = concerns.detect_conflicts(
+            events, "main", file_path="/tmp/src/app.ts", cwd="/tmp"
+        )
+        overlap = [c for c in found if "overlap" in c["content"].lower()]
+        self.assertEqual(len(overlap), 1, "a teammate worktree is a real conflict")
+
     def test_overlapping_working_on_concern_has_no_references(self):
         """Pattern 1 references an agent_id, not an event id — no refs attached."""
         events = [

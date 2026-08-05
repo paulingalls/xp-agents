@@ -31,6 +31,7 @@ from _common import (
     QUESTION,
     STATUS,
     current_session_start_index,
+    is_xp_agent_id,
     make_event,
 )
 from event_schema import (
@@ -205,7 +206,14 @@ def detect_conflicts(
                 agent_files[e.get("agent_id", "")] = e["working_on"]
 
         for aid, files in agent_files.items():
-            if aid == agent_id:
+            # Skip self, and skip the plugin's own subagents: this pattern is
+            # about two INDEPENDENT actors racing one file, and an xp-* claim
+            # is a subagent THIS session spawned onto the work in hand — a
+            # reviewer handed the very diff being committed reads as a rival
+            # otherwise. Same `xp-` rule the hooks use for recursion
+            # prevention. A CLI teammate's id is not xp-* prefixed, so the
+            # cross-worktree conflict this exists for still fires.
+            if aid == agent_id or is_xp_agent_id(aid):
                 continue
             norm_files = {normalize_path(f, cwd) for f in files}
             if normalized in norm_files:
