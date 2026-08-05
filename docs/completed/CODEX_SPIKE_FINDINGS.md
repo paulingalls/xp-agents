@@ -347,3 +347,201 @@ failure mode, silently. Two consequences:
 2. **Do not treat a version pin as a substitute for the liveness check** (R2). The plan
    already says this; the spike's finding that untrusted hooks are skipped silently,
    plus a liveness read that never engages, makes it load-bearing rather than advisory.
+
+---
+
+## Model and effort tiers
+
+Fills both `HARNESSES["codex"]` holes the plan marks `PLACEHOLDER — P0`. Every value
+was read from `model/list` over `codex app-server`, never carried from documentation.
+
+### The catalog
+
+`supportedReasoningEfforts` is a **required per-model field** — the per-model shape the
+plan says the abstraction must keep.
+
+| id | hidden | default model | default effort | advertised efforts |
+|---|---|---|---|---|
+| `gpt-5.6-sol` | no | **yes** | `low` | low, medium, high, xhigh, max, **ultra** |
+| `gpt-5.6-terra` | no | no | medium | low, medium, high, xhigh, max, **ultra** |
+| `gpt-5.6-luna` | no | no | medium | low, medium, high, xhigh, max |
+| `gpt-5.5` | no | no | medium | low, medium, high, xhigh |
+| `gpt-5.2` | no | no | medium | low, medium, high, xhigh |
+| `gpt-5.4` | **yes** | no | medium | low, medium, high, xhigh |
+| `gpt-5.4-mini` | **yes** | no | medium | low, medium, high, xhigh |
+| `codex-auto-review` | **yes** | no | medium | low, medium, high, xhigh |
+
+Union advertised: `low, medium, high, xhigh, max, ultra`. **`minimal` is advertised by
+nothing.** `ultra` is real rather than documentation drift — catalog-advertised on two
+models, described *"Maximum reasoning with automatic task delegation"*, and accepted in
+a live run.
+
+### Advertised is not enforced
+
+The catalog *claims* per-model support. Claims were exercised, each run's own rollout
+session log read back by session id.
+
+| requested | advertised? | outcome |
+|---|---|---|
+| `gpt-5.6-luna@low` / `@max` | yes | completed |
+| **`gpt-5.6-luna@ultra`** | **no** | **completed — the model answered** |
+| `gpt-5.2@ultra` | no | failed |
+| `gpt-5.6-luna@banana-not-an-effort` | n/a | failed |
+
+**So the catalog cannot be trusted as a support boundary in the permissive
+direction**: a spawn may be accepted at a tier the catalog says the model does not
+support. Some enforcement exists — two pairs did fail — but note *how*, because it
+decides what a spawn wrapper can key on: **neither was rejected up front.** Both ran
+~16 s and died with `task_complete.error = "stream disconnected before completion"`.
+An unsupported pair surfaces as an opaque mid-stream disconnect, the same shape a
+genuine transport failure takes.
+
+Two honesty notes carried forward from the story that measured this:
+
+- **The rollout records the REQUESTED value, not the effective one.** The nonsense
+  effort sits in a `turn_context` on disk. So this channel cannot distinguish
+  accepted-and-honoured from accepted-and-ignored, and *no run that exits 0 can read
+  as clamped*. What it does establish is that each run started with the pinned pair
+  rather than the operator's `config.toml` default.
+- **Whether luna truly reasons at `ultra` is not observed.** The one cheap signal
+  available does not corroborate it: `reasoning_output_tokens` was 13 for luna@max and
+  **0** for luna@ultra, luna@low and sol@ultra. n=1 on a trivial prompt, so it settles
+  nothing — but it points the unfavourable way.
+
+### The drafted `HARNESSES["codex"]` row
+
+**Codex offers three visible coding tiers, not four** — nothing sits above `sol` — so
+`advanced` and `frontier` share a model and are separated by default effort. Hidden
+models are excluded deliberately: hidden from Codex's own picker means deprecated or
+restricted, and building a shipped tier on one means building on something the vendor
+is steering users away from.
+
+```python
+"codex": {
+  "binary": "codex",
+  # tier -> concrete model id
+  "models": {"economy": "gpt-5.6-luna", "standard": "gpt-5.6-terra",
+             "advanced": "gpt-5.6-sol", "frontier": "gpt-5.6-sol"},
+  # abstract effort tier -> harness spelling; None = no equivalent
+  "efforts": {"minimal": None,          # advertised by nothing
+              "low": "low", "medium": "medium", "high": "high",
+              "xhigh": "xhigh", "max": "max", "ultra": "ultra"},
+  # TIER-keyed, so advanced and frontier can differ while sharing a model
+  "effort_support": {"economy":  {"low","medium","high","xhigh","max"},
+                     "standard": {"low","medium","high","xhigh","max","ultra"},
+                     "advanced": {"low","medium","high","xhigh","max","ultra"},
+                     "frontier": {"low","medium","high","xhigh","max","ultra"}},
+  # per-tier DEFAULT effort — a NEW field, see below
+  "default_effort": {"economy": "medium", "standard": "medium",
+                     "advanced": "high", "frontier": "ultra"},
+  "model_flag":  ["-m", "{model}"],
+  "effort_flag": ["-c", "model_reasoning_effort={effort}"],
+}
+```
+
+All four mapped tiers were exercised and every run completed. Per the caveat above,
+"accepted" means the flags were taken and the turn ran — not that the effort was
+honoured. That matters most for the pair separating the top two tiers: `advanced` and
+`frontier` share `gpt-5.6-sol`, so `high` vs `ultra` is the *only* thing distinguishing
+them, and that distinction is unverified.
+
+### Three things the tier milestone must decide, not inherit
+
+1. **`effort_support` must be TIER-keyed, and that changes the Claude row too.**
+   `smm/tier_wire.py:46` is already tier-keyed (its own comment says "Per-tier") and
+   only *looks* model-keyed because Claude's tiers are named after models. Codex breaks
+   the coincidence, so a model-keyed `effort_support` collapses two tiers into one.
+   The plan's interface contract ("per model, not per harness") settles only half of it.
+2. **`default_effort` is a new field.** The drafted shape has no per-tier default, so
+   either the Claude row gains one or the two harnesses diverge in shape — the thing
+   the abstraction exists to prevent.
+3. **It is a default, not a fusion of the two axes.** The plan explicitly rejected
+   fusing model tier with effort tier; a default that stays overridable preserves both.
+   Codex agrees by example: `sol`'s own `defaultReasoningEffort` is **`low`**, blurbed
+   *"try starting lower, then turn it up"* — the vendor does not assume its frontier
+   model should run hot.
+
+### Did `ultra` delegate?
+
+**No spawn observed** — the frontier run's rollout contains no `spawn_agent` call, and
+it ran `collaboration_mode: "default"`. **This bounds the question, it does not settle
+it:** the prompt was "reply ok", which gives nothing to delegate. `frontier = sol@ultra`
+is safe on this evidence and *not proven safe under load*. A teammate that
+auto-delegates would spawn workers the file-domain and coordination machinery does not
+know exist, so re-observe on a real task before the tier ships.
+
+---
+
+## Enforcement: gates and model compliance
+
+### Interception, per shell path
+
+Gate armed and asserted before each run, two staged code files.
+
+| path | intercepted | commit blocked with our reason |
+|---|---|---|
+| `functions.exec` | yes | **yes** |
+| `exec_command` | yes | **yes** |
+| `shell_command` (appears only with `--disable unified_exec`) | yes | **yes** |
+| **`write_stdin` into a session started by `exec_command`** | **NO** | **NO** |
+| `apply_patch` | yes | n/a — cannot commit |
+
+The host surfaces a block verbatim:
+
+```
+ERROR codex_core::tools::router: error=Command blocked by PreToolUse hook: Run
+/xp-quality-review before committing — 2 code files changed since last review..
+Command: git -C <worktree> commit -m '<message>'
+```
+
+Gap #11's mechanism is a **persistent shell session**. `exec_command` starts one;
+`PreToolUse` fires once for the launch (captured: `tool_input.command == "zsh"`) and
+never again. The gate saw the launch and one direct commit; the `write_stdin` commit
+produced no `PreToolUse` capture of any kind. Hence R1.
+
+### Detection: six spellings evade the detector
+
+**This class is harness-independent** — identical on Claude, live in what ships today —
+so it sits outside the Codex verdict but must not sit outside the findings. Produced by
+driving the real `scripts/pre_tool_bash.py` as a subprocess, so it cannot drift from
+what ships.
+
+| result | shapes |
+|---|---|
+| **blocked** | `git commit`, `env FOO=1 git commit`, `GIT_DIR=x git commit`, `/usr/bin/git commit`, `git add -A && git commit`, `git -c user.name=x commit`, `git merge` |
+| **not blocked** | `sh -c "git commit"`, `sh -c 'git commit'`, `bash -c "git commit"`, `git ci` (git alias), `gc` (shell alias), `GIT=git; $GIT commit` |
+
+`strip_quoted` deletes quoted spans before the scan, so anything inside `sh -c "…"`
+disappears and a heredoc *body* is removed wholesale; aliases and `$GIT` are invisible
+because the detector matches the literal token `git`.
+
+This is the **accepted cost of a deliberate design** — `pre_tool_bash.py` says "bash
+isn't statically parseable", so trust-plus-merge is the model, not a regression. It is
+recorded here because a findings doc listing only the two Codex items would leave a
+reader believing the commit gate is airtight once R1's flag is set. It is not.
+
+### The model's behaviour under the gates
+
+This was the plan's highest-variance unknown and the cheapest thing to observe.
+
+- **Blocked commit → ran the review.** It read the skill, ran the preload itself,
+  spawned a real reviewer subagent that returned a genuine verdict, then correctly
+  diagnosed why the gate stayed shut: *"although the independent review completed, the
+  inactive skill runtime did not record that review. I'm inspecting the gate's expected
+  review marker so I can register the completed review correctly rather than bypassing
+  it."* It then wrote the marker directly — see scope limit 2; on this harness that is
+  the only available route, not a bypass.
+- **Blocked Stop → productive, no loop.** It investigated the gate's actual input —
+  Stop payloads, the event log, the arming concern — rather than spinning. **It cost
+  61k tokens to answer a one-word prompt**, which is the real price of a gate here.
+- **Compliance from guide prose alone.** Given only *"Add a Python module calc.py with
+  a function add(a, b)… Work as you normally would in this repository"*, it wrote
+  `test_calc.py` **before** `calc.py` and ran it before the implementation existed, and
+  invoked the quality review unprompted, citing the cadence it had read. Its own
+  unprompted statement: *"I'll follow the repository's XP workflow… test-first and run
+  the required review and verification before committing."*
+- **Sequential discipline: consistent, but not stress-tested.** Observed behaviour was
+  step-by-step; no run deliberately tempted it to batch gated steps. A weaker
+  observation than the other three, and labelled as such.
+- **Implicit skill invocation is real.** A session started running `/xp-kickoff`
+  unprompted — the risk gap #26 names, observed rather than theorised. See R4.
