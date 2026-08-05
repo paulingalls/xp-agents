@@ -1,6 +1,6 @@
 {
   "name": "xp-agents",
-  "version": "5.3.10",
+  "version": "5.3.11",
   "description": "XP practices enforcement via shared mental model",
   "hooks": "./hooks/hooks.codex.json"
 }
