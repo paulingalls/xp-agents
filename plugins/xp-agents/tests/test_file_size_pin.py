@@ -117,6 +117,9 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_retro_save.py": 475,
     "plugins/xp-agents/tests/hooks/test_teammate_hooks.py": 475,
     "plugins/xp-agents/tests/hooks/test_branch_resolution.py": 474,
+    # Entered the band with the close-review pins for the skill's runtime
+    # break. Extract next: `_PreloadCase`, unused by its prose suites.
+    "plugins/xp-agents/tests/skills/test_scaffold_worktree_skill.py": 475,
     "plugins/xp-agents/tests/engine/test_compact_concurrency.py": 473,
     "plugins/xp-agents/tests/smm/test_system_context_schema_fields.py": 470,
     "plugins/xp-agents/tests/engine/test_sprint_frontier.py": 470,

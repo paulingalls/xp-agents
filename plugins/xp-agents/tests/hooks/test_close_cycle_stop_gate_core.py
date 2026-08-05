@@ -198,11 +198,12 @@ class TestCloseCycleStopGate(_HookTestCase):
 
     def test_bypass_handles_stat_race_without_crashing(self):
         """If the marker vanishes between marker_exists() and stat()
-        (theoretical race; rare in practice), the gate still records the
-        concern + stderr but skips the consume cleanly. Simulated by
-        making marker_exists lie 'present' for CLOSE_CYCLE_ACTIVE only
-        (ASKING_USER must still return False) — stat() then raises
-        FileNotFoundError because no file was written to disk."""
+        (theoretical race; rare in practice), the gate must neither crash nor
+        invent a record: there is no marker, so there is no cycle to report and
+        nothing to consume — the same silence an absent marker gets on every
+        other path. Simulated by making marker_exists lie 'present' for
+        CLOSE_CYCLE_ACTIVE only (ASKING_USER must still return False) — stat()
+        then raises FileNotFoundError because no file was written to disk."""
         from unittest.mock import patch
 
         import close_cycle_stop_gate
@@ -215,13 +216,14 @@ class TestCloseCycleStopGate(_HookTestCase):
             "close_cycle_stop_gate.markers.marker_exists",
             side_effect=_selective_marker_exists,
         ):
-            close_cycle_stop_gate.run(
+            result = close_cycle_stop_gate.run(
                 _make_stop_input(stop_hook_active=True),
                 smm_dir=self.smm_dir,
             )
 
+        self.assertIsNone(result)
         concerns = [e for e in self._read_events() if e.get("type") == "concern"]
-        self.assertEqual(len(concerns), 1)
+        self.assertEqual(concerns, [])
 
     def test_no_block_during_step_4b_review_mid_cycle(self):
         """Fix 1: during Step 4b the close /code-review workflow is in flight

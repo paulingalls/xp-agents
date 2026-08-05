@@ -148,6 +148,31 @@ class TestPreloadReportsWorkingTreeState(_PreloadCase):
         self.assertEqual(_extract_preload_var(self._run(), "WORKTREE_CLEAN"), "false")
 
 
+class TestPreloadResolvesTheCheckoutRoot(_PreloadCase):
+    """`--cwd` cannot be resolved by a skill step.
+
+    Each Bash call gets a fresh shell, so a `REPO_ROOT=$(git rev-parse ...)`
+    assigned in one step is gone by the next — the flag then arrives as an
+    explicit empty string, `default="."` never applies because the flag WAS
+    supplied, and the differential refuses before measuring anything. Every
+    call in the skill is such a call, so the skill could never declare
+    anything. Resolving here is what makes the value outlive one shell.
+    """
+
+    def test_the_repo_root_is_emitted_and_is_the_checkout_root(self):
+        self._write_context(stack={"test_command": "make check"})
+        emitted = self._assert_not_none(
+            _extract_preload_var(self._run(), "REPO_ROOT"),
+            "the preload emitted no REPO_ROOT, so every `--cwd` is empty",
+        )
+        self.assertEqual(
+            Path(emitted).resolve(),
+            self.tmpdir.resolve(),
+            "REPO_ROOT must be the checkout ROOT — the differential refuses a "
+            "subdirectory, whose two legs would differ by position as well",
+        )
+
+
 class TestPreloadSurfacesBlock(_PreloadCase):
     """Declared surfaces reach Step 8's honesty report, and only then."""
 
@@ -270,6 +295,24 @@ class TestSkillProse(unittest.TestCase):
         self.assertIn("DEGRADED PLACEMENT", step)
         self.assertIn("inconclusive", step.lower())
 
+    def test_detection_stops_on_degraded_whatever_the_outcome(self):
+        """DEGRADED reports whether an out-of-repo worktree base resolves — a
+        property of the ENVIRONMENT, identical on both calls, not of the
+        candidate. Step 5 refuses on it unconditionally, so a `gap` that
+        continued past Step 2 buys the same refusal for two more full command
+        runs plus installs landing on the customer's primary checkout.
+        """
+        step = self._step("## Step 2", "## Step 3")
+        degraded = next(
+            line for line in step.splitlines() if "DEGRADED PLACEMENT" in line
+        )
+        self.assertNotIn(
+            "`no_gap` whose",
+            degraded,
+            "the caveat branch must not be scoped to one outcome",
+        )
+        self.assertIn("whatever `outcome` says", step)
+
     def test_detection_refuses_a_failing_primary_leg(self):
         """A declared command that does not pass where it should makes the
         divergence unattributable to provisioning."""
@@ -311,6 +354,38 @@ class TestSkillProse(unittest.TestCase):
             with self.subTest(block=" ".join(block.split())[:70]):
                 self.assertIn("--smm-dir", block)
                 self.assertIn("--cwd", block)
+
+    def test_no_command_carries_a_shell_variable_across_calls(self):
+        """A `$VAR` in a shipped command is a value that will not be there.
+
+        Every fenced command is a separate Bash call with a fresh shell, and
+        every value these commands need comes from the preload — which reaches
+        the agent as TEXT, never as an environment. So a `$SMM_DIR` or
+        `$REPO_ROOT` expands to empty, and both of those flags refuse on empty
+        rather than falling back. `<NAME>` is the house spelling for "the agent
+        substitutes this literally", and it is the only one that works here.
+        """
+        for block in self.body.split("```bash")[1:]:
+            command = block.split("```", 1)[0]
+            with self.subTest(command=" ".join(command.split())[:70]):
+                self.assertIsNone(
+                    re.search(r"\$(?!\{CLAUDE_PLUGIN_ROOT\})[A-Za-z_{]", command),
+                    "shell variable in a shipped command — it expands to empty "
+                    "in the fresh shell the next Bash call gets",
+                )
+
+    def test_the_declare_command_starts_with_the_tool_it_allows(self):
+        """`allowed-tools` matches the command STRING. A pipeline beginning
+        `printf ... | python3 <tool>` matches no `Bash(python3 ...)` pattern
+        the frontmatter can carry, and this skill declares no bare `Bash`, so
+        its ONE write step is the step that gets blocked — after the customer
+        has already paid for two full differentials."""
+        step = self._step("## Step 7", "## Step 8")
+        command = step.split("```bash", 1)[1].split("```", 1)[0].strip()
+        self.assertTrue(
+            command.startswith("python3 "),
+            f"the declare command must start with the tool: {command[:60]!r}",
+        )
 
     def test_the_length_refusal_names_the_schema_cap(self):
         """Over the cap the skill asks for a script path instead of truncating —

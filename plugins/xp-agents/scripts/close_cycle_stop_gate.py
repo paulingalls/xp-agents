@@ -50,7 +50,6 @@ close-cycle start and is equivalent to the preload's CLOSE_START_TS.
 """
 
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -81,7 +80,9 @@ import target_routing
 # defer (delays surfacing real abandonment) or too short for abandonment
 # (false positives). The split keeps each knob honest to its purpose.
 _CLOSE_CYCLE_DEFER_WINDOW_SEC = 1800
-_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC = 3600
+# Owned by close_cycle_abandonment: all three detectors apply the same age
+# rule, so the number cannot live with one of them.
+_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC = close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC
 
 _BLOCK_MESSAGE = (
     "Close cycle mid-flight. Run /security-review (Step 4) then "
@@ -102,29 +103,16 @@ _BYPASS_STDERR = (
 )
 
 
-def _marker_age(smm_dir: Path) -> float | None:
-    """Marker age in seconds, or None if stat fails (marker raced away).
-
-    Callers should treat None as 'cannot prove young' — fall toward
-    surfacing (block / consume) rather than a silent latch.
-    """
-    marker_path = markers.marker_path(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-    try:
-        return time.time() - marker_path.stat().st_mtime
-    except OSError:
-        return None
-
-
-def _marker_age_under(smm_dir: Path, threshold_sec: int) -> bool:
+def _marker_age_under(smm_dir: Path, threshold_sec: float) -> bool:
     """True if the CLOSE_CYCLE_ACTIVE marker is younger than ``threshold_sec``.
 
-    Single helper for both the defer-window and abandonment-window checks —
-    the two callers pass different constants but apply the identical
-    None-handling semantics: a stat() OSError counts as NOT within the
-    window so callers fall toward surfacing (block / consume / record)
-    rather than silently latching.
+    Ages through `close_cycle_abandonment.marker_age_seconds` — one reader of
+    the marker's mtime, shared with the recorder that applies the abandonment
+    threshold to the same number. An unusable age (absent marker, or one that
+    raced away) counts as NOT within the window, so the caller falls toward
+    surfacing (block) rather than silently latching.
     """
-    age = _marker_age(smm_dir)
+    age = close_cycle_abandonment.marker_age_seconds(smm_dir)
     if age is None:
         return False
     return age < threshold_sec
@@ -208,29 +196,27 @@ def _record_bypass(smm_dir: Path, input_data: dict) -> None:
     already latched session-wide by an unrelated earlier hook). That is NOT
     abandonment — the workflow-completion notification re-wakes the agent and
     the close finishes. Recording a high-severity "close abandoned" concern
-    there is a false positive (the bug this guard fixes), so return early: no
-    stderr, no concern, no consume; the SessionStart sweep is the backstop if a
-    young cycle is genuinely abandoned.
+    there is a false positive (the bug this guard fixes), so the recorder does
+    nothing: no stderr, no concern, no consume; the SessionStart sweep is the
+    backstop once that cycle ages out.
 
     Once the marker ages past the threshold the cycle is truly stuck/abandoned:
-    emit the loud signal (stderr + high-severity concern) and consume the marker
-    so subsequent Stops don't re-fire. A stat() race (marker vanished) counts as
-    not-young → falls through to the shared recorder, which finds no marker and
-    does nothing.
+    the shared recorder appends the high-severity concern and consumes the
+    marker so subsequent Stops don't re-fire.
 
-    The record + consume itself belongs to close_cycle_abandonment: two other
-    detectors report this same fact, and one content is what stops them
-    drifting. What stays here is the AGE decision — only this detector has a
-    young/aged distinction to make.
+    The age decision, the record and the consume all belong to
+    close_cycle_abandonment — all three detectors face the same live-vs-dead
+    question and would drift apart deciding it separately. What stays here is
+    the stderr line, and it is written only when the recorder says a concern
+    LANDED: it claims one was recorded, and an operator who cannot find the
+    concern it names cannot tell a dropped append from one never attempted.
     """
-    if _marker_age_under(smm_dir, _CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC):
-        return
-    sys.stderr.write(_BYPASS_STDERR)
-    close_cycle_abandonment.record_abandonment(
+    if close_cycle_abandonment.record_abandonment(
         smm_dir,
         close_cycle_abandonment.DETECTOR_AGED_STOP,
         identity.resolve_agent_id(input_data),
-    )
+    ):
+        sys.stderr.write(_BYPASS_STDERR)
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:

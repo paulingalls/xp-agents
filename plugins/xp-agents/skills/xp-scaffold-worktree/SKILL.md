@@ -13,7 +13,6 @@ allowed-tools:
   - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/worktree_differential.py *)
   - Bash(python3 */smm/system_context_cli.py *)
-  - Bash(git rev-parse *)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
@@ -31,13 +30,11 @@ skill's whole point is that it is **measured, never inferred**: a candidate's
 own exit status proves nothing — two plausible candidates were measured against
 real repositories, both exited 0, and one fixed nothing at all.
 
-## Step 0: Resolve the checkout root
+## Step 0: The values every command below carries
 
-```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-```
-
-Every measurement below carries `--cwd "$REPO_ROOT"` and `--smm-dir "$SMM_DIR"`.
+`<SMM_DIR>`, `<REPO_ROOT>` and `<TEST_COMMAND>` come from the preload above —
+**substitute each literally.** A shell variable assigned in one Bash call is
+gone by the next, so an unsubstituted flag arrives empty.
 
 `--cwd` must be the ROOT. Given a subdirectory the tool refuses, because its
 two legs would then differ by POSITION as well as by checkout — measured on a
@@ -64,7 +61,7 @@ completed run replaces it.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/worktree_differential.py \
-    --command "$TEST_COMMAND" --cwd "$REPO_ROOT" --smm-dir "$SMM_DIR"
+    --command "<TEST_COMMAND>" --cwd "<REPO_ROOT>" --smm-dir "<SMM_DIR>"
 ```
 
 The result is JSON on stdout and the exit status is 0 whenever the tool RAN —
@@ -72,10 +69,13 @@ the verdict lives in `outcome`, never in the exit status. Branch on `outcome`
 **and** `caveats`, never on `outcome` alone:
 
 - `refused` or `error` — print `reason` verbatim and stop.
-- `no_gap` whose `caveats` carries `DEGRADED PLACEMENT` — the measurement is
-  **inconclusive**, not clean. The throwaway landed inside the repository, so it
-  reaches the primary's installed state by walking up and a real gap reads as
-  none. Say so and stop. Never report "nothing to scaffold" from this run.
+- `caveats` carrying `DEGRADED PLACEMENT` — stop, whatever `outcome` says. The
+  throwaway landed inside the repository, so it reaches the primary's installed
+  state by walking up: a `no_gap` is **inconclusive**, never "nothing to
+  scaffold", and a `gap` is unverifiable. The caveat reports where a worktree
+  base resolves — an environment property, identical on the Step 5 re-run,
+  which refuses on it. Stopping here is that refusal for two fewer full
+  command runs and no installs into the primary checkout.
 - `no_gap` with no such caveat — nothing to scaffold. Declare nothing, stop.
 - `gap` with `primary_exit` other than 0 — refuse. The declared command does not
   pass where it should, so the divergence cannot be attributed to provisioning.
@@ -131,8 +131,8 @@ been through Step 5. **Cancel** — exit: _"Cancelled — nothing was declared."
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/worktree_differential.py \
-    --command "<candidate> && $TEST_COMMAND" --cwd "$REPO_ROOT" \
-    --smm-dir "$SMM_DIR"
+    --command "<candidate> && <TEST_COMMAND>" --cwd "<REPO_ROOT>" \
+    --smm-dir "<SMM_DIR>"
 ```
 
 Declare only when **all three** hold. Any one of them alone is fail-open:
@@ -162,13 +162,16 @@ measurement exists to kill.
 ## Step 7: Declare
 
 ```bash
-printf %s '"<the verified command>"' \
-  | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py \
-      --smm-dir "$SMM_DIR" edit-stack-field worktree_bootstrap
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py \
+    --smm-dir "<SMM_DIR>" edit-stack-field worktree_bootstrap <<'JSON'
+"<the verified command>"
+JSON
 ```
 
-The value is JSON on stdin. `--smm-dir` is GLOBAL and must come before the
-subcommand.
+The value is JSON on stdin, through a quoted heredoc rather than a `printf |`
+pipeline: the command must START with the tool to match this skill's allowlist,
+and the quoting has to survive a candidate holding a quote or a `$`.
+`--smm-dir` is GLOBAL and must come before the subcommand.
 
 Over 100 characters the schema refuses the write. Do not truncate to fit — ask
 the customer to move the command into a script the repository owns and declare

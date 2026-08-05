@@ -16,6 +16,14 @@ source "$(dirname "$0")/../../_preload_base.sh"
 # reader.
 echo "SMM_DIR=${SMM_DIR}"
 
+# The differential's `--cwd` must be the checkout ROOT — it refuses a
+# subdirectory, and refuses an empty value outright. Resolved HERE rather than
+# in a skill step, because a shell variable assigned in one Bash call does not
+# survive into the next one, so the flag would arrive empty on every run.
+# `pwd` when this is not a checkout at all: the differential's own refusal is
+# the honest report of that, and a dead preload would report nothing.
+echo "REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
 # Both fields read `none` rather than empty when unset. An empty value cannot be
 # branched on: `CURRENT_BOOTSTRAP=` is indistinguishable from a preload that
 # died mid-line, and the skill's first step has to tell "nothing declared" from

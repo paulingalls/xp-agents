@@ -120,11 +120,13 @@ including when the mode's gate skipped the Step 6 prompt:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/markers.py \
   --smm-dir <SMM_DIR> consume CLOSE_CYCLE_ID
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/markers.py \
-  --smm-dir <SMM_DIR> consume CLOSE_CYCLE_ACTIVE
 ```
 
 Left behind, the id tags concerns raised after this close ended and the
-next close's `--cycle-id` count then EXCLUDES those; the active marker
-keeps gating Stop. Both are safe to re-run or run absent.
+next close's `--cycle-id` count then EXCLUDES those. Safe to re-run or
+run absent.
+
+**sprint/plan/free-close also `consume CLOSE_CYCLE_ACTIVE`**, the Stop
+gate their preload armed. Story-close arms none: consuming there
+releases an enclosing close's live gate.
 

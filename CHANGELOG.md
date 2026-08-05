@@ -31,7 +31,10 @@ dependencies by walking up, so a real gap reads as none).
 
 It also discloses, before asking, that verification runs the candidate in your
 **primary checkout** as well as the throwaway — installs and generated files land
-on your real working tree.
+on your real working tree. A degraded measurement stops the skill at detection,
+whichever way it came out: that flag reports where a worktree base resolves, so
+it will be there again on the re-measurement that refuses on it, and stopping
+early saves you two full command runs and those installs.
 
 The system analyzer still records a bootstrap command your repo already
 documents, which a measurement vindicated. It now says plainly that a recorded
@@ -45,9 +48,26 @@ ran" and "the reviewer ran and passed" looked the same from outside.
 
 Three detectors now record the abandonment — the session-start sweep, a new close
 starting over a dead one, and the existing aged-stop detector — all sharing one
-content and one budget owner so they cannot drift. Recording happens **only** when
-a marker is actually there, so a healthy session pays nothing. Step 6b now
-releases both close-cycle markers, not just the cycle id.
+content, one budget owner, and one age rule so they cannot drift.
+
+The age rule is what makes the record mean anything. The marker is not
+session-scoped and the SMM is shared across your windows and worktrees, so bare
+existence cannot tell a dead cycle from one that is still running: a second
+window's fresh start sees your live close, and a close whose own first gate
+refused re-arms seconds after the survivor it just left. Recording either would
+file a high-severity concern that the LIVE close's own merge prompt then reads as
+a reason to abort — a close that never failed, told to abort by its neighbour.
+So a marker records only once it has aged past the abandonment window, and a
+young one is left exactly where it is. A healthy session still pays nothing.
+
+A record that does not land no longer consumes the marker either: the append is
+reported rather than swallowed, so a dropped one leaves the evidence for the next
+detector instead of destroying it along with the report. The aged-stop detector's
+stderr line claims a concern was recorded only when one actually was.
+
+Step 6b now releases the Stop-gate marker as well as the cycle id — for the three
+close modes that arm it. Story-close arms none, and reads the same shared
+reference, so consuming there would release an enclosing close's live gate.
 
 The Stop gate's behavior under the platform's re-entry flag is deliberately
 **unchanged** and now pinned as a regression: it yields, exactly as every sibling

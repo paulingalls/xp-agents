@@ -19,18 +19,23 @@ owner (`scripts/close_cycle_abandonment.py`) so they cannot drift apart:
   - the SessionStart sweep in `session_markers`
   - a new close arming over a survivor, in the three close preloads
 
-Every pin for the story lives in this one file so the acceptance command
-covers the whole proof.
+They also share its AGE rule, and that half is load-bearing in the opposite
+direction. The marker is not session-scoped and the SMM is shared across
+windows and worktrees, so two of the three routinely see a cycle that is still
+RUNNING: a second window's fresh start, and a close whose own first gate
+refused and is being retried. Recording either files a high-severity concern
+that the live close's own Step 6 count reads as a reason to abort — a close
+that never failed, told to abort by its neighbour.
+
+The three detectors' pins live in this file and its `_preload` sibling — one
+per runner, in-process and subprocess. The acceptance command covers both.
 """
 
 import io
-import os
 import sys
 import unittest
 from contextlib import redirect_stderr
-from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -41,21 +46,11 @@ import close_cycle_abandonment
 import close_cycle_stop_gate
 import markers
 import session_markers
-from conftest import (
-    _PLUGIN_ROOT,
-    _HookTestCase,
-    _IntegrationTestCase,
-    _make_stop_input,
-    _MixinBase,
-)
-from event_schema import (
-    CONCERN_KIND_CLOSE_CYCLE_BYPASS,
-    CONTENT_BUDGETS,
-    EVENT_TYPE_CONCERN,
-)
+from _abandonment_fixtures import _AbandonmentAssertions, arm_abandoned
+from conftest import _PLUGIN_ROOT, _HookTestCase, _make_stop_input
+from event_schema import CONTENT_BUDGETS, EVENT_TYPE_CONCERN
 
 _SHARED_PIPELINE = _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md"
-_ARMING_MODES = ("sprint", "plan", "free")
 
 
 def _marker_payload(marker) -> str | dict:
@@ -63,37 +58,11 @@ def _marker_payload(marker) -> str | dict:
     return {} if marker.content_type == "json" else ""
 
 
-class _AbandonmentAssertions(_MixinBase):
-    """Shared reads over the recorded abandonment concerns.
-
-    Both concrete bases below define `_read_events`, but `TestCase` (what
-    `_MixinBase` resolves to for pyright) does not — so it is declared here
-    under TYPE_CHECKING only, which adds nothing at runtime.
-    """
-
-    if TYPE_CHECKING:
-
-        def _read_events(self) -> list[dict]: ...
-
-    def _bypass_concerns(self) -> list[dict]:
-        return [
-            e
-            for e in self._read_events()
-            if e.get("type") == EVENT_TYPE_CONCERN
-            and (e.get("metadata") or {}).get("kind") == CONCERN_KIND_CLOSE_CYCLE_BYPASS
-        ]
-
-    def _one_bypass_concern(self) -> dict:
-        found = self._bypass_concerns()
-        self.assertEqual(len(found), 1, f"expected exactly one, got {found!r}")
-        return found[0]
-
-
 class TestSweepRecordsAbandonment(_AbandonmentAssertions, _HookTestCase):
     """The backstop detector: a marker that survived to the next fresh start."""
 
     def test_sweep_records_a_high_severity_concern_and_clears_the_marker(self):
-        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "")
+        arm_abandoned(self.smm_dir)
 
         session_markers.sweep_stale_session_markers(self.smm_dir)
 
@@ -110,7 +79,7 @@ class TestSweepRecordsAbandonment(_AbandonmentAssertions, _HookTestCase):
     def test_the_record_names_which_detector_fired(self):
         """Three detectors share one content, so the log reader can only tell
         them apart by metadata."""
-        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "")
+        arm_abandoned(self.smm_dir)
 
         session_markers.sweep_stale_session_markers(self.smm_dir)
 
@@ -156,6 +125,136 @@ class TestSweepStaysSilentOtherwise(_AbandonmentAssertions, _HookTestCase):
                 )
 
 
+class TestSweepLeavesALiveCycleAlone(_AbandonmentAssertions, _HookTestCase):
+    """The marker is not session-scoped and the SMM is shared across windows.
+
+    Window A is mid-close, marker armed. The user opens a second window, or
+    runs `/clear` — SessionStart, fresh start, sweep. That sweep is looking at
+    window A's LIVE cycle, and it has nothing that says so beyond the marker's
+    age.
+
+    Recording there is worse than the silence the story removed: the concern is
+    untagged and carries no `files`, so window A's Step 6 count excludes it by
+    neither `--cycle-id` nor `--diff-paths` nor `--since-ts`. Its merge prompt
+    flips to Abort and its auto-merge gate refuses, for a close that never
+    failed. Consuming there also silently disarms window A's Stop gate.
+    """
+
+    def test_a_young_marker_records_nothing(self):
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "")
+
+        session_markers.sweep_stale_session_markers(self.smm_dir)
+
+        self.assertEqual(self._bypass_concerns(), [])
+
+    def test_a_young_marker_survives_the_sweep(self):
+        """The other half. A silent consume records nothing either, and would
+        pass the assertion above while still disarming the live close."""
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "")
+
+        session_markers.sweep_stale_session_markers(self.smm_dir)
+
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "the sweep consumed a live close's gate marker",
+        )
+
+    def test_the_marker_is_not_in_the_unconditional_stale_set(self):
+        """Structural, not behavioural: membership there IS an unconditional
+        consume, whatever the recorder decides first."""
+        self.assertNotIn(
+            markers.CLOSE_CYCLE_ACTIVE, session_markers._STALE_SESSION_MARKERS
+        )
+
+
+class TestARetriedCloseIsNotAnAbandonedOne(_AbandonmentAssertions, _HookTestCase):
+    """The preloads arm the marker at skill LOAD, before Step 0's verify gate
+    and Step 1's pre-flight can refuse.
+
+    So a red-acceptance refusal leaves a marker behind having run nothing at
+    all, and the retry after fixing the tests finds it. Recording there claims
+    a reviewer "was expected to run but never did" for a cycle that never
+    passed its first gate — once per refused attempt.
+    """
+
+    def test_a_young_survivor_records_nothing(self):
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "")
+
+        recorded = close_cycle_abandonment.record_abandonment(
+            self.smm_dir, close_cycle_abandonment.DETECTOR_CLOSE_RESTART
+        )
+
+        self.assertFalse(recorded)
+        self.assertEqual(self._bypass_concerns(), [])
+
+    def test_an_aged_survivor_still_records(self):
+        """Non-vacuity: the age rule must not have switched the detector off."""
+        arm_abandoned(self.smm_dir)
+
+        recorded = close_cycle_abandonment.record_abandonment(
+            self.smm_dir, close_cycle_abandonment.DETECTOR_CLOSE_RESTART
+        )
+
+        self.assertTrue(recorded)
+        self.assertEqual(len(self._bypass_concerns()), 1)
+
+
+class TestADroppedAppendKeepsTheMarker(_AbandonmentAssertions, _HookTestCase):
+    """Consuming after a dropped append destroys the evidence AND the record of
+    it: no later detector can re-find a marker that is gone.
+
+    The lock has a 10s timeout and no unlocked fallback, so a drop is a real
+    outcome under concurrent appends — the one this module exists to prevent.
+    """
+
+    def test_a_failed_append_records_nothing_and_keeps_the_marker(self):
+        import _append_impl
+
+        arm_abandoned(self.smm_dir)
+        original = _append_impl.append_event
+
+        def _boom(*_args, **_kwargs):
+            raise _append_impl.LockTimeoutError("events.lock busy")
+
+        _append_impl.append_event = _boom
+        try:
+            recorded = close_cycle_abandonment.record_abandonment(
+                self.smm_dir, close_cycle_abandonment.DETECTOR_SESSION_SWEEP
+            )
+        finally:
+            _append_impl.append_event = original
+
+        self.assertFalse(recorded, "returned True for a record that never landed")
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "the marker is the only thing a later detector can re-find",
+        )
+
+
+class TestTheAgedStopBypassClaimsOnlyWhatItRecorded(_HookTestCase):
+    """The stderr line says "high-severity concern recorded". An operator who
+    cannot find that concern cannot tell a dropped append from one that was
+    never attempted, so the line is written only when one landed."""
+
+    def _run_bypass(self) -> str:
+        buffer = io.StringIO()
+        with redirect_stderr(buffer):
+            close_cycle_stop_gate.run(
+                _make_stop_input(stop_hook_active=True), smm_dir=self.smm_dir
+            )
+        return buffer.getvalue()
+
+    def test_a_young_marker_writes_no_claim(self):
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "")
+
+        self.assertEqual(self._run_bypass(), "")
+
+    def test_an_aged_marker_writes_the_claim(self):
+        arm_abandoned(self.smm_dir)
+
+        self.assertIn("concern recorded", self._run_bypass())
+
+
 class TestOneContentOneBudgetOwner(_AbandonmentAssertions, _HookTestCase):
     """Both detectors emit the SAME content from the shared owner.
 
@@ -191,21 +290,14 @@ class TestOneContentOneBudgetOwner(_AbandonmentAssertions, _HookTestCase):
         self.assertEqual(sweep_content, close_cycle_abandonment.CONCERN_CONTENT)
 
     def _sweep_content(self) -> str:
-        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "")
+        arm_abandoned(self.smm_dir)
         session_markers.sweep_stale_session_markers(self.smm_dir)
         content = self._one_bypass_concern()["content"]
         self.events_file.write_text("")
         return content
 
     def _aged_stop_content(self) -> str:
-        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "")
-        path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        aged = (
-            path.stat().st_mtime
-            - close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC
-            - 60
-        )
-        os.utime(path, (aged, aged))
+        arm_abandoned(self.smm_dir)
         with redirect_stderr(io.StringIO()):
             close_cycle_stop_gate.run(
                 _make_stop_input(stop_hook_active=True), smm_dir=self.smm_dir
@@ -239,14 +331,7 @@ class TestBypassStaysAllowed(_HookTestCase):
         self.assertIsNone(result)
 
     def test_an_aged_marker_still_allows_the_stop(self):
-        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "")
-        path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        aged = (
-            path.stat().st_mtime
-            - close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC
-            - 60
-        )
-        os.utime(path, (aged, aged))
+        arm_abandoned(self.smm_dir)
 
         with redirect_stderr(io.StringIO()):
             result = close_cycle_stop_gate.run(
@@ -265,10 +350,12 @@ class TestStep6bReleasesBothMarkers(unittest.TestCase):
     recorded from a live close and cleared by hand.
     """
 
-    def test_the_release_step_names_both_markers(self):
+    def _step_6b(self) -> str:
         text = _SHARED_PIPELINE.read_text(encoding="utf-8")
-        start = text.index("### Step 6b")
-        step = text[start:]
+        return text[text.index("### Step 6b") :]
+
+    def test_the_release_step_names_both_markers(self):
+        step = self._step_6b()
         for name in ("CLOSE_CYCLE_ID", "CLOSE_CYCLE_ACTIVE"):
             with self.subTest(marker=name):
                 self.assertIn(
@@ -278,109 +365,26 @@ class TestStep6bReleasesBothMarkers(unittest.TestCase):
                     f"list, and a marker it never names is never released",
                 )
 
+    def test_the_gate_release_is_scoped_to_the_modes_that_arm_it(self):
+        """This file is read by all FOUR closes, and story-close arms no gate.
 
-class TestClosePreloadRecordsBeforeArming(_AbandonmentAssertions, _IntegrationTestCase):
-    """Starting a close proves the previous one is over.
-
-    This is the DOMINANT path, not an edge case: a close aborts at an early
-    step, the operator retries in the same session, and a silent consume would
-    make the survivor vanish before any sweep could ever see it — eating the
-    evidence the sweep exists to produce.
-
-    Both halves are asserted deliberately. A silent consume still arms the new
-    marker, so the marker-side assertion alone passes against exactly the
-    implementation this story rejects; the recorded concern is the half that
-    fails.
-    """
-
-    def _preload(self, mode: str) -> Path:
-        return _PLUGIN_ROOT / "skills" / f"xp-{mode}-close" / "scripts" / "preload.sh"
-
-    def _assert_records_before_arming(self, mode: str) -> None:
-        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "survivor")
-
-        result = self._run_preload(self._preload(mode))
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-        # Marker first, concern second — deliberately. A silent consume
-        # satisfies this half, so reading the failure top-down shows exactly
-        # which half a regression broke.
-        self.assertEqual(
-            markers.marker_read(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
-            "",
-            "the armed marker must be THIS close's, not the survivor",
-        )
-        concern = self._one_bypass_concern()
-        self.assertEqual(concern["severity"], "high")
-        self.assertEqual(
-            concern["metadata"].get("detector"),
-            close_cycle_abandonment.DETECTOR_CLOSE_RESTART,
-        )
-
-    def test_sprint_close_records_before_arming(self):
-        self._assert_records_before_arming("sprint")
-
-    def test_plan_close_records_before_arming(self):
-        self._assert_records_before_arming("plan")
-
-    def test_free_close_records_before_arming(self):
-        self._assert_records_before_arming("free")
-
-    def test_the_record_lands_before_this_close_s_counting_window(self):
-        """The record is about the PREVIOUS cycle, so it must not count as one
-        of THIS close's findings.
-
-        Step 6's abort-default counts `severity=high` concerns raised after
-        `CLOSE_START_TS`, and the auto-merge gate refuses on the same number.
-        Recorded inside that window, a restart's own abandonment concern
-        recommends aborting every restarted close — for a concern whose stated
-        recovery IS the restart in progress. The log keeps it either way; only
-        the window changes.
+        An unscoped consume there clears an enclosing close's LIVE marker: a
+        lead mid-/xp-free-close who pauses to run /xp-accept (which drives
+        /xp-story-close) comes back with the gate off and the marker gone, so
+        none of the three detectors can ever report it — the branch is left
+        unmerged with nothing in the log.
         """
-        for mode in _ARMING_MODES:
-            with self.subTest(mode=mode):
-                (self.smm_dir / "events.jsonl").write_text("")
-                markers.marker_write(
-                    self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "survivor"
-                )
-
-                result = self._run_preload(self._preload(mode))
-                self.assertEqual(result.returncode, 0, result.stderr)
-
-                recorded = datetime.fromisoformat(self._one_bypass_concern()["ts"])
-                window_start = datetime.fromisoformat(
-                    self._emitted_var(result.stdout, "CLOSE_START_TS")
-                )
-                self.assertLess(
-                    recorded,
-                    window_start,
-                    "recorded inside this close's window, so Step 6 counts it "
-                    "and defaults the restarted close to abort",
-                )
-
-    @staticmethod
-    def _emitted_var(stdout: str, name: str) -> str:
-        prefix = f"{name}="
-        for line in stdout.splitlines():
-            if line.startswith(prefix):
-                return line[len(prefix) :]
-        raise AssertionError(f"preload emitted no {name}")
-
-    def test_a_first_close_records_nothing(self):
-        """No survivor is the normal case — arming must stay silent."""
-        for mode in _ARMING_MODES:
-            with self.subTest(mode=mode):
-                # Each mode starts from a clean close: the previous iteration
-                # armed the marker, and leaving it would make the NEXT mode a
-                # survivor case — the opposite of what this test measures.
-                (self.smm_dir / "events.jsonl").write_text("")
-                markers.marker_consume(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-                result = self._run_preload(self._preload(mode))
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(self._bypass_concerns(), [])
-                self.assertTrue(
-                    markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-                )
+        step = self._step_6b()
+        gate_line = next(
+            line for line in step.splitlines() if "CLOSE_CYCLE_ACTIVE" in line
+        )
+        self.assertIn(
+            "sprint/plan/free-close",
+            gate_line,
+            "the gate release must name whose it is; story-close reads this "
+            "same file and arms no gate",
+        )
+        self.assertIn("Story-close arms none", step)
 
 
 if __name__ == "__main__":

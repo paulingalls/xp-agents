@@ -32,18 +32,15 @@ VERIFY_STATUS=$(python3 "${PLUGIN_ROOT}/scripts/verify_acceptance.py" \
 echo "VERIFY_STATUS=${VERIFY_STATUS:-none}"
 HOOK_STATUS=$(pre_commit_hook_present)
 echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
-# A close-cycle marker still on disk HERE belongs to a previous close that
-# never reached its reviewer — starting this one proves that cycle is over.
-# Record it before arming, never overwrite it silently: aborting early and
-# retrying in the same session is the dominant way the marker leaks, and a
-# silent overwrite eats the evidence before any session-start sweep can see
-# it. Records nothing when there is no survivor, which is the normal case.
+# Record an AGED survivor before arming over it: the arm below overwrites the
+# marker, so a previous cycle's evidence has to be read out first. Whether the
+# survivor is abandoned at all is the recorder's call, not this line's — see
+# scripts/close_cycle_abandonment.py; a young one (this close's own red-gate
+# retry) and no survivor at all both record nothing.
 #
-# BEFORE CLOSE_START_TS, deliberately. Step 6's abort-default counts high
-# concerns raised AFTER that stamp and the auto-merge gate refuses on the
-# same number, but this record is about the PREVIOUS cycle. Inside the
-# window it would recommend aborting every restarted close — for a concern
-# whose own recovery hint is the restart in progress.
+# BEFORE CLOSE_START_TS, deliberately: Step 6's abort-default and the
+# auto-merge gate both count high concerns raised AFTER that stamp, and this
+# record is about the PREVIOUS cycle.
 python3 "${PLUGIN_ROOT}/scripts/close_cycle_abandonment.py" \
     --smm-dir "${SMM_DIR}" --detector close_restart 2>/dev/null || true
 echo "CLOSE_START_TS=$(now_iso)"
