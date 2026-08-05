@@ -958,3 +958,254 @@ interactive harness, not just under `exec`.
    a manifest/marketplace field. The plan doc should say which sense it means.
 4. **story-001's "all 18 skills discoverable"** is extended here from *listed* to
    *loaded without error*, and the count is now 19 — read from disk, not asserted.
+
+# story-006 — Codex model and effort tier table
+
+Observed on `codex-cli 0.146.0`. Fills the two `HARNESSES["codex"]` holes the plan doc
+marks `PLACEHOLDER — P0`. Every value below was **read from the tool**, never carried
+from documentation — interface contract 1, and the reason the instrument refuses a
+hand-typed row.
+
+**Account context, because this table is a snapshot and not a constant.** The catalog
+reflects this login's entitlements (`model_provider = "cortex"`). A model id available
+here may be absent for another user. Re-run `spike/probe_model_tiers.py` rather than
+trusting these ids.
+
+## The catalog (AC-1, AC-2 advertised)
+
+`model/list` over `codex app-server`, `includeHidden: true`. `supportedReasoningEfforts`
+is a **required per-model field** — exactly the per-model shape the plan doc says the
+abstraction must keep.
+
+| id | hidden | default | default effort | advertised efforts |
+|---|---|---|---|---|
+| `gpt-5.6-sol` | no | **yes** | `low` | low, medium, high, xhigh, max, **ultra** |
+| `gpt-5.6-terra` | no | no | medium | low, medium, high, xhigh, max, **ultra** |
+| `gpt-5.6-luna` | no | no | medium | low, medium, high, xhigh, max |
+| `gpt-5.5` | no | no | medium | low, medium, high, xhigh |
+| `gpt-5.4` | **yes** | no | medium | low, medium, high, xhigh |
+| `gpt-5.4-mini` | **yes** | no | medium | low, medium, high, xhigh |
+| `gpt-5.2` | no | no | medium | low, medium, high, xhigh |
+| `codex-auto-review` | **yes** | no | medium | low, medium, high, xhigh |
+
+Union advertised: `low, medium, high, xhigh, max, ultra`. **`minimal` is advertised by
+nothing.**
+
+## AC-2 exercised — advertised is NOT enforced
+
+The catalog *claims* per-model support. Claims were exercised against the harness and the
+session log was read (`payload.model` / `payload.effort` on the `turn_context` line). The
+rows below were matched to their run by the original newest-rollout-after-a-timestamp
+rule, which identifies nothing; the runs were sequential and single-operator, and the
+recorded pairs agree with the requests, so no misattribution is visible. Attribution is
+by session id from here on — see Instruments.
+
+**What the recorded column is, corrected at close review.** The original claim here was
+that a nonsense value never reaches a rollout, so the recorded effort is not an echo of
+the request. That is false, and the files on disk say so: the
+`banana-not-an-effort` run wrote `"effort": "banana-not-an-effort"` into its own
+`turn_context` (`rollout-2026-08-05T12-32-38-*.jsonl`, line 5). **The rollout records
+what was REQUESTED**, so this channel cannot distinguish accepted-and-honoured from
+accepted-and-ignored, and no run that exits 0 can ever read as clamped. What it does
+establish is that each run started with the pair this probe pinned rather than with
+`config.toml`'s `high` — worth having, but weaker than "effective".
+
+Each suspect ran with `gpt-5.6-luna@low` immediately before and after it, and that
+control passed three times, so the failures below are not general transport flakiness.
+
+| requested | advertised? | run outcome | recorded in its rollout |
+|---|---|---|---|
+| `gpt-5.6-luna@low` | yes | completed | luna@low |
+| `gpt-5.6-luna@max` | yes | completed | luna@max |
+| **`gpt-5.6-luna@ultra`** | **no** | **completed, answered `ok`** | **luna@ultra** |
+| `gpt-5.2@ultra` | no | **failed** | 5.2@ultra (recorded, then errored) |
+| `gpt-5.6-luna@banana-not-an-effort` | n/a | **failed** | luna@banana-not-an-effort |
+
+**`supportedReasoningEfforts` is advertisement, not a uniformly enforced boundary.**
+`gpt-5.6-luna` **accepts** `ultra`, which it does not advertise: the turn completed and
+the model answered. `gpt-5.2@ultra` and the invalid value both **failed**, so some
+enforcement exists — but note *how* they failed, because story-007 has to key on it:
+neither was rejected up front. Both ran ~16 s and ended in
+`task_complete.error = "stream disconnected before completion"`, and the `gpt-5.2` run
+additionally emitted `[ERROR] Variable "$text" got invalid value { verbosity: "low" }`
+six times. **An unsupported pair here surfaces as an opaque mid-stream disconnect, not a
+validation error** — the same shape a genuine transport failure would take.
+
+Consequence for the tier abstraction: **the catalog cannot be trusted as a support
+boundary in the permissive direction.** A spawn may be accepted at a tier the catalog
+says the model does not support. Whether luna truly reasons at `ultra`, or accepts the
+flag and runs at its own ceiling, is **not observed**. One signal does exist in the file
+this probe already reads, and it does not corroborate `ultra`:
+`token_count.info.*.reasoning_output_tokens` was **13** for luna@max and **0** for
+luna@ultra, luna@low and sol@ultra on the same prompt. n=1 per cell on a trivial prompt,
+so this settles nothing — but "no channel for it" was wrong, and the cheap channel
+points the unfavourable way.
+
+## AC-3 — the two effort value sets reconciled
+
+| Surface | Documented / observed |
+|---|---|
+| Codex CLI, plan doc's claim | `minimal, low, medium, high, xhigh` |
+| Codex subagent TOML, plan doc's claim | `ultra, max, xhigh, high, medium, low` |
+| **Observed, `model/list`** | **`low, medium, high, xhigh, max, ultra`** — no `minimal` |
+
+**`ultra` is real**, not documentation drift: catalog-advertised on sol and terra with
+the description *"Maximum reasoning with automatic task delegation"*, and **accepted in a
+live run**. So the value appearing in only the subagent list is genuine.
+
+Authoritative per surface: the **catalog** is authoritative for what exists;
+`-c model_reasoning_effort=` is the CLI vehicle. There is **no `-e`/`--effort` flag** —
+see corrections.
+
+## AC-5 — every mapped tier accepted
+
+Not an xp-agents teammate: `spawn_command.py:86` hardcodes `claude`, so a plugin teammate
+is a `claude -p` process and would measure nothing about Codex. Each tier is a direct
+`codex exec -m <model> -c model_reasoning_effort=<effort>`; every run completed, and its
+rollout was read for what it recorded (same attribution caveat as AC-2).
+
+**Close-review scope note:** per the AC-2 correction above, the recorded column echoes the
+request, so "accepted" here means *the flags were taken and the turn completed* — it is not
+independent evidence that the effort was honoured. That matters most for the pair that
+separates the top two tiers: `advanced` and `frontier` share a model, so `high` vs `ultra`
+is the ONLY thing distinguishing them, and that distinction is unverified.
+
+| tier | requested | run outcome | recorded in its rollout |
+|---|---|---|---|
+| economy | `gpt-5.6-luna@medium` | completed | luna@medium |
+| standard | `gpt-5.6-terra@medium` | completed | terra@medium |
+| advanced | `gpt-5.6-sol@high` | completed | sol@high |
+| frontier | `gpt-5.6-sol@ultra` | completed | sol@ultra |
+
+### Did `ultra` delegate?
+
+**No spawn observed.** The frontier run's rollout contains no `spawn_agent` tool *call* —
+every `collaboration*` match is system-prompt text describing the tools — and the session
+ran `collaboration_mode: "default"`.
+
+**This bounds the question, it does not settle it.** The prompt was "reply ok", which
+gives nothing to delegate, and delegation may require a non-default collaboration mode.
+`frontier = sol@ultra` is safe on this evidence; it is **not proven safe under load**. A
+teammate that auto-delegates would spawn workers the file-domain and coordination
+machinery does not know exist, so this deserves re-observation on a real task before the
+tier ships.
+
+## AC-4 — the drafted `HARNESSES["codex"]` row
+
+Stated with its **key axis explicit**, which the plan doc's sketch leaves ambiguous.
+`smm/tier_wire.py:46` `EFFORT_SUPPORT` is **tier**-keyed (its own comment says "Per-tier"),
+and only *looks* model-keyed because Claude's tiers are named after models. Codex breaks
+that coincidence — `advanced` and `frontier` are both `gpt-5.6-sol` — so a model-keyed
+`effort_support` **collapses two tiers into one**.
+
+```python
+"codex": {
+  "binary": "codex",
+  # tier -> concrete model id
+  "models": {"economy": "gpt-5.6-luna", "standard": "gpt-5.6-terra",
+             "advanced": "gpt-5.6-sol", "frontier": "gpt-5.6-sol"},
+  # abstract effort tier -> harness spelling; None = no equivalent
+  "efforts": {"minimal": None,        # advertised by nothing — plan doc was wrong
+              "low": "low", "medium": "medium", "high": "high",
+              "xhigh": "xhigh", "max": "max",   # plan doc wrongly said None
+              "ultra": "ultra"},                # real; new to the abstract axis
+  # TIER-keyed, so advanced and frontier can differ while sharing a model
+  "effort_support": {"economy":  {"low","medium","high","xhigh","max"},
+                     "standard": {"low","medium","high","xhigh","max","ultra"},
+                     "advanced": {"low","medium","high","xhigh","max","ultra"},
+                     "frontier": {"low","medium","high","xhigh","max","ultra"}},
+  # per-tier DEFAULT effort — new field, see below
+  "default_effort": {"economy": "medium", "standard": "medium",
+                     "advanced": "high", "frontier": "ultra"},
+  "model_flag":  ["-m", "{model}"],
+  "effort_flag": ["-c", "model_reasoning_effort={effort}"],
+}
+```
+
+**Sufficiency check performed literally:** every field above is populated from the table,
+with no field needing an observation this document lacks. AC-4 is met.
+
+### Three things the tier milestone must decide, not inherit
+
+1. **`default_effort` is a NEW field.** The drafted shape has `models`, `efforts` and
+   `effort_support` but no per-tier default. Either the **Claude row gains one too** or the
+   two harnesses diverge in shape — the thing the abstraction exists to prevent.
+2. **It is a default, not a fusion of the two axes.** The plan doc explicitly rejected
+   fusing model tier with effort tier; a default that stays overridable preserves both.
+   Codex's own evidence agrees: sol's `defaultReasoningEffort` is **`low`**, with the blurb
+   *"try starting lower, then turn it up"* — Codex does not assume its frontier model
+   should run hot.
+3. **`effort_support` must be tier-keyed**, and that changes the **Claude** row too, whose
+   keys are currently ambiguous by coincidence. Interface contract 2 ("per model, not per
+   harness") settles only half of this.
+
+**Codex offers three coding tiers, not four.** Nothing sits above sol, so `advanced` and
+`frontier` share a model and are separated by default effort. Hidden models
+(`gpt-5.4`, `gpt-5.4-mini`, `codex-auto-review`) are excluded on purpose: hidden from
+Codex's own picker means deprecated or restricted, and building a shipped tier on one
+would be building on something the vendor is steering users away from.
+
+## Corrections this story makes to the plan doc
+
+story-007 owns applying these in place; `docs/ideas/CODEX_DUAL_TARGET_PLAN.md` is in
+**that** story's `file_domain`, not this one's.
+
+1. "`model_reasoning_effort` accepts `minimal, low, medium, high, xhigh`" — wrong at both
+   ends. No `minimal`; `max` **is** advertised and accepted.
+2. "Codex has a `minimal` we lack and lacks our `max`" — both halves false.
+3. "check whether the subagent list is real or documentation drift" — **`ultra` is real**.
+4. The proposed abstract axis `minimal … max` is wrong at both ends. Observed: `low …
+   ultra`. `minimal` should be dropped; `ultra` added.
+5. "Codex also accepts a `-e <effort>` shorthand" — **no `-e` or `--effort` flag exists**
+   on `codex exec`. Only `-m, --model`. The drafted `effort_flag` is already right; the
+   prose would mislead whoever implements it.
+6. **New:** `--ignore-user-config` is NOT a safe way to isolate a measurement — it also
+   discards `model_provider` and auth. Explicit `-m` / `-c` overrides are sufficient and
+   are what the doc already prescribes.
+7. **New:** "unsupported pair drops loudly, never clamped" has no clean signal to key on
+   under Codex. An unsupported effort is neither validated up front nor clamped — the run
+   starts, burns ~16 s, and dies with `stream disconnected before completion`. Whatever
+   story-007 builds cannot rely on a distinguishable rejection error.
+
+## Instruments
+
+- `spike/probe_model_tiers.py` — `model/list` for advertised, each run's own rollout for
+  what it recorded. **Arms on the live path**: `main` → `arm_channel` runs one known-good
+  pair and requires the recorded pair to be readable before anything prints. Arming is an
+  instrument property, deliberately **not** "the harness refused", because arming on the
+  harness's verdict would let an adverse-but-valid result block story-007.
+  Two limits, both found at close review and both still open:
+  `annotate_matrix` is called by no live path — `main` prints the catalog only, so the AC-2
+  and AC-5 tables above came from ad-hoc calls and re-running the file does not reproduce
+  them; and the recorded pair echoes the request, so `CLAMPED` is unreachable outside a
+  test.
+- `spike/test_model_tiers.py` — 32 pins, this story's declared `acceptance_execution` (26
+  authored, 6 added at close review: rollout attribution, and behavioural replacements for
+  two `inspect.getsource` substring pins that a commented-out call would have satisfied).
+  Pins assert **instrument properties** (provenance, discrimination, refusal, arming,
+  attribution), not catalog content: a pin encoding today's entitlements would red the
+  suite on a vendor change while adding no falsification power.
+- `probe_skill_surface.app_server_call` — extracted from `app_server_skills`, which
+  hardcoded `skills/list`. Behaviour-preserving; its 19 pins pass unchanged.
+- Rollout attribution is by **session id**, not by newest-mtime-after-a-timestamp: the
+  earlier rule identified nothing, and a run that wrote no rollout would have inherited its
+  neighbour's values. `codex exec` prints `session id: <uuid>` on stderr and the rollout
+  filename ends in it.
+- Mutation-verified: six mutations by the author, plus two at close review against the new
+  arming pins (unreached `arm_channel`, dropped arming assertion) — all caught.
+
+**The arming earned its keep on its first live run** by refusing: it caught that
+`--ignore-user-config` 401s under a cortex-routed operator, before that could produce a
+table of garbage.
+
+## Rig state story-006 leaves behind
+
+- **No registration changes.** `hooks.codex.json` and `.codex-plugin/plugin.json` are
+  untouched by this story; the manifest stays at **5.3.13** from story-005.
+- **No cache injections**, and no config written: every measured run pinned model and
+  effort with explicit flags rather than editing `config.toml`.
+- **The operator's `config.toml` still sets** `model = "gpt-5.6-sol"`,
+  `model_reasoning_effort = "high"`, `model_provider = "cortex"`. Any later run that omits
+  the effort flag inherits `high` — verified, and the reason every measurement here pins
+  it explicitly.
+- Scratch run dir under the session scratchpad, not the project.

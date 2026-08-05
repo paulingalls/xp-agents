@@ -175,6 +175,33 @@ class TestControlsArmTheInstrument(unittest.TestCase):
         self.assertEqual(verdict, probe.REJECTED)
 
 
+class TestAppServerCallPrimitive(unittest.TestCase):
+    """Behaviour test for the primitive extracted so `model/list` can reuse it.
+
+    The 19 pins around it exercise `app_server_skills`, which only ever asks for
+    `skills/list` — so none of them reach the arbitrary-method path or the
+    error-response branch this extraction added. Per the refactor rule, a new
+    primitive gets its own test rather than riding its caller's.
+    """
+
+    def test_arbitrary_method_reaches_the_server(self):
+        """The whole point of the extraction: a method other than skills/list."""
+        payload = probe.app_server_call("model/list", {"limit": 1})
+        self.assertIn("result", payload)
+        self.assertIn("data", payload["result"])
+
+    def test_unknown_method_refuses_rather_than_returning_empty(self):
+        """A JSON-RPC error must not read as 'the server said nothing useful'.
+
+        The message is asserted, not just the exception type: the no-response path
+        raises the same `ProbeRefusal`, so a bare `assertRaises` passes whether or
+        not the new error branch is ever reached.
+        """
+        with self.assertRaises(probe.ProbeRefusal) as caught:
+            probe.app_server_call("xp-spike/definitely-not-a-method", {})
+        self.assertIn("returned an error", str(caught.exception))
+
+
 class TestLoaderCannotSeeFrontmatter(unittest.TestCase):
     """Phase 0's finding, pinned so a Codex upgrade that changes it fails loudly.
 

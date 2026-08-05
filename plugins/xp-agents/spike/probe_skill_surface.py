@@ -256,8 +256,28 @@ def summarise_load(skills) -> dict:
     }
 
 
-def app_server_skills(cwd: Path | None = None, timeout: float = 25.0) -> dict:
-    """One `initialize` + `skills/list` round trip. Returns the raw result object."""
+#: JSON-RPC id for the request under test. `initialize` takes 1, so the call
+#: being measured is always 2 and the reader matches on it.
+_CALL_ID = 2
+
+
+def app_server_call(
+    method: str,
+    params: dict | None = None,
+    *,
+    cwd: Path | None = None,
+    timeout: float = 25.0,
+) -> dict:
+    """One `initialize` + `<method>` round trip over `codex app-server` stdio.
+
+    Extracted from `app_server_skills` so a second probe can reuse the transport
+    instead of copying it — a copied client would duplicate the sleep budget and
+    drift from this one. `method` and `params` are the only things that varied.
+
+    Returns ``{"result": <result>, "stderr": <str>}``. Raises `ProbeRefusal` when
+    no response for this call reaches stdout: an absent answer and an empty answer
+    are different facts, and only one of them is data.
+    """
     proc = subprocess.Popen(
         ["codex", "app-server"],
         stdin=subprocess.PIPE,
@@ -292,9 +312,9 @@ def app_server_skills(cwd: Path | None = None, timeout: float = 25.0) -> dict:
             json.dumps(
                 {
                     "jsonrpc": "2.0",
-                    "id": 2,
-                    "method": "skills/list",
-                    "params": {"forceReload": True},
+                    "id": _CALL_ID,
+                    "method": method,
+                    "params": params if params is not None else {},
                 }
             )
             + "\n"
@@ -318,9 +338,22 @@ def app_server_skills(cwd: Path | None = None, timeout: float = 25.0) -> dict:
             msg = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if msg.get("id") == 2 and "result" in msg:
+        if msg.get("id") != _CALL_ID:
+            continue
+        if "result" in msg:
             return {"result": msg["result"], "stderr": stderr}
-    raise ProbeRefusal(f"no skills/list response on stdout (stderr: {stderr[:300]!r})")
+        if "error" in msg:
+            raise ProbeRefusal(
+                f"{method} returned an error: {json.dumps(msg['error'])[:300]}"
+            )
+    raise ProbeRefusal(f"no {method} response on stdout (stderr: {stderr[:300]!r})")
+
+
+def app_server_skills(cwd: Path | None = None, timeout: float = 25.0) -> dict:
+    """One `initialize` + `skills/list` round trip. Returns the raw result object."""
+    return app_server_call(
+        "skills/list", {"forceReload": True}, cwd=cwd, timeout=timeout
+    )
 
 
 def observed_loader_fields(cwd: Path | None = None) -> set[str]:
