@@ -13,7 +13,9 @@ examined our keys and forgave them, or whether the array is simply never populat
 So the instrument carries TWO controls and both are pinned here:
 
   * ARMING control (positive): a genuinely malformed skill MUST produce a non-empty
-    `errors`. Without this, "no rejection" is an unfalsifiable claim.
+    `errors`. Without this, "no rejection" is an unfalsifiable claim. Pinned here AND
+    called by `main` on the live payload — pinning it here alone would leave the
+    measurement free to skip the precondition these pins describe.
   * DISCRIMINATION control (negative): a skill carrying an invented key must load
     exactly like our real ones. This is what makes "silently ignored" a measurement
     rather than a restatement of the arming control.
@@ -21,7 +23,9 @@ So the instrument carries TWO controls and both are pinned here:
 An instrument that cannot report `unknown` must not be allowed to conclude `ignored`.
 """
 
+import tempfile
 import unittest
+from pathlib import Path
 
 import probe_skill_surface as probe
 
@@ -46,7 +50,15 @@ class TestKeyClassification(unittest.TestCase):
             )
 
     def test_effort_is_the_only_undocumented_key_we_ship(self):
+        """The doc's headline claim, checked against disk rather than restated.
+
+        Asserting only `classify_key("effort") == UNDOCUMENTED` would leave the word
+        "only" unpinned — and it is the whole finding, since it is what falsifies
+        gap #25's premise for the other three keys.
+        """
         self.assertEqual(probe.classify_key("effort"), probe.UNDOCUMENTED)
+        shipped = probe.shipped_frontmatter_keys()
+        self.assertEqual(shipped - probe.CODEX_DOCUMENTED_KEYS, {"effort"})
 
     def test_invented_key_is_undocumented(self):
         self.assertEqual(
@@ -54,11 +66,14 @@ class TestKeyClassification(unittest.TestCase):
         )
 
     def test_bundled_validator_allowlist_is_narrower_than_the_docs(self):
-        """Codex's own quick_validate.py contradicts Codex's own guidance."""
+        """Codex's own quick_validate.py contradicts Codex's own guidance.
+
+        The rejected set is derived from the keys on DISK, so this is a claim about
+        our tree and not a subtraction of one hand-typed literal from another: a key
+        listed here that we stopped shipping fails instead of padding the table.
+        """
         rejected = probe.bundled_validator_rejects()
-        self.assertIn("effort", rejected)
-        self.assertIn("context", rejected)
-        self.assertIn("agent", rejected)
+        self.assertEqual(rejected, {"effort", "context", "agent"})
         self.assertNotIn("allowed-tools", rejected)
         self.assertNotIn("name", rejected)
 
@@ -77,10 +92,28 @@ class TestShippedFrontmatter(unittest.TestCase):
         self.assertIn("effort", census)
 
     def test_census_counts_match_the_files_on_disk(self):
-        """A dropped row must not read as 'checked and fine'."""
+        """A dropped row must not read as 'checked and fine'.
+
+        Cross-checks the two independent walks — one counts skill directories, the
+        other counts keys — rather than re-running the same glob and comparing it to
+        itself. Every skill declares exactly one `name`, so a row the key walk skips
+        (or double-counts) breaks the equality.
+        """
         skills_dir = probe.repo_skills_dir()
-        on_disk = sorted(p.parent.name for p in skills_dir.glob("*/SKILL.md"))
-        self.assertEqual(probe.shipped_skill_names(skills_dir), on_disk)
+        names = probe.shipped_skill_names(skills_dir)
+        census = probe.shipped_key_census(skills_dir)
+        self.assertEqual(census["name"], len(names))
+        over = {k: c for k, c in census.items() if c > len(names)}
+        self.assertEqual(over, {}, "a key counted more often than there are skills")
+
+    def test_an_unclosed_frontmatter_block_refuses(self):
+        """Otherwise the parser walks into the body and invents census rows."""
+        with tempfile.TemporaryDirectory() as td:
+            skill = Path(td) / "xp-broken" / "SKILL.md"
+            skill.parent.mkdir()
+            skill.write_text("---\nname: xp-broken\n\n## Step 1: Read\n", "utf-8")
+            with self.assertRaises(probe.ProbeRefusal):
+                probe.shipped_key_census(Path(td))
 
 
 class TestRefusesRatherThanLies(unittest.TestCase):
@@ -103,11 +136,31 @@ class TestControlsArmTheInstrument(unittest.TestCase):
     def test_arming_control_requires_a_nonempty_errors_array(self):
         """A malformed skill MUST error, or `errors: []` proves nothing."""
         with self.assertRaises(probe.ProbeNotArmed):
-            probe.assert_armed(malformed_errors=[])
+            probe.assert_armed([])
 
     def test_arming_control_passes_when_the_loader_reports_the_malformed_skill(self):
-        probe.assert_armed(
-            malformed_errors=[{"path": "/x/SKILL.md", "message": "not closed"}]
+        probe.assert_armed([{"path": "/x/SKILL.md", "message": "not closed"}])
+
+    def test_an_error_on_the_control_is_not_attributed_to_one_of_ours(self):
+        """`errors` is per-SCAN, so the control's own error sits beside our skills.
+
+        Read unfiltered it would report every shipped skill as rejected in exactly
+        the run that arms the channel — the arming control marking its own run void.
+        """
+        errors = [
+            {"path": "/cache/skills/xp-spike-malformed/SKILL.md", "message": "boom"}
+        ]
+        self.assertEqual(probe.errors_naming(errors, "xp-plan"), [])
+        self.assertEqual(len(probe.errors_naming(errors, "xp-spike-malformed")), 1)
+
+    def test_an_error_naming_a_shipped_skill_is_attributed(self):
+        errors = [{"path": "/cache/skills/xp-plan/SKILL.md", "message": "boom"}]
+        self.assertEqual(len(probe.errors_naming(errors, "xp-plan")), 1)
+        self.assertEqual(
+            probe.classify_load_outcome(
+                entry={"enabled": True}, errors=probe.errors_naming(errors, "xp-plan")
+            ),
+            probe.REJECTED,
         )
 
     def test_discrimination_control_must_load_clean(self):

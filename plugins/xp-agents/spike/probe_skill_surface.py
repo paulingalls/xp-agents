@@ -16,7 +16,9 @@ TWO disciplines carried over from the rig, both load-bearing:
    genuinely malformed skill has been shown to produce a non-empty `errors`. The
    arming control is a precondition of the AC-1 verdict, not a nicety: without it
    "Codex does not reject unknown keys" is indistinguishable from "this field is
-   never populated".
+   never populated". `main` enforces it — `assert_armed` runs on the live payload
+   before anything is printed, because a precondition only pinned in the unit tests
+   is a precondition the measurement never has to satisfy.
 
 What this instrument CANNOT do, recorded so nobody reads more into its output than
 is there: the loader surfaces no frontmatter keys at all (see `LOADER_ANSWERS`), so
@@ -69,19 +71,11 @@ BUNDLED_VALIDATOR_ALLOWLIST = frozenset(
     }
 )
 
-#: Frontmatter keys we ship. Used only to ask "did the loader leak one of these
-#: into its output"; the shipped census itself is read off disk, never from here.
-SHIPPED_FRONTMATTER_KEYS = frozenset(
-    {
-        "name",
-        "description",
-        "allowed-tools",
-        "effort",
-        "context",
-        "agent",
-        "model",
-    }
-)
+#: Field names the loader emits for every skill regardless of frontmatter, so
+#: their presence in a field set is not a frontmatter leak. `SkillMetadata` also
+#: carries path/scope/enabled/dependencies/interface/shortDescription, none of
+#: which collide with a frontmatter key; these two do.
+LOADER_NATIVE_FIELDS = frozenset({"name", "description"})
 
 #: Which AC-1 verdicts the loader channel can actually answer. Phase 0 measured
 #: this: SkillMetadata carries name/description/path/scope/enabled (+dependencies,
@@ -106,16 +100,39 @@ def classify_key(key: str) -> str:
     return DEFINED if key in CODEX_DOCUMENTED_KEYS else UNDOCUMENTED
 
 
-def bundled_validator_rejects(
-    keys: frozenset[str] = SHIPPED_FRONTMATTER_KEYS,
-) -> set[str]:
+def shipped_frontmatter_keys(skills_dir: Path | None = None) -> frozenset[str]:
+    """The keys we ship, read off disk — never a hand-typed list.
+
+    A literal here drifts silently: it would put a key we do NOT ship into the
+    validator-rejects table (or, worse, omit one we added), and both readings feed
+    the findings doc.
+    """
+    return frozenset(shipped_key_census(skills_dir or repo_skills_dir()))
+
+
+def bundled_validator_rejects(keys: frozenset[str] | None = None) -> set[str]:
     """Which of our shipped keys Codex's own bundled validator would reject."""
-    return set(keys) - set(BUNDLED_VALIDATOR_ALLOWLIST)
+    return set(keys if keys is not None else shipped_frontmatter_keys()) - set(
+        BUNDLED_VALIDATOR_ALLOWLIST
+    )
 
 
-def frontmatter_keys_in(field_names) -> set[str]:
-    """Frontmatter keys leaking into a loader field set. Empty is the Phase 0 result."""
-    return set(field_names) & set(SHIPPED_FRONTMATTER_KEYS) - {"name", "description"}
+def frontmatter_keys_in(
+    field_names, known_keys: frozenset[str] | None = None
+) -> set[str]:
+    """Frontmatter keys leaking into a loader field set. Empty is the Phase 0 result.
+
+    Matched against every key we ship UNION every key Codex documents, not just
+    ours: an upgrade that starts surfacing `argument-hint` widens what this channel
+    can prove just as much as one that surfaces `effort`, and a detector scoped to
+    our own keys would miss it.
+    """
+    known = (
+        known_keys
+        if known_keys is not None
+        else shipped_frontmatter_keys() | CODEX_DOCUMENTED_KEYS
+    )
+    return (set(field_names) & set(known)) - set(LOADER_NATIVE_FIELDS)
 
 
 def loader_can_answer(verdict: str) -> bool:
@@ -137,18 +154,28 @@ def shipped_skill_names(skills_dir: Path) -> list[str]:
 
 
 def _frontmatter_keys(skill_md: Path) -> list[str]:
+    """Top-level frontmatter keys. Refuses an unclosed block rather than reading on.
+
+    Without the closing-delimiter check, an unclosed `---` walks into the body and
+    every `## Step 1: …` heading lands in the census as a key — invented rows in the
+    table AC-1's verdict is read off.
+    """
     lines = skill_md.read_text(encoding="utf-8").splitlines()
     if not lines or lines[0].strip() != "---":
         return []
     keys: list[str] = []
+    closed = False
     for line in lines[1:]:
         if line.strip() == "---":
+            closed = True
             break
         if line[:1].isspace() or not line.strip():
             continue
         head, sep, _ = line.partition(":")
         if sep:
             keys.append(head.strip())
+    if not closed:
+        raise ProbeRefusal(f"{skill_md} opens frontmatter and never closes it")
     return keys
 
 
@@ -168,7 +195,20 @@ def shipped_key_census(skills_dir: Path) -> dict[str, int]:
 # --- loader observation ------------------------------------------------------
 
 
+def errors_naming(errors, skill_name: str) -> list:
+    """The subset of a directory-level `errors` array that names ONE skill.
+
+    `skills/list` reports errors per SCAN, not per skill, and the arming control is
+    a skill of its own sitting in the same scan. So a non-empty `errors` in the run
+    that reads our skills as clean is the loader's rejection path WORKING, not a
+    rejection of ours — reading the array unfiltered conflates the two and turns the
+    arming control into a self-inflicted false positive.
+    """
+    return [e for e in errors if f"/{skill_name}/" in str(e.get("path", ""))]
+
+
 def classify_load_outcome(entry, errors) -> str:
+    """Verdict for ONE skill. `errors` must already be attributed to it."""
     if errors:
         return REJECTED
     if entry is None:
@@ -178,13 +218,20 @@ def classify_load_outcome(entry, errors) -> str:
     return LOADED_CLEAN
 
 
-def assert_armed(malformed_errors) -> None:
-    """A malformed skill MUST surface. Otherwise `errors: []` means nothing."""
-    if not malformed_errors:
+def assert_armed(loader_errors) -> None:
+    """The loader's rejection path MUST have fired, or `errors: []` means nothing.
+
+    Called on the live path with the whole run's `errors`, which is non-empty only
+    while the malformed control is installed in the cache. A reinstall wipes the
+    control, so this is also what stops a post-reinstall run from printing a clean
+    table that proves nothing.
+    """
+    if not loader_errors:
         raise ProbeNotArmed(
             "the arming control (a malformed skill) produced no loader error, so an "
             "empty `errors` array cannot be read as 'no rejection' — the field may "
-            "simply never be populated. AC-1's verdict is void until this passes."
+            "simply never be populated. AC-1's verdict is void until this passes. "
+            "Re-inject the malformed control into the installed cache and re-run."
         )
 
 
@@ -298,6 +345,16 @@ def main() -> int:
     summary = summarise_load(skills)
     fields = {k for s in skills for k in s}
 
+    assert_armed(errors)
+    listed = {s.get("name", ""): s for s in skills}
+    per_skill = {
+        name: classify_load_outcome(
+            listed.get(f"{PLUGIN_SKILL_PREFIX}{name}"), errors_naming(errors, name)
+        )
+        for name in shipped_skill_names(skills_dir)
+    }
+    rejected_ours = sorted(n for n, v in per_skill.items() if v == REJECTED)
+
     print("# story-005 — skill configuration surface\n")
     print("## Shipped frontmatter census (read from disk)\n")
     print("| key | skills | Codex classifies |")
@@ -307,7 +364,8 @@ def main() -> int:
 
     print("\n## Loader outcome\n")
     print(f"- skills listed: {summary['total']} total, {summary['ours']} ours")
-    print(f"- loader errors: {len(errors)}")
+    print(f"- loader errors: {len(errors)} (arming control armed the channel)")
+    print(f"- of those, naming a skill we ship: {rejected_ours or 'none'}")
     print(f"- disabled: {summary['disabled'] or 'none'}")
     print(f"- app-server stderr: {len(payload['stderr'])} bytes")
     print(

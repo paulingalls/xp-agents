@@ -646,7 +646,15 @@ slot we use `effort` for, which is the real finding hiding inside gap #25.
 
 ## AC-1 — rejects, warns, or ignores?
 
-**Verdict: SILENTLY IGNORES.** No error, no warning, no field in any output.
+**Verdict: NOT REJECTED, and not warned about on the loader channel.** No error, no
+field in any output, zero `app-server` stderr.
+
+Scoped deliberately, because the shorter word overclaims: this channel **cannot
+separate warned-about from silently-ignored** (see §What the loader channel cannot
+answer), and a quiet `app-server` stderr is not the same as no warning on any
+channel — the session channel was not measured for a frontmatter warning. For gap
+#25 the distinction does not matter, since a warning is not a blocker either. For any
+shipped decision that rests on "silent", it does.
 
 This verdict is only worth having because the instrument was armed first. `errors: []`
 reads identically whether the loader forgave our keys or whether the array is never
@@ -656,11 +664,17 @@ same `skills/list` call:
 | control | frontmatter | loader result |
 |---|---|---|
 | **arming** (positive) | `---` never closed | `errors: 1`, `"missing YAML frontmatter delimited by ---"`, **dropped from the listing** |
-| **discrimination** (negative) | well-formed, carries `xp-spike-nonsense-key` **and** `effort` | listed, `enabled: true`, `errors: []`, neither key surfaced |
-| our 19 shipped skills | real | listed, `enabled: true`, `errors: []` |
+| **discrimination** (negative) | well-formed, carries `xp-spike-nonsense-key` **and** `effort` | listed, `enabled: true`, **no error naming it**, neither key surfaced |
+| our 19 shipped skills | real | listed, `enabled: true`, **no error naming any of them** |
 
 The arming row is what makes the other two mean anything: the rejection path
 demonstrably works, and unknown keys still sail through it.
+
+`errors` is per-SCAN, not per skill, so rows 2 and 3 read "no error naming it" rather
+than `errors: []` — in the armed run the array holds the control's own error, and the
+probe attributes errors by path (`errors_naming`) instead of reading the array whole.
+Read whole it would report all 19 as rejected in precisely the run that arms the
+channel.
 
 **Blocker-class? No.** Gap #25 does not force generated per-harness `SKILL.md` files.
 
@@ -758,6 +772,15 @@ whose absence would also be consistent with retention policy declining to archiv
 2. **`SessionEnd` hook timeouts are clamped to 3s** — both our 2500 ms and 1500 ms
    entries drew `warning: clamping SessionEnd hook timeout to 3s`.
 
+   **Open, and worth a follow-up run:** on Claude semantics both values are already
+   *under* 3s, so a clamp is a reduction that cannot apply. Two readings fit — Codex
+   caps every `SessionEnd` timeout at 3s regardless of the value, or Codex reads the
+   number as **seconds** (2500 s and 1500 s both clamp to 3 s). The second reading
+   would mean every `timeout` in `hooks.codex.json` is off by 1000x and only the
+   `SessionEnd` cap is hiding it; these two entries are currently the file's ONLY
+   `timeout` values, so nothing else exercises it yet. Do not write a shipped timeout
+   for the second harness until one run distinguishes them.
+
 ## AC-5 — does any manifest field ship subagents?
 
 **Verdict: NO. The config/setup-directory path is the only route.**
@@ -829,14 +852,24 @@ configured**. That is the shape story-007's verdict has to carry.
   false-negative table: an empty skills list, or a list containing none of ours,
   raises instead of reporting "no rejections" — the `tabulate_fields.py` discipline,
   because a broken probe and a clean result look identical on the page.
-- `spike/test_skill_surface.py` — 16 pins, this story's declared
-  `acceptance_execution`. **Mutation-verified**: four mutations were applied and all
-  four were caught — arming disabled, frontmatter detector always-empty, `effort`
-  misclassified as documented, refusal-on-empty removed.
-- The AC-1 census is read **off the filesystem**, never from a literal count. This
-  is not decoration: the 5.3.10 cache held 18 skills against the tree's 19
-  (`xp-scaffold-worktree` was missing), so a hard-coded 19 would have manufactured a
-  false "one skill rejected" row.
+- **The arming control is on the live path**, not only in the pins: `main` calls
+  `assert_armed` on the run's own `errors` before it prints anything, so a run made
+  after a reinstall — which wipes the injected control — refuses instead of printing
+  `loader errors: 0` as if that were the finding. Close review found this the other
+  way round (armed only in the unit tests, which is theatre) and it was fixed; the
+  refusal reproduces on demand by re-running the probe against a clean cache.
+- `spike/test_skill_surface.py` — 19 pins, this story's declared
+  `acceptance_execution`. **Mutation-verified**: eight mutations were applied and all
+  eight were caught — arming disabled, frontmatter detector always-empty, `effort`
+  misclassified as documented, refusal-on-empty removed, per-path error attribution
+  made a no-op, unclosed-frontmatter refusal removed, the disk-read key set replaced
+  by a literal, and a census row dropped.
+- The AC-1 census **and the shipped key set** are read off the filesystem, never from
+  a literal. This is not decoration, twice over: the 5.3.10 cache held 18 skills
+  against the tree's 19 (`xp-scaffold-worktree` was missing), so a hard-coded 19
+  would have manufactured a false "one skill rejected" row — and the first draft's
+  hand-typed key set carried `model`, which no skill ships, so the validator-rejects
+  row below printed four keys where the truth is three.
 
 ### What the loader channel cannot answer
 
