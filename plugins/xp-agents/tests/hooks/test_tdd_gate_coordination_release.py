@@ -101,13 +101,15 @@ class TestOnlyTheLeadMayReleaseOnASibling(_GateTestCase):
             coordination.update_coordination(self.smm_dir, aid, [])
 
     def test_a_worktree_teammate_is_not_released_by_the_leads_entry(self):
-        """`agent_id=None` is load-bearing here, not tidiness. With `_stop`'s
-        default `"main"`, `resolve_agent_id` would answer `main` while
-        `_reader_scope` answers `worktree-story-003` — the two resolvers would
-        DISAGREE, the owner guard would short-circuit ahead of the coordination
-        compare, and this test would go green having asserted nothing about the
-        single identity source it exists to prove. Popping the key makes both
-        read the worktree name off the cwd, which is the real payload shape."""
+        """`agent_id=None` is payload FIDELITY, not non-vacuity — measured, not
+        assumed. Against `_stop`'s default `"main"` this test still fails on the
+        pre-fix expression AND on an owner-guard-removed mutant, because with
+        `main` excluded the sibling entry still reads as another active agent.
+        What popping the key buys is that both resolvers then read the worktree
+        name off the cwd, the shape a real Stop payload has (the harness sends
+        `agent_id` only inside a subagent call), so the agreement asserted in
+        `test_the_two_resolvers_agree_for_a_worktree_teammate` is the one this
+        block actually exercises."""
         self._coordinate("main", "worktree-story-003")
         events = [failing_tests_concern(agent_id="worktree-story-003"), *filler(3)]
         result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False, agent_id=None)
