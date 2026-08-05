@@ -225,31 +225,40 @@ Third audit pass (2026-07-24) — the Stop-gate release valve and subagent routi
 ### Hook payload compatibility surface
 
 Enumerating every field our hooks actually read gives P0 an exact checklist
-instead of "verify the payloads." **Our 33 handlers consume 14 distinct fields;
-only 4 are documented for Codex.**
+instead of "verify the payloads." ~~Our 33 handlers consume 14 distinct fields;
+only 4 are documented for Codex.~~ **Measured 2026-08-05 (P0 spike): the surface is
+15 fields, not 14** — `session_id` was omitted here and shipped code reads it in four
+places (`hook_liveness.payload_session_id`, `housekeeping_flight` ×3,
+`bash_post_tool`). The `Codex status` column below is now **observed**, not documented.
 
-| Field | Uses | Codex status | What breaks if absent |
+| Field | Uses | Codex status — **observed** | What breaks if absent |
 |---|---|---|---|
-| `cwd` | 18 | ✅ documented | Everything — teammate detection, agent-id resolution, SMM routing |
-| `tool_input` | 12 | ✅ documented | Write/commit gates (shape differs — gap #2) |
-| `agent_type` | 10 | ❓ **undocumented** | All subagent routing (gap #32) |
-| `agent_id` | 7 | ❓ **undocumented** | Per-agent review flags, marker scoping |
-| `stop_hook_active` | 4 | ❓ **no known analogue** | Stop gates never release (gap #31) |
-| `tool_name` | 3 | ✅ documented | Matcher-adjacent dispatch |
-| `source` | 3 | ❓ undocumented | SessionStart branching (fresh vs resume vs compact) — drives kickoff marker arming and the stale-marker sweep |
-| `tool_response` | 2 | ✅ documented (PostToolUse) | Failure detection (gap #3) |
-| `prompt` | 2 | ❓ undocumented | UserPromptSubmit logging + nugget injection |
-| `error` | 2 | ❓ | Failure paths — event absent on Codex anyway |
-| `reason` | 1 | ❓ | — |
-| `name` | 1 | ❓ | — |
-| `is_interrupt` | 1 | ❓ | — |
-| `exit_code` | 1 | ❓ | Bash failure — event absent on Codex anyway |
+| `cwd` | 18 | ✅ **present on every event** | Everything — teammate detection, agent-id resolution, SMM routing |
+| `tool_input` | 12 | ✅ present on PreToolUse/PostToolUse | Write/commit gates (shape differs — gap #2) |
+| `agent_type` | 10 | ⚠️ **present but always `'default'`** | All subagent routing (gap #32). Present ≠ usable: `is_xp_agent` is permanently False, so recursion prevention never fires |
+| `agent_id` | 7 | ⚠️ **present, a UUID** — absent on top-level tool events | Per-agent review flags, marker scoping. Scoping works; naming does not |
+| `stop_hook_active` | 4 | ✅ **present AND functional** — gap #31 falsified | Stop gates never release — **does not occur**; but the flip is not on a fixed firing number |
+| `tool_name` | 3 | ✅ present — **normalised**, see gap #2 | Matcher-adjacent dispatch. `Bash` exists only as a normalised name; `collaboration.*` loses its dot |
+| `source` | 3 | ✅ **present on SessionStart**, value `'startup'` | SessionStart branching. Only `'startup'` was ever observed — resume/compact values unverified |
+| `tool_response` | 2 | ✅ present on PostToolUse, **as a plain string** | Failure detection (gap #3) — but see below, there is no PostToolUse on failure |
+| `prompt` | 2 | ✅ **present on UserPromptSubmit** | UserPromptSubmit logging + nugget injection |
+| `error` | 2 | ❌ **never observed** | Failure paths — event absent on Codex anyway |
+| `reason` | 1 | ✅ present on SessionEnd | — |
+| `name` | 1 | ❌ never observed | — |
+| `is_interrupt` | 1 | ❌ never observed | — |
+| `exit_code` | 1 | ❌ **never observed** | Bash failure — **and a failed call fires no PostToolUse at all**, so this cannot be recovered there (gap #3) |
+| **`session_id`** | **4** | ✅ **present on every event** — *missing from the original table* | Liveness heartbeat scoping, housekeeping flight records, bash post-tool routing |
 
-The three that matter are `agent_type`/`agent_id`, `stop_hook_active`, and
-`source`: between them they carry all subagent routing, every Stop gate's release,
-and SessionStart's fresh-vs-resume branch. P0 should dump a raw payload for each
-of SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart,
-SubagentStop, and Stop, and record the field names verbatim.
+**Fields Codex sends that this table never listed**, recorded so a handler can use
+them: `turn_id`, `transcript_path`, `model`, `permission_mode`, `tool_use_id`,
+`last_assistant_message` (Stop, SubagentStop), `agent_transcript_path` (SubagentStop).
+
+The three that matter are `agent_type`/`agent_id`, `stop_hook_active`, and `source`:
+between them they carry all subagent routing, every Stop gate's release, and
+SessionStart's fresh-vs-resume branch. **All three resolved, and two resolved against
+what this doc assumed**: `stop_hook_active` works (so gap #31's Blocker dissolves) and
+`agent_type` is present-but-useless (so gap #32 is not fixed by naming agents
+identically). `source` is present but only ever seen as `'startup'`.
 
 ## Design decisions
 
@@ -380,17 +389,37 @@ menu, and persisted `executor_model` fields. A shared adjective like `medium`
 meaning two different things across those surfaces is a bug factory.
 
 Abstract effort tiers must be the **union** across harnesses, not Claude's set.
-Verified 2026-07-24: Claude offers `low, medium, high, xhigh, max`; Codex's
-`model_reasoning_effort` accepts `minimal, low, medium, high, xhigh` (aliases
-`extra_high`/`extra-high` normalize to `xhigh`). So Codex has a `minimal` we lack
-and lacks our `max`. The abstract axis is therefore
-`minimal, low, medium, high, xhigh, max`, with per-harness support declared.
+~~Verified 2026-07-24: … Codex's `model_reasoning_effort` accepts `minimal, low,
+medium, high, xhigh` … So Codex has a `minimal` we lack and lacks our `max`. The
+abstract axis is therefore `minimal, low, medium, high, xhigh, max`.~~
 
-Effort support is **per model, not per harness** — Codex documents `xhigh` as
-"model-dependent" (e.g. a mini-tier model tops out at `high`), exactly as `haiku`
-rejects effort on Claude today. So the existing `EFFORT_SUPPORT: dict[model,
-frozenset[effort]]` shape is the right one and must be kept; a flat
-per-harness deny-list would be a regression.
+**Measured 2026-08-05 (P0 spike): wrong at BOTH ends.** Read from `model/list`, the
+observed union is **`low, medium, high, xhigh, max, ultra`**. There is **no `minimal`**
+— nothing advertises it — and `max` **is** advertised and accepted. `ultra` is real
+rather than documentation drift: catalog-advertised on two models, described
+*"Maximum reasoning with automatic task delegation"*, and accepted in a live run.
+**So the abstract axis is `low, medium, high, xhigh, max, ultra`: drop `minimal`, add
+`ultra`.** Claude offers `low, medium, high, xhigh, max`, so Codex is a superset at
+the top rather than a differently-shaped set.
+
+~~Effort support is **per model, not per harness**~~ — **Measured 2026-08-05 (P0
+spike): it must be keyed by TIER, and this changes the CLAUDE row too.**
+`smm/tier_wire.py:46` `EFFORT_SUPPORT` is *already* tier-keyed (its own comment says
+"Per-tier effort support") and only **looks** model-keyed because Claude's tiers are
+named after models. Codex breaks that coincidence: `advanced` and `frontier` are both
+`gpt-5.6-sol`, so a model-keyed `effort_support` **collapses two tiers into one**. The
+per-model catalog facts remain the *source* of the values; the *key* is the tier.
+Codex does confirm the underlying premise — `supportedReasoningEfforts` is a required
+**per-model** field, so support genuinely varies by model, exactly as `haiku` rejects
+effort on Claude today.
+
+**But the catalog is not a support boundary in the permissive direction.**
+`gpt-5.6-luna` **accepts and answers at `ultra`**, which it does not advertise. Some
+enforcement exists — `gpt-5.2@ultra` and an invalid value both failed — but neither was
+rejected up front: both ran ~16 s and died with `stream disconnected before
+completion`. **An unsupported pair surfaces as an opaque mid-stream disconnect, the
+same shape a genuine transport failure takes.** See the corrected
+"Unsupported pairs" note below.
 
 ```python
 HARNESSES = {
@@ -407,12 +436,22 @@ HARNESSES = {
     "model_flag":  ["--model", "{model}"],
     "effort_flag": ["--effort", "{effort}"],
   },
+  # FILLED 2026-08-05 by the P0 spike, read from `model/list`. Entitlement-scoped:
+  # re-enumerate rather than trusting these ids. `effort_support` is TIER-keyed.
   "codex": {
     "binary": "codex",
-    "models": {...},                     # PLACEHOLDER — P0 deliverable
-    "efforts": {"minimal": "minimal", "low": "low", "medium": "medium",
-                "high": "high", "xhigh": "xhigh", "max": None},
-    "effort_support": {...},             # PLACEHOLDER — per-model, P0
+    "models": {"economy": "gpt-5.6-luna", "standard": "gpt-5.6-terra",
+               "advanced": "gpt-5.6-sol", "frontier": "gpt-5.6-sol"},
+    "efforts": {"minimal": None,          # advertised by nothing — was wrong here
+                "low": "low", "medium": "medium", "high": "high",
+                "xhigh": "xhigh", "max": "max",   # was wrongly None
+                "ultra": "ultra"},                # real; new to the abstract axis
+    "effort_support": {"economy":  {"low","medium","high","xhigh","max"},
+                       "standard": {"low","medium","high","xhigh","max","ultra"},
+                       "advanced": {"low","medium","high","xhigh","max","ultra"},
+                       "frontier": {"low","medium","high","xhigh","max","ultra"}},
+    "default_effort": {"economy": "medium", "standard": "medium",
+                       "advanced": "high", "frontier": "ultra"},   # NEW FIELD
     "model_flag":  ["-m", "{model}"],
     "effort_flag": ["-c", "model_reasoning_effort={effort}"],
   },
@@ -422,24 +461,50 @@ HARNESSES = {
 A `None` effort entry means "this harness has no equivalent". Adding harness #3
 is then a data change, not a code change.
 
-Codex also accepts a `-e <effort>` shorthand and reads `model` /
-`model_reasoning_effort` from `~/.codex/config.toml`. We should pass explicit
-`-c` overrides rather than relying on user config, so a teammate's tier is not
-silently overridden by the operator's global defaults.
+**Three things the tier milestone must decide rather than inherit** (P0 spike):
 
-**Per-surface effort sets (gap #27).** Codex's two surfaces disagree with each
-other, so `HARNESSES` needs a surface dimension, not just a harness one:
+1. **`default_effort` is a NEW field** the drafted shape has no slot for. Either the
+   **Claude row gains one too** or the two harnesses diverge in shape — the very thing
+   this abstraction exists to prevent.
+2. **It is a default, not a fusion of the two axes.** This doc rejected fusing model
+   tier with effort tier; a default that stays overridable preserves both. Codex agrees
+   by example — `gpt-5.6-sol`'s own `defaultReasoningEffort` is **`low`**, blurbed
+   *"try starting lower, then turn it up"*.
+3. **Codex offers three visible coding tiers, not four.** Nothing sits above `sol`, so
+   `advanced` and `frontier` share a model and are separated only by default effort —
+   and that separation is **unverified**, because the rollout records the *requested*
+   effort, not the effective one. Hidden models (`gpt-5.4`, `gpt-5.4-mini`,
+   `codex-auto-review`) are excluded deliberately: hidden from Codex's own picker means
+   deprecated or restricted.
 
-| Surface | Documented effort values |
-|---|---|
-| Claude CLI (`--effort`) | `low, medium, high, xhigh, max` |
-| Codex CLI (`-c model_reasoning_effort`) | `minimal, low, medium, high, xhigh` |
-| Codex subagent TOML (`model_reasoning_effort`) | `ultra, max, xhigh, high, medium, low` |
+~~Codex also accepts a `-e <effort>` shorthand~~ — **Measured 2026-08-05 (P0 spike):
+there is NO `-e`/`--effort` flag on `codex exec`. Only `-m, --model`.** Effort goes
+through `-c model_reasoning_effort=` exactly as `effort_flag` above already says; it
+was only the prose that would have misled an implementer.
 
-The union is `minimal, low, medium, high, xhigh, max, ultra`. Before adopting
-`ultra` into the abstract axis, P0 should check whether the subagent list is real
-or documentation drift — inventing an abstract tier that only one surface of one
-harness supports is worse than omitting it.
+Codex does read `model` / `model_reasoning_effort` from `~/.codex/config.toml`, and
+passing explicit `-c` overrides beats it — **verified end to end**: requesting `low`
+against a config saying `high` yields `low`. **Do not reach for
+`--ignore-user-config` to isolate a measurement**: it also discards `model_provider`
+and auth, so every request 401s under a non-default provider. Explicit overrides are
+both sufficient and safe.
+
+**Per-surface effort sets (gap #27).** ~~Codex's two surfaces disagree with each
+other, so `HARNESSES` needs a surface dimension, not just a harness one.~~
+
+| Surface | Documented effort values | **Observed 2026-08-05** |
+|---|---|---|
+| Claude CLI (`--effort`) | `low, medium, high, xhigh, max` | not re-measured |
+| Codex CLI (`-c model_reasoning_effort`) | `minimal, low, medium, high, xhigh` | **the CLI is a vehicle, not a value set — it passes whatever the catalog accepts** |
+| Codex subagent TOML | `ultra, max, xhigh, high, medium, low` | **substantially right; `ultra` and `max` are both real** |
+| **`model/list` catalog (authoritative)** | — | **`low, medium, high, xhigh, max, ultra`; no `minimal`** |
+
+**Measured 2026-08-05 (P0 spike): there is no surface dimension to model.** The
+*catalog* is authoritative for what exists, per model, and `-c model_reasoning_effort=`
+is simply the CLI vehicle for it. The apparent disagreement was documentation drift in
+the CLI direction, not two genuinely different value sets — and it drifted the
+opposite way from what this row assumed: the subagent list was the accurate one.
+`ultra` **is** real and belongs in the abstract axis. `minimal` does not.
 
 **Codex subagent TOML shape** (verified 2026-07-24). Required: `name`,
 `description`, `developer_instructions`. Optional: `model`,
@@ -451,10 +516,14 @@ the only restriction lever. That settles the gap #14 question: don't try to
 translate `tools:`; map the *intent* (read-only reviewer vs read-write fixer) onto
 `sandbox_mode`.
 
-Documented subagent model options as of 2026-07-24 are `gpt-5.6`, `gpt-5.4`,
-`gpt-5.6-terra`, `gpt-5.3-codex-spark`. Recorded as a **starting point for the P0
-mapping, not as the mapping** — these churn fast, the CLI's accepted model set may
-differ from the subagent set, and a stale id in shipped code fails at spawn time.
+~~Documented subagent model options as of 2026-07-24 are `gpt-5.6`, `gpt-5.4`,
+`gpt-5.6-terra`, `gpt-5.3-codex-spark`.~~ **Measured 2026-08-05 (P0 spike): the live
+catalog does not match that list** — of the four, only `gpt-5.6-terra` and `gpt-5.4`
+appear, and `gpt-5.4` is **hidden**. The observed visible set is `gpt-5.6-sol`,
+`gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.2`. This is the churn the row warns
+about, arriving inside two weeks — and it is why the mapping is recorded in
+`docs/completed/CODEX_SPIKE_FINDINGS.md` and this table rather than inferred in code,
+and why the ids are entitlement-scoped and must be re-enumerated, not trusted.
 
 **The load-bearing benefit is maintenance, not cosmetics.** Today the tokens *are*
 Claude model names, so adding a harness forces churn in 4 prose files and 5
@@ -467,6 +536,18 @@ harness cannot honor is omitted with a stderr note, falling back to the model
 default. This is already `spawn_command.build_command`'s tested contract; clamping
 (`max` → `high`) would silently substitute an intent the caller did not express
 and would make the same tier mean different things on different harnesses.
+
+> **Measured 2026-08-05 (P0 spike): this contract is right, and on Codex there is no
+> signal to implement it from.** The rule assumes the harness tells you a pair is
+> unsupported. Codex does not: an unsupported pair is **neither validated up front nor
+> clamped**. The run starts, burns ~16 s, and dies with
+> `task_complete.error = "stream disconnected before completion"` — the same shape a
+> genuine transport failure takes. Worse in the other direction, the catalog cannot be
+> used as the check either, because it **under-reports**: `gpt-5.6-luna` accepts and
+> answers at `ultra`, which it does not advertise. So "drop, don't clamp" must be
+> enforced from our own `effort_support` table *before* spawning, and a spawn wrapper
+> **cannot** distinguish an unsupported pair from a flaky connection after the fact.
+> Do not build a retry policy that assumes it can.
 
 **Tier is a property of the work; provider is a property of the operator's
 environment.** The plan-reviewer therefore recommends a *tier* and must never
@@ -481,10 +562,13 @@ That covers persisted `executor_model` values in `sprint.json` /
 `recommended_model` wants renaming to `recommended_tier`; that is an event-wire
 change and can lag behind the constant rename.
 
-**Not yet known: Codex's actual model identifiers and its exact effort value
-set.** The provenance header already says re-verify before executing any phase,
-and these must not be guessed into constants. The `codex` row of the table ships
-as a P0 deliverable.
+~~**Not yet known: Codex's actual model identifiers and its exact effort value
+set.**~~ **DELIVERED 2026-08-05 — the `codex` row above is filled from `model/list`.**
+The warning it carried still stands and is now evidence-backed: these must not be
+guessed into constants, the ids are **entitlement-scoped** (`model_provider` matters),
+and the documented subagent list was already stale within two weeks. Re-enumerate
+before executing any phase. Full evidence, including what was *not* observed, is in
+`docs/completed/CODEX_SPIKE_FINDINGS.md`.
 
 ## Phases
 
