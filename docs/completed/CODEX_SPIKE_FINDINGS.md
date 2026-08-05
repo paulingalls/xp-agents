@@ -201,3 +201,149 @@ What it actually took to get an enforced Codex session, in the order it bites.
 | **Sandbox caveat** | `.git` is read-only under `workspace-write`, so a commit fails *after* the gate allows it. Gate decisions stay observable; a successful commit cannot be demonstrated without widening the sandbox. Reads are also broader than `--add-dir` suggests — it grants **write** access; the model read outside it freely. |
 | **Plugin availability** | `codex exec` has **no `--plugin-dir` equivalent**. No flag or config loads a plugin ad hoc, so a Codex teammate *requires* the plugin installed for the user — the spawn preflight is a hard fail with no fallback, unlike Claude's `--plugin-dir`. |
 | **Version-keyed cache** | The plugin cache is keyed by manifest version and `marketplace upgrade` is Git-only (it errors on a local marketplace). **Without a version bump, a run silently executes the previously cached copy** and every observation reports "the hook did not fire". Reinstalling also wipes any cache-injected file, so bump → reinstall → re-inject is one atomic sequence. |
+
+---
+
+## Hook and event surface
+
+### The three decisive fields
+
+The plan named these as the fields that decide feasibility. All three resolved, and
+two resolved *against* what the plan assumed.
+
+| Field | Verdict |
+|---|---|
+| `agent_type` / `agent_id` | **Present, but the value does not discriminate.** `'default'` for a Codex subagent — never our agent name — and absent entirely on top-level tool events. `_common.is_xp_agent` tests `agent_type.startswith("xp-")`, so it is always False and **recursion prevention never fires**. The `SubagentStart` `_TIERS` registry, which keys on Claude agent-type names, cannot route either. |
+| `stop_hook_active` | **Present AND functional** — gap #31's premise ("no known analogue", rated **Blocker**) is falsified. Reads False on a turn's first Stop, flips True after a block, stays True; all four Stop gates bypass on True and release correctly. **But the flip is not on a fixed firing number**: one run read False/True/True/True, another False/False/True. No gate may assume a block count. |
+| `source` | **Present** on SessionStart, value `'startup'`. |
+
+### Field presence by event
+
+Fifteen events were registered — the eleven this version recognises plus four it does
+not. `not-observed` means the event never fired in any run, which for the four
+unrecognised names is itself the finding.
+
+| event | cwd | tool_input | agent_type | agent_id | stop_hook_active | tool_name | source | tool_response | prompt | reason |
+|---|---|---|---|---|---|---|---|---|---|---|
+| PreToolUse | always | always | some-firings | some-firings | never | always | never | never | never | never |
+| PostToolUse | always | always | some-firings | some-firings | never | always | never | always | never | never |
+| SessionStart | always | never | never | never | never | never | **always** | never | never | never |
+| UserPromptSubmit | always | never | never | never | never | never | never | never | **always** | never |
+| Stop | always | never | never | never | **always** | never | never | never | never | never |
+| SubagentStart | always | never | **always** | **always** | never | never | never | never | never | never |
+| SubagentStop | always | never | **always** | **always** | **always** | never | never | never | never | never |
+| SessionEnd | always | never | never | never | never | never | never | never | never | **always** |
+| PermissionRequest | not-observed | — | — | — | — | — | — | — | — | — |
+| PreCompact / PostCompact | not-observed | — | — | — | — | — | — | — | — | — |
+| PostToolUseFailure | not-observed | — | — | — | — | — | — | — | — | — |
+| TeammateIdle / TaskCompleted / WorktreeCreate | not-observed | — | — | — | — | — | — | — | — | — |
+
+`some-firings` is not noise: `agent_type`/`agent_id` are absent on top-level tool
+events and present (as `'default'`) on tool events made *inside* a subagent.
+
+**Fields Codex sends that the plan's 14-field table does not list:** `session_id`,
+`turn_id`, `transcript_path`, `model`, `permission_mode`, `tool_use_id`,
+`last_assistant_message` (Stop, SubagentStop), `agent_transcript_path` (SubagentStop).
+`session_id` is the significant omission — shipped code reads it in four places
+(`hook_liveness.payload_session_id`, `housekeeping_flight` ×3, `bash_post_tool`), so
+**the compatibility surface is 15 fields, not 14.**
+
+### A real `apply_patch` payload
+
+Field names verbatim; values redacted per the amended AC-1.
+
+```json
+{
+  "session_id": "<uuid>",
+  "turn_id": "<uuid>",
+  "transcript_path": "<redacted>",
+  "cwd": "<scratch>/proj",
+  "hook_event_name": "PreToolUse",
+  "model": "<model-id>",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Update File: <abs-path>/notes.txt\n@@\n-before\n+after\n*** End Patch"
+  },
+  "tool_use_id": "exec-<uuid>"
+}
+```
+
+Three consequences for the P1 normalization layer:
+
+1. **`tool_name` for an edit is verbatim `apply_patch`.** The matcher's `Edit`, `Write`
+   and `MultiEdit` alternatives are dead names on this harness.
+2. **`tool_input.command` is present for both Bash and `apply_patch` as the plan said,
+   but differs in kind** — a shell command for Bash, *patch text* for `apply_patch`. A
+   path extractor must parse the `*** Update File:` / `*** Add File:` /
+   `*** Delete File:` lines. It must not treat the value as a command.
+3. **`tool_response` arrives as a plain string.** Not a break — `bash_post_tool.py`
+   already handles dict-or-string.
+
+### `tool_name` is normalised, and one normalisation breaks a matcher
+
+There is **no tool called `Bash`**. The model's own tool list is `functions.exec`,
+`functions.wait`, `functions.request_user_input`, `apply_patch`, `exec_command`,
+`write_stdin`, `view_image`, the `create_goal`/`update_plan` family, the MCP readers,
+and six `collaboration.*` tools.
+
+| schema name | payload `tool_name` |
+|---|---|
+| `functions.exec`, `exec_command`, `shell_command` | **`Bash`** |
+| `apply_patch` | `apply_patch` |
+| `collaboration.spawn_agent` | **`collaborationspawn_agent`** — the dot is stripped |
+| `collaboration.wait_agent` | `collaborationwait_agent` |
+
+So our `Bash` matcher works *because* Codex normalises to it, not because such a tool
+exists. And the stripped dot means the case-sensitive `Agent` matcher never matches
+`collaborationspawn_agent`, so **no `PostToolUse` handler ran for the subagent spawn
+call.** Stated narrowly on purpose: `PostToolUse` fires normally for calls made
+*inside* a subagent — it is only the spawn call that is unseen — and with no
+matcher-less `PostToolUse` entry registered, the corpus cannot distinguish "Codex
+emitted no event" from "nothing we registered could match it".
+
+### A failed tool call is invisible to post-hooks
+
+**A failed tool call fires `PreToolUse` and then nothing.** Measured: 4 of 5
+`tool_use_id`s paired; the failed `apply_patch` did not. `PostToolUseFailure` is not a
+recognised Codex event, so nothing fires there either.
+
+This **falsifies gap #3's stated resolution**, which was to "fold failure detection
+into the PostToolUse handler, keyed on exit status in the payload" — there is no
+PostToolUse to key on. Any handler that pairs Pre/Post, or records an outcome on
+PostToolUse, sees a hanging `PreToolUse`. The failure *is* on stderr; a Codex failure
+signal has to come from somewhere other than a post-hook.
+
+### Six events cannot emit `additionalContext` at all
+
+Each named by its own host warning — *"this event cannot emit additionalContext"*:
+`PermissionRequest`, `PreCompact`, `PostCompact`, `SessionEnd`, `SubagentStop`, `Stop`.
+Stop blocks travel as `{"decision": "block"}` instead. This matches the Claude-side
+constraint that `SubagentStop` cannot message a parent, and it means no gate-like
+behaviour may ever depend on `SessionEnd`.
+
+Injection **does** work where it is allowed: a `SessionStart` handler minted a `uuid4`
+marker in-hook, never placed it in the prompt, and the model reported it
+byte-identical. The paired control run with the handler unwired answered **NO**.
+
+---
+
+## Version floor
+
+**Established: plugin-bundled hooks execute on `codex-cli` 0.146.0, with no
+`plugin_hooks` enablement set.**
+
+**Not established: the minimum version.** Only 0.146.0 was ever installed. No older
+build was obtained, and a floor cannot be inferred from one passing version — a
+version that works tells you nothing about where support began.
+
+This matters more than an ordinary gap, because gap #19's whole point is that an older
+Codex *runs the plugin's skills while ignoring its hooks* — the unenforced-teammate
+failure mode, silently. Two consequences:
+
+1. **The spawn-time version check that Phase 3 owes cannot be written from this
+   spike.** Pinning `>= 0.146.0` would be pinning the only version tested, which is
+   defensible as a floor but is not a *measured* floor and must not be recorded as one.
+2. **Do not treat a version pin as a substitute for the liveness check** (R2). The plan
+   already says this; the spike's finding that untrusted hooks are skipped silently,
+   plus a liveness read that never engages, makes it load-bearing rather than advisory.
