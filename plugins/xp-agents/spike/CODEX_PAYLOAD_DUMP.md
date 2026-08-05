@@ -882,6 +882,15 @@ spike commit.
    is precisely the confusion the version-keyed cache already causes.
    Concern `08bdfb8403cd`.
 
+3. **`SessionStart` context surfaces only at the FIRST TURN, not at startup.**
+   Customer-observed on interactive Codex: the startup banner printed only the
+   hook-*config* warnings, and both `XP agents (v5.5.0) active. Run /xp-kickoff.`
+   and `SMM init failed — xp-agents disabled.` appeared *after* the first prompt was
+   submitted. Consequence, and it is the one gap #18 exists for: **a user reading
+   the startup output cannot tell whether enforcement is live.** They find out only
+   after they have already started working. Compounds defect 1 above — the
+   contradiction is not merely present, it is also late. Concern `7c688f1295d6`.
+
 The interactive run also **independently reproduced** the six-event
 `additionalContext` finding and the `SessionEnd` clamp/sync warnings on the
 interactive harness, not just under `exec`.
