@@ -2,6 +2,64 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.5.1 — Three gates that were reporting things that weren't happening
+
+### A green suite could file a failure, and then refuse to let go of it
+
+A Bun suite at 4373 pass / 0 fail recorded `1 failed`, filed it at high
+severity, and armed the Stop gate — three green runs running. The number came
+from a test file whose own source reads *"the batch must report 1 failed"*,
+echoed back inside the runner's error context ahead of the summary. The count
+regexes scan the whole payload and took the first match they saw. Running the
+suite, the one action that should clear such a gate, re-parsed the same phantom
+every time.
+
+Counts now come from the summary. Which match *is* the summary turned out to be
+per-framework, and the rule that felt universal is not: taking the last match
+everywhere fixes bun, jest, pytest, deno and node-test — and breaks cargo,
+mocha, nx/turbo and dotnet. Cargo appends a `Doc-tests` block ending
+`test result: ok. 0 passed; 0 failed` to **every** run, so a green 15-test run
+would parse as zero tests, and under `--no-fail-fast` a real `19 passed;
+1 failed` would parse as **0 failed with no concern filed**. Mocha prints its
+counts first and its failure list after, so a test *title* mentioning failures
+becomes the count — the same bug, relocated.
+
+Two more parses were wrong before anyone looked: jest had been reporting
+`Test Suites:` counts as test counts (that line precedes `Tests:`), and
+pytest's `errors` count still came from the first match, so a traceback quoting
+a number inflated the gate-arming total.
+
+### Your own reviewer is not a competing agent
+
+`Overlapping working_on: agent 'xp-code-reviewer' is also working on …` — filed
+at medium severity, into the Risks view, against a subagent the session had
+just spawned onto the diff it was reviewing. The conflict detector skipped only
+the caller's own id, so every plugin subagent read as an independent party.
+
+Two shipped skill templates made this permanent rather than occasional:
+`/xp-plan` claims `execution_plan.json` and `/xp-sprint-start` claims
+`sprint.json`, and nothing ever clears a self-named claim — so both were set to
+fire against every future writer of those files, indefinitely. Teammate
+worktrees are unaffected: their ids carry no `xp-` prefix, and the cross-agent
+conflict the detector exists for still fires.
+
+### A directory name could forge a preload line
+
+`/xp-scaffold-worktree`'s preload emitted `REPO_ROOT` with a raw `echo`, which
+cannot neutralize a newline in the value. A checkout whose path contains one
+emitted two lines, the second entirely attacker-named — and `REPO_ROOT` is
+substituted verbatim into `--cwd`. It now routes through `emit_path_var`, like
+every other path-valued preload variable.
+
+### Also
+
+`close_common merge --archive-sprint` without `--smm-dir` refused *after* the
+merge commit had landed, a state no retry resolves; it is static argument
+validation and now precedes every side effect. Its "nothing archived" warning
+folded together a completed earlier attempt and a wrong `--smm-dir` — the
+second ends a close with no snapshot at all — and now reports the evidence it
+actually has instead of asserting a cause.
+
 ## v5.5.0 — A bootstrap command you verified, and a close cycle that cannot die quietly
 
 ### Scaffold a worktree bootstrap, don't guess one
