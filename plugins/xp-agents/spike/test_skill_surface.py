@@ -191,9 +191,15 @@ class TestAppServerCallPrimitive(unittest.TestCase):
         self.assertIn("data", payload["result"])
 
     def test_unknown_method_refuses_rather_than_returning_empty(self):
-        """A JSON-RPC error must not read as 'the server said nothing useful'."""
-        with self.assertRaises(probe.ProbeRefusal):
+        """A JSON-RPC error must not read as 'the server said nothing useful'.
+
+        The message is asserted, not just the exception type: the no-response path
+        raises the same `ProbeRefusal`, so a bare `assertRaises` passes whether or
+        not the new error branch is ever reached.
+        """
+        with self.assertRaises(probe.ProbeRefusal) as caught:
             probe.app_server_call("xp-spike/definitely-not-a-method", {})
+        self.assertIn("returned an error", str(caught.exception))
 
 
 class TestLoaderCannotSeeFrontmatter(unittest.TestCase):

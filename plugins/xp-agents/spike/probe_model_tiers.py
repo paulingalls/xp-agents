@@ -9,11 +9,21 @@ Two channels, because one cannot answer the question alone:
    `supportedReasoningEfforts` is a required per-model field, which is exactly the
    per-model shape the tier abstraction needs.
 
-2. **The rollout session log** — what the harness *actually used*. Advertised is not
-   enforced, and interface contract 3 forbids reporting a clamped substitute as if
-   the requested pair worked. `~/.codex/sessions/**/rollout-*.jsonl` records
-   `payload.model` and `payload.effort`; a headless `codex exec` writes one (verified
-   on story-005's own AC-3b runs).
+2. **The rollout session log** — `~/.codex/sessions/**/rollout-*.jsonl` records
+   `payload.model` and `payload.effort` on its `turn_context` line, and a headless
+   `codex exec` writes one (verified on story-005's own AC-3b runs).
+
+   **Close review measured what that field is, and it is the REQUESTED value, not
+   the effective one.** A run with `model_reasoning_effort=banana-not-an-effort`
+   wrote `"effort": "banana-not-an-effort"` into its own `turn_context`
+   (`rollout-2026-08-05T12-32-38-*.jsonl`, line 5), which no server would report as
+   a value it honoured. So this channel echoes the request: `compare_requested`
+   cannot return CLAMPED for any run that exits 0, and CLAMPED is reachable only
+   from values injected by a test. What the channel DOES establish is that the run
+   started with the requested pair rather than falling back to `config.toml`.
+   Separating accepted-and-honoured from accepted-and-ignored needs a behavioural
+   signal; the nearest one in the same file is
+   `token_count.info.*.reasoning_output_tokens`.
 
 Why not `--strict-config`: it rejects an unrecognised or MISSING field, not a
 well-formed value of a recognised one. `model_reasoning_effort=ultra` on a model
@@ -29,10 +39,12 @@ against a config that says `high` yields an effective `low`. A run that OMITS th
 effort flag is the control that measures the operator override.
 
 **Arming is an instrument property, not the harness's verdict.** The control here is
-that requested-vs-effective is READABLE. Whether Codex refuses or silently clamps is
-the finding, and a clamp still emits the matrix (annotated). Arming on "the harness
-refused" would let an adverse-but-valid measurement block story-007, which is
-dep-blocked on this story alone.
+that the recorded pair is READABLE. Whether Codex refuses or silently clamps is the
+finding, and a clamp must still emit the matrix — `annotate_matrix` exists for that,
+though `main` does not yet call it, so the enforcement table is produced by ad-hoc
+calls rather than by running this file. Arming on "the harness refused" would let an
+adverse-but-valid measurement block story-007, which is dep-blocked on this story
+alone.
 """
 
 from __future__ import annotations
@@ -40,7 +52,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import time
 from pathlib import Path
 
 # The extracted transport. Reused rather than copied: a second client would
@@ -117,11 +128,18 @@ def effort_matrix(models) -> dict[str, list[str]]:
                 f"field(s) {missing} - it did not come from {CATALOG_METHOD}, so it "
                 "cannot enter the matrix"
             )
-        efforts = [
-            option["reasoningEffort"]
-            for option in record["supportedReasoningEfforts"]
-            if isinstance(option, dict) and "reasoningEffort" in option
+        options = record["supportedReasoningEfforts"]
+        unreadable = [
+            o for o in options if not isinstance(o, dict) or "reasoningEffort" not in o
         ]
+        if unreadable:
+            raise ProbeRefusal(
+                f"{record['id']}: {len(unreadable)} of {len(options)} "
+                "supportedReasoningEfforts entries carry no reasoningEffort - "
+                "skipping them would quietly shrink the advertised set the whole "
+                "table is read off, so the shape change is refused instead"
+            )
+        efforts = [option["reasoningEffort"] for option in options]
         if not efforts:
             raise ProbeRefusal(
                 f"{record['id']}: supportedReasoningEfforts is empty, which the "
@@ -131,11 +149,15 @@ def effort_matrix(models) -> dict[str, list[str]]:
     return matrix
 
 
-# --- channel 2: what the harness actually used --------------------------------
+# --- channel 2: what the run recorded for itself -------------------------------
 
 
 def effective_from_lines(lines) -> dict:
-    """Pull the effective model and effort out of rollout JSONL lines.
+    """Pull the model and effort the run RECORDED out of rollout JSONL lines.
+
+    First non-null wins, which is the `turn_context` of the first turn. A one-turn
+    `codex exec` has exactly one; a multi-turn session that changed model mid-way
+    would be read by its opening context, not its last.
 
     Returns None for anything absent rather than a default: an unread value must
     not resolve to the happy answer, which is what `assert_effective_readable`
@@ -155,22 +177,47 @@ def effective_from_lines(lines) -> dict:
     return {"model": model, "effort": effort}
 
 
-def latest_rollout(after: float, sessions_root: Path | None = None) -> Path:
-    """The newest rollout written after *after*. Refuses rather than guessing.
+#: `codex exec` announces the session it is about to write on stderr. The rollout
+#: filename embeds that id, which is what lets a run be matched to its own file.
+_SESSION_ID_LABEL = "session id:"
 
-    Scoped by mtime so a stale rollout from an earlier run cannot be read as this
-    run's evidence — the failure that would make every verdict a coincidence.
+
+def session_id_from_exec_output(text: str) -> str:
+    """The session id `codex exec` printed. Refuses rather than returning a guess."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith(_SESSION_ID_LABEL):
+            session_id = stripped[len(_SESSION_ID_LABEL) :].strip()
+            if session_id:
+                return session_id
+    raise ProbeRefusal(
+        "codex exec printed no session id, so its rollout cannot be identified - "
+        "refusing to fall back to the newest file under the sessions root"
+    )
+
+
+def rollout_for_session(session_id: str, sessions_root: Path | None = None) -> Path:
+    """The rollout THIS run wrote, matched by session id rather than by mtime.
+
+    Newest-after-a-timestamp was the earlier rule and it identifies nothing: any
+    other `codex` session — a second terminal, a teammate, the previous pair in the
+    same directory still flushing — can hold the newest mtime, and a run that wrote
+    no rollout at all would silently inherit its neighbour's model and effort. The
+    session id is exact, so there is no window to widen and no tie to break.
     """
     root = sessions_root or _SESSIONS_ROOT
-    candidates = [
-        p for p in root.rglob("rollout-*.jsonl") if p.stat().st_mtime >= after
-    ]
-    if not candidates:
+    matches = sorted(root.rglob(f"rollout-*-{session_id}.jsonl"))
+    if not matches:
         raise ProbeRefusal(
-            f"no rollout under {root} newer than the run - cannot read effective "
-            "values, so accepted and clamped are indistinguishable"
+            f"no rollout under {root} for session {session_id} - cannot read what "
+            "the run recorded, so accepted and clamped are indistinguishable"
         )
-    return max(candidates, key=lambda p: p.stat().st_mtime)
+    if len(matches) > 1:
+        raise ProbeRefusal(
+            f"{len(matches)} rollouts claim session {session_id} - the filename no "
+            "longer identifies a run; refusing to pick one"
+        )
+    return matches[0]
 
 
 def assert_effective_readable(effective) -> None:
@@ -188,7 +235,11 @@ def assert_effective_readable(effective) -> None:
 
 
 def compare_requested(requested, effective) -> str:
-    """ACCEPTED when the harness used what was asked for, CLAMPED when it did not."""
+    """ACCEPTED when the run recorded what was asked for, CLAMPED when it did not.
+
+    Read the module docstring before trusting CLAMPED: the recorded value echoes the
+    request, so on the live path this discriminates only what the run STARTED with.
+    """
     assert_effective_readable(effective)
     same_model = requested["model"] == effective["model"]
     same_effort = requested["effort"] == effective["effort"]
@@ -196,14 +247,22 @@ def compare_requested(requested, effective) -> str:
 
 
 def annotate_matrix(matrix, verdicts) -> dict:
-    """Attach enforcement per advertised row. A clamp annotates, never suppresses."""
+    """Attach enforcement per advertised row. A clamp annotates, never suppresses.
+
+    `enforced` is per MODEL because that is what the advertised row is, but the
+    clamped efforts are listed alongside it: effort support is a (tier, effort)
+    property downstream, so collapsing "something clamped" into one bool would drop
+    the half of the observation the harness row actually needs.
+    """
     rows: dict[str, dict] = {}
     for model_id, efforts in matrix.items():
-        model_verdicts = [v for (m, _), v in verdicts.items() if m == model_id]
-        clamped = [v for v in model_verdicts if v == CLAMPED]
+        clamped = sorted(
+            e for (m, e), v in verdicts.items() if m == model_id and v == CLAMPED
+        )
         rows[model_id] = {
             "advertised": efforts,
             "enforced": not clamped,
+            "clamped": clamped,
             "note": ADVERTISED_NOT_ENFORCED if clamped else None,
         }
     return rows
@@ -251,7 +310,6 @@ def exercise_pair(
     timeout: float = 240.0,
 ) -> dict:
     """Run one pair and report accepted / clamped / refused, with the evidence."""
-    started = time.time() - 1  # rollout mtime granularity
     cmd = build_exec_command(model, effort, prompt=prompt)
     completed = subprocess.run(
         cmd,
@@ -269,8 +327,9 @@ def exercise_pair(
             "effective": None,
             "detail": (completed.stderr or completed.stdout)[-300:],
         }
+    session_id = session_id_from_exec_output(completed.stderr + "\n" + completed.stdout)
     effective = effective_from_lines(
-        latest_rollout(started).read_text(encoding="utf-8").splitlines()
+        rollout_for_session(session_id).read_text(encoding="utf-8").splitlines()
     )
     return {
         "model": model,

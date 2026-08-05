@@ -27,7 +27,12 @@ story's own interface contract a clamp is the more valuable result. Arming on th
 harness's verdict would let an adverse-but-valid measurement block story-007.
 """
 
+import contextlib
+import io
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 import probe_model_tiers as probe
 
@@ -116,6 +121,20 @@ class TestProvenance(unittest.TestCase):
         with self.assertRaises(probe.ProbeRefusal):
             probe.effort_matrix(empty)
 
+    def test_an_unreadable_effort_option_is_refused_not_skipped(self):
+        """Skipping one would quietly shrink the set the whole table is read off."""
+        odd_shape = [
+            {
+                "id": "m1",
+                "isDefault": True,
+                "hidden": False,
+                "defaultReasoningEffort": "low",
+                "supportedReasoningEfforts": [{"reasoningEffort": "low"}, "ultra"],
+            }
+        ]
+        with self.assertRaises(probe.ProbeRefusal):
+            probe.effort_matrix(odd_shape)
+
 
 class TestRequestedVsEffective(unittest.TestCase):
     """The discrimination the clamped column depends on, both directions."""
@@ -173,6 +192,11 @@ class TestArming(unittest.TestCase):
         self.assertIn("m1", rows)
         self.assertEqual(rows["m1"]["enforced"], False)
         self.assertEqual(rows["m1"]["note"], probe.ADVERTISED_NOT_ENFORCED)
+        self.assertEqual(
+            rows["m1"]["clamped"],
+            ["high"],
+            "which effort clamped is what the harness row needs, not just that one did",
+        )
 
     def test_all_accepted_reads_as_enforced(self):
         rows = probe.annotate_matrix(
@@ -208,6 +232,56 @@ class TestRolloutReader(unittest.TestCase):
         self.assertEqual(
             probe.effective_from_lines(lines), {"model": "m1", "effort": "low"}
         )
+
+
+class TestRolloutAttribution(unittest.TestCase):
+    """WHICH file the reader reads. Unpinned until close review, and load-bearing:
+    reading the wrong session's rollout makes every verdict a coincidence.
+
+    The header shape is quoted from a real `codex exec` run (v0.146.0), which prints
+    `session id: <uuid>` on stderr; the rollout filename ends in that id.
+    """
+
+    _HEADER = (
+        "OpenAI Codex v0.146.0\n--------\nworkdir: /tmp/x\nmodel: gpt-5.6-luna\n"
+        "provider: cortex\nreasoning effort: low\n"
+        "session id: 019fd37b-cb02-70a2-9272-9b64ea0c060f\n--------\n"
+    )
+
+    def _sessions_root(self, *names):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory())) / "2026" / "08"
+        root.mkdir(parents=True)
+        for name in names:
+            (root / name).write_text(
+                '{"payload": {"model": "m-' + name[-8:] + '", "effort": "low"}}\n',
+                encoding="utf-8",
+            )
+        return root.parent.parent
+
+    def test_session_id_is_read_from_the_exec_header(self):
+        self.assertEqual(
+            probe.session_id_from_exec_output(self._HEADER),
+            "019fd37b-cb02-70a2-9272-9b64ea0c060f",
+        )
+
+    def test_output_without_a_session_id_refuses(self):
+        """No id means no attribution, and no attribution means no verdict."""
+        with self.assertRaises(probe.ProbeRefusal):
+            probe.session_id_from_exec_output("OpenAI Codex v0.146.0\nmodel: m1\n")
+
+    def test_a_newer_neighbour_rollout_is_not_read_as_this_run(self):
+        """The misattribution the earlier newest-after-a-timestamp rule allowed."""
+        mine = "rollout-2026-08-05T12-00-00-aaaaaaaa-1111.jsonl"
+        neighbour = "rollout-2026-08-05T12-00-09-bbbbbbbb-2222.jsonl"
+        root = self._sessions_root(mine, neighbour)
+        chosen = probe.rollout_for_session("aaaaaaaa-1111", sessions_root=root)
+        self.assertEqual(chosen.name, mine)
+
+    def test_a_run_with_no_rollout_of_its_own_refuses(self):
+        """Rather than inheriting the neighbour's model and effort."""
+        root = self._sessions_root("rollout-2026-08-05T12-00-09-bbbbbbbb-2222.jsonl")
+        with self.assertRaises(probe.ProbeRefusal):
+            probe.rollout_for_session("aaaaaaaa-1111", sessions_root=root)
 
 
 class TestExecCommand(unittest.TestCase):
@@ -249,31 +323,102 @@ class TestExecCommand(unittest.TestCase):
         self.assertNotIn("-e", cmd)
 
 
+_ARMABLE_CATALOG = [
+    {
+        "id": "m1",
+        "isDefault": True,
+        "hidden": False,
+        "defaultReasoningEffort": "low",
+        "supportedReasoningEfforts": [{"reasoningEffort": "low"}],
+    }
+]
+
+
 class TestLiveArmingIsReachable(unittest.TestCase):
     """The story-005 defect, pinned so it cannot recur silently in this instrument.
 
     story-005 added an arming control and never called it on the live path, so the
     probe would have printed a full verdict table with the control uninstalled.
-    Convention `instrument-arms-on-live-path` came out of that. This asserts the
-    live entry point actually reaches the arming, rather than trusting that it does.
+    Convention `instrument-arms-on-live-path` came out of that.
+
+    These pins RUN `main` with the two live calls substituted, rather than reading
+    its source for a substring. A source match is satisfied by a mention — a
+    commented-out call, or a call whose failure `main` swallows — so it cannot tell
+    a reached control from a named one. What matters is the consequence: a failed
+    arming must leave the table unprinted.
     """
 
-    def test_main_reaches_the_arming_control(self):
-        import inspect
+    def _run_main(self, arm):
+        """`main` with the catalog and the arming call substituted; returns stdout."""
+        buffer = io.StringIO()
+        with (
+            mock.patch.object(probe, "model_catalog", lambda: _ARMABLE_CATALOG),
+            mock.patch.object(probe, "arm_channel", arm),
+            contextlib.redirect_stdout(buffer),
+        ):
+            try:
+                probe.main()
+            finally:
+                self.printed = buffer.getvalue()
+        return self.printed
 
-        source = inspect.getsource(probe.main)
-        self.assertIn(
-            "arm_channel",
-            source,
-            "main() must arm the requested-vs-effective channel before emitting "
-            "verdicts - an unreached arming control is theatre",
-        )
+    def test_main_calls_the_arming_control_before_printing_the_matrix(self):
+        calls = []
 
-    def test_arm_channel_calls_the_arming_assertion(self):
-        import inspect
+        def arm(cwd, models):
+            calls.append((cwd, models))
+            return {
+                "model": "m1",
+                "effort": "low",
+                "verdict": probe.ACCEPTED,
+                "effective": {"model": "m1", "effort": "low"},
+                "detail": None,
+            }
 
-        source = inspect.getsource(probe.arm_channel)
-        self.assertIn("assert_effective_readable", source)
+        printed = self._run_main(arm)
+        self.assertEqual(len(calls), 1, "main() must arm on the live path, once")
+        self.assertIn("Channel armed", printed)
+        self.assertIn("advertised efforts", printed)
+
+    def test_a_failed_arming_leaves_the_matrix_unprinted(self):
+        """The story-005 failure exactly: a table emitted with the control down."""
+
+        def arm(cwd, models):
+            raise probe.ProbeNotArmed("effective values unreadable")
+
+        with self.assertRaises(probe.ProbeNotArmed):
+            self._run_main(arm)
+        self.assertNotIn("advertised efforts", self.printed)
+        self.assertNotIn("| `m1` |", self.printed)
+
+    def test_arm_channel_refuses_a_pair_whose_effective_values_are_unreadable(self):
+        """Behavioural form of 'arm_channel calls the arming assertion'."""
+        unreadable = {
+            "model": "m1",
+            "effort": "low",
+            "verdict": probe.ACCEPTED,
+            "effective": {"model": None, "effort": None},
+            "detail": None,
+        }
+        with (
+            mock.patch.object(probe, "exercise_pair", lambda *a, **k: unreadable),
+            self.assertRaises(probe.ProbeNotArmed),
+        ):
+            probe.arm_channel(Path("/x"), _ARMABLE_CATALOG)
+
+    def test_arm_channel_refuses_when_the_known_good_pair_is_refused(self):
+        refused = {
+            "model": "m1",
+            "effort": "low",
+            "verdict": probe.REFUSED,
+            "effective": None,
+            "detail": "boom",
+        }
+        with (
+            mock.patch.object(probe, "exercise_pair", lambda *a, **k: refused),
+            self.assertRaises(probe.ProbeNotArmed),
+        ):
+            probe.arm_channel(Path("/x"), _ARMABLE_CATALOG)
 
 
 class TestLiveCatalog(unittest.TestCase):
