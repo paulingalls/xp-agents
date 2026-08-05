@@ -343,7 +343,20 @@ the scan, so anything inside `sh -c "..."` disappears, and a heredoc *body* is
 removed wholesale. Aliases and `$GIT` are invisible because the detector matches
 the literal token `git`.
 
-## A targeting hole, distinct from detection
+## A targeting hole, distinct from detection — **FIXED by story-011**
+
+> **Status: closed.** Everything below describes the defect as story-004 measured
+> it. story-011 fixed it: `parse_effective_cwd` now reads `-C` paths from the same
+> raw-token source its two siblings always used, so a quoted literal path resolves
+> to the repo it names; and a token whose path cannot be *recovered* (mixed
+> quoting, `-C '/tmp/'"$WT"`) is refused rather than silently retargeted. The
+> bare-literal-nonexistent fallback is unchanged and deliberate — git aborts, so
+> nothing lands anywhere.
+>
+> **story-007 must not publish this as an open hole.** The six *detection*
+> evasions below (`sh -c`, `bash -c`, heredoc body, aliases, `$GIT`) are a
+> DIFFERENT hole class and remain open.
+
 
 `git -C "<path>" commit` — path **quoted** — is neither detected-and-blocked nor
 correctly refused. Measured end to end through the real hook: the same command
@@ -542,12 +555,16 @@ requirement or the gate is decorative.
 than no-gos:** the spawn-time `--disable unified_exec` requirement, the
 unauthenticated review marker whose only legitimate writer cannot fire here, and
 — on **both** harnesses, so outside the Codex verdict but not outside the
-findings — the six detector-evading spellings plus the quoted `-C` targeting hole
-(concern `6c5d02b11cda`, story-011). The evasions are the accepted cost of a
-deliberate design (`pre_tool_bash.py`: "bash isn't statically parseable", so
+findings — the six detector-evading spellings. The evasions are the accepted cost
+of a deliberate design (`pre_tool_bash.py`: "bash isn't statically parseable", so
 trust+merge is the model), not a regression — but a findings doc that lists only
 the two Codex items would leave a reader believing the commit gate is airtight
 once the flag is set.
+
+The quoted-`-C` targeting hole (concern `6c5d02b11cda`) was the fourth item here
+and is **no longer open** — story-011 fixed it, and the fix is pinned in this
+rig's own `test_commit_shapes.py`. It stays named in this doc only so a reader who
+saw the earlier version knows what became of it.
 
 ## Corrections this story makes to earlier findings
 

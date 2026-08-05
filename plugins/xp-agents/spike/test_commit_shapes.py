@@ -163,28 +163,46 @@ class TestObservedShapes(_RigTestCase):
 
 
 class TestQuotedDashCSignature(_RigTestCase):
-    """The story-011 bypass, as this probe observes it.
+    """The targeting hole, now FIXED by story-011 — kept as its regression pin.
 
-    Not a fix and not a duplicate record — concern `6c5d02b11cda` owns it. What
-    belongs here is the observable signature, so criterion 3's matrix reports
-    it as a measured row rather than an anecdote: the same command blocks
-    QUOTED and does not block unquoted — the direction matters, because the
-    quoted form is the one that blocks after scanning the wrong repo.
+    What this used to record: the same command blocked QUOTED and not unquoted,
+    because the quoted path was deleted before the parse saw it and the gate
+    silently scanned the hook's own repo instead of the named one. That
+    asymmetry was the bug's fingerprint.
+
+    Asserting the fix as "both are now allowed" would be vacuous: with the
+    classifications equal, the only thing still discriminating would be which
+    repo `build_rig` happened to leave staged, so the signal would move out of
+    the assertion and into fixture setup. Instead this pins the property that
+    actually changed — **the gate's answer follows the repo the command NAMES,
+    and quoting does not affect it.** Two targets in opposite states, each in
+    both quote styles, so the classification can only track the target.
     """
 
-    def test_quoted_dash_c_blocks_but_unquoted_does_not(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            other, _ = probe.build_rig(Path(td), stage_files=False)
-            unquoted = self._run(f"git -C {other} commit -m x")
-            quoted = self._run(f'git -C "{other}" commit -m x')
-        # Unquoted: the parse sees the path, targets the empty repo, nothing
-        # staged there, so the review gate has nothing to count.
-        self.assertEqual(unquoted["classification"], ALLOWED)
-        # Quoted: the parse cannot see the path and silently falls back to the
-        # hook's cwd -- THIS repo, which has staged files -- so it blocks. The
-        # asymmetry is the bug's fingerprint: the gate's answer depends on
-        # quoting, meaning it scanned a repo the commit was never going to.
-        self.assertEqual(quoted["classification"], BLOCKED)
+    def test_the_gate_follows_the_named_repo_regardless_of_quoting(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as td_armed,
+            tempfile.TemporaryDirectory() as td_empty,
+        ):
+            armed, _ = probe.build_rig(Path(td_armed), stage_files=True)
+            empty, _ = probe.build_rig(Path(td_empty), stage_files=False)
+            observed = {
+                (target_name, style): self._run(command)["classification"]
+                for target_name, target in (("armed", armed), ("empty", empty))
+                for style, command in (
+                    ("bare", f"git -C {target} commit -m x"),
+                    ("double", f'git -C "{target}" commit -m x'),
+                    ("single", f"git -C '{target}' commit -m x"),
+                )
+            }
+        # A target with staged code files blocks; an empty one does not. Same
+        # answer in all three quoting styles -- that equality across styles is
+        # the fix, and the difference across targets is what makes it meaningful
+        # rather than a rig artefact.
+        for style in ("bare", "double", "single"):
+            with self.subTest(style=style):
+                self.assertEqual(observed[("armed", style)], BLOCKED)
+                self.assertEqual(observed[("empty", style)], ALLOWED)
 
 
 class TestRender(_RigTestCase):

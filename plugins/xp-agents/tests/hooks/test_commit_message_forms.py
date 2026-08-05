@@ -11,7 +11,7 @@ command never made — honouring THAT commit's `Resolves-Event:` trailer, so
 concerns closed on evidence from someone else's work.
 
 Which constructs actually expand is a property of the quoting, exactly as
-`commit_command._token_unreachable` already judges a `-C` path. So the form is
+`dash_c_tokens.token_unreachable` already judges a `-C` path. So the form is
 recovered alongside the message and the guard reads both.
 """
 
