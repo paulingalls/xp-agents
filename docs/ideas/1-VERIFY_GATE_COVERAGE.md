@@ -87,19 +87,19 @@ re.findall(r'^\s*(\d+)\s+fail\b', out, re.M)      # -> ['0'] (the summary)
 - **First match, not the summary.** The summary block comes *after* the error context, so on a failing-looking-but-green run the parser reads the earliest, least authoritative number.
 - **`fail` is a prefix match.** The bun branch's `r"(\d+)\s+fail"` (`:421`) matches `1 failed` inside prose. Same for `pass`.
 
-**SHIPPED 2026-08-05 — match ordering is now per-framework policy** (`_count(..., last)` in `scripts/test_parsing.py`). Pinned by `tests/hooks/test_result_ordering.py`.
+**SHIPPED 2026-08-05 — counts come from the runner's own summary LINE, summed across every one** (`scripts/result_counts.py`, called from the per-framework arms in `scripts/test_parsing.py`). Pinned by `tests/hooks/test_result_ordering.py`.
 
-*Summary-last runners read the LAST match* — bun, jest/vitest/playwright, pytest, deno, node-test. They print the authoritative summary after whatever they say about individual failures, so the last match is the summary. This kills the reported bug, and also a latent jest bug: `Test Suites: 1 failed, 2 passed` precedes the `Tests:` line, so first-match had been reporting *suite* counts as test counts.
+First-vs-last turned out to be a false choice, and the intermediate per-framework-ordering fix was itself wrong. cargo prints one `test result:` per test binary plus a `Doc-tests` block, a dotnet solution one per project, and a workspace launcher (`pnpm -r test`, turbo, nx) one per package — none emit an aggregate. **Any single-match rule reports one sub-run and erases the rest**: first-match hides a red later package, last-match hides a red earlier one. Anchoring on the summary line and summing reports the run.
 
-*Summary-first runners read the FIRST match* — mocha, cargo, dotnet, nx/turbo. **Last-match is wrong for these, and review caught it before it shipped:**
+The same mechanism closes the phantom-count bug rather than relocating it: an echoed source line, or a mocha title reading "must report 7 failing rows", is not on a summary line. Runners with no line-identifiable summary — bun, deno, playwright, node-test — keep the whole-response last-match scan as an explicit **fallback, not policy**; it still reports a single sub-run when one of them emits several.
 
-- **mocha** prints its counts, then the numbered failure list including test titles. A title reading "must report 7 failing" becomes the count — the identical phantom bug, merely relocated.
-- **cargo** appends a `Doc-tests` block ending in `test result: ok. 0 passed; 0 failed` to *every* run. Last-match turned a green 15-test run into `status=zero, passed=0`, and under `--no-fail-fast` turned a genuinely red run into `0 failed` — no concern filed. That is the disarming direction.
-- **nx/turbo/dotnet** interleave one summary per package/project with no aggregate line, so the last one seen erases a red package.
+Anchors are matched per line, but whether one also pins the line START is per-arm. Mocha's does (`^\s*\d+\s+(?:passing|failing)`) — its counts open the line. The jest/cargo/dotnet anchors deliberately do not: turbo and nx prefix the wrapped runner's summary with the package name (`@acme/api:test:  Tests: 2 failed …`), so requiring a line start drops every workspace-runner summary. The jest arm's anchor also makes the colon optional, since vitest prints `      Tests  5 passed (5)` where jest prints `Tests:  5 passed, 5 total`.
 
-The lesson worth carrying: "the summary comes last" felt framework-independent and is not. It is a property of each runner's reporter, so it belongs in the per-framework table, verified against real output shapes per arm.
+Three further parses were wrong before anyone looked: jest reported `Test Suites:` counts (that line precedes `Tests:`); a red cargo run under `--no-fail-fast` reported 0 failed, because the doc-test block closing every run says so; and pytest's `errors` count came from anywhere in the payload, so a second tool sharing the Bash call (`pytest -q; pyright`) could zero the collection errors that were the run's only failure signal. `result_counts.pytest_summary_region` now requires a count token AND the run duration on one line — the `=` fencing alone breaks under `-q`.
 
-*Deliberately NOT line-anchored* either way, though the original write-up proposed it. Several supported summaries are mid-line — deno's `ok | 5 passed | 2 failed`, cargo's `test result: ok. 15 passed; 0 failed` — so an anchor would stop parsing them entirely, trading a rare false count for a routine blind one.
+The lesson worth carrying, twice learned here: a property that feels framework-independent ("the summary comes last") is a property of each runner's reporter. Recorded as decision `e0cb215f2915` (topic `test-output-count-extraction`) so a later "just take the last match everywhere" lands as superseding rather than silently re-introducing this.
+
+**Residual** — debt `5adee880f990`: an nx/turbo package wrapping a framework with no line-identifiable summary, and two chained pytest invocations, still report one sub-run.
 
 **An exit-status cross-check was tried and REVERTED — do not re-propose it.** The idea: `bash_post_tool.py:226` already derives `exit_proves_pass`, but the `failed > 0` concern branch never consults it, so `failed > 0 and exit_proves_pass` looked like a provable parse artifact. It rests on a false premise. `bash_post_tool` is **not** the success-only path: `scripts/bash_failure.py:20` states outright that it "does NOT own every failing test run — the parsed-counts path in `bash_post_tool` sees the ones that exit non-zero with a readable summary, and it always has." A genuinely failing `bun test` (exit 1, bare command, `exit_proves_pass` true) would have had its concern suppressed — disarming the gate, the direction this codebase repeatedly names as the worse one. Sixteen existing tests went red and caught it.
 
@@ -109,7 +109,7 @@ The generalizable lesson, since the reasoning was superficially strong: *"which 
 
 **Residual worth knowing.** With the count now read from each runner's summary, a *repeated* mis-parse is less likely, but nothing yet detects that a parse and an exit status disagree. If that is ever built, it must key on something that genuinely proves the runner's result — not on the hook that received the payload.
 
-Still open, and untouched here because both predate this fix: cargo and nx/turbo/dotnet report only their *first* sub-run, so a failure in a later crate or package is invisible either way. Summing every match is the honest fix for those arms, but it inflates counts on any echoed digit, so it needs its own tests rather than being folded into an ordering change.
+The sub-run erasure this paragraph once listed as still-open (cargo and nx/turbo/dotnet reporting only their first summary) is what the summing fix above closed — the worry that summing would inflate counts on an echoed digit is answered by the line anchor, since an echo is not on a summary line.
 
 ## 5. The file-size ratchet cannot fire for a shell file — **small**
 

@@ -37,7 +37,14 @@ _RE_N_FAILED = r"(\d+)\s+failed"
 # Summary-line anchors (see `_apply_two_counts`). Each names the ONE line a
 # runner puts its counts on, so several sub-runs sum instead of overwriting and
 # an echoed count on any other line is simply not a summary.
-_RE_JEST_SUMMARY = r"\bTests:"  # NOT "Test Suites:" — that counts files
+# The colon is OPTIONAL — jest prints `Tests:  5 passed, 5 total`, vitest
+# `      Tests  5 passed (5)`, and both share this arm. Not line-anchored:
+# turbo and nx prefix the wrapped runner's line with the package
+# (`@acme/api:test:  Tests: 2 failed …`), so requiring a line start silently
+# drops every workspace-runner summary. `\bTests\b` cannot match
+# "Test Suites:" (which counts FILES, not tests) — that line has a space
+# where this needs the plural.
+_RE_JEST_SUMMARY = r"\bTests\b:?\s"
 _RE_CARGO_SUMMARY = r"\btest result:"
 _RE_DOTNET_SUMMARY = r"(?:Passed|Failed|Skipped)!\s*-"
 _RE_MOCHA_SUMMARY = r"^\s*\d+\s+(?:passing|failing)\b"

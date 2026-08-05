@@ -198,6 +198,30 @@ class TestASubRunIsNeverErasedByAnother(unittest.TestCase):
                 self.assertEqual(result["failed"], 2)
                 self.assertEqual(result["passed"], 38)
 
+    def test_vitest_prints_its_counts_without_a_colon(self):
+        """vitest shares the jest arm but not jest's `Tests:` punctuation.
+
+        Its default reporter prints `      Tests  5 passed (5)` — indented,
+        no colon — so an anchor spelled `Tests:` never matches and the arm
+        falls back to the whole-response scan, silently reporting one package
+        of a workspace. `is_test_run` routes vitest here, and turbo/nx
+        wrapping vitest land in the same place.
+        """
+        output = (
+            " Test Files  1 passed (1)\n"
+            "      Tests  30 passed (30)\n"
+            " Test Files  1 failed (1)\n"
+            "      Tests  2 failed | 6 passed (8)\n"
+        )
+        result = test_parsing.parse_test_results(output, "vitest")
+        self.assertEqual(result["failed"], 2)
+        self.assertEqual(
+            result["passed"],
+            36,
+            "both packages must be summed — the fallback scan reports only "
+            "the last line it happens to see",
+        )
+
     def test_one_empty_package_does_not_zero_the_whole_workspace(self):
         """The zero marker short-circuited on the FIRST `0 passed, 0 total`.
 
