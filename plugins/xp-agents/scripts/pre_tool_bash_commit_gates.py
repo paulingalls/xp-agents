@@ -129,9 +129,9 @@ def commit_gate_parts(
     # `cd "$WT" && git commit` fell back to the caller's cwd in silence. The two
     # predicates are separate rather than unioned inside one, because
     # `dash_c_unreachable` has other consumers whose meaning is `-C`-specific.
-    unreachable_flag = commits.dash_c_unreachable(command)
-    if unreachable_flag or cd_target_unreachable(command):
-        named = "`git -C`" if unreachable_flag else "`cd`"
+    dash_c_leg = commits.dash_c_unreachable(command)
+    if dash_c_leg or cd_target_unreachable(command):
+        named = "`git -C`" if dash_c_leg else "`cd`"
         raise _common.BlockedError(
             f"Cannot determine which repo this commit lands in: {named} "
             "names a path hidden behind a shell variable, command "

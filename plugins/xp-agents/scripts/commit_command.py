@@ -59,6 +59,20 @@ def _resolved_dir(candidate: str, fallback: str) -> str | None:
     return str(path) if path.is_dir() else None
 
 
+def _token_readable(quoting: int, path: str, complete: bool) -> bool:
+    """Whether ONE target token's path is a path we actually read.
+
+    Both halves of the rule in one place, because both refusals and the
+    absolute-`-C` narrowing below all need it and spelled it three ways: an
+    INCOMPLETE token is unreadable by construction (only the first segment of a
+    concatenation was captured, so what the rest expands to was never seen), and a
+    complete one still has to survive `token_unreachable`'s judgement of the
+    quoting it arrived in. One definition, since a module whose defect history is
+    readers disagreeing about the same text should not carry two.
+    """
+    return complete and not token_unreachable(quoting, path)
+
+
 def parse_effective_cwd(command: str, fallback: str) -> str:
     """Return the effective cwd a git invocation in `command` ran under.
 
@@ -255,13 +269,11 @@ def dash_c_unreachable(command: str, *, scan_target: str | None = None) -> bool:
         scan_target = git_commits.strip_quoted(command)
     if not HAS_GLOBAL_DASH_C_RE.search(scan_target):
         return False
-    # An INCOMPLETE token is unreachable by construction: only the first segment
-    # of a concatenation was captured, so whatever the rest expands to was never
-    # seen. Judged alongside the quoting form rather than instead of it — a
-    # complete token still has to survive `token_unreachable`.
+    # `_token_readable` carries both halves: an INCOMPLETE token is unreachable
+    # by construction (only the first segment of a concatenation was captured),
+    # and a complete one still has to survive `token_unreachable`.
     return any(
-        not complete or token_unreachable(g, p)
-        for g, p, complete in dash_c_tokens(command)
+        not _token_readable(g, p, complete) for g, p, complete in dash_c_tokens(command)
     )
 
 
@@ -281,26 +293,30 @@ def cd_target_unreachable(command: str) -> bool:
     happens after the commit. An actionable refusal beats an unscanned commit, and
     the remedy is identical either way — use a literal path.
 
-    ONE narrowing the `-C` side does not need, because `-C` has no precedence
-    sibling to defer to: an unreachable `cd` cannot move a commit whose target is
-    already pinned by an ABSOLUTE `git -C`, since `-C` wins in
-    `parse_effective_cwd` and an absolute path is unaffected by wherever the shell
-    moved to. Refusing there would be a pure false positive.
+    NO `-C` NARROWING, and that is a reversal worth reading. An earlier revision
+    suppressed this refusal when the command also carried a complete, readable,
+    ABSOLUTE `git -C`, on the theory that such a `-C` pins the destination and an
+    unreachable `cd` cannot move it. The close review measured the hole that
+    opened:
 
-    ABSOLUTE, not merely "a `-C` resolved". A RELATIVE `-C` resolves against the
-    hook's cwd rather than the post-`cd` cwd, so it lands on a real directory that
-    is NOT where the commit goes — `cd $WT && git -C sub commit` is exactly that,
-    and keying on "resolved" would preserve that fail-open rather than close it.
+        git -C /abs log -1 && cd $WT && git commit -m x   ->  not refused
+
+    "An absolute `-C` exists" is not the claim "the COMMITTING invocation carries
+    one", and nothing here can tell them apart — the same absent attribution that
+    is the stated reason for judging EVERY `cd`. So the narrowing smuggled back
+    exactly the which-token-matters assumption that `dash_c_unreachable` refuses,
+    and left the gates scanning /abs while the commit landed in `$WT`.
+
+    Dropping it costs one false positive — `git -C /literal commit && cd $HOME` is
+    refused for a `cd` that cannot affect the destination — and buys back the
+    story's own contract: *refusing is acceptable, silently falling back to the
+    hook's cwd is not; where the two conflict, refuse.* A documented fail-open
+    breaks that contract, an over-refusal does not. `cd -`, the common way back,
+    is a readable token and never refused.
     """
-    masked = mask_data_spans(command)
-    cd_toks = cd_tokens(command, masked)
-    if not cd_toks:
-        return False
-    if not any(not complete or token_unreachable(g, p) for g, p, complete in cd_toks):
-        return False
-    return not any(
-        complete and Path(p).is_absolute() and not token_unreachable(g, p)
-        for g, p, complete in dash_c_tokens(command, masked)
+    return not all(
+        _token_readable(quoting, path, complete)
+        for quoting, path, complete in cd_tokens(command, mask_data_spans(command))
     )
 
 

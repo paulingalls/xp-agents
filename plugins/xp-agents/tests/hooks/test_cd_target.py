@@ -192,22 +192,23 @@ class TestCdTargetUnreachable(_CdTargetTestCase):
     def test_no_cd_at_all_is_NOT_unreachable(self):
         self.assertFalse(self._unreachable('git -C "$WT" commit -m x'))
 
-    def test_an_absolute_dash_c_pins_the_target_so_the_cd_does_not_matter(self):
-        """The narrowing. `-C` beats `cd` in `parse_effective_cwd`, and an
-        ABSOLUTE `-C` is unaffected by whatever directory the shell moved to, so
-        the destination is fully known and refusing would be a false positive."""
-        self.assertFalse(
-            self._unreachable(f"cd $WT && git -C {self.plain} commit -m x")
-        )
+    def test_an_absolute_dash_c_does_not_rescue_an_unreachable_cd(self):
+        """The accepted cost of having no `-C` narrowing, pinned as a decision.
 
-    def test_an_absolute_dash_c_pins_it_even_when_the_dir_is_missing(self):
-        """Keyed on ABSOLUTE-and-READABLE, not on absolute-and-exists. A literal
-        `-C` naming a directory that is not there makes git abort, so nothing
-        lands anywhere — the same rule `dash_c_unreachable` already applies to a
-        missing literal. Requiring existence here would refuse a command that
-        cannot commit."""
+        `git -C /literal commit && cd $HOME` IS refused, for a `cd` that runs
+        after the commit and cannot affect where it landed. The narrowing that
+        would have permitted it opened a real fail-open (see the closure pin
+        above), and the story's contract settles the trade: refusing is
+        acceptable, silently falling back to the hook's cwd is not.
+
+        `cd -`, the common way back, carries a readable token and is never
+        refused — so the shape agents actually use is unaffected.
+        """
+        self.assertTrue(
+            self._unreachable(f"git -C {self.plain} commit -m x && cd $HOME")
+        )
         self.assertFalse(
-            self._unreachable("cd $WT && git -C /nope/nothing commit -m x")
+            self._unreachable(f"cd {self.plain} && git commit -m x && cd -")
         )
 
     def test_a_RELATIVE_dash_c_does_not_pin_it(self):
@@ -218,6 +219,21 @@ class TestCdTargetUnreachable(_CdTargetTestCase):
         """
         os.mkdir(os.path.join(self.fallback, "sub"))
         self.assertTrue(self._unreachable("cd $WT && git -C sub commit -m x"))
+
+    def test_a_NON_committing_absolute_dash_c_does_not_suppress_the_refusal(self):
+        """The hole that killed the `-C` narrowing, now closed.
+
+        The absolute `-C` here sits on a `log`, not on the commit, so the commit
+        lands wherever `$WT` points. An earlier revision suppressed the refusal
+        whenever ANY absolute readable `-C` existed, which is not the claim "the
+        COMMITTING invocation carries one" — and nothing here can tell those
+        apart, which is the very reason this predicate judges EVERY `cd`. The
+        narrowing therefore smuggled back the which-token-matters assumption
+        `dash_c_unreachable` exists to refuse, and left the gates scanning the
+        `log` repo while the commit went elsewhere.
+        """
+        command = f"git -C {self.plain} log -1 && cd $WT && git commit -m x"
+        self.assertTrue(self._unreachable(command))
 
     def test_a_trailing_unreachable_cd_is_still_refused(self):
         """The accepted cost, pinned so it is a decision and not an accident:
@@ -264,6 +280,16 @@ class TestUnresolvableCdFailsClosed(_HookTestCase):
     def test_concatenated_quoting_cd_is_blocked(self, *_mocks):
         self._assert_blocked("cd '/tmp/'\"$WT\" && git commit -m x")
 
+    @patch("git_commits.is_git_commit", return_value=True)
+    def test_an_absolute_dash_c_elsewhere_does_not_rescue_it(self, *_mocks):
+        """End to end: a `-C` on a NON-committing invocation must not suppress
+        the refusal. This is the shape that killed the narrowing — the gates
+        would have scanned the `log` repo while the commit went to `$WT`."""
+        with tempfile.TemporaryDirectory() as other:
+            self._assert_blocked(
+                f'git -C {other} log -1 && cd "$WT" && git commit -m "x"'
+            )
+
 
 class TestTheCdBlockDoesNotOverreach(_HookTestCase):
     """Fail-closed must not become fail-often. Each of these must PROCEED."""
@@ -294,16 +320,6 @@ class TestTheCdBlockDoesNotOverreach(_HookTestCase):
         short-circuits, nothing lands. An ordinary failure, not a refusal."""
         with tempfile.TemporaryDirectory() as base:
             self._run(f"cd {base}/no-such-dir && git commit -m x", "/tmp")
-
-    @patch("commits.get_code_files_for_review", return_value=[])
-    @patch("commits.get_staged_files", return_value=[])
-    @patch("commits.get_staged_diff", return_value="")
-    @patch("git_commits.is_git_commit", return_value=True)
-    def test_an_absolute_dash_c_pins_the_target_despite_a_variable_cd(self, *_mocks):
-        """The narrowing, end to end. `-C` beats `cd` and an absolute `-C` is
-        unaffected by wherever the shell moved, so the destination is known."""
-        with tempfile.TemporaryDirectory() as repo:
-            self._run(f'cd "$WT" && git -C {repo} commit -m "x"', "/tmp")
 
 
 if __name__ == "__main__":

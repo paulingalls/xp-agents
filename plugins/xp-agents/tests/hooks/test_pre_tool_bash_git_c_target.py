@@ -354,7 +354,7 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
     def _gate_refuses_cd(path: str) -> bool:
         return commit_command.cd_target_unreachable(f"cd {path} && git commit -m x")
 
-    def _offending_paths(self, line: str) -> bool:
+    def _mandates_a_refused_form(self, line: str) -> bool:
         """True when this logical line mandates a form either gate refuses."""
         return any(
             self._gate_refuses(m.group("path") or m.group("solo") or "")
@@ -372,7 +372,7 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
             if "/tests/" in str(md):
                 continue
             for lineno, line in self._logical_lines(md.read_text(encoding="utf-8")):
-                if self._offending_paths(line):
+                if self._mandates_a_refused_form(line):
                     rel = md.relative_to(plugin_root)
                     offenders.append(f"{rel}:{lineno}: {line.strip()}")
 
@@ -387,7 +387,7 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
         return [
             lineno
             for lineno, line in self._logical_lines(text)
-            if self._offending_paths(line)
+            if self._mandates_a_refused_form(line)
         ]
 
     def test_the_pin_is_not_vacuous(self):
