@@ -11,9 +11,9 @@ WHY A DIFFERENTIAL AND NOT AN EXIT CODE. A measurement over two real repos
 tried two plausible bootstrap candidates. BOTH exited 0; one installed 2208 packages,
 looked perfect, and fixed neither failure. A candidate's own exit code proves
 nothing, so the only thing that separates a working bootstrap from a plausible
-one is re-running this measurement. The acceptance-scaffold's worktree step therefore
-calls this TWICE: once to detect a gap, once to verify a candidate actually
-closed it.
+one is re-running this measurement. `/xp-scaffold-worktree` — the sole caller —
+therefore calls this TWICE: once to detect a gap, once to verify a candidate
+actually closed it.
 
 PER COMMAND, NEVER PER PROJECT. The same measurement found one repo whose TESTS
 were checkout-invariant (an install closed the gap) while its TYPECHECK was

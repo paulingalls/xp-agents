@@ -24,7 +24,6 @@ Usage:
     system_context_cli.py --smm-dir DIR edit-branching   < branching.json
     system_context_cli.py --smm-dir DIR edit-acceptance-surfaces < surfaces.json
     system_context_cli.py --smm-dir DIR add-acceptance-surface   < surface.json
-    system_context_cli.py --smm-dir DIR surface-commands --paths-from - < paths
 """
 
 import argparse
@@ -109,9 +108,6 @@ from system_context_retire_cli import (
     cmd_retire_project_specific as _cmd_retire_project_specific,
 )
 from system_context_schema import validate_system_context
-from system_context_surface_cli import (
-    cmd_surface_commands as _cmd_surface_commands,
-)
 
 # Back-compat shim: callers that imported these names from
 # system_context_cli before each family was extracted still find them
@@ -131,7 +127,6 @@ __all__ = [
     "_cmd_edit_stack_field",
     "_cmd_get_branching_field",
     "_cmd_get_stack_field",
-    "_cmd_surface_commands",
     "_emit_edit_event",
     "_emit_retire_event",
 ]
@@ -360,16 +355,6 @@ def main() -> None:
         "get-test-layout",
         help="Print test_layout as JSON (or `null` when unset)",
     )
-    surface_p = sub.add_parser(
-        "surface-commands",
-        help="Print surface commands covering changed paths read from stdin",
-    )
-    # `choices`: any other source would read as a silently empty selection,
-    # indistinguishable from "no narrowing available".
-    surface_p.add_argument(
-        "--paths-from", default="-", choices=["-"], help="Changed paths, on stdin"
-    )
-
     for name, help_text in (
         ("retire-principle", "Retire a principle by topic"),
         ("retire-module", "Retire a module by name"),
@@ -426,7 +411,6 @@ def main() -> None:
         "add-acceptance-surface": _cmd_add_acceptance_surface,
         "edit-test-layout": _cmd_edit_test_layout,
         "get-test-layout": _cmd_get_test_layout,
-        "surface-commands": _cmd_surface_commands,
         "edit-branching": _cmd_edit_branching,
         "edit-branching-field": _cmd_edit_branching_field,
         "get-branching-field": _cmd_get_branching_field,

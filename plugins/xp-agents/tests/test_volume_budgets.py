@@ -101,6 +101,9 @@ _PRELOAD_NEEDS_TRIGGER: dict[str, str] = {
     "production are the diff, not the SMM",
     "xp-review-plan": "keyed on a `.plan-awaiting-review` marker that "
     "populating the SMM does not create",
+    "xp-scaffold-worktree": "its only data dimension is the acceptance-surface "
+    "block, and `_volume_fixture._system_context_doc` declares no surfaces — "
+    "every other line it emits is a fixed-size scalar",
 }
 
 # Same calibration, measured at each emitter's LOUD input (see

@@ -102,10 +102,6 @@ def sprint(file_domain: list[str]) -> dict:
 class GateHarness(_AssertNotNoneMixin, unittest.TestCase):
     """Drives `emit_gate_commands` through the real shell module and the real
     `close_gate_commands` resolver — no story-shaped git branch required.
-
-    NOT the `surface-commands` CLI, which the preload stopped calling when the
-    resolver became the one owner. Naming the wrong collaborator here is how a
-    reader concludes a seam is covered that nothing exercises.
     """
 
     def seed(

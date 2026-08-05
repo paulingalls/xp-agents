@@ -36,7 +36,7 @@ Three link types close events and risk pillar items:
 
 ## When to Run XP Skills
 
-**Plan cycle:** `/xp-schedule` → `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → (teammate only) `/xp-assign` → execute. Multi-file changes (3+ files). State-derived gates: the schedule gate (pre-promotion window) blocks writes + plan-entry until `/xp-schedule` promotes; `.plan-awaiting-review` until reviewed; `.assign-pending` until assigned (teammate-mode plans only).
+**Plan cycle:** `/xp-schedule` → `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → `/xp-assign` → execute. Multi-file changes (3+ files). State-derived gates: the schedule gate (pre-promotion window) blocks writes + plan-entry until `/xp-schedule` promotes; `.plan-awaiting-review` until reviewed; `.assign-pending` until assigned (teammate-mode plans only).
 
 **Per commit (cadence set at kickoff):** *commit* — `/xp-quality-review` → `git commit`, gate blocks if skipped. *story* — gate defers; review at `/xp-story-close` Step 4.5b. At `/xp-{free,sprint,plan}-close`: threshold-gated `/code-review` (Step 4b, Workflow tool) + LLM `/security-review` (Step 4). Deterministic patterns scan staged diffs.
 
@@ -62,7 +62,7 @@ CLIs (`sprint_cli.py`, `plan_cli.py`, `smm_cli.py`, `retro_cli.py`, `session_his
 
 ### System Context
 
-`system_context.json` (per-project, in `SMM_DIR`) holds stack, architecture, conventions, principles, branching stage, and acceptance surfaces. Read by session_start, the plan/sprint skills, close gates, and the plan/close reviewers. Create or refresh via `/xp-system-context`; patch via `system_context_cli.py` (`edit-{stack,branching}-field`; `add-*`/`edit-*`/`retire-*` for capped lists; `--help`). `stack.worktree_bootstrap`/`worktree_teardown` run inside a teammate worktree at creation and before removal. An empty `stack.test_command` disables the close-skill auto-merge gate, as does one whose exit status cannot reach the shell (`;`, a pipe, `&`, `||`, a capture) — it reports success when its runner failed. `GATE_DISABLED_REASON` says which.
+`system_context.json` (per-project, in `SMM_DIR`) holds stack, architecture, conventions, principles, branching stage, and acceptance surfaces. Read by session_start, the plan/sprint skills, close gates, and the plan/close reviewers. Create or refresh via `/xp-system-context`; patch via `system_context_cli.py` (`edit-{stack,branching}-field`; `add-*`/`edit-*`/`retire-*` for capped lists; `--help`). `stack.worktree_bootstrap`/`worktree_teardown` run inside a teammate worktree at creation and before removal; `/xp-scaffold-worktree` declares the former only after re-measurement proves the gap closed, and refuses over guessing. An empty `stack.test_command` disables the close-skill auto-merge gate, as does one whose exit status cannot reach the shell (`;`, a pipe, `&`, `||`, a capture) — it reports success when its runner failed. `GATE_DISABLED_REASON` says which.
 
 **Narrowing.** Surface `paths` + `command` make story/free close run only the covering commands. Coverage is by **path, not blast radius** (a break in an unselected surface can auto-merge; no later step re-runs the full suite — sprint close reviews and asks, it never runs the command), and `stack.test_command` must **cover every surface** — it is the fallback and what a full selection collapses to. `/xp-system-context` states both before you confirm.
 

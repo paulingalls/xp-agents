@@ -56,7 +56,7 @@ _SHIPPED_ROOT_FLOORS = {
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 _BAND_CEILINGS = {
-    # shipped (17)
+    # shipped (16)
     # Entered the band adding the disagreeing-session-id refusal, which needed a
     # verdict code, its reason prose, and a branch that must precede every
     # degrade-to-time-only path. The cohesive group to extract next is the
@@ -87,7 +87,7 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/scripts/pre_tool_write.py": 463,
     "plugins/xp-agents/scripts/session_start.py": 462,
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
-    # tests (55)
+    # tests (57)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
@@ -125,10 +125,27 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_retro_save.py": 475,
     "plugins/xp-agents/tests/hooks/test_teammate_hooks.py": 475,
     "plugins/xp-agents/tests/hooks/test_branch_resolution.py": 474,
+    # Entered the band with the close-review pins for the skill's runtime
+    # break. Extract next: `_PreloadCase`, unused by its prose suites.
+    "plugins/xp-agents/tests/skills/test_scaffold_worktree_skill.py": 475,
     "plugins/xp-agents/tests/engine/test_compact_concurrency.py": 473,
     "plugins/xp-agents/tests/smm/test_system_context_schema_fields.py": 470,
     "plugins/xp-agents/tests/engine/test_sprint_frontier.py": 470,
     "plugins/xp-agents/tests/integration/test_story_close.py": 468,
+    # Entered the band with the close-cycle marker scrub: a close preload now
+    # leaves state a sibling preload reacts to, so the shared measurement loop
+    # has to clear it between runs. The cohesive group to extract next is the
+    # preload family (`_run_preload` + `assert_preload_under_budgets` + this
+    # scrub), which the emitter and md families do not use.
+    "plugins/xp-agents/tests/_budget_helpers.py": 467,
+    # The table crossed its own floor on a back-merge: sprint-004 and
+    # sprint-129 each added entries and neither side alone was over 450.
+    # Recorded rather than trimmed because the entries ARE the content -- this
+    # file shrinks only when the files it lists do. The cohesive group to
+    # extract next is the two data tables (`_SHIPPED_ROOT_FLOORS` +
+    # `_BAND_CEILINGS` with their prose, ~125 lines), which leaves the helpers
+    # and assertions near 340; this entry then names that module, not this one.
+    "plugins/xp-agents/tests/test_file_size_pin.py": 465,
     "plugins/xp-agents/tests/integration/test_maintenance.py": 466,
     "plugins/xp-agents/tests/hooks/test_session_start_core.py": 466,
     "plugins/xp-agents/tests/scaffold/test_scaffold_skill.py": 466,

@@ -47,6 +47,7 @@ _OUR_SKILLS = frozenset(
         "xp-quality-review",
         "xp-review-plan",
         "xp-scaffold-acceptance",
+        "xp-scaffold-worktree",
         "xp-schedule",
         "xp-sprint-close",
         "xp-sprint-review",

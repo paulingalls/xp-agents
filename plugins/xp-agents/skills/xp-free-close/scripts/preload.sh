@@ -38,6 +38,17 @@ echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 # cannot forge a KEY=value line in this contract.
 TEST_COMMAND=$(find_test_command)
 emit_var TEST_COMMAND "$TEST_COMMAND"
+# Record an AGED survivor before arming over it: the arm below overwrites the
+# marker, so a previous cycle's evidence has to be read out first. Whether the
+# survivor is abandoned at all is the recorder's call, not this line's — see
+# scripts/close_cycle_abandonment.py; a young one (this close's own red-gate
+# retry) and no survivor at all both record nothing.
+#
+# BEFORE CLOSE_START_TS, deliberately: Step 6's abort-default and the
+# auto-merge gate both count high concerns raised AFTER that stamp, and this
+# record is about the PREVIOUS cycle.
+python3 "${PLUGIN_ROOT}/scripts/close_cycle_abandonment.py" \
+    --smm-dir "${SMM_DIR}" --detector close_restart 2>/dev/null || true
 echo "CLOSE_START_TS=$(now_iso)"
 CLOSE_CYCLE_ID=$(generate_id)
 echo "CLOSE_CYCLE_ID=${CLOSE_CYCLE_ID}"
@@ -55,7 +66,14 @@ write_marker CLOSE_CYCLE_ID "${CLOSE_CYCLE_ID}"
 emit_system_context_rendered_for close-reviewer
 # Arm the close-cycle Stop gate deterministically — prose-driven write
 # was unreliable when the LLM skipped or reordered the invocation.
-write_marker CLOSE_CYCLE_ACTIVE ""
+#
+# Armed through the recorder rather than write_marker so the marker carries
+# the session that OWNS this close. That payload is the only thing letting a
+# detector in another window tell a running close from an abandoned one; a
+# duration cannot, because a close's runtime is unbounded.
+python3 "${PLUGIN_ROOT}/scripts/close_cycle_abandonment.py" \
+    --smm-dir "${SMM_DIR}" --arm-only 2>/dev/null \
+    || write_marker CLOSE_CYCLE_ACTIVE ""
 emit_hook_guidance "$HOOK_STATUS"
 
 # Condition 3's command set, resolved here rather than judged as prose — see

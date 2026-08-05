@@ -392,6 +392,23 @@ def _run_preload(
     return proc.stdout, proc.stderr.decode("utf-8", errors="replace"), proc.returncode
 
 
+def scrub_close_cycle_marker(smm_dir: Path) -> None:
+    """Drop the close-cycle marker a close preload arms, between measurements.
+
+    Same reason `_volume_fixture._MARKER_WRITERS` runs its marker-writing
+    surfaces last: every helper here shares ONE bootstrap across a whole set,
+    so a marker one surface arms is state the next surface can react to. A
+    close preload arms this one at close start, and the NEXT close preload
+    reads a survivor as an abandoned cycle and records a concern — which a
+    later concern-rendering preload then measures as if it were its own prose.
+    Scrubbing keeps each measurement about the surface that produced it, and
+    unlike ordering it holds however the set happens to be sorted.
+    """
+    import markers
+
+    markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+
+
 def assert_preload_under_budgets(
     testcase: unittest.TestCase,
     budgets: dict[str, int],
@@ -406,6 +423,7 @@ def assert_preload_under_budgets(
         repo, smm_dir = _bootstrap_seeded_smm(Path(tmp))
         for name, budget in sorted(budgets.items()):
             stdout_bytes, stderr, rc = _run_preload(name, smm_dir, repo)
+            scrub_close_cycle_marker(smm_dir)
             if rc != 0:
                 offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
                 continue

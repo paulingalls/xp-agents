@@ -52,6 +52,16 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-quality-review": 6720,
     "xp-review-plan": 990,
     "xp-scaffold-acceptance": 20940,
+    # First budget for the finished surface. The registration increment carried
+    # 810, calibrated on a 720-char skeleton that is not this surface —
+    # re-derived rather than nudged, since a ratchet can only ever lower and
+    # would have pinned the skill to its skeleton.
+    #
+    # Close review then deleted a step that had shipped an AUTHORING
+    # instruction (edit the analyzer's prose) into runtime prose, where the
+    # skill holds no editing tool and the edit was already made. Re-measured
+    # 7612, so the ratchet lowers 8830 -> 8570 rather than banking the trim.
+    "xp-scaffold-worktree": 8570,
     "xp-schedule": 6710,
     "xp-sprint-close": 7540,
     "xp-sprint-review": 1420,

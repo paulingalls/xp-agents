@@ -31,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
+import close_cycle_abandonment
 import close_cycle_stop_gate as gate
 
 
@@ -98,18 +99,33 @@ class TestCloseCycleThresholdSplit(unittest.TestCase):
             "run() must delegate the age check to the shared _marker_age_under helper",
         )
 
-    def test_abandonment_branch_uses_abandonment_constant(self):
-        """The _record_bypass abandonment guard must pass the abandonment constant."""
+    def test_the_abandonment_constant_is_the_shared_recorders(self):
+        """The abandonment age decision belongs to close_cycle_abandonment.
+
+        All THREE detectors face the same live-vs-dead question — the marker is
+        not session-scoped and the SMM is shared across windows — so deciding
+        it per-detector is what let two of them fire on a running cycle. This
+        module's constant must BE the recorder's, never a second copy free to
+        drift under the defer window the assertions above bound it against.
+        """
+        self.assertEqual(
+            gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC,
+            close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC,
+        )
+
+    def test_the_bypass_delegates_the_whole_decision(self):
+        """A second age check here would be the drift the sharing prevents,
+        and it silently re-splits the rule the moment one side moves."""
         bypass_src = inspect.getsource(gate._record_bypass)
         self.assertIn(
-            "_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC",
+            "record_abandonment",
             bypass_src,
-            "_record_bypass must reference _CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC",
+            "_record_bypass must route through the shared recorder",
         )
-        self.assertIn(
+        self.assertNotIn(
             "_marker_age_under",
             bypass_src,
-            "_record_bypass must delegate the age check to _marker_age_under",
+            "_record_bypass must not re-decide the age the recorder owns",
         )
 
     def test_shared_age_helper_collapses_duplicate_wrappers(self):

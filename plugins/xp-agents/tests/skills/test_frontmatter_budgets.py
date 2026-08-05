@@ -56,7 +56,7 @@ _AGENTS_DIR = _PLUGIN_ROOT / "agents"
 
 # Non-vacuity: a glob that silently stops matching must fail loudly rather than
 # report a green scan of nothing (the story-001 lesson).
-_EXPECTED_SKILLS = 18
+_EXPECTED_SKILLS = 19
 _EXPECTED_AGENTS = 7
 
 SKILL_DESCRIPTION_BUDGETS: dict[str, int] = {
@@ -70,6 +70,7 @@ SKILL_DESCRIPTION_BUDGETS: dict[str, int] = {
     "xp-quality-review": 130,
     "xp-review-plan": 130,
     "xp-scaffold-acceptance": 180,
+    "xp-scaffold-worktree": 170,
     "xp-schedule": 160,
     "xp-sprint-close": 150,
     "xp-sprint-review": 140,
@@ -105,6 +106,7 @@ SKILL_TRIGGERS: dict[str, tuple[str, ...]] = {
     "xp-quality-review": ("review", "diff"),
     "xp-review-plan": ("plan", "TDD"),
     "xp-scaffold-acceptance": ("scaffold", "acceptance test"),
+    "xp-scaffold-worktree": ("worktree", "bootstrap"),
     "xp-schedule": ("solo", "parallel"),
     "xp-sprint-close": ("sprint branch", "merge"),
     "xp-sprint-review": ("sprint", "shipped"),
