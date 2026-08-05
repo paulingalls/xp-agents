@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Reading the `git -C <path>` tokens out of a raw Bash command.
+"""Reading the target-directory tokens — `git -C <path>` and `cd <path>` — out of
+a raw Bash command.
 
 Extracted from commit_command.py (the seam its own debt entry named) once that
 file crossed the headroom band below the 500-line cap. The split is the one the
-module already had internally: everything here answers "what `-C` tokens does
+module already had internally: everything here answers "what target tokens does
 this command carry, and can we read their paths at all", while commit_command
 answers "so which repo does the commit land in, and do we refuse it".
 
-The one rule that spans both halves: a `-C` path is LOCATED on an
-offset-preserving mask (so a `-C` inside a commit message is not a flag) and
+The one rule that spans both halves and both prefixes: a path is LOCATED on an
+offset-preserving mask (so a `-C` or `cd` inside a commit message is not one) and
 READ from the raw command at the same offsets (so a QUOTED literal path is not
-deleted before anyone sees it). Three readers used to disagree about that, and
-each disagreement cost a gate running against the wrong repo.
+deleted before anyone sees it). Three `-C` readers used to disagree about that,
+and each disagreement cost a gate running against the wrong repo; `cd` was the
+fourth, still on the deleting stripper, until it joined them here.
+
+The filename still says `dash_c` because its only importer is commit_command.py
+while `git_commits.py` names it in prose that a rename would also have to touch —
+out of the story's domain. The rename is recorded as follow-up, not forgotten.
 """
 
 import re
@@ -60,6 +66,26 @@ RAW_DASH_C_RE = re.compile(
 # this to tell an explicit `git -C <path>` apart from a plain/`cd` command.
 HAS_GLOBAL_DASH_C_RE = re.compile(
     r"git" + _GAP + _GLOBAL_FLAG_CHAIN + r"-C(?:" + _GAP + r"|$)"
+)
+
+# `RAW_DASH_C_RE` group index -> the quoting the path arrived in. Declared with
+# the patterns because the group index IS the quoting form: any pattern fed to
+# `_target_tokens` must expose these three alternatives in this order.
+_DOUBLE_QUOTED, _SINGLE_QUOTED, _BARE = 1, 2, 3
+
+# A `cd` only counts at a statement boundary, so `--foo=cd x` or a path ending in
+# `cd` is never mistaken for the builtin. Moved here from commit_command when the
+# `cd` pass stopped reading the quote-STRIPPED text: the boundary rule and the
+# path-token rule belong with the reader that applies them.
+#
+# `[^\s;&|]+` excludes statement-boundary characters from the bare capture so
+# `cd /tmp;` yields `/tmp`, and the quoted alternatives come FIRST so a quoted
+# path is taken whole rather than truncated at its opening delimiter. The three
+# alternatives mirror `RAW_DASH_C_RE` exactly — same order, same meaning — because
+# `token_unreachable` judges both by group index.
+_CD_BOUNDARY = r"(?:^|[\n;]|&&|\|\|)\s*"
+RAW_CD_RE = re.compile(
+    _CD_BOUNDARY + r"cd" + _GAP + r"""(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"""
 )
 
 # Length-PRESERVING mask of the spans `strip_quoted` deletes outright: heredoc
@@ -111,19 +137,24 @@ def mask_data_spans(command: str) -> str:
 _TOKEN_TERMINATORS = " \t\r\n;&|"
 
 
-def dash_c_tokens(command: str) -> list[tuple[int, str, bool]]:
-    """Every git-global `-C` token, in command order.
+def _target_tokens(
+    command: str, pattern: re.Pattern[str], masked: str
+) -> list[tuple[int, str, bool]]:
+    """Every path token `pattern` finds, in command order.
 
-    Each entry is (quoting-group index, the token's RAW text, whether the token
-    is COMPLETE). The tokens are LOCATED on the masked command — so a `-C` inside
-    a commit message is not one — and READ from the raw command at the same
-    offsets, because the mask replaced the path text with filler. The group index
-    carries the quoting form the path arrived in, which is what decides whether
-    the shell expanded it.
+    The one rule this module exists for, in one place: tokens are LOCATED on
+    `masked` — so a `cd` or `-C` inside a commit message is not one — and READ
+    from the raw `command` at the same offsets, because the mask replaced the path
+    text with filler rather than deleting it.
 
-    One list rather than a `search` per caller: all three `-C` readers share it,
-    because when two of them read the path from different sources one refused
-    nothing while the other probed the wrong repo.
+    `masked` is a PARAMETER, not computed here, so one Bash command is masked once
+    however many prefixes are scanned. That is not only a saving: it makes it
+    structurally impossible for two passes over the same command to disagree about
+    which text they read, which is the defect class this module was extracted for.
+
+    `pattern` must expose the same three capture groups as `RAW_DASH_C_RE` —
+    double-quoted, single-quoted, bare — because the group index IS the quoting
+    form, and `token_unreachable` judges by it.
 
     Completeness is judged from `match.end()` — the end of the whole alternation,
     NOT the end of the capture group. The groups exclude the quote delimiters, so
@@ -131,8 +162,8 @@ def dash_c_tokens(command: str) -> list[tuple[int, str, bool]]:
     token incomplete.
     """
     tokens: list[tuple[int, str, bool]] = []
-    for match in RAW_DASH_C_RE.finditer(mask_data_spans(command)):
-        for group in (1, 2, 3):
+    for match in pattern.finditer(masked):
+        for group in (_DOUBLE_QUOTED, _SINGLE_QUOTED, _BARE):
             if match.group(group) is not None:
                 start, end = match.span(group)
                 after = command[match.end() : match.end() + 1]
@@ -142,8 +173,40 @@ def dash_c_tokens(command: str) -> list[tuple[int, str, bool]]:
     return tokens
 
 
-# `RAW_DASH_C_RE` group index -> the quoting the path arrived in.
-_DOUBLE_QUOTED, _SINGLE_QUOTED, _BARE = 1, 2, 3
+def dash_c_tokens(
+    command: str, masked: str | None = None
+) -> list[tuple[int, str, bool]]:
+    """Every git-global `-C` token, in command order.
+
+    One list rather than a `search` per caller: all three `-C` readers share it,
+    because when two of them read the path from different sources one refused
+    nothing while the other probed the wrong repo.
+
+    Pass `masked` when the caller already has `mask_data_spans(command)` — the
+    `cd` pass in the same function does — so the mask is built once.
+    """
+    return _target_tokens(
+        command, RAW_DASH_C_RE, mask_data_spans(command) if masked is None else masked
+    )
+
+
+def cd_tokens(command: str, masked: str | None = None) -> list[tuple[int, str, bool]]:
+    """Every statement-leading `cd` token, in command order.
+
+    Same shape and same rule as `dash_c_tokens`, and that sharing is the point:
+    `cd` used to be read off the quote-STRIPPED text, where `strip_quoted` had
+    already deleted the path — so `cd "/a real dir" && git commit` produced no
+    candidate at all and the repo silently resolved to the hook's own cwd, exactly
+    the bug already fixed for `-C`.
+
+    Masking rather than stripping is what lets both properties hold at once: a
+    quoted commit-message body is filler on the masked text (so a message that
+    mentions `cd /tmp` still cannot retarget anything), while the surviving
+    delimiters let the raw read recover a genuinely quoted literal path.
+    """
+    return _target_tokens(
+        command, RAW_CD_RE, mask_data_spans(command) if masked is None else masked
+    )
 
 
 def token_unreachable(quoting: int, path: str) -> bool:

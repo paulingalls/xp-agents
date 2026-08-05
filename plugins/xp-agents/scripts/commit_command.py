@@ -17,7 +17,6 @@ in, whether we refuse it, and which candidates a post-hook may confirm against.
 """
 
 import contextlib
-import re
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -28,29 +27,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import git_commits
 from dash_c_tokens import (
     HAS_GLOBAL_DASH_C_RE,
+    cd_tokens,
     dash_c_tokens,
+    mask_data_spans,
     token_unreachable,
 )
 
-# Match `cd <path>` and `git -C <path>` only at a shell-statement boundary
-# (start, newline, semicolon, &&, ||) so we don't pick up the literal text
-# of a commit-message heredoc that happens to mention "cd /something". The
-# parsed path is then validated via `is_dir()` — a second filter against
-# false positives. Last match wins so `cd /A && cd -` lands back on /A
-# (the cd-back token doesn't validate).
+# No path regex lives here any more. Both kinds — `git -C <path>` and `cd <path>`
+# — are read by `dash_c_tokens`/`cd_tokens`, which LOCATE the token on an
+# offset-preserving mask (so neither one inside a commit-message body counts) and
+# READ the path from the RAW command at the same offsets (so a QUOTED literal
+# path is not deleted before anyone sees it).
 #
-# `[^\s;&|]+` excludes statement-boundary chars from the captured path so
-# `cd /tmp;` yields `/tmp` (not `/tmp;`) and `cd /a||true` yields `/a`.
-# `is_dir()` would reject the trailing-punctuation variants anyway, but
-# tightening the capture keeps the helper honest with its docstring.
-_BOUNDARY = r"(?:^|[\n;]|&&|\|\|)\s*"
-_PATH_TOKEN = r"([^\s;&|]+)"
-
-# No `-C` regex over the stripped text any more — it could only ever see a path
-# `strip_quoted` had already deleted. `dash_c_tokens` is the single `-C` reader.
-# `cd` keeps its stripped-text regex: a quoted body mentioning a real `cd /tmp`
-# must stay invisible.
-_CD_RE = re.compile(_BOUNDARY + r"cd\s+" + _PATH_TOKEN)
+# `cd` used to keep its own regex over the quote-STRIPPED text, on the theory that
+# stripping was what made a message body invisible. Masking gives that same
+# immunity while also recovering the quoted literal, so the two properties were
+# never in tension — the stripped-text reader just lost the path as well.
 
 
 def _resolved_dir(candidate: str, fallback: str) -> str | None:
@@ -67,9 +59,7 @@ def _resolved_dir(candidate: str, fallback: str) -> str | None:
     return str(path) if path.is_dir() else None
 
 
-def parse_effective_cwd(
-    command: str, fallback: str, *, scan_target: str | None = None
-) -> str:
+def parse_effective_cwd(command: str, fallback: str) -> str:
     """Return the effective cwd a git invocation in `command` ran under.
 
     `git -C <path>` wins (highest precedence); otherwise the last `cd <path>`
@@ -81,26 +71,25 @@ def parse_effective_cwd(
     chained `cd <wt> && git commit && cd -` (the cd-back means input_data.cwd
     is no longer the worktree by the time the hook fires).
 
-    The two kinds read from DIFFERENT sources, deliberately. `-C` paths come from
-    `dash_c_tokens` (masked-locate, raw-read) — the same reader
-    `dash_c_unreachable` and `head_probe_target` use. Sharing it is the point:
-    this function used to scan the quote-STRIPPED text, where
-    `git -C "/p" commit` has become `git -C  commit`, so it captured the literal
-    token `commit` as the path, failed `is_dir()`, and silently returned
-    `fallback` while every downstream gate read the caller's repo. `cd` paths stay
-    on the stripped text, where a message quoting a REAL `cd /tmp` must remain
-    invisible.
+    BOTH kinds now read from ONE source: `dash_c_tokens` and `cd_tokens`, which
+    locate on an offset-preserving mask and read the path from the raw command at
+    the same offsets, over a single mask built here. Each kind used to be read off
+    the quote-STRIPPED text, where the path had already been DELETED —
+    `git -C "/p" commit` became `git -C  commit` and captured the literal token
+    `commit`, and `cd "/a real dir" && git commit` produced no candidate at all.
+    Both silently returned `fallback` while every downstream gate scanned the
+    caller's repo, which an empty `git diff --cached` makes indistinguishable from
+    a clean one.
 
-    That leaves a KNOWN gap, not an immunity: `cd "/a real dir" && git commit`
-    loses its path to the same deletion, so the gates read the caller's repo
-    exactly as the quoted `-C` form used to — and no refusal covers the `cd`
-    side. Closing it needs the quote-aware token read the `-C` side got (and,
-    for `cd $VAR`, a policy call on refusing a very common shape); tracked as an
-    open concern rather than assumed absent.
+    Masking rather than stripping is what allows that without losing the property
+    stripping was there for: a commit MESSAGE that mentions a real `cd /tmp` is
+    filler on the masked text, so it still cannot retarget anything. The two were
+    never in tension — the stripped-text reader simply lost the path too.
 
-    `scan_target` lets callers pass a pre-stripped command so one Bash invocation
-    isn't stripped twice. It applies to the `cd` pass only; the `-C` pass needs
-    the raw command by construction.
+    Takes no `scan_target`: it fed only the retired `cd` regex, and a parameter
+    that no longer changes the answer is the shape this module's whole defect
+    history is made of. `head_probe_target` and `commit_repo_candidates` keep
+    theirs for `HAS_GLOBAL_DASH_C_RE` / `is_git_commit` and stop forwarding it.
     """
     if not command:
         return fallback
@@ -118,9 +107,6 @@ def parse_effective_cwd(
     if "cd " not in command and "git" not in command:
         return fallback
 
-    if scan_target is None:
-        scan_target = git_commits.strip_quoted(command)
-
     def _last_validated(candidates: list[str]) -> str | None:
         for candidate in reversed(candidates):
             resolved = _resolved_dir(candidate, fallback)
@@ -136,8 +122,15 @@ def parse_effective_cwd(
     # otherwise resolve confidently to its first segment — a real directory that
     # is not the target — which is worse than admitting we do not know.
     # `dash_c_unreachable` refuses it at the gate; this declines to guess.
-    dash_c_paths = [path for _q, path, complete in dash_c_tokens(command) if complete]
-    cd_paths = [m.group(1) for m in _CD_RE.finditer(scan_target)]
+    #
+    # BOTH kinds now come from the same masked-locate/raw-read reader, over ONE
+    # mask. `cd` used to be read off the quote-stripped text, where a quoted
+    # literal had already been deleted — the same defect the `-C` side carried,
+    # and the reason `cd "/a real dir" && git commit` silently scanned the
+    # caller's repo.
+    masked = mask_data_spans(command)
+    dash_c_paths = [p for _q, p, complete in dash_c_tokens(command, masked) if complete]
+    cd_paths = [p for _q, p, complete in cd_tokens(command, masked) if complete]
     for candidates in (dash_c_paths, cd_paths):
         resolved = _last_validated(candidates)
         if resolved is not None:
@@ -191,7 +184,7 @@ def head_probe_target(
             # than probe the wrong repo (the safe default the old gate took).
             return None
         return _resolved_dir(raw_path, fallback)
-    return parse_effective_cwd(command, fallback, scan_target=scan_target)
+    return parse_effective_cwd(command, fallback)
 
 
 def dash_c_unreachable(command: str, *, scan_target: str | None = None) -> bool:
@@ -312,7 +305,7 @@ def commit_repo_candidates(
     # (and tests) pass synthetic cwds, and `get_commit_message_body` already
     # degrades to None on a path that isn't a repo.
     yield from _emit(
-        parse_effective_cwd(command, fallback, scan_target=scan_target),
+        parse_effective_cwd(command, fallback),
         require_dir=False,
     )
     yield from _emit(fallback, require_dir=False)
