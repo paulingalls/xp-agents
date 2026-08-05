@@ -10,6 +10,10 @@ Message recovery and escape-hatch tags moved on to `commit_message.py` — see
 its docstring for why the quoting a message arrived in needed room here that
 this file did not have. Both are re-exported at the bottom so the historical
 import paths keep resolving.
+
+Reading the `-C` tokens themselves moved on to `dash_c_tokens.py` for the same
+reason. What stays here is what the tokens are FOR — which repo the commit lands
+in, whether we refuse it, and which candidates a post-hook may confirm against.
 """
 
 import contextlib
@@ -22,6 +26,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import git_commits
+from dash_c_tokens import (
+    HAS_GLOBAL_DASH_C_RE,
+    dash_c_tokens,
+    token_unreachable,
+)
 
 # Match `cd <path>` and `git -C <path>` only at a shell-statement boundary
 # (start, newline, semicolon, &&, ||) so we don't pick up the literal text
@@ -37,22 +46,25 @@ import git_commits
 _BOUNDARY = r"(?:^|[\n;]|&&|\|\|)\s*"
 _PATH_TOKEN = r"([^\s;&|]+)"
 
-# Global git options that may sit between `git` and the `-C` change-directory
-# flag. `-c <name>=<value>` takes its value as a SEPARATE token — the project's
-# own CI-identity form `git -c commit.gpgsign=false -C /path commit` — so the
-# chain must be able to consume that bare value token; a plain `(?:-\S+\s+)*?`
-# chain stalls on it (the value does not start with `-`) and the `-C` goes
-# unrecognized, leaving the repo to resolve to the hook's own cwd. Ordinary
-# boolean flags (`--no-pager`) match the `-\S+` alternative. `commit`
-# intervening still breaks the chain, so `git commit -C <commit>` (the
-# reuse-message flag) is never mistaken for the global `-C`.
-_GLOBAL_FLAG_CHAIN = r"(?:-c\s+\S+\s+|-\S+\s+)*?"
-
 # No `-C` regex over the stripped text any more — it could only ever see a path
-# `strip_quoted` had already deleted. `_dash_c_tokens` is the single `-C` reader.
+# `strip_quoted` had already deleted. `dash_c_tokens` is the single `-C` reader.
 # `cd` keeps its stripped-text regex: a quoted body mentioning a real `cd /tmp`
 # must stay invisible.
 _CD_RE = re.compile(_BOUNDARY + r"cd\s+" + _PATH_TOKEN)
+
+
+def _resolved_dir(candidate: str, fallback: str) -> str | None:
+    """`candidate` as an existing directory, resolved against `fallback` when
+    relative — or None when it is not a directory we can see.
+
+    One definition for both readers of a `-C`/`cd` path. `parse_effective_cwd`
+    and `head_probe_target` each spelled the rule out, so a change to how a
+    RELATIVE target resolves had to be made twice to hold.
+    """
+    path = Path(candidate)
+    if not path.is_absolute():
+        path = Path(fallback) / path
+    return str(path) if path.is_dir() else None
 
 
 def parse_effective_cwd(
@@ -70,14 +82,21 @@ def parse_effective_cwd(
     is no longer the worktree by the time the hook fires).
 
     The two kinds read from DIFFERENT sources, deliberately. `-C` paths come from
-    `_dash_c_tokens` (masked-locate, raw-read) — the same reader
+    `dash_c_tokens` (masked-locate, raw-read) — the same reader
     `dash_c_unreachable` and `head_probe_target` use. Sharing it is the point:
     this function used to scan the quote-STRIPPED text, where
     `git -C "/p" commit` has become `git -C  commit`, so it captured the literal
     token `commit` as the path, failed `is_dir()`, and silently returned
     `fallback` while every downstream gate read the caller's repo. `cd` paths stay
     on the stripped text, where a message quoting a REAL `cd /tmp` must remain
-    invisible — `cd` was never broken and its immunity depends on the deletion.
+    invisible.
+
+    That leaves a KNOWN gap, not an immunity: `cd "/a real dir" && git commit`
+    loses its path to the same deletion, so the gates read the caller's repo
+    exactly as the quoted `-C` form used to — and no refusal covers the `cd`
+    side. Closing it needs the quote-aware token read the `-C` side got (and,
+    for `cd $VAR`, a policy call on refusing a very common shape); tracked as an
+    open concern rather than assumed absent.
 
     `scan_target` lets callers pass a pre-stripped command so one Bash invocation
     isn't stripped twice. It applies to the `cd` pass only; the `-C` pass needs
@@ -88,26 +107,23 @@ def parse_effective_cwd(
 
     # Fast-path: skip the strip+regex passes for commands that can't match
     # either pattern. PreToolUse:Bash fires on every Bash call (pytest, ls,
-    # ruff, …); the strip+two-regex scan is wasted work for the 99% case.
-    # `git -` (not the tighter `git -C`) so the `-C` reached PAST a global
-    # option — the CI-identity `git -c key=val -C /path` form — is not skipped:
-    # a git command only carries `git -<flag>` when it has a global option
-    # before the subcommand, which is exactly when `-C` can appear.
-    if "cd " not in command and "git -" not in command:
+    # ruff, …), and none of those mention git at all, so the strip+two-regex
+    # scan is still skipped for the 99% case.
+    # Keyed on the bare word `git`, not on `git -`: the gap between `git` and
+    # its flags can be a tab or a `\`-newline wrap, neither of which contains
+    # the substring `git -`. That guard silently answered `fallback` for a
+    # perfectly readable `-C` while `dash_c_unreachable`, which has no such
+    # guard, read the same token — a third reader disagreeing with the other
+    # two, which is the whole defect class here.
+    if "cd " not in command and "git" not in command:
         return fallback
 
     if scan_target is None:
         scan_target = git_commits.strip_quoted(command)
 
-    def _resolve(candidate: str) -> str | None:
-        path = Path(candidate)
-        if not path.is_absolute():
-            path = Path(fallback) / path
-        return str(path) if path.is_dir() else None
-
     def _last_validated(candidates: list[str]) -> str | None:
         for candidate in reversed(candidates):
-            resolved = _resolve(candidate)
+            resolved = _resolved_dir(candidate, fallback)
             if resolved is not None:
                 return resolved
         return None
@@ -120,7 +136,7 @@ def parse_effective_cwd(
     # otherwise resolve confidently to its first segment — a real directory that
     # is not the target — which is worse than admitting we do not know.
     # `dash_c_unreachable` refuses it at the gate; this declines to guess.
-    dash_c_paths = [path for _q, path, complete in _dash_c_tokens(command) if complete]
+    dash_c_paths = [path for _q, path, complete in dash_c_tokens(command) if complete]
     cd_paths = [m.group(1) for m in _CD_RE.finditer(scan_target)]
     for candidates in (dash_c_paths, cd_paths):
         resolved = _last_validated(candidates)
@@ -128,103 +144,6 @@ def parse_effective_cwd(
             return resolved
 
     return fallback
-
-
-# Matches `-C <path>` on the RAW command, before strip_quoted removes quoted
-# tokens. `git -C "$WT" commit` otherwise loses its path entirely and the repo
-# silently resolves to the hook's own cwd. Shares `_GLOBAL_FLAG_CHAIN` so the
-# `-c key=val` CI-identity form is skipped, and is now the ONLY `-C` reader:
-# `parse_effective_cwd` reads its paths from here too, via `_dash_c_tokens`.
-_RAW_DASH_C_RE = re.compile(
-    r"git\s+" + _GLOBAL_FLAG_CHAIN + r"""-C\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"""
-)
-
-# Length-PRESERVING mask of the spans `strip_quoted` deletes outright: heredoc
-# bodies, and the contents of quoted strings. Offsets survive, so a `-C` token
-# located on the masked text can be read back from the RAW command at the same
-# span — which is what lets every `-C` in a compound command be judged, rather
-# than only the first. Deleting the spans instead (strip_quoted) shifts every
-# later offset; keeping them shifts nothing but also can't be searched, because
-# a commit MESSAGE that merely mentions `git -C $WT` would then read as a flag.
-#
-# Quote DELIMITERS are kept and only the contents are masked, so the quoting
-# form a `-C` path arrived in is still visible — that form is what decides
-# whether the shell expanded it. The filler is a plain letter: it must not
-# introduce any construct `dash_c_unreachable` keys on ($, backtick, ~, glob),
-# nor a quote, whitespace, or statement separator.
-_ESCAPED_QUOTE_RE = re.compile(r"\\['\"]")
-# Shared with `git_commits.strip_quoted` — see the ordering warning there. This
-# site was always correct; the deleting twin was not, and one definition is what
-# stops them diverging again.
-_QUOTED_SPAN_RE = git_commits.QUOTED_SPAN_RE
-_HEREDOC_SPAN_RE = re.compile(r"<<-?\s*'?(\w+)'?.*?\n.*?\1", re.DOTALL)
-_MASK_FILL = "x"
-
-
-def _mask_data_spans(command: str) -> str:
-    """`strip_quoted`'s effect without moving any character's offset."""
-    chars = list(command)
-
-    def _fill(start: int, end: int) -> None:
-        for i in range(start, end):
-            if chars[i] != "\n":
-                chars[i] = _MASK_FILL
-
-    for match in _HEREDOC_SPAN_RE.finditer(command):
-        _fill(*match.span())
-    # Escaped quotes first, exactly as strip_quoted drops them first: an
-    # unmasked `\"` would otherwise open or close a span it is not part of.
-    for match in _ESCAPED_QUOTE_RE.finditer("".join(chars)):
-        _fill(*match.span())
-    for match in _QUOTED_SPAN_RE.finditer("".join(chars)):
-        _fill(match.start() + 1, match.end() - 1)
-    return "".join(chars)
-
-
-# A recovered `-C` token must be followed by whitespace, a statement separator,
-# or nothing at all. Anything else means the regex captured only the FIRST
-# segment of a concatenation — `-C '/tmp/'"$WT"` — so the path as a whole was
-# never read.
-_TOKEN_TERMINATORS = " \t\r\n;&|"
-
-
-def _dash_c_tokens(command: str) -> list[tuple[int, str, bool]]:
-    """Every git-global `-C` token, in command order.
-
-    Each entry is (quoting-group index, the token's RAW text, whether the token
-    is COMPLETE). The tokens are LOCATED on the masked command — so a `-C` inside
-    a commit message is not one — and READ from the raw command at the same
-    offsets, because the mask replaced the path text with filler. The group index
-    carries the quoting form the path arrived in, which is what decides whether
-    the shell expanded it.
-
-    One list rather than a `search` per caller: all three `-C` readers share it,
-    because when two of them read the path from different sources one refused
-    nothing while the other probed the wrong repo.
-
-    Completeness is judged from `match.end()` — the end of the whole alternation,
-    NOT the end of the capture group. The groups exclude the quote delimiters, so
-    a group-relative read lands ON the closing quote and would mark every quoted
-    token incomplete.
-    """
-    tokens: list[tuple[int, str, bool]] = []
-    for match in _RAW_DASH_C_RE.finditer(_mask_data_spans(command)):
-        for group in (1, 2, 3):
-            if match.group(group) is not None:
-                start, end = match.span(group)
-                after = command[match.end() : match.end() + 1]
-                complete = after == "" or after in _TOKEN_TERMINATORS
-                tokens.append((group, command[start:end], complete))
-                break
-    return tokens
-
-
-# Detects the PRESENCE of a git-global `-C` flag on the QUOTE-STRIPPED command
-# (a `-C` inside a commit-message body is stripped away, so it can never
-# count). Path-agnostic: the path itself is read from the RAW command via
-# `_RAW_DASH_C_RE` so a quoted literal path survives. `head_probe_target` uses
-# this to tell an explicit `git -C <path>` apart from a plain/`cd` command.
-_HAS_GLOBAL_DASH_C_RE = re.compile(r"git\s+" + _GLOBAL_FLAG_CHAIN + r"-C(?:\s|$)")
 
 
 def head_probe_target(
@@ -257,17 +176,21 @@ def head_probe_target(
     """
     if scan_target is None:
         scan_target = git_commits.strip_quoted(command)
-    if _HAS_GLOBAL_DASH_C_RE.search(scan_target):
-        tokens = [t for t in _dash_c_tokens(command) if t[2]]
+    if HAS_GLOBAL_DASH_C_RE.search(scan_target):
+        tokens = dash_c_tokens(command)
+        # An unrecoverable token anywhere suppresses the probe, rather than
+        # demoting it to the last RECOVERED one: in `git -C /a add && git -C
+        # '/b/'"$X" commit` the commit targeted whatever the second token
+        # expands to, so answering /a probes a repo the commit never touched —
+        # the fabricated trace the "not a dir -> None" arm below guards against.
+        if any(not complete for _q, _p, complete in tokens):
+            return None
         raw_path = tokens[-1][1] if tokens else ""
         if not raw_path:
             # `-C` flag present but its path is unrecoverable — suppress rather
             # than probe the wrong repo (the safe default the old gate took).
             return None
-        path = Path(raw_path)
-        if not path.is_absolute():
-            path = Path(fallback) / path
-        return str(path) if path.is_dir() else None
+        return _resolved_dir(raw_path, fallback)
     return parse_effective_cwd(command, fallback, scan_target=scan_target)
 
 
@@ -293,7 +216,8 @@ def dash_c_unreachable(command: str, *, scan_target: str | None = None) -> bool:
       * double-quoted -- `$` and backtick expand; a leading `~` and glob
         metacharacters do NOT.
       * bare          -- `$`, backtick, a LEADING `~`, and a glob (`*?[`) all
-        expand.
+        expand, and a backslash escape (`/tmp/a\\ dir`) joins the next word
+        into the same path while the capture stops at the backslash.
 
     EVERY `-C` in the command is judged, not just the first. A chain stages in
     one repo and commits in another — `git -C /literal add -A && git -C "$WT"
@@ -320,7 +244,7 @@ def dash_c_unreachable(command: str, *, scan_target: str | None = None) -> bool:
     The match still reads ONE quoting form per `-C` token, so a token that
     concatenates forms (`'/tmp/'"$WT"`) is captured only as far as its first
     segment. That used to read as reachable — fail-open. It no longer does: such
-    a token is marked INCOMPLETE by `_dash_c_tokens` and refused here, because
+    a token is marked INCOMPLETE by `dash_c_tokens` and refused here, because
     what the remainder expands to was never seen. Story-011 closed it after
     measuring that the case is not merely theoretical — once `parse_effective_cwd`
     began reading raw tokens, a mixed-form path resolved *confidently* to its
@@ -330,39 +254,21 @@ def dash_c_unreachable(command: str, *, scan_target: str | None = None) -> bool:
     `head_probe_target` does: `git commit -m "prefer git -C $WT over cd"` has no
     `-C` flag at all — the text lives in the message body — and must not be read
     as one, or a commit that merely talks about `-C` is refused. The per-token
-    scan holds that line too, via `_mask_data_spans`: a message body is masked
-    to filler at its original offsets, so a real `-C` elsewhere in the same
-    command no longer drags the mentioned one into the scan.
+    scan holds that line too, via the token reader's offset-preserving mask: a
+    message body becomes filler at its original offsets, so a real `-C` elsewhere
+    in the same command no longer drags the mentioned one into the scan.
     """
     if scan_target is None:
         scan_target = git_commits.strip_quoted(command)
-    if not _HAS_GLOBAL_DASH_C_RE.search(scan_target):
+    if not HAS_GLOBAL_DASH_C_RE.search(scan_target):
         return False
     # An INCOMPLETE token is unreachable by construction: only the first segment
     # of a concatenation was captured, so whatever the rest expands to was never
     # seen. Judged alongside the quoting form rather than instead of it — a
-    # complete token still has to survive `_token_unreachable`.
+    # complete token still has to survive `token_unreachable`.
     return any(
-        not complete or _token_unreachable(g, p)
-        for g, p, complete in _dash_c_tokens(command)
-    )
-
-
-# `_RAW_DASH_C_RE` group index -> the quoting the path arrived in.
-_DOUBLE_QUOTED, _SINGLE_QUOTED, _BARE = 1, 2, 3
-
-
-def _token_unreachable(quoting: int, path: str) -> bool:
-    """Judge ONE `-C` token by the quoting its path arrived in."""
-    if quoting == _SINGLE_QUOTED:
-        return False
-    if quoting == _DOUBLE_QUOTED:
-        return "$" in path or "`" in path
-    return (
-        "$" in path
-        or "`" in path
-        or path.startswith("~")
-        or any(ch in path for ch in "*?[")
+        not complete or token_unreachable(g, p)
+        for g, p, complete in dash_c_tokens(command)
     )
 
 

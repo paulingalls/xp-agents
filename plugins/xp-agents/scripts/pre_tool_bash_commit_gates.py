@@ -121,7 +121,7 @@ def commit_gate_parts(
             "Cannot determine which repo this commit lands in: `git -C` "
             "names a path hidden behind a shell variable, command "
             "substitution, `~`, or a glob, or built by concatenating quoting "
-            "forms. The security scan, lint gate, and branch "
+            "forms or backslash escapes. The security scan, lint gate, and branch "
             "guard would all silently run against the wrong repo. Use a "
             "single literal path (quoting it is fine).",
             "Commit target repo unresolvable.",

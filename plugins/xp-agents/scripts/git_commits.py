@@ -7,6 +7,15 @@ and `git -c k=v commit` so agent-style invocations don't bypass detection.
 
 import re
 
+# The gap between two shell tokens: whitespace, or a `\`-newline line
+# continuation, which the shell joins away before git ever sees it. A plain
+# `\s+` reads a WRAPPED invocation as no invocation at all — `git -C /p \<nl>
+# commit` matched nothing — and every gate keyed on this detection (tier-1
+# secret scan, staged lint, review cycle, branch guard, commit-event recording)
+# then skipped the commit silently. Unlike the deliberate evasions the spike
+# catalogues (`sh -c`, aliases, `$GIT`), wrapping is ordinary formatting.
+TOKEN_GAP = r"(?:\s|\\\n)+"
+
 # `git` followed by zero-or-more global options before the subcommand.
 # Each option is `-X` (standalone) or `-X <value>` (paired). Covers `-C <path>`
 # (the form agents adopt to avoid cd-poisoning Stop hooks), `-c <kv>`,
@@ -15,7 +24,7 @@ import re
 # skips review cycle, post-tool hook skips commit-event recording + marker
 # reset, and `commits.get_code_files_for_review` misses unstaged tracked
 # files for `git -C add` / `git -C commit -a`.
-GIT_PREFIX = r"\bgit(?:\s+-\S+(?:\s+\S+)?)*\s+"
+GIT_PREFIX = r"\bgit(?:" + TOKEN_GAP + r"-\S+(?:" + TOKEN_GAP + r"\S+)?)*" + TOKEN_GAP
 
 
 def strip_heredocs(command: str) -> str:
@@ -54,7 +63,7 @@ def strip_quoted(command: str) -> str:
     share one pre-stripped scan target with `is_git_commit` instead of
     each re-stripping the command independently.
 
-    Shares `QUOTED_SPAN_RE` with `commit_command._mask_data_spans`, which needs
+    Shares `QUOTED_SPAN_RE` with `dash_c_tokens.mask_data_spans`, which needs
     the same spans without moving any character's offset. Two spellings of one
     rule is how the ordering bug above survived: the offset-preserving twin was
     already correct while this one was not.

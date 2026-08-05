@@ -91,6 +91,26 @@ class TestCommitCommandDirectImport(unittest.TestCase):
                 commit_command.parse_effective_cwd(command, "/HOOK/CWD"),
             )
 
+    def test_parse_effective_cwd_sees_a_dash_c_past_a_wrap_or_a_tab(self):
+        """The fast-path guard must not hide a `-C` the token reader can read.
+
+        It skipped any command without the literal substring `git -`, which
+        `git \\<nl> -C /p` and `git<TAB>-C /p` do not contain — so the parse
+        returned the caller's cwd for a target it could perfectly well resolve,
+        while `dash_c_unreachable` (no fast path) judged the same token. Two
+        readers disagreeing about which repo a commit lands in is the defect
+        class this story closed; the guard was a third reader.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            for command in (
+                f"git \\\n  -C {tmp} commit -m x",
+                f"git\t-C {tmp} commit -m x",
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual(
+                        commit_command.parse_effective_cwd(command, "/HOOK/CWD"), tmp
+                    )
+
     def test_parse_effective_cwd_relative_dash_c_resolves_against_fallback(self):
         """A RELATIVE literal `-C` path must keep resolving exactly as it does
         today, against the caller's cwd.
@@ -121,7 +141,7 @@ class TestCommitCommandDirectImport(unittest.TestCase):
         """`-C '/tmp/'"$WT"` is two concatenated segments, and only the first is
         captured — so the path as a whole was never recovered.
 
-        `_token_unreachable` judges by the captured segment's quoting, and
+        `dash_c_tokens.token_unreachable` judges by the captured segment's quoting, and
         single-quoted means "the shell expanded nothing", which is true of
         `/tmp/` and irrelevant to the `"$WT"` that follows it. Previously
         recorded as a deliberate known limit; it is a live hole, because the
@@ -376,6 +396,21 @@ class TestCommitCommandDirectImport(unittest.TestCase):
                 commit_command.parse_effective_cwd(command, tmp),
             )
             self.assertEqual(commit_command.head_probe_target(command, tmp), str(b))
+
+    def test_head_probe_target_suppresses_when_the_LAST_token_is_unrecoverable(self):
+        """An unreadable `-C` must not demote the probe to an EARLIER one.
+
+        `git -C /a add && git -C '/tmp/'"$X" commit` targets whatever the second
+        token expands to. Dropping the unrecoverable token and then taking the
+        last SURVIVOR answers /a — the staging repo, which the commit never
+        touched — and its HEAD is exactly the fabricated trace this function's
+        "not a dir -> None" arm exists to avoid. Unknowable means None.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            a = Path(tmp) / "a"
+            a.mkdir()
+            command = f"""git -C {a} add -A && git -C '{tmp}/'"$X" commit -m 'm'"""
+            self.assertIsNone(commit_command.head_probe_target(command, tmp))
 
     def test_head_probe_target_ignores_a_dash_c_inside_the_message(self):
         """The probe reads the LAST token, so the mask is what keeps a message
