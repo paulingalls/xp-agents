@@ -3,13 +3,14 @@
 keep that file under the 500-line cap (the same move already made for
 `pre_tool_bash_branch_delete.py` and `pre_tool_bash_reviewer_guard.py`).
 
-Runs, in order, on every recognized commit: the `git -C` unreachable-target
-refusal, the tier-1 deterministic secret scan, the staged-lint advisory, the
-review-cycle gate (with its story-cadence deferral), the protected/sprint-
-branch guard, and the verify-touch nudge. The order is load-bearing — tier-1
-fires before the review-cycle gate so a deterministic secret still blocks a
-commit that already has clean review flags, and the dash-C refusal fires
-before any git read so no gate below it ever runs against the wrong repo.
+Runs, in order, on every recognized commit: the unreachable-target refusal (both
+legs — `git -C` and `cd`), the tier-1 deterministic secret scan, the staged-lint
+advisory, the review-cycle gate (with its story-cadence deferral), the
+protected/sprint-branch guard, and the verify-touch nudge. The order is
+load-bearing — tier-1 fires before the review-cycle gate so a deterministic
+secret still blocks a commit that already has clean review flags, and the
+unreachable-target refusal fires before any git read so no gate below it ever
+runs against the wrong repo.
 
 `commit_gate_parts` is the single entry point; `pre_tool_bash.run` calls it
 once per Bash command and extends its own `parts` with the result. The
@@ -37,6 +38,13 @@ import markers
 import security_patterns
 import security_scanner
 import staged_lint
+
+# Straight from commit_command rather than through the `commits` facade that
+# re-exports its siblings. `commits.py` sits at 449 lines against a 450 band
+# floor, so a two-line re-export would push a facade into the size band and
+# demand a recorded ceiling — for nothing. `commit_handling.py` already imports
+# commit_command directly, so this is the established shape, not a new one.
+from commit_command import cd_target_unreachable
 
 # ---------------------------------------------------------------------------
 # Verify-touch nudge
@@ -116,9 +124,16 @@ def commit_gate_parts(
     # Refuse instead — the only honest answer when the destination is
     # unknowable. (PostToolUse can recover this case by matching HEAD's
     # subject against the message; pre-commit there is no HEAD to match.)
-    if commits.dash_c_unreachable(command):
+    # BOTH legs, because both decide the destination. `cd` reached this refusal
+    # one story later than `-C`: it had the identical hidden-path problem, and
+    # `cd "$WT" && git commit` fell back to the caller's cwd in silence. The two
+    # predicates are separate rather than unioned inside one, because
+    # `dash_c_unreachable` has other consumers whose meaning is `-C`-specific.
+    dash_c_leg = commits.dash_c_unreachable(command)
+    if dash_c_leg or cd_target_unreachable(command):
+        named = "`git -C`" if dash_c_leg else "`cd`"
         raise _common.BlockedError(
-            "Cannot determine which repo this commit lands in: `git -C` "
+            f"Cannot determine which repo this commit lands in: {named} "
             "names a path hidden behind a shell variable, command "
             "substitution, `~`, or a glob, or built by concatenating quoting "
             "forms or backslash escapes. The security scan, lint gate, and branch "

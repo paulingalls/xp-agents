@@ -59,9 +59,14 @@ QUOTED_SPAN_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
 def strip_quoted(command: str) -> str:
     """Remove quoted strings and heredocs to avoid matching inside arguments.
 
-    Public so callers (commits.parse_effective_cwd, bash_post_tool) can
-    share one pre-stripped scan target with `is_git_commit` instead of
-    each re-stripping the command independently.
+    Public so callers (bash_post_tool, and the `-C` presence predicates
+    `commit_command.dash_c_unreachable` / `head_probe_target`) can share one
+    pre-stripped scan target with `is_git_commit` instead of each re-stripping
+    the command independently.
+
+    `parse_effective_cwd` is deliberately NOT one of them any more: it reads
+    paths off `mask_data_spans` instead, because a stripped scan had already
+    DELETED the path it needed.
 
     Shares `QUOTED_SPAN_RE` with `dash_c_tokens.mask_data_spans`, which needs
     the same spans without moving any character's offset. Two spellings of one
