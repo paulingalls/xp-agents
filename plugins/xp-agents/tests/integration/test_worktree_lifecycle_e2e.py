@@ -21,6 +21,17 @@ place four failure modes can show up:
   4. `remove_worktree` -- the branch-deleting entry point -- is never
      exercised with `smm_dir` at all; the teardown suites call
      `remove_worktree_dir` directly or go through `cleanup_teammate`.
+  5. There are TWO create legs and they gate bootstrap differently:
+     `spawn_teammate.create_worktree` on `smm_dir is not None`, the
+     `WorktreeCreate` hook (`worktree_create.run`) on the teammate name
+     prefix. Binding only the first leaves the GATED one unbound end to end,
+     and the two also cut different branch names. Both are bound below.
+
+AND THE TRAP UNDER ALL OF IT: `create_worktree` -> `cleanup_existing` ->
+`remove_worktree(smm_dir=)` runs the declared TEARDOWN too, against whatever
+stale tree sits at the path. So a marker observed only at the END of a test is
+ambiguous about which call wrote it. Every test here pins the marker ABSENT
+after create, which is what makes the final read attributable to the removal.
 
 HOW ONE COMMAND CARRIES THE WHOLE CLAIM. The declared teardown is
 
@@ -46,6 +57,7 @@ the suite-wide spawn guard (it blocks `argv[0] == "claude"`), so every command
 here stays an `echo`/redirect/`test -f` against the temp tree.
 """
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -61,6 +73,7 @@ import coordination
 import post_tool_use
 import spawn_teammate
 import worktree
+import worktree_create
 from _system_context_fixtures import valid_doc, write_doc
 
 # Must start with the teammate prefix: `worktree.remove_worktree_dir` gates the
@@ -70,6 +83,10 @@ from _system_context_fixtures import valid_doc, write_doc
 # suite's name because the temp repo is class-scoped.
 _WT_NAME = "worktree-story-lifecycle-capstone"
 
+# The platform-hook leg's worktree. Same prefix requirement, for the second
+# reason too: `worktree_create.run` gates its bootstrap on that prefix.
+_HOOK_WT_NAME = "worktree-story-lifecycle-hooked"
+
 # Written by bootstrap INSIDE the worktree; read by teardown.
 _PROVISIONED = "provisioned.txt"
 
@@ -78,6 +95,17 @@ _TORN_MARKER = "torn-lifecycle-capstone.txt"
 
 _BOOTSTRAP_CMD = f"echo provisioned > {_PROVISIONED}"
 _TEARDOWN_CMD = f'test -f {_PROVISIONED} && echo torn > "$SMM_DIR/{_TORN_MARKER}"'
+
+
+def _local_branches(cwd: str) -> list[str]:
+    """Local branch names, so "the branch is gone" is asserted against git."""
+    result = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.split()
 
 
 class _LifecycleTestCase(_IntegrationTestCase):
@@ -125,20 +153,44 @@ class _LifecycleTestCase(_IntegrationTestCase):
 
 
 class TestLifecycleComposes(_LifecycleTestCase):
-    """Create -> bootstrap -> register -> remove -> teardown -> clear."""
+    """Create -> bootstrap -> register -> remove -> teardown -> clear.
 
-    def test_bootstrap_provisions_the_worktree_on_create(self):
-        self.declare(bootstrap=_BOOTSTRAP_CMD, teardown=_TEARDOWN_CMD)
-        wt_path = self.create()
-        self.assertTrue(
-            (Path(wt_path) / _PROVISIONED).is_file(),
-            "bootstrap must run inside the new worktree at create time",
-        )
+    Deliberately ONE test. A standalone "bootstrap provisions the worktree on
+    create" case lived here and was deleted: it re-asserted, through the same
+    `create_worktree(name, cwd, smm_dir=...)` call, exactly what
+    `hooks/test_spawn_teammate_bootstrap.TestBootstrapRuns` already owns, and
+    the capstone below now pins the same artifact as a PRECONDITION, so no
+    diagnostic is lost. It also cost something: a second method creating a
+    worktree at the same path made the capstone's central assertion depend on
+    tearDown's sweep having removed it first (see the create-time-teardown note
+    in the test), which is not a dependency a capstone should carry.
+    """
 
     def test_teardown_sees_what_bootstrap_made_and_coordination_dies_with_it(self):
         """The capstone. Every link in one flow."""
         self.declare(bootstrap=_BOOTSTRAP_CMD, teardown=_TEARDOWN_CMD)
         wt_path = self.create()
+
+        self.assertTrue(
+            (Path(wt_path) / _PROVISIONED).is_file(),
+            "precondition: bootstrap must run inside the new worktree at create "
+            "time -- the artifact the teardown below is contracted to see",
+        )
+        # THE MARKER MUST NOT EXIST YET, and this is not a formality.
+        # `create_worktree` -> `cleanup_existing` -> `remove_worktree(smm_dir=)`
+        # ALSO runs the declared teardown, against whatever stale tree sits at
+        # this path. So a marker read at the end is ambiguous on its own: it
+        # could have been written by the CREATE call rather than by the removal
+        # under test, and the whole "teardown runs at removal" claim would be
+        # satisfied by the wrong caller. Pinning it absent here makes the final
+        # assertion attributable to `remove_worktree` alone, independently of
+        # what any sibling test or a skipped cleanup left on disk.
+        self.assertFalse(
+            self.torn_marker().is_file(),
+            "no removal has happened yet -- a marker here means create-time "
+            "cleanup tore down a stale tree, and the final assertion would "
+            "credit the removal for it",
+        )
 
         # A sibling entry that must SURVIVE. Without it, a removal that simply
         # truncated .coordination.json would satisfy the final assertion.
@@ -177,7 +229,13 @@ class TestLifecycleComposes(_LifecycleTestCase):
             "a sibling's entry must survive -- proving the clear was targeted, "
             "not a wipe of the whole file",
         )
-        self.assertIsInstance(verdict, worktree.BranchRemoval)
+        # The SPECIFIC verdict, not merely "some BranchRemoval" -- every return
+        # path of `remove_worktree` is one, so an isinstance check is a
+        # tautology that `NO_BRANCH` (nothing happened at all) would satisfy.
+        # The worktree's branch was cut from `main` and carries no commits, so
+        # `delete_branch` proves it merged and deletes it: the branch leg of the
+        # removal really ran, not just the directory leg.
+        self.assertIs(verdict, worktree.BranchRemoval.DELETED_MERGED)
 
 
 class TestTheLinkIsReal(_LifecycleTestCase):
@@ -203,9 +261,22 @@ class TestTheLinkIsReal(_LifecycleTestCase):
             (Path(wt_path) / _PROVISIONED).is_file(),
             "no bootstrap declared, so nothing should have provisioned",
         )
+        self.assertFalse(
+            self.torn_marker().is_file(),
+            "nothing has been removed yet -- see the create-time teardown trap "
+            "in the module docstring",
+        )
 
         worktree.remove_worktree(_WT_NAME, str(self.tmpdir), smm_dir=self.smm_dir)
 
+        # Positive control, same reason as the paired assertions below: a
+        # marker-absent assertion is also satisfied by a removal that never
+        # happened, and then this proves nothing about the `test -f` guard.
+        self.assertFalse(
+            Path(wt_path).is_dir(),
+            "the removal must actually have run -- otherwise 'no marker' says "
+            "nothing about the guard this test is pinning",
+        )
         self.assertFalse(
             self.torn_marker().is_file(),
             "the marker must depend on bootstrap's artifact, not merely on "
@@ -219,25 +290,112 @@ class TestTheLinkIsReal(_LifecycleTestCase):
         that is not the registered one and the entry survives with no error
         anywhere -- which is why the capstone drives the real registrar
         instead of trusting two matching literals.
+
+        Asserted as a PAIR, and it has to be. "The entry survived" alone is a
+        bare negative that any never-reached clear satisfies just as well as an
+        exact-key miss: a `removed_ok` that came back False, a tightened
+        `is_teammate_agent_id`, a removal that returned early -- each leaves the
+        entry behind while proving nothing about key matching. Registering the
+        REMOVAL name too turns the same single call into its own positive
+        control: that entry must DIE. One dies, one lives, so the clear
+        provably ran and provably discriminated by exact key.
         """
         self.declare(bootstrap=_BOOTSTRAP_CMD, teardown=_TEARDOWN_CMD)
         wt_path = self.create()
         self.register_coordination(wt_path)
-        self.assertIn(_WT_NAME, coordination.read_coordination(self.smm_dir))
 
         # A different teammate-shaped name: passes is_teammate_agent_id, so the
-        # clear is attempted, and still matches nothing.
-        worktree.remove_worktree_dir(
-            "worktree-story-not-the-registered-one",
-            str(self.tmpdir),
-            smm_dir=self.smm_dir,
-        )
+        # clear is attempted, and still matches the registered key not at all.
+        other = "worktree-story-not-the-registered-one"
+        coordination.update_coordination(self.smm_dir, other, ["y"])
+        before = coordination.read_coordination(self.smm_dir)
+        self.assertIn(_WT_NAME, before)
+        self.assertIn(other, before)
 
+        worktree.remove_worktree_dir(other, str(self.tmpdir), smm_dir=self.smm_dir)
+
+        after = coordination.read_coordination(self.smm_dir)
+        self.assertNotIn(
+            other,
+            after,
+            "positive control: the removal name's OWN entry must be cleared -- "
+            "without this the assertion below passes for a clear that was "
+            "never reached at all",
+        )
         self.assertIn(
             _WT_NAME,
-            coordination.read_coordination(self.smm_dir),
+            after,
             "a mismatched key must leave the entry behind -- this is the "
             "silent failure the capstone's key round trip exists to catch",
+        )
+
+
+class TestThePlatformHookLegComposesToo(_LifecycleTestCase):
+    """The OTHER create path, bound to the same removal.
+
+    There are two, and the capstone above drives only one.
+    `spawn_teammate.create_worktree` bootstraps whenever `smm_dir` is passed —
+    no name gate at all. The teammate-prefix gate on bootstrap lives HERE, in
+    `worktree_create.run`, the platform `WorktreeCreate` hook leg that fires
+    for every platform worktree (teammate spawn, Explore, ad-hoc alike). So the
+    create path that CARRIES the gate was the one left unbound end to end.
+
+    Deliberately narrow: the capstone owns the coordination round trip and the
+    targeted-clear proof, and re-asserting them here would duplicate it without
+    adding a path. What only this leg reaches is (a) bootstrap running past the
+    prefix gate rather than past a `smm_dir is not None` check, and (b) a
+    worktree whose BRANCH name is not its DIRECTORY name — this hook cuts
+    `worktree-<name>`, spawn cuts `<name>` — which is exactly the divergence
+    `remove_worktree_dir` re-derives from the tree's HEAD before the branch can
+    be deleted. The verdict below is where that derivation is pinned.
+    """
+
+    def create_via_hook(self, name: str = _HOOK_WT_NAME) -> str:
+        """Drive the real hook entry point, with no create-side mocking."""
+        return worktree_create.run(
+            {
+                "session_id": "test",
+                "cwd": str(self.tmpdir),
+                "hook_event_name": "WorktreeCreate",
+                "name": name,
+            }
+        )
+
+    def test_the_hook_created_worktree_is_torn_down_and_its_branch_deleted(self):
+        self.declare(bootstrap=_BOOTSTRAP_CMD, teardown=_TEARDOWN_CMD)
+
+        wt_path = self.create_via_hook()
+
+        self.assertTrue(
+            (Path(wt_path) / _PROVISIONED).is_file(),
+            "precondition: the prefix-gated bootstrap must have run -- "
+            f"{_HOOK_WT_NAME!r} carries the teammate prefix the gate keys on",
+        )
+        self.assertFalse(
+            self.torn_marker().is_file(),
+            "nothing has been removed yet",
+        )
+
+        verdict = worktree.remove_worktree(
+            _HOOK_WT_NAME, str(self.tmpdir), smm_dir=self.smm_dir
+        )
+
+        self.assertTrue(
+            self.torn_marker().is_file(),
+            "teardown must see the artifact the HOOK leg's bootstrap wrote, "
+            "not only the one spawn's leg writes",
+        )
+        self.assertFalse(Path(wt_path).is_dir(), "the worktree directory must be gone")
+        # DELETED_MERGED, not merely "a verdict": the hook checked out
+        # `worktree-<name>`, so reaching this outcome means the branch was
+        # re-derived from the tree's HEAD rather than assumed equal to `name`.
+        # Had it been assumed, `delete_branch` would have been handed a ref that
+        # does not exist and answered REFUSED_UNMERGED, leaving a live branch.
+        self.assertIs(verdict, worktree.BranchRemoval.DELETED_MERGED)
+        self.assertNotIn(
+            f"worktree-{_HOOK_WT_NAME}",
+            _local_branches(str(self.tmpdir)),
+            "the branch the hook cut must not outlive the worktree",
         )
 
 
