@@ -48,11 +48,10 @@ _PATH_TOKEN = r"([^\s;&|]+)"
 # reuse-message flag) is never mistaken for the global `-C`.
 _GLOBAL_FLAG_CHAIN = r"(?:-c\s+\S+\s+|-\S+\s+)*?"
 
-# No `-C` regex over the stripped text lives here any more: it could only ever
-# see a path `strip_quoted` had already deleted. `_dash_c_tokens` (below) is the
-# single reader for `-C` paths, shared with `dash_c_unreachable` and
-# `head_probe_target`. `cd` keeps its stripped-text regex — a quoted message body
-# mentioning a real `cd /tmp` must stay invisible.
+# No `-C` regex over the stripped text any more — it could only ever see a path
+# `strip_quoted` had already deleted. `_dash_c_tokens` is the single `-C` reader.
+# `cd` keeps its stripped-text regex: a quoted body mentioning a real `cd /tmp`
+# must stay invisible.
 _CD_RE = re.compile(_BOUNDARY + r"cd\s+" + _PATH_TOKEN)
 
 
@@ -70,25 +69,19 @@ def parse_effective_cwd(
     chained `cd <wt> && git commit && cd -` (the cd-back means input_data.cwd
     is no longer the worktree by the time the hook fires).
 
-    The two kinds are read from DIFFERENT sources, deliberately:
+    The two kinds read from DIFFERENT sources, deliberately. `-C` paths come from
+    `_dash_c_tokens` (masked-locate, raw-read) — the same reader
+    `dash_c_unreachable` and `head_probe_target` use. Sharing it is the point:
+    this function used to scan the quote-STRIPPED text, where
+    `git -C "/p" commit` has become `git -C  commit`, so it captured the literal
+    token `commit` as the path, failed `is_dir()`, and silently returned
+    `fallback` while every downstream gate read the caller's repo. `cd` paths stay
+    on the stripped text, where a message quoting a REAL `cd /tmp` must remain
+    invisible — `cd` was never broken and its immunity depends on the deletion.
 
-    - `-C` paths come from `_dash_c_tokens` — located on the offset-preserving
-      mask, read from the RAW command. This is the same reader
-      `dash_c_unreachable` and `head_probe_target` use, and sharing it is the
-      point: this function used to scan the quote-STRIPPED text, where
-      `git -C "/p" commit` has become `git -C  commit`, so it captured the
-      literal token `commit` as the path, failed `is_dir()`, and silently
-      returned `fallback`. Every gate downstream then read the caller's repo
-      while the commit landed elsewhere. Three readers, one token source, so
-      they cannot disagree about which repo a command names again.
-    - `cd` paths stay on the quote-stripped text, where a commit message
-      quoting a REAL `cd /tmp` must remain invisible. `cd` was never broken and
-      its immunity depends on the deletion.
-
-    `scan_target` lets callers pass a pre-stripped command (via
-    `git_commits.strip_quoted`) so the same Bash invocation isn't
-    quote-stripped twice when downstream functions also need it. It applies to
-    the `cd` pass only — the `-C` pass needs the raw command by construction.
+    `scan_target` lets callers pass a pre-stripped command so one Bash invocation
+    isn't stripped twice. It applies to the `cd` pass only; the `-C` pass needs
+    the raw command by construction.
     """
     if not command:
         return fallback
@@ -123,7 +116,11 @@ def parse_effective_cwd(
     # validated candidate wins so `cd /A && cd -` lands back on /A, and
     # `-C /a add && -C /b commit` targets /b — the precedence
     # `head_probe_target` is pinned to agree with.
-    dash_c_paths = [path for _quoting, path in _dash_c_tokens(command)]
+    # INCOMPLETE tokens are dropped, not resolved: `-C '/tmp/'"$WT"` would
+    # otherwise resolve confidently to its first segment — a real directory that
+    # is not the target — which is worse than admitting we do not know.
+    # `dash_c_unreachable` refuses it at the gate; this declines to guess.
+    dash_c_paths = [path for _q, path, complete in _dash_c_tokens(command) if complete]
     cd_paths = [m.group(1) for m in _CD_RE.finditer(scan_target)]
     for candidates in (dash_c_paths, cd_paths):
         resolved = _last_validated(candidates)
@@ -184,26 +181,40 @@ def _mask_data_spans(command: str) -> str:
     return "".join(chars)
 
 
-def _dash_c_tokens(command: str) -> list[tuple[int, str]]:
+# A recovered `-C` token must be followed by whitespace, a statement separator,
+# or nothing at all. Anything else means the regex captured only the FIRST
+# segment of a concatenation — `-C '/tmp/'"$WT"` — so the path as a whole was
+# never read.
+_TOKEN_TERMINATORS = " \t\r\n;&|"
+
+
+def _dash_c_tokens(command: str) -> list[tuple[int, str, bool]]:
     """Every git-global `-C` token, in command order.
 
-    Each entry is (quoting-group index, the token's RAW text). The tokens are
-    LOCATED on the masked command — so a `-C` inside a commit message is not one
-    — and READ from the raw command at the same offsets, because the mask
-    replaced the path text with filler. The group index carries the quoting form
-    the path arrived in, which is what decides whether the shell expanded it.
+    Each entry is (quoting-group index, the token's RAW text, whether the token
+    is COMPLETE). The tokens are LOCATED on the masked command — so a `-C` inside
+    a commit message is not one — and READ from the raw command at the same
+    offsets, because the mask replaced the path text with filler. The group index
+    carries the quoting form the path arrived in, which is what decides whether
+    the shell expanded it.
 
-    One list rather than a `search` in each caller: `dash_c_unreachable` needs
-    every token, `head_probe_target` needs the one nearest the commit, and when
-    those two disagreed about WHICH `-C` a command targeted, one refused nothing
-    while the other probed the wrong repo.
+    One list rather than a `search` per caller: all three `-C` readers share it,
+    because when two of them read the path from different sources one refused
+    nothing while the other probed the wrong repo.
+
+    Completeness is judged from `match.end()` — the end of the whole alternation,
+    NOT the end of the capture group. The groups exclude the quote delimiters, so
+    a group-relative read lands ON the closing quote and would mark every quoted
+    token incomplete.
     """
-    tokens: list[tuple[int, str]] = []
+    tokens: list[tuple[int, str, bool]] = []
     for match in _RAW_DASH_C_RE.finditer(_mask_data_spans(command)):
         for group in (1, 2, 3):
             if match.group(group) is not None:
                 start, end = match.span(group)
-                tokens.append((group, command[start:end]))
+                after = command[match.end() : match.end() + 1]
+                complete = after == "" or after in _TOKEN_TERMINATORS
+                tokens.append((group, command[start:end], complete))
                 break
     return tokens
 
@@ -247,7 +258,7 @@ def head_probe_target(
     if scan_target is None:
         scan_target = git_commits.strip_quoted(command)
     if _HAS_GLOBAL_DASH_C_RE.search(scan_target):
-        tokens = _dash_c_tokens(command)
+        tokens = [t for t in _dash_c_tokens(command) if t[2]]
         raw_path = tokens[-1][1] if tokens else ""
         if not raw_path:
             # `-C` flag present but its path is unrecoverable — suppress rather
@@ -306,11 +317,14 @@ def dash_c_unreachable(command: str, *, scan_target: str | None = None) -> bool:
     literal directory name that contains `*`, `?`, or `[`; under the fail-closed
     doctrine an actionable refusal beats an unscanned commit.
 
-    Known limit: the match reads ONE quoting form per `-C` token, so a token
-    that concatenates forms (`'/tmp/'"$WT"`) is judged by its first segment and
-    a trailing expansion reads as reachable — fail-open, the pre-change
-    behaviour. Tokenizing to close it costs more than the case is worth; no
-    agent-authored command mixes quoting on a single path.
+    The match still reads ONE quoting form per `-C` token, so a token that
+    concatenates forms (`'/tmp/'"$WT"`) is captured only as far as its first
+    segment. That used to read as reachable — fail-open. It no longer does: such
+    a token is marked INCOMPLETE by `_dash_c_tokens` and refused here, because
+    what the remainder expands to was never seen. Story-011 closed it after
+    measuring that the case is not merely theoretical — once `parse_effective_cwd`
+    began reading raw tokens, a mixed-form path resolved *confidently* to its
+    first segment, so a gate scanned a real-but-wrong repo.
 
     Presence of the flag is decided on the QUOTE-STRIPPED command, exactly as
     `head_probe_target` does: `git commit -m "prefer git -C $WT over cd"` has no
@@ -324,7 +338,14 @@ def dash_c_unreachable(command: str, *, scan_target: str | None = None) -> bool:
         scan_target = git_commits.strip_quoted(command)
     if not _HAS_GLOBAL_DASH_C_RE.search(scan_target):
         return False
-    return any(_token_unreachable(g, p) for g, p in _dash_c_tokens(command))
+    # An INCOMPLETE token is unreachable by construction: only the first segment
+    # of a concatenation was captured, so whatever the rest expands to was never
+    # seen. Judged alongside the quoting form rather than instead of it — a
+    # complete token still has to survive `_token_unreachable`.
+    return any(
+        not complete or _token_unreachable(g, p)
+        for g, p, complete in _dash_c_tokens(command)
+    )
 
 
 # `_RAW_DASH_C_RE` group index -> the quoting the path arrived in.

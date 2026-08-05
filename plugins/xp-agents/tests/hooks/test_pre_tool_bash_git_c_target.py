@@ -81,9 +81,30 @@ class TestUnresolvableDashCFailsClosed(_HookTestCase):
 
     @patch("git_commits.is_git_commit", return_value=True)
     def test_block_names_the_actionable_fix(self, *_mocks):
-        """A refusal that doesn't say what to do instead just moves the problem."""
+        """A refusal that doesn't say what to do instead just moves the problem.
+
+        The advice used to read "use a literal ABSOLUTE path", which was wrong in
+        two ways even before story-011: a relative literal path has always been
+        permitted (pinned in test_commit_command.py), and a QUOTED literal path
+        now resolves correctly, so telling agents to unquote would push them off
+        the documented `git -C <path>` form for any path containing a space.
+        """
         message = self._assert_blocked('git -C "$WT" commit -m "x"')
-        self.assertIn("literal absolute path", message)
+        self.assertIn("single literal path", message)
+        self.assertIn("quoting it is fine", message)
+
+    @patch("git_commits.is_git_commit", return_value=True)
+    def test_mixed_quoting_concatenation_is_blocked(self, *_mocks):
+        """`-C '/tmp/'"$WT"` — only the first segment is readable, so the repo
+        the commit lands in is unknowable.
+
+        Previously recorded as an accepted fail-open. It became urgent once
+        parse_effective_cwd started reading raw tokens: the first segment is a
+        real directory, so instead of falling back it resolved CONFIDENTLY to the
+        wrong repo.
+        """
+        message = self._assert_blocked("""git -C '/tmp/'"$WT" commit -m "x\"""")
+        self.assertIn("concatenating quoting forms", message)
 
 
 class TestTheBlockDoesNotOverreach(_HookTestCase):
@@ -164,6 +185,44 @@ class TestTheBlockPreemptsEveryDownstreamGate(_HookTestCase):
         self.assertEqual(
             reads, [], "a gate read the caller's repo before the block fired"
         )
+
+    @patch("git_commits.is_git_commit", return_value=True)
+    def test_a_quoted_literal_path_makes_the_gates_read_THAT_repo(self, *_mocks):
+        """The end-to-end shape of the defect, asserted on the repo the gates
+        actually inspected rather than on whether the hook raised.
+
+        This is the leg that would have caught the bug. `git -C "<dir>" commit`
+        never raised — it proceeded, quietly — and every gate ran `git` in the
+        CALLER's repo, where nothing was staged. An empty diff is not a blocked
+        commit, it is a silent one: the tier-1 secret scan had nothing to scan,
+        the lint gate had no files to group, and the review-cycle gate counted
+        zero changed files. Asserting "does not raise" passes both before and
+        after the fix, which is exactly why no existing test caught it.
+        """
+        reads: list[str] = []
+
+        def _record(where, *_a, **_kw):
+            reads.append(where)
+            return ""
+
+        with (
+            tempfile.TemporaryDirectory() as worktree,
+            patch("commits.get_staged_diff", side_effect=_record),
+            patch("commits.get_staged_files", side_effect=_record),
+            patch("commits.get_code_files_for_review", side_effect=_record),
+        ):
+            pre_tool_bash.run(
+                _make_bash_input(
+                    command=f'git -C "{worktree}" commit -m "x"', cwd="/tmp"
+                ),
+                smm_dir=self.smm_dir,
+            )
+            self.assertTrue(reads, "no gate ran at all — the assertion is vacuous")
+            self.assertEqual(
+                set(reads),
+                {worktree},
+                "a gate read a repo the command did not name",
+            )
 
 
 class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
