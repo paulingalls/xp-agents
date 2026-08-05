@@ -265,6 +265,45 @@ def dash_c_unreachable(command: str, *, scan_target: str | None = None) -> bool:
     )
 
 
+def cd_target_unreachable(command: str) -> bool:
+    """True when the commit's target would be decided by a `cd` whose path this
+    hook cannot read — so the destination repo is unknowable.
+
+    The `cd` twin of `dash_c_unreachable`, and it inherits that predicate's whole
+    judgement unchanged: `token_unreachable` decides which constructs the shell
+    would have expanded (keyed on the quoting the path arrived in), and an
+    INCOMPLETE token is unreachable by construction because only the first segment
+    of a concatenation was ever captured.
+
+    EVERY `cd` is judged, not the one attributable to the `commit` word — nothing
+    here can make that attribution. The accepted cost is the same shape the `-C`
+    side already records: `git commit -m x && cd $HOME` is refused for a `cd` that
+    happens after the commit. An actionable refusal beats an unscanned commit, and
+    the remedy is identical either way — use a literal path.
+
+    ONE narrowing the `-C` side does not need, because `-C` has no precedence
+    sibling to defer to: an unreachable `cd` cannot move a commit whose target is
+    already pinned by an ABSOLUTE `git -C`, since `-C` wins in
+    `parse_effective_cwd` and an absolute path is unaffected by wherever the shell
+    moved to. Refusing there would be a pure false positive.
+
+    ABSOLUTE, not merely "a `-C` resolved". A RELATIVE `-C` resolves against the
+    hook's cwd rather than the post-`cd` cwd, so it lands on a real directory that
+    is NOT where the commit goes — `cd $WT && git -C sub commit` is exactly that,
+    and keying on "resolved" would preserve that fail-open rather than close it.
+    """
+    masked = mask_data_spans(command)
+    cd_toks = cd_tokens(command, masked)
+    if not cd_toks:
+        return False
+    if not any(not complete or token_unreachable(g, p) for g, p, complete in cd_toks):
+        return False
+    return not any(
+        complete and Path(p).is_absolute() and not token_unreachable(g, p)
+        for g, p, complete in dash_c_tokens(command, masked)
+    )
+
+
 def commit_repo_candidates(
     command: str, fallback: str, *, scan_target=None
 ) -> Iterator[str]:
