@@ -206,6 +206,20 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
             "additionalContextLimit": 0,
             "statusMessage": "spike: recording SessionEnd..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_end.py",
+            "timeout": 2500,
+            "statusMessage": "Recording session end...",
+            "async": false
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/smm/compact.py",
+            "timeout": 1500,
+            "statusMessage": "Compacting event log...",
+            "async": true
           }
         ]
       }
