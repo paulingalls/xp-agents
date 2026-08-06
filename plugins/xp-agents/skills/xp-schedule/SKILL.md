@@ -53,8 +53,9 @@ Otherwise:
   (teammates would collide, or one would be branched without the other's
   commits) — but report why instead of downgrading silently: name
   `OVERLAP_DETAIL`'s colliding stories/path when set; if `GLOB_FORCED`, note a
-  glob domain blocks proving disjointness; if `UNSCOPED_IDS` is set, name that
-  story — it declared no file domain, so disjointness can't be proven either;
+  glob domain blocks proving disjointness; if `UNSCOPED_IDS` is set, name those
+  stories — each declared no file domain, so disjointness can't be proven
+  either;
   if none of the three is set, the frontier carries a dependency edge between
   two of its members.
 - `FRONTIER_COUNT >= 2` and `PARALLELIZABLE == true` → ask via `AskUserQuestion`:
