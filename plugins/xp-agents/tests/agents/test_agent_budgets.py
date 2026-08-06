@@ -31,7 +31,19 @@ AGENT_BUDGETS: dict[str, int] = {
     "xp-close-reviewer": 8980,
     "xp-code-reviewer": 8550,
     "xp-housekeeper": 10080,
-    "xp-plan-reviewer": 21940,
+    # Bumped 21940 -> 22800 (story-001, bun spec paths): §10b gained a
+    # `bun test <spec>` positional-runner entry, narrowed the whole-tree
+    # entry to bun's own alias forms (`bun run <script>`, `bun
+    # <script>:<suffix>`), and a sentence on bun positionals being filter
+    # patterns rather than strict paths. Deliberate, not a ratchet: without
+    # this the reviewer keeps reading every `bun test <spec>` acceptance
+    # command as a whole-tree runner and never raises the §10b/10d
+    # non-verifiable-command or missing-plan-path concerns for it — the
+    # exact gap scripts/verify_paths.py's bun branch closes in code. Not
+    # paid for by trimming: the pinned §10b prose
+    # (tests/agents/test_plan_reviewer_prose.py) forbids it. Measured 21756
+    # after the edit, comfortably under the new 98% band (22344).
+    "xp-plan-reviewer": 22800,
     # Bumped 21770 -> 22050 for the --retro-kind sprint instruction. This agent
     # is the ONLY caller of save_retrospective.py, so without that instruction
     # the sprint-retro completion marker has no reachable producer and every
