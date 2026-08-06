@@ -55,6 +55,16 @@ class TestProjectAgnosticAssertHelper(unittest.TestCase):
                         "fixture section",
                     )
 
+    def test_the_triple_quote_token_is_caught_section_scoped_too(self):
+        """story-004: the corpus-wide category joins the union, so the
+        section-scoped guard gains the triple-quote token it never carried."""
+        with self.assertRaisesRegex(AssertionError, "token:"):
+            assert_project_agnostic(
+                self,
+                'a prose section telling the reader to use """ to open one',
+                "fixture section",
+            )
+
     def test_helper_passes_clean_prose(self):
         """A guard that fails on everything is as useless as one that fails on
         nothing — pin the negative case too."""

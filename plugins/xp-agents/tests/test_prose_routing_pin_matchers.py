@@ -15,11 +15,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from _md_helpers import CORPUS_WIDE_FORBIDDEN, PROJECT_AGNOSTIC_FORBIDDEN_VOCAB
+from _pin_helpers import shipped_prose_to_scan
 from test_prose_routing_pin import (
     find_comment_routing_lines,
     find_single_language_tokens,
     find_unqualified_comment_routing,
 )
+
+_PLUGIN_ROOT = Path(__file__).parent.parent
+
+
+def _all_shipped_prose() -> list[Path]:
+    return [p for paths in shipped_prose_to_scan(_PLUGIN_ROOT).values() for p in paths]
+
 
 # The five ORIGINAL unqualified strings this story amends, verbatim (see
 # execution_plan.json / the story body's Step 2). Feeding these proves the
@@ -220,6 +229,52 @@ class TestLanguageTokenMatcher(unittest.TestCase):
         self.assertEqual(
             find_single_language_tokens("a comment carrying a why", surface="x"), []
         )
+
+    def test_capitalized_docstring_is_flagged(self) -> None:
+        """The derivation proof, and it must run with NO tokens argument.
+
+        Passing a synthetic tuple would bypass the default and pass just as well
+        against a hardcoded one, proving only that the parameter exists. This
+        asserts on the DEFAULT: the central registry carries both casings, so a
+        derived default flags `Docstring`, and the local case-sensitive tuple
+        this story deletes did not.
+        """
+        hits = find_single_language_tokens("a Docstring here", surface="x")
+        self.assertEqual(hits, [("x", "Docstring")])
+
+
+class TestTheCorpusWideCategoryEarnsItsScope(unittest.TestCase):
+    """The split rule, made checkable rather than left to judgment.
+
+    `CORPUS_WIDE_FORBIDDEN` may be banned across every shipped prose file only
+    because none of its members has a legitimate use there. That is the property
+    that justified the split, so assert it: mis-filing a token that IS used
+    legitimately (`.py`, `assign-pending`) into the corpus-wide bucket reddens
+    here instead of reddening the whole routing pin with false positives.
+
+    Only this direction. The mirror — every section-scoped member appears at
+    least once — would put `.go`, `.rs` and `function ` (exactly one hit each
+    today) one unrelated prose edit away from a category flip.
+    """
+
+    def test_every_corpus_wide_token_is_absent_from_all_shipped_prose(self) -> None:
+        offenders: list[str] = []
+        for token in CORPUS_WIDE_FORBIDDEN:
+            for path in _all_shipped_prose():
+                if token in path.read_text(encoding="utf-8"):
+                    offenders.append(f"{path.name} carries {token!r}")
+        self.assertEqual(
+            offenders,
+            [],
+            "a token banned corpus-wide has a legitimate use in shipped prose — "
+            "it belongs in SECTION_SCOPED_FORBIDDEN:\n" + "\n".join(offenders),
+        )
+
+    def test_the_corpus_wide_category_is_part_of_the_union(self) -> None:
+        """Regression guard, not a red proof: the union is built by
+        concatenation, so this can only fail if someone hand-edits it apart."""
+        for token in CORPUS_WIDE_FORBIDDEN:
+            self.assertIn(token, PROJECT_AGNOSTIC_FORBIDDEN_VOCAB)
 
 
 if __name__ == "__main__":

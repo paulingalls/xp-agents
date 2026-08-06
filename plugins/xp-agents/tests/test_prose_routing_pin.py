@@ -34,16 +34,17 @@ FOUR LEGS.
    out; this catches a renamed or deleted file, or a routing line deleted
    outright rather than qualified.
 
-3. **Language-agnostic vocabulary, corpus-wide.** No shipped prose may use
-   the unambiguous Python-only tokens: the word `docstring`, or the triple
-   double-quote delimiter (three doubled-quote characters in a row, spelled
-   out as `_LANGUAGE_TOKENS` below rather than in this docstring, since the
-   literal token would close this very string). Deliberately NOT banning `#`
-   — every Markdown heading starts with one, and a pin that noisy gets
-   disabled, which is the exact failure this milestone exists to kill. Both
-   tokens appear in zero shipped prose files today; this leg is one
-   legitimately-Python explanation away from firing on purpose, and that is
-   the point.
+3. **Language-agnostic vocabulary, corpus-wide.** No shipped prose may use a
+   token from `_md_helpers.CORPUS_WIDE_FORBIDDEN` — the members with no
+   legitimate use in any shipped prose file, which is what makes them safe to
+   ban tree-wide. This leg derives that list rather than keeping its own copy;
+   the copy it used to keep drifted from the central registry, which is the
+   defect story-004 closed. Deliberately NOT banning `#` — every Markdown
+   heading starts with one, and a pin that noisy gets disabled, which is the
+   exact failure this milestone exists to kill. Every member appears in zero
+   shipped prose files today (asserted in the sibling matchers module); this leg
+   is one legitimately-single-language explanation away from firing on purpose,
+   and that is the point.
 
 4. **Limits, honestly stated.** See LIMITS below, modeled on
    `tests/hooks/test_no_language_leak.py`.
@@ -73,10 +74,13 @@ LIMITS — READ THIS BEFORE TRUSTING THE GREEN CHECK.
   test") reads as compliant. Neither shape is in the tree today. Both are the
   deliberate price of a matcher precise enough that nobody disables it for
   noise — the same tradeoff leg 3 makes by not banning `#`.
-* Leg 3 reads literal substrings only. A Python-specific instruction that
-  never spells "docstring" or `\"\"\"` (e.g. "put it in the module's opening
-  string") is out of reach entirely — the same limit `find_prose_tool_names`
-  in the sibling pin states for tool names.
+* Leg 3 reads literal substrings only. A single-language instruction that
+  spells none of `CORPUS_WIDE_FORBIDDEN`'s members (e.g. "put it in the
+  module's opening string") is out of reach entirely — the same limit
+  `find_prose_tool_names` in the sibling pin states for tool names.
+* Leg 3 is only as wide as that category. A token with even one legitimate use
+  in shipped prose belongs in `SECTION_SCOPED_FORBIDDEN` instead and so is NOT
+  checked here; `.py` and `assign-pending` are two the tree relies on.
 
 Both matchers are mutation-proved against synthetic offenders in the sibling
 `test_prose_routing_pin_matchers.py`; this module owns only the assertions
@@ -90,6 +94,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from _md_helpers import CORPUS_WIDE_FORBIDDEN
 from _pin_helpers import rel as _rel_impl
 from _pin_helpers import shipped_prose_to_scan
 
@@ -126,7 +131,7 @@ _COMMENT_DEST_RE = re.compile(r"\bcode\s+comments?\b|\bcomments?\s*→", re.IGNO
 # destination it plainly is, rather than reading as a missing test leg.
 _TEST_DEST_RE = re.compile(r"\ba\s+tests?\b|→\s*tests?\b", re.IGNORECASE)
 
-_LANGUAGE_TOKENS = ("docstring", '"""')
+_LANGUAGE_TOKENS = CORPUS_WIDE_FORBIDDEN
 
 
 def find_unqualified_comment_routing(
@@ -162,9 +167,16 @@ def find_comment_routing_lines(text: str, surface: str) -> list[tuple[str, int]]
     ]
 
 
-def find_single_language_tokens(text: str, surface: str) -> list[tuple[str, str]]:
-    """(surface, token) for every single-language token present in *text*."""
-    return [(surface, token) for token in _LANGUAGE_TOKENS if token in text]
+def find_single_language_tokens(
+    text: str, surface: str, tokens: tuple[str, ...] = _LANGUAGE_TOKENS
+) -> list[tuple[str, str]]:
+    """(surface, token) for every single-language token present in *text*.
+
+    *tokens* defaults to the derived corpus-wide category. A caller passing its
+    own tuple bypasses that default, so a test that supplies one proves nothing
+    about the derivation — assert on the default instead.
+    """
+    return [(surface, token) for token in tokens if token in text]
 
 
 def _rel(path: Path) -> str:

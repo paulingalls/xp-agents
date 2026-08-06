@@ -28,7 +28,29 @@ import unittest
 # possessive is usually enough), do not delete the member: removing it is what
 # lets a real language leak back in. The mixed-case members are matched raw for
 # the same reason, so both casings of a mixed-case name are listed explicitly.
-PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
+# Split by SCOPE, not by content kind. Scope is the fact whose loss let a second
+# copy of this vocabulary grow in the routing pin: that pin scans EVERY shipped
+# prose file, so it can only ban tokens with no legitimate use anywhere, while
+# `assert_project_agnostic` runs on a selected SECTION and can ban more. A
+# content-kind split would also misfile ` LOC` and `lines of code`, which are
+# neither paths nor keywords.
+#
+# Members here may be banned across every shipped prose file — none has a
+# legitimate use in one. `TestTheCorpusWideCategoryEarnsItsScope` in
+# test_prose_routing_pin_matchers.py asserts exactly that, so mis-filing a
+# legitimately-used token into this tuple reddens there rather than flooding the
+# routing pin with false positives.
+CORPUS_WIDE_FORBIDDEN: tuple[str, ...] = (
+    "docstring",
+    "Docstring",
+    '"""',
+)
+
+# Legitimate SOMEWHERE in shipped prose, so these may only be applied to a
+# selected section: the plugin naming its own script files is permitted (a leak
+# is a predicate on a USER path, not on the plugin's own), and `def `/`class `/
+# `function ` are ordinary English too.
+SECTION_SCOPED_FORBIDDEN: tuple[str, ...] = (
     ".py",
     ".ts",
     ".js",
@@ -46,8 +68,10 @@ PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
     "quality_review_done",
     "assign-pending",
     "review_cycle_done",
-    "docstring",
-    "Docstring",
+)
+
+PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
+    CORPUS_WIDE_FORBIDDEN + SECTION_SCOPED_FORBIDDEN
 )
 
 # Members whose casing is load-bearing. Lives beside the vocabulary it
