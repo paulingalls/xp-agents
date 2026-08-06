@@ -226,8 +226,21 @@ class TestTheExtractionKeptOneHomeForTheBounds(_HookTestCase):
             hook_heartbeat_scan.STALE_AFTER_SECONDS,
         )
 
-    def test_the_skew_grace_is_the_same_object(self):
-        self.assertIs(
+    def test_the_skew_grace_is_re_exported_rather_than_redefined(self):
+        """Identity cannot answer this one, so provenance is asserted instead.
+
+        60 sits inside CPython's small-int cache: two independently written
+        literals ARE the same object, so an `assertIs` here would pass no
+        matter where the value came from — a pin that can only pass, which is
+        how the drift it guards against would ship. The claim is about the
+        source of the value, so that is what the assertion reads.
+        """
+        source = Path(hook_liveness.__file__).read_text(encoding="utf-8")
+        self.assertIn(
+            "FUTURE_SKEW_GRACE_SECONDS = hook_heartbeat_scan.FUTURE_SKEW_GRACE_SECONDS",
+            source,
+        )
+        self.assertEqual(
             hook_liveness.FUTURE_SKEW_GRACE_SECONDS,
             hook_heartbeat_scan.FUTURE_SKEW_GRACE_SECONDS,
         )

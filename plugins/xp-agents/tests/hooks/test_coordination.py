@@ -365,6 +365,44 @@ class TestUndeterminedLivenessKeepsTheTtl(_LivenessTestCase):
         self.assertFalse(self._active())
 
 
+class TestOurOwnSessionsEntryKeepsTheTtl(_LivenessTestCase):
+    """Our own beating heartbeat is not evidence that ANOTHER agent id lives.
+
+    One session holds several agent ids: a non-xp subagent writes its own
+    entry under its own id inside OUR session, and one that never reaches
+    SubagentStop leaves it behind. Our heartbeat would then hold that entry
+    active for as long as we keep working, where the TTL dropped it at 30
+    minutes — this story's defect surviving with an unbounded window. So our
+    own session's entries fall back to the TTL, the answer "cannot tell"
+    already gets. No teammate is caught by it: `spawn_teammate` strips every
+    session-id candidate from the child, so a teammate has its own id or None.
+    """
+
+    OURS = "the-leads-own-session"
+
+    def _active_as(self) -> bool:
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.OURS)):
+            return self._active()
+
+    def test_our_own_sessions_aged_entry_is_not_an_active_teammate(self):
+        self._entry("subagent-42", age=self.AGED, session_id=self.OURS)
+        self._beat(self.OURS, age=self.FRESH)
+        self.assertFalse(self._active_as())
+
+    def test_our_own_sessions_fresh_entry_still_counts(self):
+        """Control: inside the TTL, unchanged. Without it, "ignore our own
+        session" silently drops a sibling the gate is meant to wait on."""
+        self._entry("subagent-42", age=self.FRESH, session_id=self.OURS)
+        self._beat(self.OURS, age=self.FRESH)
+        self.assertTrue(self._active_as())
+
+    def test_another_sessions_aged_entry_still_reads_live(self):
+        """Over-narrowing control: the liveness leg itself must survive."""
+        self._entry(self.TEAMMATE, age=self.AGED, session_id=self.SESSION)
+        self._beat(self.SESSION, age=self.FRESH)
+        self.assertTrue(self._active_as())
+
+
 class TestReadCoordinationKeepsItsTtl(_LivenessTestCase):
     """The liveness leg is confined to `has_active_teammates`.
 

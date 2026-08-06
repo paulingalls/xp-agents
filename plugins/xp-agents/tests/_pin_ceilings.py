@@ -40,7 +40,7 @@ BAND_CEILINGS = {
     # sister include, collision attribution, save/run); collision attribution
     # is the cohesive group to extract next.
     "plugins/xp-agents/smm/sprint_save.py": 463,
-    # RETIRED (story-015): teammate_output_filter.py 461->298. The stream
+    # RETIRED (story-015): teammate_output_filter.py 461->376. The stream
     # reading half — deadline, fd loop, stream-json parsing, terminal-event
     # detection — moved to scripts/teammate_stream_reader.py, leaving the host
     # to decide what the outcome MEANS and report it.

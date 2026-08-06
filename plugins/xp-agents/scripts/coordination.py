@@ -41,23 +41,28 @@ _NO_AGE_LIMIT = 10**9  # ~31 years
 # The window is therefore the only thing deciding when a dead teammate stops
 # counting, and it must sit strictly below `_COORDINATION_MAX_AGE`.
 #
-# 15 minutes: the window only has to exceed the longest gap between heartbeat
-# writes on a WORKING session, and every Bash, Write/Edit and Skill call
-# refreshes it — so that gap is bounded by the longest single tool call. The
-# longest one here is a full-suite run: measured 5m35s alone and 9m49s with
-# four sibling teammates running their own suites on the same machine. 15
-# clears the worst of those by about 1.5x — not a comfortable multiple, and
-# named as such — while still halving the 30 minutes a dead teammate used to
-# hold the gate.
+# 15 minutes: the window has to exceed the longest gap between heartbeat writes
+# on a WORKING session. Every Bash, Write/Edit and Skill call on the MAIN
+# thread refreshes it, so a tool call alone is a comfortable fit — the longest
+# here is a full-suite run, measured 5m35s alone and 9m49s with four sibling
+# teammates on the same machine. It still halves the 30 minutes a dead teammate
+# used to hold the gate.
 #
-# What it costs: a live teammate that goes quiet for longer than this is read
-# as dead, and the lead stops waiting on it. Read/Grep/Glob have no PostToolUse
-# refresh, so a 15-minute read-only stretch with no Bash in it would do that.
-# The consequence is bounded — it is the same release the TTL alone would have
-# given at 30 minutes, arriving sooner — and the direction is the safer one:
-# a lead that resumes too early re-reads coordination on its next Stop, while a
-# lead held on a corpse never moves at all. If that stretch turns out to be
-# real, the fix is a refresh source on the read-only tools, not a looser window.
+# Be honest about what it does NOT clear. Every heartbeat writer skips its own
+# subagents, so nothing refreshes the marker for the DURATION of one: a session
+# running a nested review that reads a large diff and runs the suite can pass
+# 15 minutes with its hooks demonstrably alive. Read/Grep/Glob have no
+# PostToolUse refresh either. So a live-but-quiet teammate read as dead is a
+# state to expect, not a corner.
+#
+# What that costs is bounded, which is why the window is still set here rather
+# than raised: both callers fail SAFE on it. The TDD gate declines to release
+# and holds the lead on its own red suite; the sprint gate falls through to
+# `worktree.has_live_teammates`, a process/marker check that still sees the
+# teammate. The opposite error has no such backstop — a lead held on a corpse
+# never moves at all. Raising the window is not the fix if this bites: it
+# cannot pass `_COORDINATION_MAX_AGE` without reinstating the very defect. A
+# refresh source that survives a subagent run is.
 _HEARTBEAT_TRUST_SECONDS = 15 * 60
 
 
@@ -206,11 +211,27 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
     would pin a live-but-quiet teammate's last-written file as a rival
     indefinitely, since the TTL is the only thing that frees it.
     """
+    own_session = session_scope.resolve_session_id()
     within_ttl = read_coordination(smm_dir)
     for aid, entry in read_coordination(smm_dir, _NO_AGE_LIMIT).items():
         if aid == agent_id:
             continue
-        live = _session_is_live(smm_dir, entry.get("session_id"))
+        written_by = entry.get("session_id")
+        # Agent id and session are different keys, and one session holds
+        # several agent ids: a non-xp subagent writes its own entry under its
+        # own id inside OUR session. Our heartbeat says nothing about whether
+        # THAT agent still exists, so an entry we wrote ourselves is
+        # undetermined, not live — otherwise a subagent that never reached its
+        # completion handler would hold the gate released for the whole
+        # session, where the TTL dropped it at 30 minutes. No real teammate is
+        # caught by this: `spawn_teammate` strips every session-id candidate
+        # from the child's environment, so a teammate resolves its own id or
+        # records None.
+        live = (
+            None
+            if own_session is not None and written_by == own_session
+            else _session_is_live(smm_dir, written_by)
+        )
         if live is True or (live is None and aid in within_ttl):
             return True
     return False
