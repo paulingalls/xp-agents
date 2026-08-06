@@ -19,7 +19,16 @@ ground the split just won.
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 BAND_CEILINGS = {
-    # shipped (16)
+    # shipped (17). The count was measured, not incremented: the tests header
+    # below said 57 while carrying 58 entries, so both are now set from a real
+    # count rather than carried forward.
+    #
+    # The first NON-Python entry. The band ratchet discovered only .py until
+    # story-002, so every shipped shell file was ungoverned by a gate whose
+    # docstring called itself tree-wide; this one sat 8 lines from the cap the
+    # whole time. Nothing about the ratchet itself is language-specific --
+    # `_line_count` is splitlines() -- only its discovery was.
+    "plugins/xp-agents/skills/_preload_base.sh": 492,
     "plugins/xp-agents/smm/seed_smm.py": 499,
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     "plugins/xp-agents/scripts/close_common.py": 470,  # ratcheted from 496 (split)
@@ -44,8 +53,15 @@ BAND_CEILINGS = {
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
-    # tests (57)
+    # tests (59)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
+    # Entered the band with the shell surface's own red proofs. Its own
+    # self-coverage test caught the crossing, which is the design working. The
+    # cohesive group to extract next is the synthetic red-proof classes
+    # (TestCapOffenderDetection, TestBandRatchetRedProof, TestShellScanRedProofs,
+    # TestShippedRootFloorRedProof) — they share a temp-tree idiom and touch no
+    # real-tree state, unlike everything else in the file.
+    "plugins/xp-agents/tests/test_file_size_pin.py": 474,
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
     "plugins/xp-agents/tests/hooks/test_branch_lifecycle.py": 494,
