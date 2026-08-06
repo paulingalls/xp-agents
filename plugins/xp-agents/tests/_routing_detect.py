@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Detection for the route-by-checkability rule: matchers plus the finders.
+"""Detection for the route-by-checkability rule: matchers, finders, surfaces.
 
 Two pins assert this rule over the shipped tree — `test_prose_routing_pin.py`
 (a routing line names a test) and `test_prose_rule_completeness.py` (it names
@@ -8,13 +8,15 @@ reach into the first for three underscore-private names: an import with no
 declared contract that broke the moment either was renamed. Redeclaring instead
 would have grown a third copy of a vocabulary that already had two.
 
-So detection lives here, once, with public names. The pins keep only their
-assertions over the real tree, and `test_prose_routing_pin_matchers.py`
-exercises these functions on synthetic text.
+So detection lives here, once, with public names. No module holds a second copy
+of a matcher, and no assertion lives here: the pins own the tree-wide verdicts,
+`test_prose_routing_pin_matchers.py` owns the synthetic proofs for leg 1 and
+leg 3, and the completeness pin keeps its own per-leg mutants beside the rule
+they belong to.
 
 NOT `_pin_helpers.py`: that module's docstring reserves it for discovery —
-"the pin owns detection; this helper owns discovery" — and finding files is a
-different job from deciding what a line says.
+"this helper owns discovery" — and finding files is a different job from
+deciding what a line says.
 
 Named for routing rather than prose to stay distinct from milestone 2's planned
 `_prose_scan.py`, which walks code for prose ratios and shares nothing with this.
@@ -95,9 +97,11 @@ def find_comment_routing_lines(text: str, surface: str) -> list[tuple[str, int]]
     """(surface, 1-based line) for every line matching the comment-routing
     destination shape, compliant or not.
 
-    Backs the per-surface vacuity guards: the fixed wordings still route the
-    why/constraint case to a comment, so this must stay non-empty on the known
-    surfaces even after the offender check goes quiet on them.
+    Backs the per-surface vacuity guards in BOTH pins: the fixed wordings still
+    route the why/constraint case to a comment, so this must stay non-empty on
+    the known surfaces even after the offender check goes quiet on them. The
+    completeness pin reads it under the same reading — the lines that state the
+    rule are exactly the lines that route something to a comment.
     """
     return [
         (surface, lineno)
@@ -106,16 +110,16 @@ def find_comment_routing_lines(text: str, surface: str) -> list[tuple[str, int]]
     ]
 
 
-def find_single_language_tokens(
-    text: str, surface: str, tokens: tuple[str, ...] = CORPUS_WIDE_FORBIDDEN
-) -> list[tuple[str, str]]:
+def find_single_language_tokens(text: str, surface: str) -> list[tuple[str, str]]:
     """(surface, token) for every single-language token present in *text*.
 
-    *tokens* defaults to the corpus-wide category in `_md_helpers`. A caller
-    passing its own tuple bypasses that default, so a test that supplies one
-    proves nothing about the derivation — assert on the default instead.
+    The token list is NOT a parameter, deliberately. An injectable one lets a
+    test pass a synthetic tuple, which bypasses the registry and would pass just
+    as well against a hardcoded copy — proving only that the parameter exists.
+    Reading `CORPUS_WIDE_FORBIDDEN` here makes the derivation the only thing a
+    caller can exercise.
     """
-    return [(surface, token) for token in tokens if token in text]
+    return [(surface, token) for token in CORPUS_WIDE_FORBIDDEN if token in text]
 
 
 def find_incomplete_rule_lines(text: str, surface: str) -> list[tuple[str, int, str]]:
@@ -129,10 +133,3 @@ def find_incomplete_rule_lines(text: str, surface: str) -> list[tuple[str, int, 
         if missing:
             hits.append((surface, lineno, ",".join(missing)))
     return hits
-
-
-def find_rule_lines(text: str, surface: str) -> list[tuple[str, int]]:
-    """Alias of `find_comment_routing_lines` for the completeness pin's reader:
-    the lines that state the rule are exactly the lines that route to a comment.
-    """
-    return find_comment_routing_lines(text, surface)

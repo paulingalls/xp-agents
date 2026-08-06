@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Mutation proof for the matchers in `test_prose_routing_pin`.
+"""Mutation proof for the matchers `test_prose_routing_pin` reads.
 
-Split from that module (which owns the tree-wide assertions) mirroring
-`test_shipped_prose_language_agnostic_matchers.py`'s seam: this file exercises
-the matchers on SYNTHETIC text, the sibling asserts the real tree complies. A
+Those matchers live in `_routing_detect`; this file is the synthetic half of the
+pin's seam, mirroring `test_shipped_prose_language_agnostic_matchers.py`: this
+file exercises them on SYNTHETIC text, the pin asserts the real tree complies. A
 matcher that only ever runs against a tree already fixed by this same story
 cannot prove it would have caught the ORIGINAL offenders, or that it stays
 quiet on lines that merely mention "comment" without routing anything there.
+
+No COMPLIANCE assertion belongs here — one added over the tree would be a second
+copy of one the pin already makes, failing in lockstep and adding no detection.
+Asserting that a FIXTURE below still matches what ships is a different claim and
+would belong here, with the fixture; nothing does that yet.
 """
 
 import sys
@@ -16,19 +21,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from _md_helpers import CORPUS_WIDE_FORBIDDEN, PROJECT_AGNOSTIC_FORBIDDEN_VOCAB
-from _pin_helpers import shipped_prose_to_scan
 from _routing_detect import (
     find_comment_routing_lines,
     find_single_language_tokens,
     find_unqualified_comment_routing,
 )
-
-_PLUGIN_ROOT = Path(__file__).parent.parent
-
-
-def _all_shipped_prose() -> list[Path]:
-    return [p for paths in shipped_prose_to_scan(_PLUGIN_ROOT).values() for p in paths]
-
 
 # The five ORIGINAL unqualified strings this story amends, verbatim (see
 # execution_plan.json / the story body's Step 2). Feeding these proves the
@@ -231,44 +228,26 @@ class TestLanguageTokenMatcher(unittest.TestCase):
         )
 
     def test_capitalized_docstring_is_flagged(self) -> None:
-        """The derivation proof, and it must run with NO tokens argument.
+        """The derivation proof: the matcher reads the central registry.
 
-        Passing a synthetic tuple would bypass the default and pass just as well
-        against a hardcoded one, proving only that the parameter exists. This
-        asserts on the DEFAULT: the central registry carries both casings, so a
-        derived default flags `Docstring`, and the local case-sensitive tuple
-        this story deletes did not.
+        No token list can be injected (see the matcher's docstring), so this
+        exercises the real one: it carries both casings, and the local
+        case-sensitive tuple this story deletes did not flag `Docstring`.
         """
         hits = find_single_language_tokens("a Docstring here", surface="x")
         self.assertEqual(hits, [("x", "Docstring")])
 
 
-class TestTheCorpusWideCategoryEarnsItsScope(unittest.TestCase):
-    """The split rule, made checkable rather than left to judgment.
+class TestTheCorpusWideCategoryJoinsTheUnion(unittest.TestCase):
+    """The section-scoped guard must apply the corpus-wide category too.
 
-    `CORPUS_WIDE_FORBIDDEN` may be banned across every shipped prose file only
-    because none of its members has a legitimate use there. That is the property
-    that justified the split, so assert it: mis-filing a token that IS used
-    legitimately (`.py`, `assign-pending`) into the corpus-wide bucket reddens
-    here instead of reddening the whole routing pin with false positives.
-
-    Only this direction. The mirror — every section-scoped member appears at
-    least once — would put `.go`, `.rs` and `function ` (exactly one hit each
-    today) one unrelated prose edit away from a category flip.
+    The scope property that justified the split — no member of
+    `CORPUS_WIDE_FORBIDDEN` has a legitimate use in shipped prose — is asserted
+    by the pin's leg 3 over the real tree, not here: leg 3 scans the same corpus
+    for the same tokens, so a copy of it in this file would fail in lockstep and
+    add no detection. Only the union relation is this file's business, since it
+    is a property of the tuples and needs no tree read.
     """
-
-    def test_every_corpus_wide_token_is_absent_from_all_shipped_prose(self) -> None:
-        offenders: list[str] = []
-        for token in CORPUS_WIDE_FORBIDDEN:
-            for path in _all_shipped_prose():
-                if token in path.read_text(encoding="utf-8"):
-                    offenders.append(f"{path.name} carries {token!r}")
-        self.assertEqual(
-            offenders,
-            [],
-            "a token banned corpus-wide has a legitimate use in shipped prose — "
-            "it belongs in SECTION_SCOPED_FORBIDDEN:\n" + "\n".join(offenders),
-        )
 
     def test_the_corpus_wide_category_is_part_of_the_union(self) -> None:
         """Regression guard, not a red proof: the union is built by

@@ -57,8 +57,12 @@ class TestProjectAgnosticAssertHelper(unittest.TestCase):
 
     def test_the_triple_quote_token_is_caught_section_scoped_too(self):
         """story-004: the corpus-wide category joins the union, so the
-        section-scoped guard gains the triple-quote token it never carried."""
-        with self.assertRaisesRegex(AssertionError, "token:"):
+        section-scoped guard gains the triple-quote token it never carried.
+
+        Pins WHICH token the failure names, per the contract above: a bare
+        "it raised" would also pass on a hit from any other union member.
+        """
+        with self.assertRaisesRegex(AssertionError, re.escape('token: \'"""\'')):
             assert_project_agnostic(
                 self,
                 'a prose section telling the reader to use """ to open one',

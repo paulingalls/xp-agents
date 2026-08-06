@@ -48,7 +48,9 @@ LIMITS — READ BEFORE TRUSTING THE GREEN CHECK.
 Each leg carries a synthetic mutation proof below: a line missing that leg must
 be reported. Without them a matcher that never fires would pass on the whole
 tree and look like coverage. The matchers themselves live in `_routing_detect`;
-this module owns only the assertions over the real tree.
+this module owns the assertions over the real tree plus those per-leg proofs,
+which stay here rather than in the sibling pin's matcher suite because the legs
+are this module's rule, not that one's.
 """
 
 import sys
@@ -61,8 +63,8 @@ from _pin_helpers import rel as _rel_impl
 from _pin_helpers import shipped_prose_to_scan
 from _routing_detect import (
     KNOWN_ROUTING_SURFACES,
+    find_comment_routing_lines,
     find_incomplete_rule_lines,
-    find_rule_lines,
 )
 
 PLUGIN_ROOT = Path(__file__).parent.parent
@@ -103,7 +105,9 @@ class TestRuleIsStatedWhole(unittest.TestCase):
             for suffix in KNOWN_ROUTING_SURFACES:
                 if relpath.endswith("/" + suffix) or relpath == suffix:
                     by_suffix[suffix] += len(
-                        find_rule_lines(path.read_text(encoding="utf-8"), relpath)
+                        find_comment_routing_lines(
+                            path.read_text(encoding="utf-8"), relpath
+                        )
                     )
         empty = [suffix for suffix, count in by_suffix.items() if count == 0]
         self.assertEqual(
@@ -159,9 +163,9 @@ class TestTheLegMatchersCanFail(unittest.TestCase):
         )
 
     def test_the_vacuity_guard_counts_only_selected_lines(self):
-        self.assertEqual(find_rule_lines("no routing here", "synthetic"), [])
+        self.assertEqual(find_comment_routing_lines("no routing here", "synthetic"), [])
         self.assertEqual(
-            find_rule_lines("route it to a code comment", "synthetic"),
+            find_comment_routing_lines("route it to a code comment", "synthetic"),
             [("synthetic", 1)],
         )
 

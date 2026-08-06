@@ -42,9 +42,11 @@ FOUR LEGS.
    defect story-004 closed. Deliberately NOT banning `#` — every Markdown
    heading starts with one, and a pin that noisy gets disabled, which is the
    exact failure this milestone exists to kill. Every member appears in zero
-   shipped prose files today (asserted in the sibling matchers module); this leg
-   is one legitimately-single-language explanation away from firing on purpose,
-   and that is the point.
+   shipped prose files today, so this leg is one legitimately-single-language
+   explanation away from firing on purpose, and that is the point. This leg is
+   ALSO the only check that the corpus-wide category earns its scope: a token
+   with a legitimate use, mis-filed into it, fails right here, which is why the
+   failure message spells out both readings.
 
 4. **Limits, honestly stated.** See LIMITS below, modeled on
    `tests/hooks/test_no_language_leak.py`.
@@ -69,9 +71,9 @@ LIMITS — READ THIS BEFORE TRUSTING THE GREEN CHECK.
   also UNDER-flag, and the reader gets no signal when they do. A future line
   routing content to "an inline comment" or "a comment in the source" matches
   no destination shape `_routing_detect.COMMENT_DEST_RE` knows, so leg 1 never
-  considers it at all; and `TEST_DEST_RE` accepts any "a test" on the line, so a routing
-  line mentioning a test incidentally ("belongs in code comments, not in a
-  test") reads as compliant. Neither shape is in the tree today. Both are the
+  considers it at all; and `TEST_DEST_RE` accepts any "a test" on the line, so
+  a routing line mentioning a test incidentally ("belongs in code comments, not
+  in a test") reads as compliant. Neither shape is in the tree today. Both are the
   deliberate price of a matcher precise enough that nobody disables it for
   noise — the same tradeoff leg 3 makes by not banning `#`.
 * Leg 3 reads literal substrings only. A single-language instruction that
@@ -198,7 +200,11 @@ class TestNoSingleLanguageCommentVocabulary(unittest.TestCase):
             {},
             "shipped prose names a single language's comment construct — "
             "the plugin ships to Python, TypeScript, Rust, Go, Java, Ruby "
-            "projects alike:\n"
+            "projects alike. TWO READINGS, and the count tells them apart: a "
+            "handful of surfaces means the prose leaked; most of the tree means "
+            "the token has a legitimate use and was mis-filed into "
+            "CORPUS_WIDE_FORBIDDEN, where it belongs in "
+            "SECTION_SCOPED_FORBIDDEN instead:\n"
             + "\n".join(
                 f"  {surface}: `{token}`"
                 for surface, hits in sorted(offenders.items())
