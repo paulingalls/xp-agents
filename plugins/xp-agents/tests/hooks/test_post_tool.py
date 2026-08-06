@@ -18,7 +18,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import bash_post_tool
 import post_tool_use
-from conftest import _HookTestCase, _make_bash_input, _make_write_input, make_event
+from conftest import (
+    _HookTestCase,
+    _make_bash_input,
+    _make_write_input,
+    make_event,
+    refuting_discovery,
+)
 from event_helpers import events_of_type
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
@@ -28,7 +34,6 @@ from event_schema import (
     EVENT_TYPE_ASSUMPTION,
     EVENT_TYPE_CONVENTION,
     EVENT_TYPE_DECISION,
-    EVENT_TYPE_DISCOVERY,
     EVENT_TYPE_QUESTION,
     EVENT_TYPE_STATUS,
 )
@@ -185,10 +190,9 @@ class TestPostToolUse(_HookTestCase):
         self.assertTrue(any("superseded" in c["content"].lower() for c in concerns))
 
     def test_conflict_assumption_contradicted(self):
+        # A DECLARED refutation — the one shape the detector fires on.
         a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
-        d = make_event(
-            EVENT_TYPE_DISCOVERY, content="Actually GraphQL", references=[a["id"]]
-        )
+        d = refuting_discovery(a, "Actually GraphQL")
         self._write_events([a, d])
         post_tool_use.run(
             _make_write_input(),

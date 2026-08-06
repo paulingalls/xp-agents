@@ -32,10 +32,10 @@ import tempfile
 # it wins. Named here rather than derived by importing the production module,
 # which would mean importing production code before this file has finished
 # containing the environment it reads. test_preload_liveness.py asserts these
-# two names still equal `hook_liveness.SESSION_ID_ENV_CANDIDATES` exactly, so
-# a new candidate cannot be added without this list following it.
+# names still equal `hook_liveness.SESSION_ID_ENV_CANDIDATES` exactly, IN ORDER,
+# so a new candidate cannot be added without this list following it.
 PINNED_SESSION_ID_VAR = "XP_SESSION_ID"
-STRIPPED_SESSION_ID_VARS = ("CLAUDE_CODE_SESSION_ID",)
+STRIPPED_SESSION_ID_VARS = ("CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID")
 TEST_SESSION_ID = "xp-agents-test-session"
 
 # The preload liveness check's escape hatch, and the suite's containment for it.

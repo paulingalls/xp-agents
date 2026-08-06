@@ -147,8 +147,10 @@ def _handle_commit(
     `command` is parsed for `cd <wt>` / `git -C <wt>` segments so the
     HEAD/files/body lookups target the repo the commit actually ran in,
     not the orchestrator cwd left after a `cd -` cleanup. `scan_target`
-    is the pre-stripped command from `run` — passing it through avoids
-    a second strip_quoted scan inside parse_effective_cwd.
+    is the pre-stripped command from `run` — passing it through avoids a
+    second strip_quoted scan in the `-C` presence predicates below
+    (`dash_c_unreachable`, `head_probe_target`), which are what still consume
+    it; `parse_effective_cwd` reads its own offset-preserving mask.
     """
     effective_cwd, raw_body = _confirm_commit_repo(
         command, cwd, response_text, scan_target=scan_target

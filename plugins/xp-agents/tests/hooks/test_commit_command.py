@@ -33,6 +33,84 @@ class TestCommitCommandDirectImport(unittest.TestCase):
         result = commit_command.parse_effective_cwd("git status", "/fallback")
         self.assertEqual(result, "/fallback")
 
+    def test_parse_effective_cwd_resolves_a_QUOTED_literal_path(self):
+        """A quoted literal `-C` path must resolve to that path.
+
+        The defect this story exists to close, and the reason it survived: every
+        other quoted-`-C` fixture in the suite uses a path that is unresolvable
+        either way (`$WT`, `~/wt`, `wt*`), so none of them could tell a correct
+        parse from one that silently returned the caller's cwd.
+
+        `parse_effective_cwd` scanned `strip_quoted(command)`, which DELETES the
+        quoted span and its delimiters — `git -C "/p" commit` becomes
+        `git -C  commit`, so the regex captured the literal token `commit` as the
+        path, failed `is_dir()`, and fell through to the fallback. Its two
+        siblings (`dash_c_unreachable`, `head_probe_target`) already read the path
+        from the RAW command via the offset-preserving mask; this function was
+        the one never migrated.
+
+        Both quote styles, because the raw-token regex has a separate
+        alternation branch for each.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            commands = (
+                f'git -C "{tmp}" commit -m x',
+                f"git -C '{tmp}' commit -m x",
+            )
+            for command in commands:
+                with self.subTest(command=command):
+                    self.assertEqual(
+                        commit_command.parse_effective_cwd(command, "/HOOK/CWD"), tmp
+                    )
+
+    def test_a_quoted_literal_path_is_not_refused(self):
+        """The other half of the same fix: resolving it must not also refuse it.
+
+        A quoted literal path carries no shell construct, so widening the
+        refusal to cover the parse's old blind spot would trade a silent
+        wrong-repo scan for a loud obstruction on the documented
+        `git -C <path>` teammate form — which MUST be quoted when the path
+        contains a space.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse(
+                commit_command.dash_c_unreachable(f'git -C "{tmp}" commit -m x')
+            )
+
+    def test_head_probe_target_agrees_on_a_quoted_path(self):
+        """Extends the existing agreement pin to the quoted form.
+
+        The two functions disagreeing about which repo a commit lands in is the
+        root cause here, so the agreement is pinned for the shape that broke it,
+        not only for the bare shape that always worked.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            command = f'git -C "{tmp}" commit -m x'
+            self.assertEqual(
+                commit_command.head_probe_target(command, "/HOOK/CWD"),
+                commit_command.parse_effective_cwd(command, "/HOOK/CWD"),
+            )
+
+    def test_parse_effective_cwd_sees_a_dash_c_past_a_wrap_or_a_tab(self):
+        """The fast-path guard must not hide a `-C` the token reader can read.
+
+        It skipped any command without the literal substring `git -`, which
+        `git \\<nl> -C /p` and `git<TAB>-C /p` do not contain — so the parse
+        returned the caller's cwd for a target it could perfectly well resolve,
+        while `dash_c_unreachable` (no fast path) judged the same token. Two
+        readers disagreeing about which repo a commit lands in is the defect
+        class this story closed; the guard was a third reader.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            for command in (
+                f"git \\\n  -C {tmp} commit -m x",
+                f"git\t-C {tmp} commit -m x",
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual(
+                        commit_command.parse_effective_cwd(command, "/HOOK/CWD"), tmp
+                    )
+
     def test_parse_effective_cwd_relative_dash_c_resolves_against_fallback(self):
         """A RELATIVE literal `-C` path must keep resolving exactly as it does
         today, against the caller's cwd.
@@ -58,6 +136,113 @@ class TestCommitCommandDirectImport(unittest.TestCase):
         self.assertFalse(commit_command.dash_c_unreachable("git -C wt commit"))
         self.assertFalse(commit_command.dash_c_unreachable("git -C ./wt commit"))
         self.assertFalse(commit_command.dash_c_unreachable("git -C ../sibling commit"))
+
+    def test_a_MIXED_quoting_token_is_unreachable(self):
+        """`-C '/tmp/'"$WT"` is two concatenated segments, and only the first is
+        captured — so the path as a whole was never recovered.
+
+        `dash_c_tokens.token_unreachable` judges by the captured segment's quoting, and
+        single-quoted means "the shell expanded nothing", which is true of
+        `/tmp/` and irrelevant to the `"$WT"` that follows it. Previously
+        recorded as a deliberate known limit; it is a live hole, because the
+        concatenation can name a real repo the hook never sees.
+
+        This became MORE dangerous once parse_effective_cwd started reading raw
+        tokens: it now resolves confidently to the first segment's directory
+        rather than falling back, so a gate scans a real-but-wrong repo.
+        """
+        for command in (
+            """git -C '/tmp/'"$WT" commit -m x""",
+            """git -C "/tmp/"'$WT' commit -m x""",
+            """git -C '/tmp/'"$(pwd)" commit -m x""",
+        ):
+            with self.subTest(command=command):
+                self.assertTrue(commit_command.dash_c_unreachable(command))
+
+    def test_every_ordinary_quoted_form_stays_reachable(self):
+        """The non-vacuity guard for the check above.
+
+        A recoverability test that refused every quoted token would satisfy the
+        mixed-form assertion and break the documented `git -C <path>` form that
+        MUST be quoted when the path contains a space. Each of these is a single
+        fully-recovered token and must stay reachable.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            spaced = Path(tmp) / "a dir with spaces"
+            spaced.mkdir()
+            for command in (
+                f'git -C "{tmp}" commit -m x',
+                f"git -C '{tmp}' commit -m x",
+                f'git -C "{spaced}" commit -m x',
+                'git -C "~/wt" commit -m x',
+                "git -C '$WT' commit -m x",
+                "git -C /nonexistent/repo commit -m x",
+            ):
+                with self.subTest(command=command):
+                    self.assertFalse(commit_command.dash_c_unreachable(command))
+
+    def test_no_dash_c_spelling_proceeds_against_a_repo_it_did_not_name(self):
+        """AC-3, pinned as the defect CLASS rather than its instances.
+
+        The class is: **the gate proceeds while scanning a repo the command did
+        not name.** Every instance of this bug is a member of it, so pinning the
+        class catches the next spelling nobody thought of.
+
+        Two things this deliberately does NOT do, both of which I got wrong on
+        the first attempt and only caught by tracing every row:
+
+        - It does not use one directory as both the fallback and the target. Doing
+          so makes a CORRECT resolution indistinguishable from a fallback, and
+          all three recoverable spellings read as failures.
+        - It does not treat "resolved to something" as success. The mixed-quoting
+          token resolves confidently to its first segment — a real directory that
+          is not the target — so a `resolved != fallback` check scores the worst
+          case as a pass. The assertion is `resolved == the named repo`.
+
+        `expected is None` means the hook cannot know the target, which must
+        produce a refusal rather than a scan.
+
+        ONE documented exception, asserted rather than skipped: a fully-recovered
+        bare literal path that does not exist. git aborts on it, so nothing lands
+        anywhere and the fallback is harmless — commit_handling.py:158-162,
+        pinned end-to-end at test_trailer_linkage.py:217-230.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            caller = Path(td) / "caller"
+            caller.mkdir()
+            target = Path(td) / "target"
+            target.mkdir()
+            fallback = str(caller)
+            cases = (
+                (f'git -C "{target}" commit -m x', str(target)),
+                (f"git -C '{target}' commit -m x", str(target)),
+                (f"git -C {target} commit -m x", str(target)),
+                ('git -C "$WT" commit -m x', None),
+                ("git -C ${WT} commit -m x", None),
+                ('git -C "$(pwd)" commit -m x', None),
+                ("git -C ~/wt commit -m x", None),
+                ("git -C wt* commit -m x", None),
+                ("""git -C '/tmp/'"$WT" commit -m x""", None),
+            )
+            for command, expected in cases:
+                with self.subTest(command=command):
+                    refused = commit_command.dash_c_unreachable(command)
+                    resolved = commit_command.parse_effective_cwd(command, fallback)
+                    if expected is None:
+                        self.assertTrue(
+                            refused,
+                            "target unknowable to the hook, yet not refused — "
+                            "the gate would scan some other repo",
+                        )
+                    else:
+                        self.assertFalse(refused)
+                        self.assertEqual(resolved, expected)
+
+            absent = "git -C /nonexistent/repo commit -m x"
+            self.assertFalse(commit_command.dash_c_unreachable(absent))
+            self.assertEqual(
+                commit_command.parse_effective_cwd(absent, fallback), fallback
+            )
 
     def test_dash_c_unreachable_true_for_variable(self):
         self.assertTrue(commit_command.dash_c_unreachable('git -C "$WT" commit'))
@@ -212,6 +397,21 @@ class TestCommitCommandDirectImport(unittest.TestCase):
             )
             self.assertEqual(commit_command.head_probe_target(command, tmp), str(b))
 
+    def test_head_probe_target_suppresses_when_the_LAST_token_is_unrecoverable(self):
+        """An unreadable `-C` must not demote the probe to an EARLIER one.
+
+        `git -C /a add && git -C '/tmp/'"$X" commit` targets whatever the second
+        token expands to. Dropping the unrecoverable token and then taking the
+        last SURVIVOR answers /a — the staging repo, which the commit never
+        touched — and its HEAD is exactly the fabricated trace this function's
+        "not a dir -> None" arm exists to avoid. Unknowable means None.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            a = Path(tmp) / "a"
+            a.mkdir()
+            command = f"""git -C {a} add -A && git -C '{tmp}/'"$X" commit -m 'm'"""
+            self.assertIsNone(commit_command.head_probe_target(command, tmp))
+
     def test_head_probe_target_ignores_a_dash_c_inside_the_message(self):
         """The probe reads the LAST token, so the mask is what keeps a message
         body from becoming the target it reads."""
@@ -239,108 +439,6 @@ class TestCommitCommandDirectImport(unittest.TestCase):
 
     def test_extract_commit_message_none(self):
         self.assertIsNone(commit_command.extract_commit_message("git status"))
-
-
-class TestStdinHeredocFormsUnchanged(unittest.TestCase):
-    """AC-3: the forms that already parse today must stay byte-identical
-    after the pattern change. Direct-import parser-shape fixtures — the
-    redirect/pipe/earlier-heredoc regressions live in test_commit_handling.py
-    (imported through `commits`, not `commit_command` directly)."""
-
-    def test_clean_quoted_delimiter(self):
-        command = "git commit -q -F - <<'EOF'\nfeat: clean\nEOF"
-        self.assertEqual(commit_command.extract_commit_message(command), "feat: clean")
-
-    def test_unquoted_delimiter(self):
-        command = "git commit -q -F - <<EOF\nfeat: unquoted\nEOF"
-        self.assertEqual(
-            commit_command.extract_commit_message(command), "feat: unquoted"
-        )
-
-    def test_whitespace_padded_delimiter(self):
-        command = "git commit -q -F - <<   'EOF'\nfeat: padded\nEOF"
-        self.assertEqual(commit_command.extract_commit_message(command), "feat: padded")
-
-
-class TestStdinHeredocClosingTruncation(unittest.TestCase):
-    """Row 3 of the story's repro table: a body LINE that merely starts
-    with the delimiter word (a prefix, not the delimiter itself) must not
-    end the heredoc early. Pinned at the parser's own contract — the
-    `extract_commit_message` docstring promises to "recover the message a
-    git command supplied", and returning a silently truncated prefix breaks
-    that promise regardless of which downstream consumer currently notices.
-
-    (Empirically checked against pre_tool_bash.py's two PreToolUse
-    consumers of this parser -- `parse_verify_deferred` and
-    `is_escape_hatch_commit` -- both anchor on the message's START, so a
-    tail truncation from this specific defect does not change their output;
-    a test pinning either would pass identically before and after this fix,
-    proving nothing, the same flaw already identified in the confirmation
-    fallback. See concern recorded against 033daa426553.)
-    """
-
-    def test_body_line_prefixed_by_delimiter_is_not_mistaken_for_close(self):
-        command = (
-            "git commit -q -F - <<'EOF'\n"
-            "Subject\n"
-            "\n"
-            "EOF_NOT_THE_END: still part of the body\n"
-            "EOF"
-        )
-        self.assertEqual(
-            commit_command.extract_commit_message(command),
-            "Subject\n\nEOF_NOT_THE_END: still part of the body",
-        )
-
-
-class TestStdinHeredocWhitespaceToleranceBothDirections(unittest.TestCase):
-    """What the discarded `[ \t]*` draft got wrong, measured against bash:
-    plain `<<` terminates only at column 0; `<<-` terminates on leading
-    TABS, never spaces. Neither direction may accept the other's
-    whitespace, or a body line that merely looks like an indented close
-    truncates the message early -- the same defect class, reintroduced."""
-
-    def test_plain_heredoc_ignores_tab_indented_body_delimiter_line(self):
-        command = "git commit -q -F - <<'EOF'\nSubject\n\tEOF\nmore body\nEOF"
-        self.assertEqual(
-            commit_command.extract_commit_message(command),
-            "Subject\n\tEOF\nmore body",
-        )
-
-    def test_dash_heredoc_ignores_space_indented_body_delimiter_line(self):
-        command = "git commit -q -F - <<-'EOF'\nSubject\n EOF\nmore body\nEOF"
-        self.assertEqual(
-            commit_command.extract_commit_message(command),
-            "Subject\n EOF\nmore body",
-        )
-
-
-class TestStdinHeredocDashFormNetNew(unittest.TestCase):
-    """The `<<-` form has zero fixtures in the suite before this story --
-    a tab-indented closing delimiter returns None today. Red-first, not a
-    before/after equality pin."""
-
-    def test_dash_heredoc_tab_indented_close_recovers(self):
-        command = "git commit -q -F - <<-'EOF'\nfeat: dash form\n\tEOF"
-        self.assertEqual(
-            commit_command.extract_commit_message(command), "feat: dash form"
-        )
-
-    def test_dash_heredoc_strips_body_leading_tabs(self):
-        """`<<-` strips leading tabs from EVERY body line, not just the
-        closing delimiter line -- the extracted message must match what git
-        actually stored, not the raw indented source text."""
-        command = (
-            "git commit -q -F - <<-'EOF'\n"
-            "\tfeat: dash form\n"
-            "\n"
-            "\tBody line, indented in source.\n"
-            "\tEOF"
-        )
-        self.assertEqual(
-            commit_command.extract_commit_message(command),
-            "feat: dash form\n\nBody line, indented in source.",
-        )
 
 
 if __name__ == "__main__":

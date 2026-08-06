@@ -19,16 +19,22 @@ ground the split just won.
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 BAND_CEILINGS = {
-    # shipped (17). The count was measured, not incremented: the tests header
-    # below said 57 while carrying 58 entries, so both are now set from a real
-    # count rather than carried forward.
+    # shipped (15). Counts here are measured, never incremented or merged:
+    # this back-merge combined a branch that ADDED an entry with a main that
+    # RETIRED several, so neither side's number was right.
+    # RETIRED (story-015): hook_liveness.py 469->371, by taking the extraction
+    # its own ceiling note named — the per-session sibling scan moved to
+    # scripts/hook_heartbeat_scan.py, which a second reader (coordination's
+    # liveness leg) now imports without the verdict machinery.
     #
     # The first NON-Python entry. The band ratchet discovered only .py until
     # story-002, so every shipped shell file was ungoverned by a gate whose
-    # docstring called itself tree-wide; this one sat 8 lines from the cap the
-    # whole time. Nothing about the ratchet itself is language-specific --
-    # `_line_count` is splitlines() -- only its discovery was.
-    "plugins/xp-agents/skills/_preload_base.sh": 492,
+    # docstring called itself tree-wide. Nothing about the ratchet itself is
+    # language-specific -- `_line_count` is splitlines() -- only its discovery
+    # was. Recorded at 492 on the story branch; re-measured at 468 here because
+    # main shrank the file in parallel (story-016's once-per-session gate).
+    # Carrying 492 across the merge would have handed back all 24 lines.
+    "plugins/xp-agents/skills/_preload_base.sh": 468,
     "plugins/xp-agents/smm/seed_smm.py": 499,
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     "plugins/xp-agents/scripts/close_common.py": 470,  # ratcheted from 496 (split)
@@ -45,15 +51,18 @@ BAND_CEILINGS = {
     # sister include, collision attribution, save/run); collision attribution
     # is the cohesive group to extract next.
     "plugins/xp-agents/smm/sprint_save.py": 463,
-    # Entered the band at sprint close: extract_diagnostics learned to tell the
-    # spawn's own advisories from spawn-side evidence.
-    "plugins/xp-agents/scripts/teammate_output_filter.py": 461,
-    "plugins/xp-agents/scripts/pre_tool_write.py": 463,
+    # RETIRED (story-015): teammate_output_filter.py 461->376. The stream
+    # reading half — deadline, fd loop, stream-json parsing, terminal-event
+    # detection — moved to scripts/teammate_stream_reader.py, leaving the host
+    # to decide what the outcome MEANS and report it.
+    # RETIRED (story-016): pre_tool_write.py 463->379, by extracting the
+    # schedule gate's exemption predicates to write_scope.py. Left in place, its
+    # 463 would have handed back every one of the 84 lines the split just won.
     "plugins/xp-agents/scripts/session_start.py": 462,
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
-    # tests (59)
+    # tests (57)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
     # Entered the band with the shell surface's own red proofs. Its own
     # self-coverage test caught the crossing, which is the design working. The
@@ -103,7 +112,12 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/skills/test_scaffold_worktree_skill.py": 475,
     "plugins/xp-agents/tests/engine/test_compact_concurrency.py": 473,
     "plugins/xp-agents/tests/smm/test_integration_branch_ref.py": 470,
-    "plugins/xp-agents/tests/engine/test_sprint_frontier.py": 470,
+    # RETIRED (story-019 follow-up): test_sprint_frontier.py 470->283. The
+    # unscoped-verdict tests had already moved to test_frontier_unprovable.py;
+    # the dependency-edge / treat_as_done group moved to
+    # test_frontier_dependency_edges.py, leaving only the collision/glob/
+    # shape tests the always-present `unscoped` key otherwise would have
+    # pushed past the ceiling.
     "plugins/xp-agents/tests/integration/test_story_close.py": 468,
     # Entered the band with the close-cycle marker scrub: a close preload now
     # leaves state a sibling preload reacts to, so the shared measurement loop
@@ -124,7 +138,8 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_spawn_teammate_markers.py": 462,
     "plugins/xp-agents/tests/smm/test_init_migration_lock.py": 462,
     "plugins/xp-agents/tests/smm/test_triage.py": 460,
-    "plugins/xp-agents/tests/skills/test_preload_liveness.py": 459,
+    # RETIRED (back-merge): test_preload_liveness.py 459->363 on the sprint
+    # branch, so main's carried entry would hand back ground already won.
     "plugins/xp-agents/tests/engine/test_sprint_cli.py": 458,
     "plugins/xp-agents/tests/hooks/test_subagent_tiers_sprint.py": 457,
     # Entered the band with the close review's refusal pin for a --smm-dir

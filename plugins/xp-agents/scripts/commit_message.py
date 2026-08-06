@@ -18,7 +18,7 @@ Two consumers care about that distinction:
   alone misread every single-quoted subject containing one as "unexpanded",
   which armed a rebuild that fabricated a commit event.
 
-`commit_command._token_unreachable` already judges a `-C` path by its quoting
+`dash_c_tokens.token_unreachable` already judges a `-C` path by its quoting
 for the same reason; this module is that rule applied to the message.
 """
 

@@ -142,6 +142,9 @@ def load_sprint_fail_open(smm_dir: Path) -> dict | None:
       baseline attributes EVERY collision to this write, making the gate
       stricter; branching._recorded_sprint_branch — runs below the stage gate,
       and set_branch re-raises on the same corruption once a branch is cut;
+      close_window.sprint_window_start — losing the bound drops the concern
+      gate's time floor entirely, which only ever makes the gate count MORE,
+      and the window says so on stderr;
       spawn_teammate.resolve_sprint_id — the sprint only NAMESPACES the teammate
       prompt/log path, and it degrades to the project-only namespace identically
       for the path query and for the spawn that reads the file back, so the two

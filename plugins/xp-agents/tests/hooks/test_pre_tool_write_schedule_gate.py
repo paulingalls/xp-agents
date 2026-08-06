@@ -8,13 +8,9 @@ story in motion) and its own exemption set, so it earns its own file; the plan
 review gate, question gate and accept marker stay behind.
 """
 
-import contextlib
-import shutil
 import sys
-import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -23,16 +19,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import pre_tool_write
-import worktree
+from _schedule_gate_fixture import (
+    _FREE_BRANCH,
+    _STORY_BRANCH,
+    _ScheduleGateFixture,
+)
 from conftest import (
     SPRINT_IN_PROGRESS,
     SPRINT_SCHEDULED_ONLY,
     _HookTestCase,
     _make_write_input,
 )
-
-_STORY_BRANCH = "paulingalls/story-001-schedule-gate"
-_FREE_BRANCH = "paulingalls/free-2026-07-13-scratch"
 
 
 class TestPreToolWriteScheduleGate(_HookTestCase):
@@ -95,67 +92,6 @@ class TestPreToolWriteScheduleGate(_HookTestCase):
             },
         )
         self.assertIsNone(pre_tool_write.run(smm_input, smm_dir=self.smm_dir))
-
-
-class _ScheduleGateFixture(_HookTestCase):
-    """A repo root on disk, plus the two git probes stubbed at their seams.
-
-    The repo lives under `mkdtemp()`, which on macOS hands back a path through
-    a symlink (`/var/folders/...` -> `/private/var/folders/...`). That is the
-    point, not an accident: `git rev-parse --show-toplevel` returns the PHYSICAL
-    root, while the hook builds its target from the payload's `cwd`, which comes
-    through the symlink. `_root` and `_cwd` below reproduce exactly that split,
-    so a containment check that resolves only one side fails these tests — the
-    same trap the schedule-frontier e2e catches against a real git repo.
-
-    The git-root cache is a module global that outlives a test under
-    `pytest -n auto`, so clear it on BOTH sides of every test.
-    """
-
-    def setUp(self):
-        super().setUp()
-        worktree._clear_git_root_cache()
-        # BUILD the symlink; do not inherit one from the platform.
-        #
-        # This used to be a bare `mkdtemp()` for `_cwd` and its `.resolve()` for
-        # `_root`, which differ ONLY because macOS makes /tmp a symlink into
-        # /private/tmp. On Linux they are the same string, so `_cwd == _root`, the
-        # guard assertion fired, and CI went red — while the suite stayed green on
-        # every developer's Mac. The symlink case was never exercised on the platform
-        # CI runs, which is the one that matters: a fixture that depends on the OS's
-        # own filesystem layout tests the OS, not the code.
-        physical = tempfile.mkdtemp(prefix="xp-gate-repo-")
-        link = Path(tempfile.mkdtemp(prefix="xp-gate-link-")) / "repo"
-        link.symlink_to(physical, target_is_directory=True)
-        self.addCleanup(shutil.rmtree, physical, ignore_errors=True)
-        self.addCleanup(shutil.rmtree, link.parent, ignore_errors=True)
-
-        self._cwd = str(link)  # through the symlink, as a hook payload carries it
-        self._root = str(Path(physical).resolve())  # physical, as git reports it
-
-    def tearDown(self):
-        worktree._clear_git_root_cache()
-        super().tearDown()
-
-    @contextlib.contextmanager
-    def _probes(self, *, root: str | None, branch: str):
-        """Stub the git root and the branch probe at their late-bound seams."""
-        with (
-            patch.object(
-                pre_tool_write.worktree, "resolve_git_root", return_value=root
-            ),
-            patch.object(
-                pre_tool_write.identity, "get_current_branch", return_value=branch
-            ) as branch_probe,
-        ):
-            yield branch_probe
-
-    def _write(self, target: str) -> dict:
-        return _make_write_input(
-            session_id="t",
-            cwd=self._cwd,
-            tool_input={"file_path": target, "content": "x"},
-        )
 
 
 class TestScheduleGateScopeExemption(_ScheduleGateFixture):
@@ -227,11 +163,12 @@ class TestScheduleGateScopeExemption(_ScheduleGateFixture):
         never be paid.
         """
         with (
-            self._probes(root=None, branch=_FREE_BRANCH) as branch_probe,
+            self._probes(root=None, branch=_FREE_BRANCH) as probes,
             self.assertRaises(_common.BlockedError),
         ):
             pre_tool_write.run(self._write("/elsewhere/x.py"), smm_dir=self.smm_dir)
-        branch_probe.assert_not_called()
+        probes.branch.assert_not_called()
+        probes.merge.assert_not_called()
 
     def test_empty_git_root_still_blocks(self):
         """The other falsy root. `resolve_git_root` is typed `str | None`, but an
@@ -330,12 +267,12 @@ class TestScheduleGateBranchProbeCost(_ScheduleGateFixture):
     def test_a_normal_write_never_probes_the_branch(self):
         """The common case — a story in progress — must not pay for a subprocess."""
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
-        with self._probes(root=self._root, branch=_STORY_BRANCH) as branch_probe:
+        with self._probes(root=self._root, branch=_STORY_BRANCH) as probes:
             pre_tool_write.run(
                 self._write(str(Path(self._cwd) / "src" / "app.py")),
                 smm_dir=self.smm_dir,
             )
-        branch_probe.assert_not_called()
+        probes.branch.assert_not_called()
 
     def test_the_gate_window_does_probe_the_branch(self):
         """Positive control for the assertion above.
@@ -348,14 +285,14 @@ class TestScheduleGateBranchProbeCost(_ScheduleGateFixture):
         """
         (self.smm_dir / "sprint.json").write_text(SPRINT_SCHEDULED_ONLY)
         with (
-            self._probes(root=self._root, branch=_STORY_BRANCH) as branch_probe,
+            self._probes(root=self._root, branch=_STORY_BRANCH) as probes,
             self.assertRaises(_common.BlockedError),
         ):
             pre_tool_write.run(
                 self._write(str(Path(self._cwd) / "src" / "app.py")),
                 smm_dir=self.smm_dir,
             )
-        branch_probe.assert_called_once()
+        probes.branch.assert_called_once()
 
 
 class TestCorruptSprintKeepsThePredicatesApart(_ScheduleGateFixture):
@@ -410,6 +347,22 @@ class TestCorruptSprintKeepsThePredicatesApart(_ScheduleGateFixture):
         """
         with (
             self._probes(root=self._root, branch=_FREE_BRANCH),
+            self.assertRaises(_common.BlockedError) as ctx,
+        ):
+            pre_tool_write.run(
+                self._write(str(Path(self._cwd) / "src" / "app.py")),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("cannot be read", str(ctx.exception))
+
+    def test_a_conflicted_file_still_blocks_when_the_sprint_is_corrupt(self):
+        """The third leg, same claim. A conflict being resolved exempts a write
+        from the SCHEDULE gate — a statement about scope. It says nothing about
+        sprint.json being readable, so it buys nothing here."""
+        with (
+            self._probes(
+                root=self._root, branch=_STORY_BRANCH, conflicted=("src/app.py",)
+            ),
             self.assertRaises(_common.BlockedError) as ctx,
         ):
             pre_tool_write.run(
