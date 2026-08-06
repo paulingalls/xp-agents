@@ -33,7 +33,7 @@ _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
 
 
 class TestVerifyTouchLifecycle(_IntegrationTestCase):
-    def _seed_story(self) -> None:
+    def _seed_story(self, acceptance_execution: dict | None = None) -> None:
         story = {
             "id": "story-001",
             "title": "t",
@@ -45,7 +45,8 @@ class TestVerifyTouchLifecycle(_IntegrationTestCase):
             "file_domain": [],
             "interface_contracts": [],
             "acceptance_criteria": [],
-            "acceptance_execution": {"type": "pytest", "command": "pytest acc_test.py"},
+            "acceptance_execution": acceptance_execution
+            or {"type": "pytest", "command": "pytest acc_test.py"},
         }
         # Cut the sprint branch too. A sprint seeded at stage 2 whose branch
         # does not exist is the unresolvable state story-008 taught the
@@ -149,6 +150,32 @@ class TestVerifyTouchLifecycle(_IntegrationTestCase):
         self.assertEqual(self._preload_vars(), ("acc_test.py", "false"))
 
         append_commit(str(self.tmpdir), "acc_test.py")
+        self.assertIsNone(self._commit_nudge())
+        untouched, _ = self._preload_vars()
+        self.assertEqual(untouched, "")
+
+    def test_bun_spec_untouched_fires_nudge_and_blocks_close(self):
+        # story-001 (bun spec paths): a bun direct-runner acceptance command
+        # names its spec file on the CLI, same as pytest — the gate must
+        # name that path, not fall open to the whole-tree sentinel.
+        self._seed_story(
+            {"type": "bun", "command": "bun test packages/db/src/x.test.ts"}
+        )
+        self._story_branch("u/story-001-bun-a", "other.py", "wip")
+        nudge = self._assert_not_none(self._commit_nudge())
+        self.assertIn("packages/db/src/x.test.ts", nudge)
+        untouched, deferred = self._preload_vars()
+        self.assertEqual(untouched, "packages/db/src/x.test.ts")
+        self.assertEqual(deferred, "false")
+
+    def test_bun_spec_touch_clears_nudge_and_passes_close(self):
+        self._seed_story(
+            {"type": "bun", "command": "bun test packages/db/src/x.test.ts"}
+        )
+        (self.tmpdir / "packages" / "db" / "src").mkdir(parents=True, exist_ok=True)
+        self._story_branch(
+            "u/story-001-bun-b", "packages/db/src/x.test.ts", "add bun spec"
+        )
         self.assertIsNone(self._commit_nudge())
         untouched, _ = self._preload_vars()
         self.assertEqual(untouched, "")

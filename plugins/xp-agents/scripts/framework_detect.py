@@ -43,9 +43,28 @@ _NX_RES = (
     r"\bnx\s+\S+\s+--targets?=test(?:[,\s]|$)",
 )
 _BUN_SCRIPT_RE = r"\bbun" + _FLAG_GAP + r"\s+(?:run\s+)?" + _TEST_SCRIPT_TAIL
+# bun is a hybrid: `bun run <script>` / `bun <script>:<suffix>` are package-
+# script aliases (no CLI path, like the npm/pnpm/yarn forms above); bare
+# `bun test [<spec>...]` is a direct runner naming spec files as positionals.
+# Used by verify_paths.classify_path_strategy to split the two, the same way
+# a literal `jest` token disambiguates jest's alias vs. direct forms.
+_BUN_ALIAS_RE = r"\bbun" + _FLAG_GAP + r"\s+(?:run\s+\S+|test:[\w:-]+)"
 _NPM_SCRIPT_RE = (
     r"\b(?:npm|pnpm|yarn|lerna)" + _FLAG_GAP + r"\s+(?:run\s+)?" + _TEST_SCRIPT_TAIL
 )
+
+
+def is_bun_script_alias(command: str) -> bool:
+    """True for bun's package-script alias forms, false for its direct form.
+
+    `bun ... run <script>` and `bun ... <script>:<suffix>` (`bun test:unit`,
+    `bun test:e2e-live`) name a package.json script, not a CLI path — alias.
+    Bare `bun test [<spec>...]` runs bun's own test binary, naming spec files
+    (if any) as positionals — direct, not an alias. Only called once
+    `is_test_run` has already returned "bun", so the caller is disambiguating
+    a known bun-test command, not detecting one.
+    """
+    return bool(re.search(_BUN_ALIAS_RE, command))
 
 
 def is_test_run(command: str) -> str | None:
