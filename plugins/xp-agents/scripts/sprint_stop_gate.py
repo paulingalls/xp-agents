@@ -141,6 +141,12 @@ def _has_checkable_proof(story: dict) -> bool:
     `type` is the only required key, so `{"type": "manual"}` carrying neither a
     command nor steps is schema-valid and declares nothing. Keying on
     absent/null would read that shape as proof.
+
+    ANY, never EACH — read the silence narrowly. No per-AC verified state
+    exists, so one declared command over a story with five acceptance criteria
+    answers True here. True means "something is declared", NOT "the criteria
+    are proven": a caller that reports the un-named stories as verified would
+    be making the same claim this predicate was written to stop making.
     """
     block = story.get("acceptance_execution")
     if not isinstance(block, dict):

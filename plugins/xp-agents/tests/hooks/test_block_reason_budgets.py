@@ -136,13 +136,15 @@ REASON_BUDGETS: dict[str, int] = {
     "scripts/pre_tool_write.py": 720,
     "scripts/review_cycle_done.py": 960,
     "scripts/session_end_warning.py": 100,
-    # Bumped 230 -> 480 (story-017), which added two messages to this gate: the
+    # Bumped 230 -> 460 (story-017), which added two messages to this gate: the
     # accept message now names the firing stories nothing can check, and an
     # unreadable sprint.json blocks instead of raising out of the hook. The gate
     # stood at 204 of a 225.4 band — 89% used — so neither fit and trimming was
-    # not available: even a 26-char clause busted it. 480 is measured, not
-    # guessed (408 actual / 0.85), leaving ~63 chars rather than the 21 it had.
-    "scripts/sprint_stop_gate.py": 480,
+    # not available: even a 26-char clause busted it. 460 is measured, not
+    # guessed: round(408 * _CALIBRATION / 10) * 10, the same rule every other
+    # entry here sits at (~89% used). `ratchet` cannot compute it — it is
+    # monotonic-down and would return the old 230 — so it is applied by hand.
+    "scripts/sprint_stop_gate.py": 460,
     "scripts/subagent_stop.py": 350,
     "scripts/task_completed.py": 70,
     "scripts/tdd_stop_gate.py": 110,
@@ -181,7 +183,8 @@ MIN_REASON_CHARS: dict[str, int] = {
     "scripts/session_end_warning.py": 80,
     # Raised with the budget above (story-017): left at 170 the floor would let
     # both new messages be deleted without failing, which is the one direction
-    # this table exists to catch. 350 is the table's own 0.85 rule on 408.
+    # this table exists to catch. 350 is this table's own 0.85 rule on 408 —
+    # the floor rule, distinct from the 1.125 calibration the ceiling uses.
     "scripts/sprint_stop_gate.py": 350,
     "scripts/subagent_stop.py": 270,
     "scripts/task_completed.py": 50,
