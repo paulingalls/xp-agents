@@ -256,6 +256,16 @@ def _format_budget_epilog() -> str:
         "  append.sh --smm-dir DIR --type debt --agent main"
         ' --content "Legacy code" --files \'["src/legacy.ts"]\''
     )
+    # A REFUTING discovery, spelled out here rather than only in the guide:
+    # `references` is mandatory on every discovery, so it cannot also mean
+    # "refutes", and the contradicted-assumption detector fires on the metadata
+    # declaration alone. This help text is the surface an author reads at the
+    # moment of appending; the guide is not.
+    lines.append(
+        "  append.sh --smm-dir DIR --type discovery --agent main"
+        ' --content "Storage is not Postgres" --references \'["<assumption-id>"]\''
+        ' --metadata \'{"refutes": ["<assumption-id>"]}\''
+    )
     return "\n".join(lines)
 
 

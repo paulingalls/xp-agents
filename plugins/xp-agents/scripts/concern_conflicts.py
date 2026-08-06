@@ -69,12 +69,17 @@ def _declares_id(meta: dict, target_id: str, *keys: str) -> bool:
 
     Callers must pass a non-empty *target_id*: the same empty-string rule cuts
     the other way round, making ``s.startswith("")`` vacuously true for any
-    declaration at all. The two call sites below both guard it.
+    declaration at all. The two call sites below both guard it. A declaration
+    that is not a LIST declares nothing, and only ``resolves`` is type-checked
+    at write time — so ``{"refutes": "<id>"}``, the bare string an author writes
+    with the brackets dropped, reaches here and iterates as single CHARACTERS,
+    each a one-char prefix matching roughly one id in sixteen.
     """
     return any(
         s and (target_id == s or target_id.startswith(s) or s.startswith(target_id))
         for key in keys
-        for s in (meta.get(key) or [])
+        for s in (meta[key] if isinstance(meta.get(key), list) else [])
+        if isinstance(s, str)
     )
 
 

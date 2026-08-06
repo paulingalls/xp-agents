@@ -367,6 +367,59 @@ class TestReferenceIsNotRefutation(_HookTestCase):
         )
         self.assertEqual(self._contradictions([a1, a2, d]), [])
 
+    def test_a_bare_string_refutes_flags_nothing_at_all(self):
+        """`refutes: "<id>"` — the brackets dropped — must declare NOTHING.
+
+        Only `metadata.resolves` is type-checked at write time, so this shape
+        reaches the matcher. Iterated, a string yields single CHARACTERS, each
+        truthy and each a one-char prefix that startswith-matches roughly one id
+        in sixteen: the detector flagged the intended assumption AND an
+        unrelated one, at high severity — the very false positive narrowing the
+        trigger to a declaration was meant to end.
+
+        The unrelated assumption's id is pinned to share `a1`'s first character
+        so the character-iteration bug is REACHED here; without that, a passing
+        assertion would prove only that the ids happened not to collide.
+        """
+        a1 = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
+        a2 = make_event(EVENT_TYPE_ASSUMPTION, content="storage is Postgres")
+        a2["id"] = a1["id"][0] + a2["id"][1:]
+        self.assertNotEqual(a1["id"], a2["id"])
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL",
+            references=[a1["id"]],
+            metadata={METADATA_KEY_REFUTES: a1["id"]},
+        )
+        self.assertEqual(self._contradictions([a1, a2, d]), [])
+
+    def test_a_non_list_refutes_flags_nothing(self):
+        """Same rule, the other shapes JSON permits. A dict iterates its KEYS,
+        which lands in the same place; a number is not iterable at all and must
+        not raise on a hook path that has to degrade, never crash."""
+        a1 = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
+        for declared in ({a1["id"]: True}, 7, None):
+            with self.subTest(declared=declared):
+                d = make_event(
+                    EVENT_TYPE_DISCOVERY,
+                    content="Actually GraphQL",
+                    references=[a1["id"]],
+                    metadata={METADATA_KEY_REFUTES: declared},
+                )
+                self.assertEqual(self._contradictions([a1, d]), [])
+
+    def test_a_non_string_entry_beside_a_real_id_is_ignored_not_fatal(self):
+        """A well-formed list with one junk entry still refutes what it names.
+        Dropping the entry beats raising on a hook that must degrade."""
+        a1 = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL",
+            references=[a1["id"]],
+            metadata={METADATA_KEY_REFUTES: [None, 12, a1["id"]]},
+        )
+        self.assertEqual(len(self._contradictions([a1, d])), 1)
+
     def test_refuting_an_id_that_is_not_an_assumption_raises_nothing(self):
         """A declaration is not self-certifying: the target must actually be an
         assumption in the log. A discovery refuting a decision id is somebody

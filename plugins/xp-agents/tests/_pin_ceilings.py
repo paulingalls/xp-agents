@@ -19,7 +19,7 @@ ground the split just won.
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 BAND_CEILINGS = {
-    # shipped (17)
+    # shipped (16)
     # Entered the band adding the disagreeing-session-id refusal, which needed a
     # verdict code, its reason prose, and a branch that must precede every
     # degrade-to-time-only path. The cohesive group to extract next is the
@@ -47,12 +47,14 @@ BAND_CEILINGS = {
     # Entered the band at sprint close: extract_diagnostics learned to tell the
     # spawn's own advisories from spawn-side evidence.
     "plugins/xp-agents/scripts/teammate_output_filter.py": 461,
-    "plugins/xp-agents/scripts/pre_tool_write.py": 463,
+    # RETIRED (close review): pre_tool_write.py 463->379, by extracting the
+    # schedule gate's exemption predicates to write_scope.py. Left in place, its
+    # 463 would have handed back every one of the 84 lines the split just won.
     "plugins/xp-agents/scripts/session_start.py": 462,
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
-    # tests (56)
+    # tests (57)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
