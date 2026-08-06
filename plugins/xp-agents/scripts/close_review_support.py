@@ -27,9 +27,13 @@ import git_hooks
 def pre_commit_hook_present(repo_root: str) -> bool:
     """Return True when the project runs tests via a git hook on commit/push.
 
-    Strict — defers to ``git_hooks.will_fire_hook`` (markers + executable
-    pre-commit/pre-push, honoring ``core.hooksPath``). Non-executable
-    scripts and ``.sample`` files don't qualify because git won't fire them.
+    Strict — defers to ``git_hooks.will_fire_hook``: an executable
+    pre-commit/pre-push in the resolved hooks dir, honoring
+    ``core.hooksPath``. Non-executable scripts and ``.sample`` files don't
+    qualify because git won't fire them, and neither does a framework config
+    file on its own — ``lefthook.yml`` present but never installed means this
+    merge runs nothing, which is exactly when the caller's guidance block
+    needs to appear.
     """
     return git_hooks.will_fire_hook(repo_root)
 

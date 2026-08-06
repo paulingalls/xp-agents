@@ -191,10 +191,16 @@ class TestHookPresent(unittest.TestCase):
     fallback prose nudge ("run the project's test command before
     confirming the merge") when no hook is wired up.
 
-    Detection covers: default `.git/hooks/pre-commit` (executable, not
-    `.sample`); `core.hooksPath` override pointing at a dir with an
-    executable hook; framework markers (`.pre-commit-config.yaml`,
-    `lefthook.yml/yaml`, `.husky/`).
+    Detection covers exactly what git will run: default
+    `.git/hooks/pre-commit` (executable, not `.sample`), and a
+    `core.hooksPath` override pointing at a dir with an executable hook.
+
+    Framework markers (`.pre-commit-config.yaml`, `lefthook.yml/yaml`,
+    `.husky/`) deliberately do NOT count here. A config file declares that a
+    runner would install a hook; until it has, git fires nothing, and
+    reporting the gate present suppresses the one nudge this exists to emit.
+    The declared-intent question lives at the other consumer
+    (`seed_detect.has_git_hooks`), which composes the marker leg itself.
     """
 
     def _make_executable(self, path: Path) -> None:
@@ -268,30 +274,39 @@ class TestHookPresent(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "present")
 
-    def test_pre_commit_framework_marker_is_present(self):
+    def test_pre_commit_framework_marker_is_absent(self):
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)
             (Path(td) / ".pre-commit-config.yaml").write_text("repos: []\n")
+            # A declared runner config is not an installed hook: git fires
+            # nothing here, and reporting "present" suppressed the very
+            # guidance block that says so.
             result = _run(["hook-present", "--cwd", td])
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), "present")
+            self.assertEqual(result.stdout.strip(), "absent")
 
-    def test_lefthook_marker_is_present(self):
+    def test_lefthook_marker_is_absent(self):
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)
             (Path(td) / "lefthook.yml").write_text("pre-commit:\n  commands: {}\n")
+            # A declared runner config is not an installed hook: git fires
+            # nothing here, and reporting "present" suppressed the very
+            # guidance block that says so.
             result = _run(["hook-present", "--cwd", td])
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), "present")
+            self.assertEqual(result.stdout.strip(), "absent")
 
-    def test_husky_directory_marker_is_present(self):
+    def test_husky_directory_marker_is_absent(self):
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)
             (Path(td) / ".husky").mkdir()
             (Path(td) / ".husky" / "pre-commit").write_text("#!/bin/sh\nexit 0\n")
+            # A declared runner config is not an installed hook: git fires
+            # nothing here, and reporting "present" suppressed the very
+            # guidance block that says so.
             result = _run(["hook-present", "--cwd", td])
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), "present")
+            self.assertEqual(result.stdout.strip(), "absent")
 
 
 if __name__ == "__main__":

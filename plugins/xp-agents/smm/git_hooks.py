@@ -2,15 +2,19 @@
 """Shared git-hook detection primitives.
 
 Two consumers compose these differently:
-- ``seed_detect.has_git_hooks`` (intent-aware) — ``will_fire_hook`` plus a
-  content-sniff fallback for non-executable scripts that gesture at hooks.
-  Used by SMM seeding to decide whether the project is hook-aware.
+- ``seed_detect.has_git_hooks`` (intent-aware) — ``has_framework_marker`` OR
+  ``will_fire_hook`` OR a content-sniff fallback for non-executable scripts
+  that gesture at hooks. Used by SMM seeding to decide whether the project is
+  hook-aware, where a declared-but-uninstalled runner still counts.
 - ``close_review_support.pre_commit_hook_present`` (strict) — ``will_fire_hook``
   alone. Used by close-skill preloads to decide whether to nudge "run the
-  project's test command before merging" prose.
+  project's test command before merging" prose, where only a hook git will
+  really run counts.
 
-The semantic divergence (content-sniff vs exec-bit) is encoded at
-composition time, not via duplicated marker checks.
+The semantic divergence is encoded at composition time, not via duplicated
+checks. That was always the stated design here, but ``will_fire_hook`` used to
+fold the marker in itself — so both consumers received the intent-aware answer
+and the strict one had no way to ask its own question.
 """
 
 import os
@@ -64,7 +68,22 @@ def has_executable_hook(repo_root: str) -> bool:
 def will_fire_hook(repo_root: str) -> bool:
     """Strict: will git actually fire a hook on commit/push?
 
-    Composition: a framework marker declares intent runners will honor, OR
-    an executable hook is wired up directly.
+    An executable hook in the resolved hooks dir is the whole of it —
+    ``has_executable_hook`` already honors ``core.hooksPath``, so there is
+    nothing else git consults.
+
+    A framework marker is deliberately NOT part of this. ``lefthook.yml`` on
+    disk declares that a runner WOULD install a hook; until someone runs the
+    installer, git fires nothing. Folding the marker in here made this
+    function answer a declared-intent question while its name and docstring
+    promised a will-it-fire one, and the two are not the same in the case
+    that matters: a clone that has the config and has never run ``make
+    setup``. That reported the commit gate present in this repo's own tree
+    while ``.git/hooks/pre-commit`` did not exist, which suppressed the close
+    preloads' "the merge fires no project tests" guidance.
+
+    The declared-intent question did not disappear — it moved to the consumer
+    that wants it. ``seed_detect.has_git_hooks`` composes the marker leg
+    itself, which is what this module's docstring already said happens.
     """
-    return has_framework_marker(repo_root) or has_executable_hook(repo_root)
+    return has_executable_hook(repo_root)

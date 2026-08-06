@@ -265,13 +265,26 @@ def _has_non_sample_pre_commit_content(root: Path) -> bool:
 def has_git_hooks(root: Path) -> bool:
     """Check if git commit hooks are configured (intent-aware).
 
-    True when git would actually fire a hook (framework markers, executable
-    pre-commit/pre-push, or a ``core.hooksPath`` override pointing at one),
-    OR when a non-executable pre-commit script exists with real content
-    (developer intent, even if it won't fire as-is).
+    Three legs, deliberately broader than "will git fire something":
+    a framework marker (``lefthook.yml``, ``.husky/``,
+    ``.pre-commit-config.yaml``) declaring a runner the project intends to
+    use; a hook git will really fire (executable pre-commit/pre-push, or a
+    ``core.hooksPath`` override pointing at one); or a non-executable
+    pre-commit script with real content — a developer's intent that won't
+    fire as-is.
+
+    The marker leg is composed HERE rather than inside ``will_fire_hook``,
+    which answers only the strict question. Seeding wants to know whether the
+    project is hook-aware, and a declared-but-uninstalled runner answers that
+    yes; the close preloads want to know whether this merge runs anything, and
+    it answers that no. One predicate cannot serve both, which is why the
+    marker check reads as duplicated between here and the strict path but is
+    not: it is the leg that distinguishes the two questions.
     """
-    return git_hooks.will_fire_hook(str(root)) or _has_non_sample_pre_commit_content(
-        root
+    return (
+        git_hooks.has_framework_marker(str(root))
+        or git_hooks.will_fire_hook(str(root))
+        or _has_non_sample_pre_commit_content(root)
     )
 
 
