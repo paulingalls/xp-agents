@@ -44,9 +44,11 @@ _NO_AGE_LIMIT = 10**9  # ~31 years
 # 15 minutes: the window only has to exceed the longest gap between heartbeat
 # writes on a WORKING session, and every Bash, Write/Edit and Skill call
 # refreshes it — so that gap is bounded by the longest single tool call. The
-# full test suite, the longest one here, runs under 7 minutes on a loaded
-# machine. 15 leaves better than 2x margin and still halves the 30 minutes a
-# dead teammate used to hold the gate.
+# longest one here is a full-suite run: measured 5m35s alone and 9m49s with
+# four sibling teammates running their own suites on the same machine. 15
+# clears the worst of those by about 1.5x — not a comfortable multiple, and
+# named as such — while still halving the 30 minutes a dead teammate used to
+# hold the gate.
 #
 # What it costs: a live teammate that goes quiet for longer than this is read
 # as dead, and the lead stops waiting on it. Read/Grep/Glob have no PostToolUse
