@@ -61,7 +61,7 @@ BAND_CEILINGS = {
     # (TestCapOffenderDetection, TestBandRatchetRedProof, TestShellScanRedProofs,
     # TestShippedRootFloorRedProof) — they share a temp-tree idiom and touch no
     # real-tree state, unlike everything else in the file.
-    "plugins/xp-agents/tests/test_file_size_pin.py": 475,
+    "plugins/xp-agents/tests/test_file_size_pin.py": 474,
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
     "plugins/xp-agents/tests/hooks/test_branch_lifecycle.py": 494,

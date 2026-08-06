@@ -239,12 +239,11 @@ def _shell_shortfalls(paths: list[Path]) -> list[str]:
 class TestShellScanRedProofs(unittest.TestCase):
     """The shell surface's own discovery, proven to go red.
 
-    Three separate failures, because they fail for different reasons: the scan
-    collapsing to nothing, the tests/ exclusion inverting, and the band leg not
-    actually biting on a shell path. The last one matters most -- the real-tree
-    band assertion goes green the moment the ceiling is recorded and stays green
-    forever, so without this the composition `shell path in band -> flagged` is
-    pinned by nothing.
+    Separate proofs, each red for a different reason: the scan collapsing to
+    nothing, the tests/ exclusion inverting, and the band and cap legs not
+    biting on a shell path. The band one matters most -- the real-tree band
+    assertion goes green the moment the ceiling is recorded and stays green
+    forever, so `shell path in band -> flagged` is otherwise pinned by nothing.
     """
 
     def _tree(self, root: Path) -> Path:
@@ -444,15 +443,15 @@ class TestPinDoesNotShip(unittest.TestCase):
         self.assertEqual(hits, [], msg="; ".join(hits))
 
     def _search(self, needle: str) -> list[str]:
-        hits = []
-        for path in shipped_files_to_scan(_PLUGIN_ROOT):
-            if needle in path.read_text(encoding="utf-8"):
-                hits.append(rel(path, _REPO_ROOT))
-        for _group, paths in shipped_prose_to_scan(_PLUGIN_ROOT).items():
-            for path in paths:
-                if needle in path.read_text(encoding="utf-8"):
-                    hits.append(rel(path, _REPO_ROOT))
-        return hits
+        surfaces = shipped_files_to_scan(_PLUGIN_ROOT)
+        surfaces += shipped_shell_to_scan(_PLUGIN_ROOT)
+        for paths in shipped_prose_to_scan(_PLUGIN_ROOT).values():
+            surfaces += paths
+        return [
+            rel(p, _REPO_ROOT)
+            for p in surfaces
+            if needle in p.read_text(encoding="utf-8")
+        ]
 
 
 class TestSelfCoverage(unittest.TestCase):
