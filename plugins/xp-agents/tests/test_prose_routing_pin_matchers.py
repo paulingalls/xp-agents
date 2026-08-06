@@ -248,8 +248,9 @@ class TestTheCorpusWideCategoryJoinsTheUnion(unittest.TestCase):
 
     The scope property that justified the split — no member of
     `CORPUS_WIDE_FORBIDDEN` has a legitimate use in shipped prose — is asserted
-    by the pin's leg 3 over the real tree, not here: leg 3 scans the same corpus
-    for the same tokens, so a copy of it in this file would fail in lockstep and
+    by the pin's vocabulary leg over the real tree, not here: that leg scans
+    the same corpus for the same tokens, so a copy of it here would fail in
+    lockstep and
     add no detection. Only the union relation is this file's business, since it
     is a property of the tuples and needs no tree read.
     """

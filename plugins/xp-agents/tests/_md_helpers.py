@@ -26,10 +26,10 @@ import unittest
 # neither paths nor keywords.
 
 # Bannable across every shipped prose file — no member has a legitimate use in
-# one. `test_prose_routing_pin.py`'s leg 3 IS that ban, and it is the only check
-# of this category's scope: mis-filing a legitimately-used token here reddens
-# leg 3, whose failure message names both readings (leaked prose, or a token
-# filed in the wrong category).
+# one. `test_prose_routing_pin.py`'s vocabulary leg IS that ban, and the only
+# check of this category's scope: mis-filing a legitimately-used token here
+# reddens that leg, whose failure message names both readings (leaked prose, or
+# a token filed in the wrong category).
 CORPUS_WIDE_FORBIDDEN: tuple[str, ...] = (
     "docstring",
     "Docstring",

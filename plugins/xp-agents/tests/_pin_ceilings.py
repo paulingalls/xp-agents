@@ -24,7 +24,7 @@ BAND_CEILINGS = {
     # its own ceiling note named — the per-session sibling scan moved to
     # scripts/hook_heartbeat_scan.py, which a second reader (coordination's
     # liveness leg) now imports without the verdict machinery.
-    # RETIRED (sprint-001): seed_smm.py 499->244, detection split to
+    # RETIRED (sprint-001): seed_smm.py 499->250, detection split to
     # smm/seed_detect.py. Below the 450 floor, so the entry is gone rather
     # than dormant — a kept entry hands back the ground the split won.
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)

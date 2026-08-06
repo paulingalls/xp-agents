@@ -30,8 +30,12 @@ more damage than the rot it was hunting.
 enumerates that dimension in the prompt it builds. It previously listed four
 areas, and a subagent follows the concrete task it is handed over the preamble
 of its own definition — so the lens the release exists to add ran on nothing.
-Both sides of the count are pinned together now; pinning the agent alone could
-not see the caller drift.
+
+The close reviewer had the same gap, and the first version of the fix missed it:
+all four close skills write their own spawn prompt naming only that mode's
+focus, so the mode-independent prose section shipped with nothing ordering it.
+Both reviewer pairs are now pinned caller-and-agent together, because pinning
+one pair and leaving its sibling open is how one defect ships twice.
 
 And the rule now ships rather than living only here: `smm/seed_smm.py` seeds it
 as Wisdom, so a project adopting the plugin inherits the lesson and not just the
@@ -95,6 +99,7 @@ architectural bounds for the crime of being checkable.
 Releasing is now recorded as a convention — a merge to main bumps the manifest
 version and adds a CHANGELOG entry — held deliberately as a convention rather
 than a test.
+
 ## v5.6.0 — Gates tuned on one harness, measured against another
 
 We set out to answer whether this plugin could run on a second CLI harness. The

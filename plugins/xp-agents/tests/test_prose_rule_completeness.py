@@ -32,9 +32,13 @@ THREE LEGS, one selector.
 * **Assertion, corpus-wide.** Every selected line must name all three
   destinations. Corpus-wide, so a new routing line added anywhere later is held
   to the whole rule and not just to its test leg.
-* **Vacuity guard, per surface.** Each known surface must still contain at
-  least one selected line. A corpus-wide assertion goes green when the last
-  routing line is deleted or a file is renamed away, and reports nothing.
+* **No vacuity guard here.** A corpus-wide assertion goes green when the last
+  routing line is deleted or a file is renamed away, and reports nothing — but
+  the sibling's guard already covers that over the same corpus and the same
+  selector, and covers it more strictly (it also fails when a surface resolves
+  to no file or to more than one). A second copy here would be the weaker half
+  of a check that already exists, which is the duplication this sprint spent a
+  story removing.
 
 LIMITS — READ BEFORE TRUSTING THE GREEN CHECK.
 
@@ -73,7 +77,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _pin_helpers import rel as _rel_impl
 from _pin_helpers import shipped_prose_to_scan
 from _routing_detect import (
-    KNOWN_ROUTING_SURFACES,
     find_comment_routing_lines,
     find_incomplete_rule_lines,
 )
@@ -105,27 +108,6 @@ class TestRuleIsStatedWhole(unittest.TestCase):
             "shipped routing lines state only part of the rule "
             "(claim->test, history->git, comment->why the code cannot "
             "express):\n" + "\n".join(offenders),
-        )
-
-    def test_every_known_surface_still_states_the_rule(self):
-        """Vacuity guard — the corpus-wide assertion above cannot see a surface
-        empty out or get renamed away."""
-        by_suffix = {suffix: 0 for suffix in KNOWN_ROUTING_SURFACES}
-        for path in _all_shipped_prose():
-            relpath = _rel(path)
-            for suffix in KNOWN_ROUTING_SURFACES:
-                if relpath.endswith("/" + suffix) or relpath == suffix:
-                    by_suffix[suffix] += len(
-                        find_comment_routing_lines(
-                            path.read_text(encoding="utf-8"), relpath
-                        )
-                    )
-        empty = [suffix for suffix, count in by_suffix.items() if count == 0]
-        self.assertEqual(
-            empty,
-            [],
-            f"surfaces no longer stating the routing rule (renamed, deleted, "
-            f"or last routing line removed): {empty}",
         )
 
 
@@ -173,7 +155,7 @@ class TestTheLegMatchersCanFail(unittest.TestCase):
             [],
         )
 
-    def test_the_vacuity_guard_counts_only_selected_lines(self):
+    def test_the_selector_picks_up_only_routing_lines(self):
         self.assertEqual(find_comment_routing_lines("no routing here", "synthetic"), [])
         self.assertEqual(
             find_comment_routing_lines("route it to a code comment", "synthetic"),

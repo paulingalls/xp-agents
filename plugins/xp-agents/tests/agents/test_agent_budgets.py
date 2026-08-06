@@ -34,7 +34,7 @@ AGENT_BUDGETS: dict[str, int] = {
     # rule, shared verbatim with xp-close-reviewer.md). Trimmed first — the
     # §4 Efficiency bullet's redundant parenthetical (~35 chars) came out
     # before the bump, per this module's docstring rule that a budget may
-    # only rise after paying down what it can. Measured 8437 after the edit.
+    # only rise after paying down what it can. Measured 8535 after the edit.
     "xp-code-reviewer": 8900,
     "xp-housekeeper": 10080,
     "xp-plan-reviewer": 21940,
