@@ -170,7 +170,7 @@ def failure_reason(result: dict) -> str | None:
     deaths would report every run it makes as failed.
     """
     subtype = result.get("subtype")
-    named = isinstance(subtype, str) and subtype and subtype != _SUCCESS_SUBTYPE
+    named = isinstance(subtype, str) and subtype not in ("", _SUCCESS_SUBTYPE)
     if not named and not result.get("is_error"):
         return None
     return subtype if named else _UNNAMED_FAILURE
