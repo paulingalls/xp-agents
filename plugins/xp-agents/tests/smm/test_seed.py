@@ -10,6 +10,37 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import seed_smm
 import smm_schema
 
+# PROCESS_GUIDE.md documents the Wisdom pillar's 5-10 cap; nothing in
+# smm_schema enforces it, so the seeded list is checked here.
+_WISDOM_CAP = (5, 10)
+
+# A distinctive substring of every wisdom item seeded before the
+# prose-hygiene one. Presence of all of them proves a new item was ADDED
+# rather than traded against an existing one.
+_WISDOM_SEEDED_BEFORE = (
+    "Run /xp-kickoff at every session start",
+    "Commit after every green test run",
+    "Review cadence (commit | story)",
+    "After exiting plan mode",
+    "Keep files small with single responsibility",
+    "Fail fast, fail loud",
+    "Name things well",
+    "Test at boundaries",
+)
+
+
+def wisdom_cap_violations(contents: list[str]) -> list[str]:
+    """Shortfalls when a seeded wisdom list falls outside the documented cap."""
+    low, high = _WISDOM_CAP
+    if low <= len(contents) <= high:
+        return []
+    return [f"seeded wisdom has {len(contents)} items, outside the {low}-{high} cap"]
+
+
+def missing_wisdom(contents: list[str], expected: tuple[str, ...]) -> list[str]:
+    """Every *expected* substring that no entry in *contents* carries."""
+    return [want for want in expected if not any(want in got for got in contents)]
+
 
 class TestDetection(unittest.TestCase):
     def setUp(self):
@@ -97,10 +128,7 @@ class TestDetection(unittest.TestCase):
     def test_has_core_hookspath_override_with_executable_hook(self):
         """`core.hooksPath` pointing at executable hooks counts as configured.
 
-        Behavior expansion in the git_hooks consolidation: previously
-        has_git_hooks reported False here (only seed_smm.pre_commit_hook_present
-        honored core.hooksPath). This is the case lefthook hits — the surprise
-        that motivated debt e0743ac82ba9.
+        The case lefthook hits (debt e0743ac82ba9).
         """
         import subprocess
 
@@ -228,6 +256,50 @@ class TestGenerateSMM(unittest.TestCase):
         contents = [e["content"] for e in smm["wisdom"]]
         joined = " ".join(contents)
         self.assertIn("xp-kickoff", joined)
+
+    def test_seeded_wisdom_routes_claims_by_checkability(self):
+        """story-003: the seeded wisdom carries the prose-hygiene rule, so an
+        adopting project inherits the lesson and not only the reviewers."""
+        smm = seed_smm.generate_smm(self.tmpdir)
+        entry = next(
+            (e for e in smm["wisdom"] if "rot loudly" in e["content"]),
+            None,
+        )
+        self.assertIsNotNone(entry, "no prose-hygiene routing wisdom seeded")
+        assert entry is not None  # narrow for the type-checker
+        text = entry["content"]
+        self.assertIn("tests", text, "no test destination for a checkable claim")
+        self.assertIn("git", text, "no git destination for history")
+        self.assertIn(
+            "cannot express", text, "comments not confined to the why/constraint"
+        )
+
+    def test_seeded_wisdom_stays_within_the_documented_cap(self):
+        smm = seed_smm.generate_smm(self.tmpdir)
+        contents = [e["content"] for e in smm["wisdom"]]
+        self.assertEqual(wisdom_cap_violations(contents), [])
+
+    def test_the_cap_check_rejects_a_list_outside_the_band(self):
+        """Non-vacuity proof: 8 seeded items already satisfy a 5-10 cap, so the
+        assertion above passes on arrival. Prove the check can fail."""
+        low, high = _WISDOM_CAP
+        self.assertTrue(wisdom_cap_violations(["x"] * (high + 1)))
+        self.assertTrue(wisdom_cap_violations(["x"] * (low - 1)))
+
+    def test_seeded_wisdom_adds_without_displacing(self):
+        smm = seed_smm.generate_smm(self.tmpdir)
+        contents = [e["content"] for e in smm["wisdom"]]
+        self.assertEqual(missing_wisdom(contents, _WISDOM_SEEDED_BEFORE), [])
+
+    def test_the_displacement_check_catches_a_dropped_item(self):
+        """Non-vacuity proof for the assertion above."""
+        smm = seed_smm.generate_smm(self.tmpdir)
+        contents = [e["content"] for e in smm["wisdom"]]
+        traded = [c for c in contents if _WISDOM_SEEDED_BEFORE[0] not in c]
+        self.assertEqual(
+            missing_wisdom(traded, _WISDOM_SEEDED_BEFORE),
+            [_WISDOM_SEEDED_BEFORE[0]],
+        )
 
     def test_has_commit_after_green_wisdom(self):
         smm = seed_smm.generate_smm(self.tmpdir)

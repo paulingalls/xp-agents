@@ -209,6 +209,12 @@ def generate_smm(root: Path) -> dict:
             "(external input, APIs, I/O), trust internal logic. "
             "Test behavior, not implementation",
         ),
+        _seed_entry(
+            "wisdom",
+            "Checkable claims go in tests, where they rot loudly; comments "
+            "carry only the why or constraint the code cannot express. "
+            "History lives in git",
+        ),
     ]
 
     smm = empty_smm()
