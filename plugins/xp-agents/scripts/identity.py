@@ -48,6 +48,29 @@ def get_current_branch(cwd: str) -> str:
     return _git_stdout(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd)
 
 
+def merge_in_progress(cwd: str) -> bool:
+    """True when a merge is in progress — MERGE_HEAD resolves.
+
+    THE one merge detector. It lives here, beside `get_current_branch`, because
+    it is the same kind of read off the same `_git_stdout`: a git-state fact
+    about the checkout. Two consumers read it in opposite directions — the
+    schedule gate EXEMPTS a write while a merge is in progress (the file being
+    written is a conflict being resolved, not new implementation), and
+    `acceptance_env` ABORTS the merge to heal an interrupted accept run — so a
+    second, drifting copy would let them disagree about the same repo.
+
+    Deliberately NOT reached the other way round: `pre_tool_write` must not
+    import `acceptance_env`, which is serial acceptance mechanics on what is
+    otherwise a hot `PreToolUse:Write` path.
+
+    Fails CLOSED. `_git_stdout` returns "" on a non-zero exit, a timeout or an
+    OSError, so "not a repo", "git is broken" and "unborn HEAD" all answer
+    False. That is the only honest default for the exempting consumer: an
+    exemption is a claim, and a claim we cannot substantiate is not one we make.
+    """
+    return bool(_git_stdout(["git", "rev-parse", "--verify", "MERGE_HEAD"], cwd))
+
+
 def extract_story_id(branch_name: str) -> str | None:
     """Extract `story-NNN` from a `<user>/story-NNN-<slug>` branch name.
 
