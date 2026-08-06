@@ -114,6 +114,54 @@ class TestSchedulePreload(_IntegrationTestCase):
         self.assertIn("*.py", detail)
         self.assertIn("story-001", detail)
 
+    def test_unscoped_frontier_names_the_story_and_forces_solo(self):
+        # AC-1 + AC-3: an unscoped domain forces solo and the message names
+        # which story declared nothing, distinct from GLOB_FORCED/collisions.
+        self._write(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["a.py — x"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=[],
+                ),
+            ]
+        )
+        out = self._run()
+        self.assertEqual(_extract_preload_var(out, "PARALLELIZABLE"), "false")
+        self.assertEqual(_extract_preload_var(out, "UNSCOPED_IDS"), "story-002")
+        self.assertEqual(_extract_preload_var(out, "GLOB_FORCED"), "false")
+        self.assertEqual(_extract_preload_var(out, "OVERLAP_DETAIL"), "")
+
+    def test_disjoint_multi_frontier_has_empty_unscoped_ids(self):
+        # The permissive control through the SAME preload: a genuinely
+        # disjoint pair must not spuriously name anyone as unscoped.
+        self._write(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["a.py — x"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["b.py — y"],
+                ),
+            ]
+        )
+        out = self._run()
+        self.assertEqual(_extract_preload_var(out, "PARALLELIZABLE"), "true")
+        self.assertEqual(_extract_preload_var(out, "UNSCOPED_IDS"), "")
+
     def test_overlapping_multi_frontier_not_parallelizable(self):
         self._write(
             [
