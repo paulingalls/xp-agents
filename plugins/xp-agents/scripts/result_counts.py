@@ -37,7 +37,14 @@ import re
 # characters side by side, so `\b` finds no boundary, and a leading sequence
 # defeats `^\s*` the same way. Measured on real `pytest --color=yes`, and the
 # same mechanism breaks the jest, mocha and dotnet anchors.
-_ANSI_CSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+#
+# The three byte classes are the ECMA-48 ones verbatim (parameter 0x30-0x3F,
+# intermediate 0x20-0x2F, final 0x40-0x7E) rather than the subset a given
+# runner happens to emit. A narrower parameter class does not fail safe: an
+# unrecognized sequence SURVIVES the strip, and a survivor sitting against the
+# anchor token is exactly the miss this is here to prevent — `:` alone covers
+# the T.416 colon form of truecolor SGR (`ESC [ 38:2:r:g:b m`).
+_ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def strip_ansi(text: str) -> str:

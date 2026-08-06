@@ -415,6 +415,12 @@ class TestAColouredSummaryLineIsStillASummaryLine(unittest.TestCase):
                 f"test result: {esc}[31mFAILED{esc}[0m. 2 passed; 1 failed; "
                 "0 ignored\n",
             ),
+            # T.416 colon-form SGR: an unrecognized sequence SURVIVES the
+            # strip, and a survivor against the anchor misses just as colour did.
+            (
+                "jest",
+                f"{esc}[38:2:0:255:0mTests:{esc}[0m  1 failed, 2 passed, 3 total\n",
+            ),
         )
         for framework, output in cases:
             with self.subTest(framework=framework):
