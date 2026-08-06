@@ -386,5 +386,58 @@ class TestDecisionNudgeIsProseOnly(unittest.TestCase):
         )
 
 
+class TestCodeReviewerProseHygiene(unittest.TestCase):
+    """Pin xp-code-reviewer.md's §5 Prose Hygiene section (story-002).
+
+    Cross-file parity with xp-close-reviewer.md's identical section is
+    asserted in test_close_reviewer_prose_lens.py, which reads both files.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        text = _AGENT_PROMPT.read_text(encoding="utf-8")
+        _, body = _split_frontmatter_body(text)
+        cls.section = _section_slice(
+            body, "## 5. Prose Hygiene", "## Recording Findings"
+        )
+        cls.lower = cls.section.lower()
+
+    def test_heading_is_named_not_buried(self):
+        self.assertIn("## 5. Prose Hygiene", self.section)
+
+    def test_buckets_a_and_b_fix_is_delete_not_reword(self):
+        self.assertIn("restates the code", self.lower)
+        self.assertIn("narrates removed history", self.lower)
+        self.assertIn("delete", self.lower)
+        self.assertNotIn("reword", self.lower)
+
+    def test_bucket_c_fix_is_convert_to_a_test(self):
+        self.assertIn("checkable claim", self.lower)
+        self.assertIn("convert to a test", self.lower)
+
+    def test_bucket_d_is_an_explicit_exemption(self):
+        self.assertIn("exempt", self.lower)
+        self.assertIn("why the code cannot express", self.lower)
+        for instance in (
+            "rejected-design rationale",
+            "external constraints",
+            "machine-checked markers",
+        ):
+            self.assertIn(instance, self.lower)
+
+    def test_25_line_block_routes_to_code_simplification(self):
+        self.assertIn("25", self.section)
+        self.assertIn("simplification smell", self.lower)
+        self.assertIn("comment block", self.lower)
+
+    def test_section_is_project_agnostic(self):
+        assert_project_agnostic(self, self.section, "code-reviewer §5")
+
+    def test_preamble_says_five_areas(self):
+        full_lower = _AGENT_PROMPT.read_text(encoding="utf-8").lower()
+        self.assertIn("work through all five areas", full_lower)
+        self.assertNotIn("work through all four areas", full_lower)
+
+
 if __name__ == "__main__":
     unittest.main()
