@@ -47,6 +47,11 @@ _ACCEPT_MESSAGE = (
     "acceptance criteria before stopping."
 )
 
+_UNREADABLE_MESSAGE = (
+    "sprint.json cannot be read ({exc}). Every sprint gate is blind until it is "
+    "repaired — run smm/sprint_cli.py create, or restore it from backup."
+)
+
 _REVIEW_MESSAGE = (
     "Sprint complete. Run /xp-sprint-review to review what shipped before stopping."
 )
@@ -218,7 +223,23 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    sprint_data = sprint_state.read_sprint_content(smm_dir)
+    # Missing and unreadable are different answers, and `load_sprint` already
+    # tells them apart: None for absence, SprintCorruptError (a ValueError) for
+    # bad bytes / bad JSON / schema failure, OSError for a symlinked path.
+    # Catching both is the same pairing pre_tool_write uses for this case, and
+    # for the same reason — every sprint gate is blind on state it cannot read,
+    # so an uncaught raise here is a hook that errored, which is a hook that
+    # released. Absence stays a release: turning it into a block would fire on
+    # every project that has never run a sprint.
+    #
+    # Returned BEFORE the `_deferred` check below, deliberately. A live teammate
+    # or a mid-review cycle is a reason to postpone an ordinary prompt; it is not
+    # a reason to stop caring that sprint state is unreadable. `stop_hook_active`
+    # above already prevents a wedge.
+    try:
+        sprint_data = sprint_state.read_sprint_content(smm_dir)
+    except (ValueError, OSError) as exc:
+        return _UNREADABLE_MESSAGE.format(exc=exc)
     if sprint_data is None:
         return None
 
