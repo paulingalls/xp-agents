@@ -68,8 +68,8 @@ LIMITS — READ THIS BEFORE TRUSTING THE GREEN CHECK.
 * That over-flagging claim covers only the "names a test" half. BOTH matchers
   also UNDER-flag, and the reader gets no signal when they do. A future line
   routing content to "an inline comment" or "a comment in the source" matches
-  no destination shape `_COMMENT_DEST_RE` knows, so leg 1 never considers it
-  at all; and `_TEST_DEST_RE` accepts any "a test" on the line, so a routing
+  no destination shape `_routing_detect.COMMENT_DEST_RE` knows, so leg 1 never
+  considers it at all; and `TEST_DEST_RE` accepts any "a test" on the line, so a routing
   line mentioning a test incidentally ("belongs in code comments, not in a
   test") reads as compliant. Neither shape is in the tree today. Both are the
   deliberate price of a matcher precise enough that nobody disables it for
@@ -87,96 +87,23 @@ Both matchers are mutation-proved against synthetic offenders in the sibling
 over the real tree.
 """
 
-import re
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from _md_helpers import CORPUS_WIDE_FORBIDDEN
 from _pin_helpers import rel as _rel_impl
 from _pin_helpers import shipped_prose_to_scan
+from _routing_detect import (
+    KNOWN_ROUTING_SURFACES,
+    find_comment_routing_lines,
+    find_single_language_tokens,
+    find_unqualified_comment_routing,
+)
 
 PLUGIN_ROOT = Path(__file__).parent.parent  # plugins/xp-agents/
 REPO_ROOT = PLUGIN_ROOT.parent.parent  # repo root, for stable rel paths
-
-# The three surfaces this story amends. A path-segment-anchored suffix match
-# on the repo-relative path, so it is immune to which glob group (root guides
-# vs agents) a rename might move the file into, while still not matching a
-# longer FILENAME that merely ends with one of these ("XP_PROCESS_GUIDE.md").
-# That second case would trip the exactly-one assertion below as a false
-# failure rather than as the rename it is meant to report.
-_KNOWN_ROUTING_SURFACES = (
-    "PROCESS_GUIDE.md",
-    "agents/xp-housekeeper.md",
-    "agents/xp-system-analyzer.md",
-)
-
-# Destination shape for "routes to a comment": the noun phrase "code
-# comment(s)", or "comment(s)" immediately arrow-routed ("comments→why...").
-# Matching "code comment(s)" (not bare "comment(s)") is what keeps this off
-# `xp-code-reviewer.md`'s "what-not-why comments" — a review target, never
-# adjacent to the word "code". Case-insensitive so a sentence-initial "Code
-# comments ..." bullet — ordinary in Markdown — is selected like any other.
-_COMMENT_DEST_RE = re.compile(r"\bcode\s+comments?\b|\bcomments?\s*→", re.IGNORECASE)
-
-# Destination shape for "routes to a test": the destination article ("a
-# test") or an arrow immediately before it ("→tests"). Deliberately NOT
-# "any line containing the word test" -- `xp-system-analyzer.md`'s
-# discriminator-test clause contains "test" twice as an UNRELATED noun
-# ("discriminator test", "The test is") in its ORIGINAL, offending form, and
-# a bare word-presence check would have been fooled by that into calling it
-# compliant. Case-insensitive so a sentence-initial "A test ..." counts as the
-# destination it plainly is, rather than reading as a missing test leg.
-_TEST_DEST_RE = re.compile(r"\ba\s+tests?\b|→\s*tests?\b", re.IGNORECASE)
-
-_LANGUAGE_TOKENS = CORPUS_WIDE_FORBIDDEN
-
-
-def find_unqualified_comment_routing(
-    text: str, surface: str
-) -> list[tuple[str, int, str]]:
-    """(surface, 1-based line, stripped line text) for every line whose
-    comment-routing destination does not also name a test.
-
-    Shape match, not keyword match: a line must hit `_COMMENT_DEST_RE`
-    (routes to a comment) before it is even considered; a line that merely
-    contains the word "comment(s)" in some other sense never reaches the
-    test-destination check at all.
-    """
-    hits: list[tuple[str, int, str]] = []
-    for lineno, line in enumerate(text.splitlines(), start=1):
-        if _COMMENT_DEST_RE.search(line) and not _TEST_DEST_RE.search(line):
-            hits.append((surface, lineno, line.strip()))
-    return hits
-
-
-def find_comment_routing_lines(text: str, surface: str) -> list[tuple[str, int]]:
-    """(surface, 1-based line) for every line matching the comment-routing
-    destination shape, compliant or not.
-
-    Backs leg 2's vacuity guard: the fixed wordings still route the
-    why/constraint case to a comment, so this must stay non-empty on the
-    known surfaces even after leg 1 goes quiet on them.
-    """
-    return [
-        (surface, lineno)
-        for lineno, line in enumerate(text.splitlines(), start=1)
-        if _COMMENT_DEST_RE.search(line)
-    ]
-
-
-def find_single_language_tokens(
-    text: str, surface: str, tokens: tuple[str, ...] = _LANGUAGE_TOKENS
-) -> list[tuple[str, str]]:
-    """(surface, token) for every single-language token present in *text*.
-
-    *tokens* defaults to the derived corpus-wide category. A caller passing its
-    own tuple bypasses that default, so a test that supplies one proves nothing
-    about the derivation — assert on the default instead.
-    """
-    return [(surface, token) for token in tokens if token in text]
 
 
 def _rel(path: Path) -> str:
@@ -237,7 +164,7 @@ class TestKnownRoutingFilesStillRoute(unittest.TestCase):
 
     def test_each_known_surface_still_yields_a_routing_line(self) -> None:
         by_rel = {_rel(p): p for p in _all_shipped_prose()}
-        for surface in _KNOWN_ROUTING_SURFACES:
+        for surface in KNOWN_ROUTING_SURFACES:
             with self.subTest(surface=surface):
                 matches = [
                     path

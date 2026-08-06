@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from _md_helpers import CORPUS_WIDE_FORBIDDEN, PROJECT_AGNOSTIC_FORBIDDEN_VOCAB
 from _pin_helpers import shipped_prose_to_scan
-from test_prose_routing_pin import (
+from _routing_detect import (
     find_comment_routing_lines,
     find_single_language_tokens,
     find_unqualified_comment_routing,
