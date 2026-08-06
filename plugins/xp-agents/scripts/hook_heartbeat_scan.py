@@ -67,15 +67,22 @@ FUTURE_SKEW_GRACE_SECONDS = 60
 SESSION_GLOB = f"{marker_names.HOOK_HEARTBEAT}-*"
 
 
-def within_window(age: float | None) -> bool:
+def within_window(age: float | None, stale_after: float = STALE_AFTER_SECONDS) -> bool:
     """True only for an age that is usable AND inside the window at BOTH ends.
 
     One home for the bounds, so the scans that ask "is this heartbeat still
     good" cannot drift apart. None (unageable) and a timestamp further ahead
     than the skew grace are both "not evidence of freshness" — see
     FUTURE_SKEW_GRACE_SECONDS for why the far end is bounded at all.
+
+    `stale_after` is the far end only, and it is a parameter because "still
+    good" is not one question: the preload check tolerates a user who stepped
+    away between prompts, while a Stop gate deciding whether to release on a
+    teammate cannot. A caller that needs a tighter answer passes its own value
+    rather than growing a second implementation — the near end, the None
+    handling, and the comparison itself stay here.
     """
-    return age is not None and -FUTURE_SKEW_GRACE_SECONDS <= age < STALE_AFTER_SECONDS
+    return age is not None and -FUTURE_SKEW_GRACE_SECONDS <= age < stale_after
 
 
 def sibling_age(smm_dir: Path, path: Path, now: float) -> float | None:

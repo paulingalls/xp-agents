@@ -27,6 +27,37 @@ _COORDINATION_MAX_AGE = 1800  # 30 minutes
 # exceed.
 _NO_AGE_LIMIT = 10**9  # ~31 years
 
+# How old another session's heartbeat may be before `has_active_teammates`
+# reads that session as gone. A CALLER-side threshold, deliberately not the
+# scan's own `STALE_AFTER_SECONDS`: that one is shared with the preload check
+# and is loose (4h) because it must never refuse a user who stepped away
+# between prompts. This question is the opposite — a Stop gate held on a
+# teammate that no longer exists — and it has to answer inside the TTL it
+# replaces, or the liveness leg makes a dead teammate look active for LONGER
+# than the plain 30-minute TTL did.
+#
+# A killed session stops writing its entry and its heartbeat at the same
+# instant, so the two always age together and no gap between them ever opens.
+# The window is therefore the only thing deciding when a dead teammate stops
+# counting, and it must sit strictly below `_COORDINATION_MAX_AGE`.
+#
+# 15 minutes: the window only has to exceed the longest gap between heartbeat
+# writes on a WORKING session, and every Bash, Write/Edit and Skill call
+# refreshes it — so that gap is bounded by the longest single tool call. The
+# full test suite, the longest one here, runs under 7 minutes on a loaded
+# machine. 15 leaves better than 2x margin and still halves the 30 minutes a
+# dead teammate used to hold the gate.
+#
+# What it costs: a live teammate that goes quiet for longer than this is read
+# as dead, and the lead stops waiting on it. Read/Grep/Glob have no PostToolUse
+# refresh, so a 15-minute read-only stretch with no Bash in it would do that.
+# The consequence is bounded — it is the same release the TTL alone would have
+# given at 30 minutes, arriving sooner — and the direction is the safer one:
+# a lead that resumes too early re-reads coordination on its next Stop, while a
+# lead held on a corpse never moves at all. If that stretch turns out to be
+# real, the fix is a refresh source on the read-only tools, not a looser window.
+_HEARTBEAT_TRUST_SECONDS = 15 * 60
+
 
 def update_coordination(smm_dir: Path, agent_id: str, working_on: list[str]) -> None:
     """Atomically update this agent's entry in .coordination.json."""
@@ -120,7 +151,9 @@ def _session_is_live(smm_dir: Path, session_id: object) -> bool | None:
     Reuses the heartbeat every hook already refreshes — there is no second
     liveness implementation here, and must not be. `check_liveness` is the
     wrong reader for this question: it takes no session id, so it can only
-    ever answer about the process it runs in.
+    ever answer about the process it runs in. Only the freshness threshold is
+    ours: see `_HEARTBEAT_TRUST_SECONDS` for why this caller cannot use the
+    scan's own, and what a teammate quieter than it gets.
 
     Imported lazily. This module is loaded by the write-path hooks, which do
     not ask the question, and only the Stop gates pay for the extra modules.
@@ -145,7 +178,11 @@ def _session_is_live(smm_dir: Path, session_id: object) -> bool | None:
     # whose heartbeat write failed (symlinked marker, full disk — it swallows
     # and logs) leaves the same hole. Reading either as "dead" would hold a
     # lead at Stop over a teammate that is working.
-    return None if age is None else hook_heartbeat_scan.within_window(age)
+    return (
+        None
+        if age is None
+        else hook_heartbeat_scan.within_window(age, _HEARTBEAT_TRUST_SECONDS)
+    )
 
 
 def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:

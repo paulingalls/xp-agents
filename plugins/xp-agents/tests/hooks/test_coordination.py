@@ -119,10 +119,15 @@ class _LivenessTestCase(_HookTestCase):
     TEAMMATE = "worktree-story-042"
     SESSION = "the-teammates-session"
 
-    #: Comfortably inside the heartbeat window and inside the entry TTL.
+    #: Comfortably inside the heartbeat trust window and inside the entry TTL.
     FRESH = 60.0
-    #: Past the heartbeat window (4h) AND past the entry TTL (30m).
-    AGED = float(hook_liveness.STALE_AFTER_SECONDS + 600)
+    #: Past the heartbeat trust window (15m) AND past the entry TTL (30m).
+    #:
+    #: Both bounds matter and the value has to clear BOTH: a heartbeat aged
+    #: past the preload window instead (4h+) describes a state that cannot
+    #: arise from a session that simply died — entry and heartbeat freeze
+    #: together — so a pin written against it can only pass.
+    AGED = 45 * 60.0
 
     def _entry(self, agent_id: str, *, age: float, session_id: str | None) -> None:
         """Write one coordination entry with a controlled age and writer."""
@@ -239,6 +244,62 @@ class TestLivenessOverridesTheTtl(_LivenessTestCase):
         self._entry(self.TEAMMATE, age=self.AGED, session_id=self.SESSION)
         self._beat(self.SESSION, age=self.FRESH)
         self.assertTrue(self._active())
+
+
+class TestADeadTeammateStopsCountingAtTheWindow(_LivenessTestCase):
+    """The shape a session actually dies in, which is the one that regressed.
+
+    A killed teammate stops writing BOTH files at the same instant, so its
+    entry and its heartbeat age together and are always the same age. Reading
+    the heartbeat against the four-hour preload window therefore held that
+    entry active for four hours — far longer than the 30-minute TTL it
+    replaced, in the direction the liveness leg exists to close.
+
+    Every row plants one age into both files and asks the predicate the Stop
+    gates ask. The pairs on either side of the window are what stop the
+    threshold drifting back up.
+    """
+
+    def _dead_for(self, seconds: float) -> bool:
+        """A teammate killed *seconds* ago: entry and heartbeat frozen together."""
+        self._entry(self.TEAMMATE, age=seconds, session_id=self.SESSION)
+        self._beat(self.SESSION, age=seconds)
+        return self._active()
+
+    def test_ten_minutes_dead_still_reads_active(self):
+        """Inside the window the gate still waits — a teammate this quiet is
+        far more likely mid-tool-call than dead."""
+        self.assertTrue(self._dead_for(10 * 60))
+
+    def test_forty_five_minutes_dead_reads_dead(self):
+        self.assertFalse(self._dead_for(45 * 60))
+
+    def test_two_hours_dead_reads_dead(self):
+        self.assertFalse(self._dead_for(2 * 60 * 60))
+
+    def test_five_hours_dead_reads_dead(self):
+        """Past the preload window too, so this row passed either way — it is
+        here to keep the row above honest about which window decided it."""
+        self.assertFalse(self._dead_for(5 * 60 * 60))
+
+    def test_just_inside_the_window_reads_live(self):
+        self.assertTrue(self._dead_for(coordination._HEARTBEAT_TRUST_SECONDS - 60))
+
+    def test_just_outside_the_window_reads_dead(self):
+        self.assertFalse(self._dead_for(coordination._HEARTBEAT_TRUST_SECONDS + 60))
+
+    def test_the_window_stays_below_the_entry_ttl(self):
+        """The point of the threshold: tightening the answer the TTL gives,
+        never loosening it. A window at or above the TTL would hold a dead
+        entry active past the moment the TTL alone would have dropped it."""
+        self.assertLess(
+            coordination._HEARTBEAT_TRUST_SECONDS, coordination._COORDINATION_MAX_AGE
+        )
+
+    def test_the_preload_window_is_left_alone(self):
+        """This is a caller-side threshold. The scan's own window is shared
+        with the preload check, which is deliberately loose."""
+        self.assertEqual(hook_liveness.STALE_AFTER_SECONDS, 4 * 60 * 60)
 
 
 class TestUndeterminedLivenessKeepsTheTtl(_LivenessTestCase):
