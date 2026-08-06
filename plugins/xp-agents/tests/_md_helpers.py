@@ -46,6 +46,8 @@ PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
     "quality_review_done",
     "assign-pending",
     "review_cycle_done",
+    "docstring",
+    "Docstring",
 )
 
 # Members whose casing is load-bearing. Lives beside the vocabulary it
