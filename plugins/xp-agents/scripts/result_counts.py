@@ -31,6 +31,21 @@ runs to 10 MB and only one match is ever used.
 
 import re
 
+# CSI escape sequences — `ESC [`, parameter and intermediate bytes, one final
+# byte. Every runner colours its summary, and a colour code sitting against the
+# anchor token is invisible to a human and fatal to a regex: it puts two word
+# characters side by side, so `\b` finds no boundary, and a leading sequence
+# defeats `^\s*` the same way. Measured on real `pytest --color=yes`, and the
+# same mechanism breaks the jest, mocha and dotnet anchors.
+_ANSI_CSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def strip_ansi(text: str) -> str:
+    """*text* with CSI escape sequences removed, so anchors see what a human
+    reads. The `in` guard first: a tool response runs to 10 MB and the common
+    case is uncoloured, which makes this a scan rather than a rewrite."""
+    return _ANSI_CSI.sub("", text) if "\x1b" in text else text
+
 
 def _first(pattern: str, text: str) -> int | None:
     """The first numeric match of *pattern* in *text*, or None."""
@@ -110,6 +125,10 @@ def pytest_summary_region(tool_response: str) -> str | None:
     pytest plus any count-shaped line in the output produced a recorded
     result. The honest answer when this finds nothing is that it has no
     answer, and the caller decides what that means.
+
+    Expects ANSI-stripped input: the count half of the anchor is word-bounded,
+    so a colour code against the digit hides it. `parse_test_results` strips
+    once for every arm — see `strip_ansi`.
     """
     region = None
     for line in tool_response.splitlines():

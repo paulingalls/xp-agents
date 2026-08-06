@@ -144,6 +144,10 @@ def parse_test_results(
         "failed": 0,
         "errors": 0,
     }
+    # Once, before any arm reads the text. A colour code against the anchor
+    # token is invisible to a human and fatal to the regex, and every arm below
+    # is exposed — see `result_counts.strip_ansi`.
+    tool_response = result_counts.strip_ansi(tool_response)
     scan_fallback = allow_scan_fallback or framework in _DELIBERATE_SCAN_FALLBACK
 
     match framework:
