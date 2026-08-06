@@ -67,6 +67,8 @@ Beyond correctness, you own:
 
 ## 5. Prose Hygiene
 
+Judged per comment in the changed code — a documentation or narrative file is out of scope here:
+
 - Restates the code, or narrates removed history → Concern; fix is delete — git holds history.
 - States a checkable claim → Concern; fix is convert to a test, where it rots loudly.
 - Comment block ≥25 lines → simplification smell in the CODE.

@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """Detection for the route-by-checkability rule: matchers, finders, surfaces.
 
-Two pins assert this rule over the shipped tree — `test_prose_routing_pin.py`
-(a routing line names a test) and `test_prose_rule_completeness.py` (it names
-all three destinations). Both need the same matchers, and the second used to
-reach into the first for three underscore-private names: an import with no
-declared contract that broke the moment either was renamed. Redeclaring instead
-would have grown a third copy of a vocabulary that already had two.
+Two pins assert this rule over the shipped tree: `test_prose_rule_completeness.py`
+holds every routing line to all three destinations, and
+`test_prose_routing_pin.py` guards the two properties that verdict cannot see —
+that each known surface still states the rule at all, and that no shipped prose
+names one language's comment construct. Both read the same matchers from here,
+with public names, so no module holds a second copy.
 
-So detection lives here, once, with public names. No module holds a second copy
-of a matcher, and no assertion lives here: the pins own the tree-wide verdicts,
-`test_prose_routing_pin_matchers.py` owns the synthetic proofs for leg 1 and
-leg 3, and the completeness pin keeps its own per-leg mutants beside the rule
-they belong to.
+No assertion lives here: the pins own the tree-wide verdicts,
+`test_prose_routing_pin_matchers.py` owns the synthetic proofs for the selector
+and the token matcher, and the completeness pin keeps its own per-leg mutants
+beside the rule they belong to.
 
 NOT `_pin_helpers.py`: that module's docstring reserves it for discovery —
 "this helper owns discovery" — and finding files is a different job from
@@ -38,12 +37,18 @@ KNOWN_ROUTING_SURFACES = (
     "agents/xp-system-analyzer.md",
 )
 
-# Destination shape for "routes to a comment": the noun phrase "code
-# comment(s)", or "comment(s)" immediately arrow-routed ("comments→why...").
-# Matching "code comment(s)" (not bare "comment(s)") is what keeps this off
-# `xp-code-reviewer.md`'s "what-not-why comments" — a review target, never
-# adjacent to the word "code". Case-insensitive so a sentence-initial "Code
-# comments ..." bullet — ordinary in Markdown — is selected like any other.
+# Selector for "routes to a comment": the two-word phrase "code comment(s)", or
+# "comment(s)" immediately arrow-routed ("comments→why..."). Case-insensitive so
+# a sentence-initial "Code comments ..." bullet — ordinary in Markdown — is
+# selected like any other.
+#
+# A PHRASE match, and it cannot tell a destination from a mention: every line
+# carrying "code comment(s)" is selected, so prose that merely discusses code
+# comments is held to the three-leg rule too. Requiring the two-word phrase
+# rather than bare "comment(s)" is what keeps the two reviewer agents' own
+# comment-hygiene lens unselected — six lines today, all of which name a comment
+# as a review subject, not as somewhere content goes. Both misses are pinned as
+# cases in `test_prose_rule_completeness.py`, so neither can drift unnoticed.
 COMMENT_DEST_RE = re.compile(r"\bcode\s+comments?\b|\bcomments?\s*→", re.IGNORECASE)
 
 # Destination shape for "routes to a test": the destination article ("a test")
@@ -73,24 +78,6 @@ RULE_LEGS = (
     ("git", GIT_DEST_RE),
     ("why", WHY_DEST_RE),
 )
-
-
-def find_unqualified_comment_routing(
-    text: str, surface: str
-) -> list[tuple[str, int, str]]:
-    """(surface, 1-based line, stripped line text) for every line whose
-    comment-routing destination does not also name a test.
-
-    Shape match, not keyword match: a line must hit `COMMENT_DEST_RE` (routes
-    to a comment) before it is even considered; a line that merely contains the
-    word "comment(s)" in some other sense never reaches the test-destination
-    check at all.
-    """
-    hits: list[tuple[str, int, str]] = []
-    for lineno, line in enumerate(text.splitlines(), start=1):
-        if COMMENT_DEST_RE.search(line) and not TEST_DEST_RE.search(line):
-            hits.append((surface, lineno, line.strip()))
-    return hits
 
 
 def find_comment_routing_lines(text: str, surface: str) -> list[tuple[str, int]]:

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Every shipped line that routes content by checkability states the WHOLE rule.
 
-The sibling `test_prose_routing_pin.py` proves a routing line names a test as a
-destination. That is one leg of a three-leg rule, so a line could satisfy it
-while still telling a reader that history belongs in a comment:
+Naming a test as a destination is one leg of a three-leg rule, so a line could
+satisfy that alone while still telling a reader that history belongs in a
+comment. This module owns the whole-rule verdict; the sibling
+`test_prose_routing_pin.py` owns the two guards it cannot make (each known
+surface still states the rule, and no shipped prose names one language's
+comment construct).
 
     A checkable claim goes to a test. History goes to git. A comment carries
     only the why/constraint the code cannot express.
@@ -15,16 +18,17 @@ not by any heading or file.
 
 GRANULARITY IS PER LINE, and that is a deliberate choice with a cost. A routing
 clause split across two source lines escapes the selector entirely (the same
-limit `test_prose_routing_pin.py` records for its own leg 1). Per-FILE
+limit `test_prose_routing_pin.py` records for its vacuity leg). Per-FILE
 granularity was the alternative and is worse: any file mentioning git anywhere
 would pass vacuously, which is the fail-silent shape this milestone exists to
 kill.
 
 THREE LEGS, one selector.
 
-* **Selector.** A line "states the rule" when it routes something to a comment
-  — `_routing_detect.COMMENT_DEST_RE`. Both pins read that one definition, so
-  they cannot drift into disagreeing about what a routing line is.
+* **Selector.** A line "states the rule" when it carries the comment-routing
+  phrase — `_routing_detect.COMMENT_DEST_RE`. Both pins read that one
+  definition, so they cannot drift into disagreeing about what a routing line
+  is.
 * **Assertion, corpus-wide.** Every selected line must name all three
   destinations. Corpus-wide, so a new routing line added anywhere later is held
   to the whole rule and not just to its test leg.
@@ -44,6 +48,13 @@ LIMITS — READ BEFORE TRUSTING THE GREEN CHECK.
 * `GIT_DEST_RE` accepts any standalone "git" on the line. A line mentioning git
   incidentally reads as compliant — an under-flag, matching the tradeoff
   `TEST_DEST_RE` already makes for its own leg.
+* The selector OVER-flags. It is a phrase match on "code comment(s)" and cannot
+  tell a destination from a mention, so a line that merely discusses code
+  comments is held to all three legs and can only be cleared by appending
+  destinations to a sentence that routes nothing. Both directions are pinned as
+  cases in `test_prose_routing_pin_matchers.py`; narrowing it is open debt,
+  because every narrowing tried so far under-flags one of the comma- or
+  "else"-joined forms the tree actually ships.
 
 Each leg carries a synthetic mutation proof below: a line missing that leg must
 be reported. Without them a matcher that never fires would pass on the whole
@@ -155,10 +166,10 @@ class TestTheLegMatchersCanFail(unittest.TestCase):
         )
 
     def test_a_line_that_routes_nowhere_is_not_selected(self):
-        """The selector gates the assertion: prose about what-not-why comments
-        names a review target, not a destination, and must not be flagged."""
+        """The selector gates the assertion: prose naming a comment as a review
+        subject is not a destination, and must not be flagged."""
         self.assertEqual(
-            find_incomplete_rule_lines("Flag what-not-why comments.", "synthetic"),
+            find_incomplete_rule_lines("Flag self-evident comments.", "synthetic"),
             [],
         )
 

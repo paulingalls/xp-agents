@@ -21,9 +21,17 @@ the code cannot express. The rule is language-agnostic by construction — it
 turns on the *kind* of claim, never on any language's comment syntax.
 
 Both reviewers gained a named Prose Hygiene dimension stating the same rule,
-with rejected-design and external-constraint comments explicitly exempt. Those
-are the hardest-won knowledge in a tree and have no other home; a lens that
-attacked them would do more damage than the rot it was hunting.
+scoped to comments in the changed code, with rejected-design and
+external-constraint comments explicitly exempt. Those are the hardest-won
+knowledge in a tree and have no other home; a lens that attacked them would do
+more damage than the rot it was hunting.
+
+`/xp-quality-review`, the only thing that spawns the per-increment reviewer, now
+enumerates that dimension in the prompt it builds. It previously listed four
+areas, and a subagent follows the concrete task it is handed over the preamble
+of its own definition — so the lens the release exists to add ran on nothing.
+Both sides of the count are pinned together now; pinning the agent alone could
+not see the caller drift.
 
 And the rule now ships rather than living only here: `smm/seed_smm.py` seeds it
 as Wisdom, so a project adopting the plugin inherits the lesson and not just the
@@ -37,10 +45,17 @@ success while seeing less than it claims.
 
 Both routing matchers were case-sensitive. An ordinary Markdown bullet opening
 `- Code comments hold anything left over.` escaped the selector completely, so
-neither the offender check nor its vacuity guard ever considered it; meanwhile a
+neither the rule check nor its vacuity guard ever considered it; meanwhile a
 compliant line opening `A test holds the checkable claim…` was reported as
 *missing* a test destination. A gate that false-positives on correct prose is a
 gate someone switches off.
+
+The selector still over-matches: it is a phrase match on "code comment(s)" and
+cannot tell a destination from a mention, so prose that merely discusses code
+comments is held to all three legs. Both directions are now pinned as cases
+rather than claimed in a docstring, and the narrowing is recorded as debt —
+every narrowing tried so far under-matched one of the comma- or "else"-joined
+forms the tree actually ships.
 
 Each surface was also pinned alone, so nothing compared them, and the tree
 shipped four different versions of one rule. Only one of five lines stated all
@@ -61,9 +76,25 @@ the other's private names.
 
 `smm/seed_smm.py` sat at 499 lines against a 500-line cap, leaving the new
 seeded entry nowhere to go; its project-feature detection moved to
-`smm/seed_detect.py`, behavior-preserving. Releasing is now recorded as a
-convention — a merge to main bumps the manifest version and adds a CHANGELOG
-entry — held deliberately as a convention rather than a test.
+`smm/seed_detect.py` and is now tested against that module directly, rather than
+through the re-exported names a tidy-up could rebind. While it was open: an
+empty or shebang-only `.git/hooks/pre-commit` had counted as a configured hook,
+suppressing the seeded ungated-commits risk for an adopting project, and a dead
+guard claimed to reject git's sample file on a suffix the path can never carry.
+
+One of the two corpus-wide routing pins was strictly weaker than the other —
+same corpus, same selector, checking one of the three legs the sibling already
+checks — so it is gone, and with it the fixture copies of shipped prose that had
+nothing keeping them in step. Its vacuity and single-language legs stay.
+
+`PROCESS_GUIDE.md`'s Constraints bullet kept the exclusion it had before the
+rewrite: detail routes out of the pillar. Without it the routing clause read as
+advice about the pillar's own entries, which would have the housekeeper pruning
+architectural bounds for the crime of being checkable.
+
+Releasing is now recorded as a convention — a merge to main bumps the manifest
+version and adds a CHANGELOG entry — held deliberately as a convention rather
+than a test.
 
 ## v5.5.1 — Three gates that were reporting things that weren't happening
 

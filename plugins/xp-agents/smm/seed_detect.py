@@ -5,10 +5,8 @@ Answers "what does this project already have?" — a linter, a formatter, tests,
 git commit hooks, CI. `seed_smm.py` turns those answers into seeded Constraints
 and Risks; nothing here knows about pillars or entries.
 
-Split out of `seed_smm.py`, which sat at its recorded file-size ceiling with no
-room for a new seeded entry. The two halves grow for different reasons: this
-one every time a language's tooling gains a config file, the other when the
-seeded content changes.
+This half grows every time a language's tooling gains a config file; the other
+grows when the seeded content changes.
 """
 
 from pathlib import Path
@@ -238,21 +236,30 @@ def has_tests(root: Path) -> bool:
 
 
 def _has_non_sample_pre_commit_content(root: Path) -> bool:
-    """A `.git/hooks/pre-commit` exists with real content (not the sample boilerplate).
+    """A `.git/hooks/pre-commit` exists carrying more than boilerplate.
 
     Intent-aware fallback: catches scripts a developer wrote but forgot to
     chmod +x. ``git_hooks.will_fire_hook`` is strict and would say False here.
+
+    Two rejections, because a hook that runs nothing gates nothing, and reading
+    one as intent suppresses the very risk the seed exists to raise: git's own
+    sample text, and a file with no line but a shebang. A placeholder whose
+    body is a single comment is out of reach — telling one from a real one-line
+    hook needs the comment syntax of whatever language the shebang names.
     """
     hook = root / ".git" / "hooks" / "pre-commit"
-    # lang-ok: `.sample` is git's own boilerplate suffix in .git/hooks, identical
-    # in every repo git creates. It names no programming language.
-    if not hook.exists() or hook.name.endswith(".sample"):
+    if not hook.exists():
         return False
     try:
         content = hook.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return False
-    return "This hook is invoked" not in content
+    if "This hook is invoked" in content:
+        return False
+    return any(
+        stripped and not stripped.startswith("#!")
+        for stripped in (line.strip() for line in content.splitlines())
+    )
 
 
 def has_git_hooks(root: Path) -> bool:

@@ -1,4 +1,8 @@
-"""Tests for seed_smm.py — default SMM generation."""
+"""Tests for seed_smm.py — default SMM generation.
+
+Feature detection lives in `seed_detect.py` and is tested against that module
+directly in `test_seed_detect.py`.
+"""
 
 import sys
 import tempfile
@@ -40,126 +44,6 @@ def wisdom_cap_violations(contents: list[str]) -> list[str]:
 def missing_wisdom(contents: list[str], expected: tuple[str, ...]) -> list[str]:
     """Every *expected* substring that no entry in *contents* carries."""
     return [want for want in expected if not any(want in got for got in contents)]
-
-
-class TestDetection(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = Path(tempfile.mkdtemp())
-
-    def tearDown(self):
-        import shutil
-
-        shutil.rmtree(self.tmpdir)
-
-    def test_no_linter(self):
-        self.assertFalse(seed_smm.has_linter(self.tmpdir))
-
-    def test_has_eslintrc(self):
-        (self.tmpdir / ".eslintrc.json").touch()
-        self.assertTrue(seed_smm.has_linter(self.tmpdir))
-
-    def test_has_ruff_toml(self):
-        (self.tmpdir / "ruff.toml").touch()
-        self.assertTrue(seed_smm.has_linter(self.tmpdir))
-
-    def test_has_swiftlint(self):
-        (self.tmpdir / ".swiftlint.yml").touch()
-        self.assertTrue(seed_smm.has_linter(self.tmpdir))
-
-    def test_has_biome(self):
-        (self.tmpdir / "biome.json").touch()
-        self.assertTrue(seed_smm.has_linter(self.tmpdir))
-
-    def test_pyproject_with_ruff(self):
-        (self.tmpdir / "pyproject.toml").write_text("[tool.ruff]\nline-length = 88")
-        self.assertTrue(seed_smm.has_linter(self.tmpdir))
-
-    def test_pyproject_without_ruff(self):
-        (self.tmpdir / "pyproject.toml").write_text("[project]\nname = 'foo'")
-        self.assertFalse(seed_smm.has_linter(self.tmpdir))
-
-    def test_no_tests(self):
-        self.assertFalse(seed_smm.has_tests(self.tmpdir))
-
-    def test_has_tests_dir(self):
-        (self.tmpdir / "tests").mkdir()
-        self.assertTrue(seed_smm.has_tests(self.tmpdir))
-
-    def test_has_test_file(self):
-        (self.tmpdir / "test_foo.py").touch()
-        self.assertTrue(seed_smm.has_tests(self.tmpdir))
-
-    def test_has_jest_test(self):
-        (self.tmpdir / "app.test.ts").touch()
-        self.assertTrue(seed_smm.has_tests(self.tmpdir))
-
-    def test_has_swift_test(self):
-        (self.tmpdir / "FooTests.swift").touch()
-        self.assertTrue(seed_smm.has_tests(self.tmpdir))
-
-    def test_has_src_test(self):
-        (self.tmpdir / "src" / "test").mkdir(parents=True)
-        self.assertTrue(seed_smm.has_tests(self.tmpdir))
-
-    def test_has_nested_tests_dir(self):
-        (self.tmpdir / "packages" / "api" / "tests").mkdir(parents=True)
-        self.assertTrue(seed_smm.has_tests(self.tmpdir))
-
-    def test_has_xcode_tests_dir(self):
-        (self.tmpdir / "app" / "MyAppTests").mkdir(parents=True)
-        self.assertTrue(seed_smm.has_tests(self.tmpdir))
-
-    def test_has_monorepo_src_test(self):
-        (self.tmpdir / "packages" / "api" / "src" / "test").mkdir(parents=True)
-        self.assertTrue(seed_smm.has_tests(self.tmpdir))
-
-    def test_no_hooks(self):
-        self.assertFalse(seed_smm.has_git_hooks(self.tmpdir))
-
-    def test_has_lefthook(self):
-        (self.tmpdir / "lefthook.yml").touch()
-        self.assertTrue(seed_smm.has_git_hooks(self.tmpdir))
-
-    def test_has_husky(self):
-        (self.tmpdir / ".husky").mkdir()
-        (self.tmpdir / ".husky" / "pre-commit").write_text("#!/bin/sh\nnpx lint-staged")
-        self.assertTrue(seed_smm.has_git_hooks(self.tmpdir))
-
-    def test_has_core_hookspath_override_with_executable_hook(self):
-        """`core.hooksPath` pointing at executable hooks counts as configured.
-
-        The case lefthook hits (debt e0743ac82ba9).
-        """
-        import subprocess
-
-        subprocess.run(
-            ["git", "init", "-b", "main", str(self.tmpdir)],
-            capture_output=True,
-            check=True,
-        )
-        custom = self.tmpdir / "custom-hooks"
-        custom.mkdir()
-        hook = custom / "pre-commit"
-        hook.write_text("#!/bin/sh\nexit 0\n")
-        hook.chmod(0o755)
-        subprocess.run(
-            ["git", "config", "core.hooksPath", str(custom)],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
-        self.assertTrue(seed_smm.has_git_hooks(self.tmpdir))
-
-    def test_no_ci(self):
-        self.assertFalse(seed_smm.has_ci(self.tmpdir))
-
-    def test_has_github_actions(self):
-        (self.tmpdir / ".github" / "workflows").mkdir(parents=True)
-        self.assertTrue(seed_smm.has_ci(self.tmpdir))
-
-    def test_has_gitlab_ci(self):
-        (self.tmpdir / ".gitlab-ci.yml").touch()
-        self.assertTrue(seed_smm.has_ci(self.tmpdir))
 
 
 class TestGenerateSMM(unittest.TestCase):

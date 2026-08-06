@@ -18,6 +18,7 @@ injection — decision recorded sprint-113). The single-spawn invariant from
 sprint-103 (3-spawn fan-out had irreducible coordination races) still holds.
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -29,6 +30,11 @@ from conftest import _PLUGIN_ROOT
 
 _SKILL_PATH = _PLUGIN_ROOT / "skills" / "xp-quality-review" / "SKILL.md"
 _PRELOAD_PATH = _PLUGIN_ROOT / "skills" / "xp-quality-review" / "scripts" / "preload.sh"
+_AGENT_PATH = _PLUGIN_ROOT / "agents" / "xp-code-reviewer.md"
+
+# Both sides of the spawn contract state how many review areas there are.
+_AGENT_AREA_COUNT_RE = re.compile(r"work through all (\w+) areas", re.IGNORECASE)
+_SKILL_AREA_COUNT_RE = re.compile(r"review all (\w+) areas", re.IGNORECASE)
 
 
 class TestQualityReviewSpawnStructure(unittest.TestCase):
@@ -158,6 +164,52 @@ class TestQualityReviewSpawnStructure(unittest.TestCase):
             "SKILL.md must not pass a ## Design Context block to the reviewer — "
             "it gets Constraints via injection",
         )
+
+
+class TestSpawnPromptEnumeratesEveryReviewArea(unittest.TestCase):
+    """Both sides of the spawn contract, pinned together.
+
+    The task instruction in the spawn prompt is the concrete order the subagent
+    follows; its definition's preamble is only background. An area added to the
+    agent and not to this prompt is an area no review runs — a green gate over
+    a lens that never fired. Pinning the agent alone cannot see that, so the
+    count and the area names are asserted across BOTH files here.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        _, cls.skill_body = _split_frontmatter_body(
+            _SKILL_PATH.read_text(encoding="utf-8")
+        )
+        cls.agent_text = _AGENT_PATH.read_text(encoding="utf-8")
+
+    def test_area_count_matches_the_agent_preamble(self):
+        agent_match = _AGENT_AREA_COUNT_RE.search(self.agent_text)
+        skill_match = _SKILL_AREA_COUNT_RE.search(self.skill_body)
+        self.assertIsNotNone(
+            agent_match, "xp-code-reviewer.md must state how many areas it covers"
+        )
+        self.assertIsNotNone(
+            skill_match, "the spawn prompt must tell the reviewer how many areas"
+        )
+        assert agent_match is not None and skill_match is not None
+        self.assertEqual(
+            skill_match.group(1).lower(),
+            agent_match.group(1).lower(),
+            "the spawn prompt and the agent definition disagree about how many "
+            "review areas there are — the subagent follows the prompt, so the "
+            "extra area silently never runs",
+        )
+
+    def test_spawn_prompt_names_each_area(self):
+        lowered = self.skill_body.lower()
+        for area in ("correctness", "drift", "debt", "reuse", "prose hygiene"):
+            self.assertIn(
+                area,
+                lowered,
+                f"the spawn prompt must name the {area!r} area — an unnamed "
+                "area is one the subagent has no instruction to run",
+            )
 
 
 if __name__ == "__main__":

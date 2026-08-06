@@ -19,7 +19,7 @@ The harness batches independent tool calls in parallel; XP flows are step-gated.
 ## Pillars
 
 - **Intent** — what we're building. Cap 2-5.
-- **Constraints** — architectural/process bounds. Checkable claims→tests; history→git; comments→why the code can't express. Cap 15-20.
+- **Constraints** — architectural/process bounds. Detail routes out: checkable claims→tests; history→git; comments→why code can't express. Cap 15-20.
 - **Risks** — what could go wrong. Cap 2-5.
 - **Wisdom** — durable lessons. Cap 5-10.
 
