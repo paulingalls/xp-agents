@@ -25,7 +25,12 @@ import bash_failure
 import task_completed
 import tdd_stop_gate
 import teammate_idle
-from _tdd_gate_fixtures import _GateTestCase, filler, session_anchor
+from _tdd_gate_fixtures import (
+    TEAMMATE_CWD,
+    _GateTestCase,
+    filler,
+    session_anchor,
+)
 from concerns import TEST_CONCERN_RE
 from conftest import (
     _HookTestCase,
@@ -196,7 +201,6 @@ class TestGateStillBlocks(_GateTestCase):
             )
 
 
-_TEAMMATE_CWD = "/Users/dev/xp-agents/.claude/worktrees/worktree-story-003"
 _LEAD_CWD = "/Users/dev/xp-agents"
 
 
@@ -225,7 +229,7 @@ class TestTeammateReaderWindow(_GateTestCase):
             session_anchor(),
             *filler(3),
         ]
-        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False)
         self.assertIsNotNone(result)
         self.assertIn("failing", str(result).lower())
 
@@ -245,7 +249,7 @@ class TestTeammateReaderWindow(_GateTestCase):
             failing_tests_concern(agent_id="worktree-story-003"),
             *filler(300),
         ]
-        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False)
         self.assertIsNotNone(result)
 
 
@@ -261,18 +265,18 @@ class TestTeammateReaderAgentScope(_GateTestCase):
     def test_sibling_fail_concern_does_not_block_the_teammate(self):
         # Authored by a SIBLING teammate; read by worktree-story-003, clean tree.
         events = [failing_tests_concern(agent_id="worktree-story-007"), *filler(3)]
-        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False)
         self.assertIsNone(result)
 
     def test_lead_fail_concern_does_not_block_the_teammate(self):
         events = [failing_tests_concern(agent_id="main"), *filler(3)]
-        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False)
         self.assertIsNone(result)
 
     def test_own_fail_concern_still_blocks_the_teammate(self):
         # Control: the teammate's OWN unresolved failure still gates it.
         events = [failing_tests_concern(agent_id="worktree-story-003"), *filler(3)]
-        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False)
         self.assertIsNotNone(result)
 
     def test_sibling_pass_does_not_un_gate_the_teammates_own_failure(self):
@@ -283,7 +287,7 @@ class TestTeammateReaderAgentScope(_GateTestCase):
             passing_tests_status(agent_id="worktree-story-007"),
             *filler(3),
         ]
-        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        result = self._stop(events, cwd=TEAMMATE_CWD, dirty=False)
         self.assertIsNotNone(result)
 
 
@@ -299,7 +303,7 @@ class TestTeammateWindowE2E(_HookTestCase):
         self._write_events(events)
         with patch("commits.get_uncommitted_files", return_value=[]):
             result = teammate_idle.run(
-                _make_teammate_idle_input(cwd=_TEAMMATE_CWD), smm_dir=self.smm_dir
+                _make_teammate_idle_input(cwd=TEAMMATE_CWD), smm_dir=self.smm_dir
             )
         self.assertIsNotNone(result)
 

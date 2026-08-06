@@ -359,5 +359,91 @@ class TestParseTestResults(unittest.TestCase):
         self.assertEqual(result["status"], "parser_failed")
 
 
+class TestAColouredSummaryLineIsStillASummaryLine(unittest.TestCase):
+    """Every runner colours its summary, and the anchors could not see through it.
+
+    Found by running the real pytest binary and re-parsing its output: default,
+    -q, -v, --no-header --tb=no, -n 2, --durations, -x and --junitxml all
+    anchor; `--color=yes` did not. The mechanism is general rather than
+    pytest-specific — an escape sequence immediately before the anchor token
+    puts two word characters next to each other, so `\\b` finds no boundary,
+    and a leading sequence defeats `^\\s*` the same way. jest/vitest, mocha and
+    dotnet all miss for that reason; cargo survives only because its anchor
+    sits at an uncoloured line start.
+
+    This was invisible while a missed anchor fell back to the whole-response
+    scan, whose count regexes carry no boundary. Anchoring strictly turned
+    correct-by-accident into no-result, so the anchors are taught to see
+    through ANSI rather than handed back the scan.
+    """
+
+    _ESC = "\x1b"
+
+    # Captured verbatim from `pytest --color=yes` on a 2-pass/1-fail fixture.
+    _PYTEST_COLOUR = (
+        "\x1b[31m========================= \x1b[31m\x1b[1m1 failed\x1b[0m, "
+        "\x1b[32m2 passed\x1b[0m\x1b[31m in 0.13s\x1b[0m\x1b[31m "
+        "==========================\x1b[0m\n"
+    )
+
+    def test_pytest_colour_output_still_anchors(self):
+        result = test_parsing.parse_test_results(self._PYTEST_COLOUR, "pytest")
+        self.assertEqual(result["status"], "parsed")
+        self.assertEqual(result["passed"], 2)
+        self.assertEqual(result["failed"], 1)
+
+    def test_the_other_anchored_arms_see_through_colour_too(self):
+        esc = self._ESC
+        cases = (
+            (
+                "jest",
+                f"{esc}[1mTests:{esc}[22m  {esc}[31m1 failed{esc}[39m, "
+                f"{esc}[32m2 passed{esc}[39m, 3 total\n",
+            ),
+            (
+                "mocha",
+                f"{esc}[32m  2 passing{esc}[0m {esc}[90m(12ms){esc}[0m\n"
+                f"{esc}[31m  1 failing{esc}[0m\n",
+            ),
+            (
+                "dotnet",
+                f"{esc}[91mFailed!{esc}[0m  - Failed: 1, Passed: 2, "
+                "Skipped: 0, Total: 3\n",
+            ),
+            (
+                "cargo",
+                f"test result: {esc}[31mFAILED{esc}[0m. 2 passed; 1 failed; "
+                "0 ignored\n",
+            ),
+            # T.416 colon-form SGR: an unrecognized sequence SURVIVES the
+            # strip, and a survivor against the anchor misses just as colour did.
+            (
+                "jest",
+                f"{esc}[38:2:0:255:0mTests:{esc}[0m  1 failed, 2 passed, 3 total\n",
+            ),
+        )
+        for framework, output in cases:
+            with self.subTest(framework=framework):
+                result = test_parsing.parse_test_results(output, framework)
+                self.assertEqual(result["status"], "parsed")
+                self.assertEqual(result["passed"], 2)
+                self.assertEqual(result["failed"], 1)
+
+    def test_colour_does_not_manufacture_an_anchor(self):
+        """The pairing: seeing through escapes must not invent a summary.
+
+        Stripping the escapes leaves ordinary text, and ordinary text with no
+        summary line is still no result — otherwise this would hand the blind
+        scan back through the side door.
+        """
+        esc = self._ESC
+        noise = f"{esc}[31mstep 'must report 3 failed rows' finished{esc}[0m\n"
+        for framework in ("pytest", "jest", "mocha"):
+            with self.subTest(framework=framework):
+                result = test_parsing.parse_test_results(noise, framework)
+                self.assertEqual(result["status"], "parser_failed")
+                self.assertEqual(result["failed"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

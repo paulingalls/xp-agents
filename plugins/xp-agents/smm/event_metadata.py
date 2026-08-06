@@ -244,15 +244,45 @@ def is_triage_lane(event: dict) -> bool:
 #                                 trail; orthogonal to RESOLVES which is the
 #                                 STRONG link). Producer: xp-end-session
 #                                 status events with action=end_session_drop.
+#   METADATA_KEY_REFUTES        — a discovery's DECLARED refutation of the
+#                                 assumption ids it falsifies. Shape: list[str]
+#                                 of ids, prefix-tolerant per the short-id
+#                                 convention. Producer: whoever appends the
+#                                 discovery (`--metadata '{"refutes": ["<id>"]}'`).
+#                                 Consumer: the contradicted-assumption
+#                                 detector in concern_conflicts.
+#
+#                                 It exists because `references` cannot carry
+#                                 this. The schema makes `references` mandatory
+#                                 and non-empty on EVERY discovery, so a field
+#                                 every discovery must fill says nothing about
+#                                 any one of them — a discovery that CONFIRMS an
+#                                 assumption references it identically. Reading
+#                                 the reference as a refutation filed three
+#                                 false high-severity concerns in this
+#                                 project's own log: one confirmation and two
+#                                 pairs on unrelated subjects.
+#
+#                                 A WEAK link, unlike RESOLVES: refuting an
+#                                 assumption raises a contradiction for a human
+#                                 to settle, it does not close anything. A
+#                                 discovery that also declares SUPERSEDES or
+#                                 RESOLVES has already settled it, and those
+#                                 suppress the flag.
+METADATA_KEY_REFUTES = "refutes"
 METADATA_KEY_RESOLVES = "resolves"
 METADATA_KEY_SUPERSEDES = "supersedes"
 METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_RESOLVED_BY_COMMITS = "resolved_by_commits"
 
 # Concern metadata.kind discriminator vocabulary. Centralized so producer
-# (close_cycle_stop_gate hook) and consumer (retros, integration tests)
-# can't drift on the spelling. Pattern matches STATUS_ACTION_* — a small
-# string vocab named at module level, not inlined.
+# (scripts/close_cycle_abandonment, the sole owner of this record — the
+# aged-Stop gate, the SessionStart sweep and the close preloads all route
+# through it, and `metadata.detector` is what tells them apart) and consumer
+# (retros, integration tests) can't drift on the spelling. Pattern matches
+# STATUS_ACTION_* — a small string vocab named at module level, not inlined.
+# The VALUE keeps its original spelling on purpose: renaming it would orphan
+# every abandonment already in a project's log.
 CONCERN_KIND_CLOSE_CYCLE_BYPASS = "close_cycle_bypass"
 
 # tdd_red: producer (bash_post_tool) tags test_run_complete events when

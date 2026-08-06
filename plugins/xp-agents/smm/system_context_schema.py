@@ -24,8 +24,11 @@ from system_context_branching_validators import (  # noqa: F401
     user_namespace_error,
 )
 from system_context_entry_validators import (  # noqa: F401
+    ACCEPTANCE_SURFACE_COMMAND_MAXLENGTH,
     ACCEPTANCE_SURFACE_HARNESS_MAXLENGTH,
     ACCEPTANCE_SURFACE_NAME_MAXLENGTH,
+    ACCEPTANCE_SURFACE_PATH_MAXLENGTH,
+    ACCEPTANCE_SURFACE_PATHS_MAXCOUNT,
     ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH,
     PROJECT_SPECIFIC_CONTENT_MAXLENGTH,
     PROJECT_SPECIFIC_NAME_MAXLENGTH,
@@ -102,12 +105,23 @@ _REQUIRED_FIELDS = frozenset(
 # checkout-invariant (installable) versus checkout-variant (must be
 # regenerated, never copied), so the project's own script encodes that
 # split.
+#
+# `worktree_teardown` is its mirror image: a project-declared command run
+# before a teammate worktree is removed, to stop whatever the teammate
+# started (e.g. a `docker compose` stack) that outlives the worktree
+# itself. Also opaque to the plugin, for the same reason — which is why the
+# declaring project owns scoping it to ONE worktree. It runs at a story
+# close while sibling teammates in a parallel sprint are still working, and
+# a stop that addresses a shared stack (a compose project name that is not
+# per-directory) takes their services down with it. The plugin runs the
+# command in the worktree; it cannot bound what the command reaches.
 STACK_OPTIONAL_FIELDS = (
     "runtime",
     "dependencies_policy",
     "package_manager",
     "test_command",
     "worktree_bootstrap",
+    "worktree_teardown",
 )
 
 _MODULE_REQUIRED = frozenset({"name", "purpose", "path"})

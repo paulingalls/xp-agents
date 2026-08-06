@@ -86,10 +86,6 @@ def restore(cwd: str, restore_ref: str) -> None:
         raise ValueError(f"restore checkout {restore_ref} failed: {r.stderr.strip()}")
 
 
-def _merge_in_progress(cwd: str) -> bool:
-    return _git(["git", "rev-parse", "--verify", "MERGE_HEAD"], cwd).returncode == 0
-
-
 def detect_interrupted(cwd: str) -> str | None:
     """Classify a leftover interrupted state from a crashed acceptance run.
 
@@ -97,8 +93,14 @@ def detect_interrupted(cwd: str) -> str | None:
     ``"detached-HEAD"`` (``get_current_branch`` returns the literal
     ``"HEAD"``); None when on a normal branch. Tests ``== "HEAD"``, not
     truthiness — ``get_current_branch`` also returns ``""`` on git failure.
+
+    The merge probe is ``identity.merge_in_progress``, not a local one. This
+    module keeps a local ``_git`` per the branch_lifecycle import-isolation
+    precedent, but a SECOND merge detector is a different thing from an isolated
+    subprocess helper: the schedule gate reads the same fact to exempt a write,
+    and two copies would let the two disagree about one repo.
     """
-    if _merge_in_progress(cwd):
+    if identity.merge_in_progress(cwd):
         return "in-progress-merge"
     if identity.get_current_branch(cwd) == "HEAD":
         return "detached-HEAD"
@@ -114,7 +116,7 @@ def recover(smm_dir: Path, cwd: str) -> str | None:
     state = detect_interrupted(cwd)
     if state is None:
         return None
-    if _merge_in_progress(cwd):
+    if identity.merge_in_progress(cwd):
         r = _git(["git", "merge", "--abort"], cwd)
         if r.returncode != 0:
             raise ValueError(f"git merge --abort failed: {r.stderr.strip()}")

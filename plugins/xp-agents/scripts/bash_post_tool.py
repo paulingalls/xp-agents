@@ -160,9 +160,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # security marker, review cycle, QR nudge) are gated by is_xp_agent_leak.
     # See TestCommitRecordingDespiteXpAgentType.
     #
-    # Single strip_quoted scan per Bash, threaded through both is_git_commit
-    # and parse_effective_cwd. Avoids the re.DOTALL heredoc scan running
-    # twice on every commit-shaped Bash.
+    # Single strip_quoted scan per Bash, threaded through is_git_commit and the
+    # `-C` presence predicates below it (dash_c_unreachable, head_probe_target).
+    # Avoids the re.DOTALL heredoc scan running twice on every commit-shaped
+    # Bash. `parse_effective_cwd` is not one of them: it reads its own
+    # offset-preserving mask, because a stripped scan deletes the path.
     scan_target = git_commits.strip_quoted(command)
     if git_commits.is_git_commit(command, scan_target=scan_target):
         is_xp_agent_leak = _common.is_xp_agent(input_data)

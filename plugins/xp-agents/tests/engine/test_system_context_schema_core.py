@@ -115,6 +115,30 @@ class TestValidDocument(unittest.TestCase):
             f"over-budget worktree_bootstrap should fail validation; got {errors}",
         )
 
+    def test_worktree_teardown_valid_as_optional_string(self) -> None:
+        doc = valid_doc()
+        doc["stack"]["worktree_teardown"] = "docker compose down -v"
+        errors = validate_system_context(doc)
+        self.assertEqual(errors, [])
+
+    def test_worktree_teardown_must_be_a_string(self) -> None:
+        doc = valid_doc()
+        doc["stack"]["worktree_teardown"] = ["docker", "compose", "down"]
+        errors = validate_system_context(doc)
+        self.assertTrue(
+            any("worktree_teardown must be a string" in e for e in errors),
+            f"non-string worktree_teardown should fail validation; got {errors}",
+        )
+
+    def test_worktree_teardown_over_budget(self) -> None:
+        doc = valid_doc()
+        doc["stack"]["worktree_teardown"] = "x" * (STACK_FIELD_MAXLENGTH + 1)
+        errors = validate_system_context(doc)
+        self.assertTrue(
+            any("worktree_teardown" in e and "budget" in e for e in errors),
+            f"over-budget worktree_teardown should fail validation; got {errors}",
+        )
+
     def test_valid_with_optional_module_fields(self) -> None:
         doc = valid_doc()
         doc["modules"][0]["file_count"] = 42

@@ -113,6 +113,33 @@ class TestIsGitCommit(unittest.TestCase):
     def test_git_paginate_short_flag_commit(self):
         self.assertTrue(git_commits.is_git_commit("git -p commit -m 'x'"))
 
+    def test_backslash_continuation_before_the_subcommand(self):
+        """A `\\`-continued line is ONE command to the shell, and must be one
+        to the detector too.
+
+        `GIT_PREFIX` treated the gap between tokens as `\\s+`, which a `\\`
+        does not match, so every gate keyed on detection — the tier-1 secret
+        scan, the staged-lint gate, the review-cycle gate, the branch guard,
+        and post-commit event recording — silently skipped a commit written
+        across two lines. Unlike the deliberate evasions the spike catalogues
+        (`sh -c`, aliases, `$GIT`), this is ordinary formatting: the
+        CI-identity form the project itself documents is long enough to wrap.
+        """
+        for command in (
+            "git \\\n  commit -m 'x'",
+            "git -C /p \\\n  commit -m 'x'",
+            "git \\\n  -C /p commit -m 'x'",
+            "git -c commit.gpgsign=false \\\n  -C /p commit -m 'x'",
+        ):
+            with self.subTest(command=command):
+                self.assertTrue(git_commits.is_git_commit(command))
+
+    def test_continuation_tolerance_does_not_invent_a_commit(self):
+        """The non-vacuity guard: the widened gap must not make a non-commit
+        read as one."""
+        self.assertFalse(git_commits.is_git_commit("git \\\n  status"))
+        self.assertFalse(git_commits.is_git_commit("echo git \\\n  commit-tree"))
+
 
 class TestStripQuotedPublic(unittest.TestCase):
     """story-007: `_strip_quoted` was promoted to public `strip_quoted` so

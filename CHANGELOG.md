@@ -2,6 +2,302 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.5.1 — Three gates that were reporting things that weren't happening
+
+### A green suite could file a failure, and then refuse to let go of it
+
+A Bun suite at 4373 pass / 0 fail recorded `1 failed`, filed it at high
+severity, and armed the Stop gate — three green runs running. The number came
+from a test file whose own source reads *"the batch must report 1 failed"*,
+echoed back inside the runner's error context ahead of the summary. The count
+regexes scan the whole payload and took the first match they saw. Running the
+suite, the one action that should clear such a gate, re-parsed the same phantom
+every time.
+
+Counts now come from the summary **line**, and every summary line counts.
+First-vs-last was a false choice: cargo prints one `test result:` per test
+binary plus a `Doc-tests` block, a dotnet solution prints one per project, and
+a workspace launcher (`pnpm -r test`, turbo, nx) prints one per package — none
+of them emit an aggregate. Reading a single match reports one sub-run and
+erases the rest, so a green package hid a red one, in whichever order they
+happened to print. Anchoring on the runner's own summary line and summing
+across them reports the run, and text that merely *looks* like a count — the
+echoed source line, a mocha test title reading "must report 7 failing rows" —
+is simply not on a summary line. Runners with no line-identifiable summary
+(bun, deno, playwright, node-test) keep the last-match scan as a fallback.
+
+Three more parses were wrong before anyone looked: jest reported `Test Suites:`
+counts as test counts (that line precedes `Tests:`); a red cargo run under
+`--no-fail-fast` reported **0 failed with no concern filed**, because the
+doc-test block that closes every run says `0 failed`; and pytest's `errors`
+count came from anywhere in the payload, so a second tool sharing the Bash call
+(`pytest -q; pyright`) could zero the collection errors that were the run's
+only failure signal.
+
+### Your own reviewer is not a competing agent
+
+`Overlapping working_on: agent 'xp-code-reviewer' is also working on …` — filed
+at medium severity, into the Risks view, against a subagent the session had
+just spawned onto the diff it was reviewing. The conflict detector skipped only
+the caller's own id, so every plugin subagent read as an independent party.
+
+Two shipped skill templates made this permanent rather than occasional:
+`/xp-plan` claims `execution_plan.json` and `/xp-sprint-start` claims
+`sprint.json`, and nothing ever clears a self-named claim — so both were set to
+fire against every future writer of those files, indefinitely. Teammate
+worktrees are unaffected: their ids carry no `xp-` prefix, and the cross-agent
+conflict the detector exists for still fires.
+
+### A directory name could forge a preload line
+
+`/xp-scaffold-worktree`'s preload emitted `REPO_ROOT` with a raw `echo`, which
+cannot neutralize a newline in the value. A checkout whose path contains one
+emitted two lines, the second entirely attacker-named — and `REPO_ROOT` is
+substituted verbatim into `--cwd`. It now routes through `emit_path_var`, like
+every other path-valued preload variable.
+
+### Also
+
+`close_common merge --archive-sprint` without `--smm-dir` refused *after* the
+merge commit had landed, a state no retry resolves; it is static argument
+validation and now precedes every side effect. A `--smm-dir` that is not an SMM
+is refused there too: it used to exit **0** while merging, writing an
+`events.jsonl` and a `sprints/` tree into the typo'd directory, recording no
+merge-commit event in the real SMM, archiving nothing, and deleting the source
+branch anyway. Without `--archive-sprint` only the fail-open accounting event
+is at stake, so that case warns instead of aborting a correct merge. The
+"nothing archived" warning now reports the evidence it actually has rather than
+asserting a cause.
+
+`cleanup_teammate` proves a teammate branch is merged, then removes the
+worktree and deletes the branch — two steps, and the deletion can still refuse
+if a commit lands between them (the parallel-teammate case). It discarded that
+refusal, deleting the markers, report and story assignment that were the only
+records naming the branch, and exiting 0. It now keeps them and says so.
+
+`session_end`'s summary read the same never-cleared `working_on` claims the
+conflict detector was reporting on, so plugin subagents showed as in-flight
+work in every session summary; it applies the same `xp-` fence.
+
+## v5.5.0 — A bootstrap command you verified, and a close cycle that cannot die quietly
+
+### Scaffold a worktree bootstrap, don't guess one
+
+`stack.worktree_bootstrap` brings a fresh teammate worktree up — installs
+dependencies, generates types, starts what the project needs. Writing that
+command was on you, and getting it wrong is worse than leaving it empty: an
+unverified command restores exactly the false-green the field exists to kill.
+
+A measurement over two real repos is why this ships the way it does. Two
+plausible candidates were tried. **Both exited 0.** One installed 2208 packages,
+looked perfect, and fixed neither failure it was supposed to fix. A command's own
+exit status proves nothing about whether it closed the gap.
+
+`/xp-scaffold-worktree` therefore never trusts a candidate. It measures your
+declared command in your checkout and in a throwaway bare worktree, compares the
+two true exit codes, proposes a candidate by reading your repo, and then
+**re-measures**. It declares `stack.worktree_bootstrap` only when the gap
+actually closed — and refuses, asking you to author the command yourself, when it
+did not.
+
+Three conditions must all hold before it declares, and each one closes a way the
+measurement can lie: the exit codes must now match, the worktree leg must exit
+**0** (matching failures also "match"), and the measurement must not be flagged
+degraded (a throwaway that lands inside the repo reaches your installed
+dependencies by walking up, so a real gap reads as none).
+
+It also discloses, before asking, that verification runs the candidate in your
+**primary checkout** as well as the throwaway — installs and generated files land
+on your real working tree. A degraded measurement stops the skill at detection,
+whichever way it came out: that flag reports where a worktree base resolves, so
+it will be there again on the re-measurement that refuses on it, and stopping
+early saves you two full command runs and those installs.
+
+The system analyzer still records a bootstrap command your repo already
+documents, which a measurement vindicated. It now says plainly that a recorded
+command is **unverified**, and points at this skill to verify it.
+
+### An abandoned close cycle leaves a record
+
+A close cycle that died mid-flight was indistinguishable from one that finished:
+the marker was swept silently at the next session start, so "the reviewer never
+ran" and "the reviewer ran and passed" looked the same from outside.
+
+Three detectors now record the abandonment — the session-start sweep, a new close
+starting over a dead one, and the existing aged-stop detector — all sharing one
+content, one budget owner, and one age rule so they cannot drift.
+
+**The owning session is what makes the record mean anything.** The marker is not
+session-scoped and the SMM is shared across your windows and worktrees, so bare
+existence cannot tell a dead cycle from one that is still running: a second
+window's fresh start sees your live close, and a close whose own first gate
+refused re-arms seconds after the survivor it just left. Recording either would
+file a high-severity concern that the LIVE close's own merge prompt then reads as
+a reason to abort — a close that never failed, told to abort by its neighbour.
+
+A duration cannot separate the two, and we tried one first. A close's runtime is
+unbounded — the close that shipped this very change ran seventy minutes while
+perfectly healthy — so any threshold long enough for a slow live close is also
+long enough to let a dead one sit undetected, and any threshold short enough to
+catch the dead one starts firing on the live one. It moves the false record
+later; it does not remove it.
+
+So arming now stamps the marker with the session that owns the close, and a
+detector in another window asks that session directly whether it is still
+running. A live owner is never abandoned however long it has run; a dead one is
+abandoned however recently it died. Age survives only as the fallback for a
+marker whose owner cannot be named — one armed by an older version — because the
+two mistakes are not symmetric: a false record breaks a healthy close, while a
+missed one is only the silent loss that predates all of this. A healthy session
+still pays nothing.
+
+A record that does not land no longer consumes the marker either: the append is
+reported rather than swallowed, so a dropped one leaves the evidence for the next
+detector instead of destroying it along with the report. The aged-stop detector's
+stderr line claims a concern was recorded only when one actually was.
+
+Step 6b now releases the Stop-gate marker as well as the cycle id — for the three
+close modes that arm it. Story-close arms none, and reads the same shared
+reference, so consuming there would release an enclosing close's live gate.
+
+The Stop gate's behavior under the platform's re-entry flag is deliberately
+**unchanged** and now pinned as a regression: it yields, exactly as every sibling
+Stop gate does, because blocking there risks the infinite loop those guards exist
+to prevent.
+
+### Removed: `system_context_cli surface-commands`
+
+Two doors answered "which commands cover this changed set", and only one carried
+the exit-status refusal that stops a command whose failure never reaches the shell
+from auto-merging a red suite. The unguarded one had no caller. It is gone;
+`scripts/close_gate_commands.py` is the single door.
+
+## v5.4.0 — Teammate worktrees stop what they started, and story close stops paying for the whole suite
+
+Two threads. The first closes a leak your machine has been carrying; the second
+cuts what closing a story costs.
+
+### Teammate worktrees can stop what they started
+
+`git worktree add` hands a teammate a bare checkout, so `stack.worktree_bootstrap`
+exists to bring one up — install dependencies, generate types, start whatever the
+project needs. Nothing ever brought it back **down**. A bootstrap that started a
+database container, a dev server or a language server left it running after the
+worktree it belonged to was gone, on every teammate story you ever closed.
+
+Declare `stack.worktree_teardown` in `system_context.json` and it runs inside the
+worktree, at the single removal choke point, before the directory goes away. Like
+bootstrap it is an opaque command by design — your script knows what it started
+and what is safe to stop; the plugin cannot and should not guess.
+`/xp-system-context` will record a teardown your project *already documents*, and
+will not invent or compose one.
+
+Bounded and non-fatal, deliberately: 90s (`XP_TEARDOWN_TIMEOUT_S` overrides), and
+a non-zero exit, a timeout, a command that will not start, or an unreadable
+`system_context` are each reported on stderr and swallowed — cleanup that refuses
+to clean up is worse than the leak it exists to prevent. An unreadable context
+says so out loud rather than degrading silently, so an operator whose declared
+command stopped running finds out.
+
+It runs wherever a worktree is removed by **force** — the cleanup after a story
+closes, and a re-spawn that owns the branch it is clearing. It does *not* run on
+the non-forced removal, which is what a re-spawn takes when a live peer may still
+own that tree: git refuses to remove a tree holding uncommitted work, and
+stopping that peer's stack out from under it would strand them mid-story.
+
+**Declared commands are now killed as a group.** Bootstrap, teardown and your
+acceptance commands each run in their own process group and are killed as one when
+they time out. `subprocess.run(shell=True, timeout=...)` reaps only the shell it
+spawned, so an acceptance command that backgrounded a stack left it running after
+close had moved on — the same orphan leak, reached from a different door. The
+unattended acceptance batch also gained a bound it never had (7200s), and the
+`/xp-accept` path a bound it never had at all; both mean "never hang forever", not
+"fail fast", so an hour-long suite still passes comfortably.
+
+That bound is **per command**, so the sprint-wide rerun also gets a total: 4h
+(`VERIFY_BATCH_TIMEOUT_S`; set it to 0 or a negative to run unbounded). It decides
+which items *start* and never kills one already running, so a slow suite keeps its
+two hours while an eight-item sprint can no longer run overnight inside close. The
+items it never reached are named — in the matrix, in the status output, and in the
+merge refusal — and they hold the close red, because some items green and the rest
+unknown is not a verified sprint.
+
+**Half of this thread did not ship.** The skill that would detect a missing
+bootstrap and *verify* a candidate you supply is deferred.
+`scripts/worktree_differential.py` — the instrument it was to be built on, which
+runs one declared command in your checkout and again in a bare worktree and
+compares the two true exit codes — ships and is runnable by hand, but nothing
+calls it for you yet. It exists because a candidate's own exit code proves
+nothing: two plausible bootstraps both exited 0, one installed 2208 packages,
+and neither fixed the failure.
+
+### Story close stops paying for the whole suite
+
+Closing a story ran your entire test command. On a project whose acceptance
+suite takes an hour, every story paid that hour — and the gate that ran it
+merges without asking.
+
+Close now runs only the commands covering the surfaces your change actually
+touched. Declare `paths` and a `command` on an acceptance surface and both
+story close and free close narrow to it; declare nothing and everything behaves
+exactly as before. `/xp-system-context` proposes the fields for you, confirms
+them, and never infers a command it did not read.
+
+**It narrows all-or-nothing, on purpose.** If your change touches one file that
+no surface claims, the whole selection is discarded and the full command runs.
+Partial narrowing is the one shape that tests *less* than what it replaces, and
+the consumer is an auto-merge gate — so the analyzer also proposes a
+command-less surface covering the leftovers (docs, config), which buys coverage
+without adding a run.
+
+Selection reads the close diff, not the story's declared file list, so a file
+you touched outside the plan is still covered.
+
+Three things worth knowing before you turn this on. `/xp-system-context` states
+all three and asks you to confirm, because none of them can be decided in code:
+
+- **Coverage is checked by path, not by blast radius.** The selection proves
+  every file you touched is claimed by some surface. It cannot prove a change in
+  one surface does not break another — that is undecidable across languages — so
+  a cross-surface break can auto-merge at story close, and **no later step
+  re-runs the full suite**. Sprint close reviews the diff and asks a human; it
+  never runs your test command. Declare `paths` where you have evidence the
+  surfaces are independent.
+- `stack.test_command` is expected to cover **every** surface, because it is
+  what the gate falls back to and what a full selection collapses to. Point it
+  at a script that calls each suite, not at one of them.
+- A selection covering every declared command runs the full command once
+  instead of N — N narrowed runs cost more than the one they replace.
+
+**The gate re-checks its own command set before it merges.** The commands are
+resolved once, when the close begins — but a review fix landing mid-close can
+touch a file the frozen set covers nowhere, and that file would have merged
+untested. The block now carries a recheck as its own first command: it re-derives
+the set at merge time, against a pinned merge-base and including uncommitted and
+untracked work, and exits non-zero if anything moved. Drift can only ever send
+the close to the human prompt — it can never fail toward auto-merge.
+
+### One regression, stated plainly
+
+**If your `stack.test_command`'s exit status cannot reach the shell, close
+auto-merge now turns itself off.** `pytest -q; echo done` exits 0 when pytest
+*failed*. So does a bare pipe, a trailing `&`, a `|| true` fallback, and a
+`$(...)` that captures the runner. The gate reads that zero as a pass and merges
+without asking — it has been greenlighting red suites. Commands in that shape are
+now refused, and the close falls through to asking you.
+
+`&&` propagates failure and is unaffected, and a substitution that only supplies
+an *argument* — `pytest -n $(nproc)` — is fine: the runner is still the command
+whose status the shell reports.
+
+This is a behavior change for anyone in that shape today: you lose an auto-merge
+you had. You were not getting the check you thought you were. The no-block hint
+now names which case you are in (`not-set`, `exit-status-masked`, `unresolved`)
+instead of telling everyone the field is unset.
+
+Scope, stated plainly: nothing narrows until surfaces declare `paths`. Apart from
+the refusal above, this release changes no close behavior for existing projects.
+
 ## v5.3.1 — The code reviewer stops filing items that cannot be closed
 
 When a diff introduced a new architectural pattern, the code reviewer nudged you

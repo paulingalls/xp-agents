@@ -15,6 +15,7 @@ is a JSON-encoded replacement string.
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -29,6 +30,7 @@ from event_metadata import (
     STATUS_ACTION_EDIT_PRINCIPLE,
     STATUS_ACTION_EDIT_PROJECT_SPECIFIC,
 )
+from system_context_entry_validators import unknown_surface_key_errors
 from system_context_retire_cli import resolve_convention_index
 
 _EDIT_ACTIONS: dict[str, str] = {
@@ -95,7 +97,12 @@ def _parse_patch_dict() -> dict | None:
 
 
 def _cmd_edit_by_key(
-    args: argparse.Namespace, field: str, key_field: str, kind: str
+    args: argparse.Namespace,
+    field: str,
+    key_field: str,
+    kind: str,
+    *,
+    value_check: Callable[[object], list[str]] | None = None,
 ) -> int:
     """Generic edit-by-key path for object-shaped capped lists.
 
@@ -113,6 +120,11 @@ def _cmd_edit_by_key(
             patch = _parse_patch_dict()
             if patch is None:
                 return 1
+            if value_check is not None:
+                problems = value_check(patch)
+                if problems:
+                    print("; ".join(problems), file=sys.stderr)
+                    return 1
             changed = _apply_patch(entry, patch)
             if not changed:
                 return 0
@@ -142,8 +154,29 @@ def cmd_edit_project_specific(args: argparse.Namespace) -> int:
     return _cmd_edit_by_key(args, "project_specific", "name", "project_specific")
 
 
+def _surface_patch_key_errors(patch: object) -> list[str]:
+    """Unknown-key check for a single-surface PATCH.
+
+    A `null` value REMOVES the key (`_apply_patch` deletes it), so an unknown
+    key being cleared is the cleanup this check should welcome, not refuse —
+    refusing it would leave a document that already carries a stray key with
+    no targeted way to drop it. Only keys being SET are candidates.
+    """
+    if not isinstance(patch, dict):
+        return []
+    return unknown_surface_key_errors(
+        [{k: v for k, v in patch.items() if v is not None}]
+    )
+
+
 def cmd_edit_acceptance_surface(args: argparse.Namespace) -> int:
-    return _cmd_edit_by_key(args, "acceptance_surfaces", "name", "acceptance_surface")
+    return _cmd_edit_by_key(
+        args,
+        "acceptance_surfaces",
+        "name",
+        "acceptance_surface",
+        value_check=_surface_patch_key_errors,
+    )
 
 
 def cmd_edit_convention(args: argparse.Namespace) -> int:

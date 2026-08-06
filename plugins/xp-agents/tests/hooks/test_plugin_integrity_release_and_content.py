@@ -38,6 +38,7 @@ _ALL_SKILL_NAMES = (
     "xp-quality-review",
     "xp-review-plan",
     "xp-scaffold-acceptance",
+    "xp-scaffold-worktree",
     "xp-assign",
     "xp-sprint-review",
     "xp-sprint-start",
@@ -177,11 +178,35 @@ class TestMilestone6Files(unittest.TestCase):
         )
 
     def test_process_guide_token_budget(self):
-        """PROCESS_GUIDE.md word count should estimate 150-1,300 tokens.
+        """PROCESS_GUIDE.md word count should estimate 150-1,450 tokens.
 
         Injected to the main agent only (session_start + review_cycle_done),
         never to subagents — so the cap is generous relative to the per-
         subagent guides. Bumped 1100→1300 for the Sequential Discipline section.
+
+        Bumped 1300→1450 (story-018). The guide sat at ~1296 estimated tokens,
+        i.e. 99.7% of cap, so ANY addition breached it — while the sibling
+        CHARACTER budget in tests/test_guide_budgets.py still showed ~700 chars
+        of room. The two budgets disagree about how much space exists; that is
+        worth knowing before the next editor trusts either one alone.
+
+        The addition was mandatory rather than elective: this file documented
+        an empty `stack.test_command` as THE auto-merge off switch, and
+        story-018 added a second way to be off (a command whose exit status
+        never reaches the shell). Leaving that uncorrected would be the same
+        claim-vs-coverage defect the story exists to fix. Trimmed to the
+        minimum first — the narrowing tradeoff is stated in full where the
+        customer actually confirms it, in the analyzer prompt, not here.
+
+        Bumped 1450→1550 (story-016), and the disagreement noted above is
+        exactly what bit: the guide measured ~1449 tokens (99.9% of cap) while
+        the character budget showed ~115 chars free, so a mandatory 84-char
+        correction breached this cap and not that one. Mandatory again, and for
+        the same species of defect: the `references` line asserted that
+        discoveries reference the assumptions they contradict, which the schema
+        makes impossible (the field is mandatory on every discovery), and three
+        false high-severity concerns were filed on that reading. 1550 leaves
+        ~85 tokens rather than one.
         """
         path = self.plugin_root / "PROCESS_GUIDE.md"
         if not path.exists():
@@ -192,7 +217,7 @@ class TestMilestone6Files(unittest.TestCase):
             estimated_tokens, 150, f"Too short: ~{estimated_tokens:.0f} tokens"
         )
         self.assertLessEqual(
-            estimated_tokens, 1300, f"Too long: ~{estimated_tokens:.0f} tokens"
+            estimated_tokens, 1550, f"Too long: ~{estimated_tokens:.0f} tokens"
         )
 
     def test_process_guide_includes_event_protocol(self):

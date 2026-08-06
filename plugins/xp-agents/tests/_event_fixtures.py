@@ -13,9 +13,11 @@ from pathlib import Path
 from event_schema import (
     EVENT_TYPE_COMMIT,
     EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DISCOVERY,
     EVENT_TYPE_RETROSPECTIVE,
     EVENT_TYPE_SPRINT,
     EVENT_TYPE_STATUS,
+    METADATA_KEY_REFUTES,
     SPRINT_ACTION_VERIFY,
     STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_TEST_RUN_COMPLETE,
@@ -77,6 +79,36 @@ def make_event(event_type: str = "customer_input", **kwargs) -> dict:
             event["references"] = kwargs.pop("references", ["referenced-id"])
     event.update(kwargs)
     return event
+
+
+def refutes_metadata(assumption: dict) -> dict:
+    """The metadata a discovery must carry to DECLARE it refutes *assumption*.
+
+    The contradicted-assumption detector fires on this and nothing else. A bare
+    `references` link cannot carry the claim: the schema makes `references`
+    mandatory and non-empty on EVERY discovery, so a discovery that CONFIRMS an
+    assumption references it identically to one that falsifies it. Firing on the
+    reference filed three false high-severity concerns in this project's own log
+    — one confirmation, two pairs on unrelated subjects.
+
+    Returned as a dict rather than baked into a factory because several suites
+    need to merge it with `supersedes` / `resolves` to prove those suppressions
+    still bite once the trigger is armed.
+    """
+    return {METADATA_KEY_REFUTES: [assumption["id"]]}
+
+
+def refuting_discovery(assumption: dict, content: str, **kwargs) -> dict:
+    """A discovery that declares it refutes *assumption* — the one shape that
+    raises a contradiction. Both the reference and the declaration, so a fixture
+    cannot be half-written at one site."""
+    return make_event(
+        EVENT_TYPE_DISCOVERY,
+        content=content,
+        references=[assumption["id"]],
+        metadata=refutes_metadata(assumption),
+        **kwargs,
+    )
 
 
 def make_retrospective_with_try(

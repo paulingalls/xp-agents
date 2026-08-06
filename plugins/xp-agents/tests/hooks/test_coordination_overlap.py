@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""Working-on overlap detection, read through `.coordination.json`.
+
+Split from `test_coordination.py`, which crossed the 450-line band floor when
+the liveness pins landed there. A cohesive split rather than a chronological
+one: everything here exercises `pre_tool_write.check_working_on_overlap` — the
+question "is another agent already holding this path?" — while the host file is
+about the coordination file's own read/write/clear contract.
+"""
+
+import json
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+import coordination
+import pre_tool_write
+import worktree
+from _branching_fixtures import init_repo
+from conftest import _HookTestCase
+
+
+class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
+    """Test overlap detection using .coordination.json."""
+
+    def test_no_overlap(self):
+        """No conflict when agents work on different files."""
+        coordination.update_coordination(self.smm_dir, "other", ["src/b.ts"])
+        result = pre_tool_write.check_working_on_overlap(
+            self.smm_dir, "main", "src/a.ts", "/project"
+        )
+        self.assertIsNone(result)
+
+    def test_overlap_detected(self):
+        """Conflict detected when another agent works on the same file."""
+        coordination.update_coordination(self.smm_dir, "other", ["src/app.ts"])
+        result = pre_tool_write.check_working_on_overlap(
+            self.smm_dir, "main", "src/app.ts", "/project"
+        )
+        result = self._assert_not_none(result)
+        self.assertIn("other", result)
+
+    def test_self_overlap_ignored(self):
+        """No conflict when the same agent works on the same file."""
+        coordination.update_coordination(self.smm_dir, "main", ["src/app.ts"])
+        result = pre_tool_write.check_working_on_overlap(
+            self.smm_dir, "main", "src/app.ts", "/project"
+        )
+        self.assertIsNone(result)
+
+    def test_stale_entry_ignored(self):
+        """Stale coordination entries don't trigger conflicts."""
+        from datetime import datetime, timedelta, timezone
+
+        old_time = (datetime.now(timezone.utc) - timedelta(minutes=45)).isoformat()
+        coord_file = self.smm_dir / ".coordination.json"
+        coord_file.write_text(
+            json.dumps(
+                {
+                    "other": {
+                        "working_on": ["src/app.ts"],
+                        "updated": old_time,
+                    }
+                }
+            )
+        )
+        result = pre_tool_write.check_working_on_overlap(
+            self.smm_dir, "main", "src/app.ts", "/project"
+        )
+        self.assertIsNone(result)
+
+    def test_empty_working_on(self):
+        """Agent with empty working_on doesn't trigger conflict."""
+        coordination.update_coordination(self.smm_dir, "other", [])
+        result = pre_tool_write.check_working_on_overlap(
+            self.smm_dir, "main", "src/app.ts", "/project"
+        )
+        self.assertIsNone(result)
+
+    def test_cleared_agent_no_conflict(self):
+        """After clearing, agent no longer causes conflicts."""
+        coordination.update_coordination(self.smm_dir, "other", ["src/app.ts"])
+        coordination.clear_coordination_agent(self.smm_dir, "other")
+        result = pre_tool_write.check_working_on_overlap(
+            self.smm_dir, "main", "src/app.ts", "/project"
+        )
+        self.assertIsNone(result)
+
+
+class TestCrossWorktreeOverlap(unittest.TestCase):
+    """M4e: Cross-worktree coordination conflict detection."""
+
+    def setUp(self):
+        import tempfile
+
+        worktree._clear_git_root_cache()
+        self.tmpdir = Path(tempfile.mkdtemp())
+        # init_repo creates the initial commit worktree-add requires.
+        init_repo(str(self.tmpdir))
+        # Create worktree
+        self.wt_dir = Path(tempfile.mkdtemp())
+        import shutil
+
+        shutil.rmtree(self.wt_dir)  # git worktree add needs non-existent path
+        result = subprocess.run(
+            ["git", "-C", str(self.tmpdir), "worktree", "add", str(self.wt_dir)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            self.skipTest(f"git worktree add failed: {result.stderr}")
+
+        # Use a shared SMM dir (simulates shared SMM across worktrees)
+        self.smm_dir = self.tmpdir / ".smm"
+        self.smm_dir.mkdir()
+        (self.smm_dir / "events.jsonl").touch()
+        (self.smm_dir / "events.lock").touch()
+
+    def tearDown(self):
+        import shutil
+
+        worktree._clear_git_root_cache()
+        if self.tmpdir.exists():
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(self.tmpdir),
+                    "worktree",
+                    "remove",
+                    "--force",
+                    str(self.wt_dir),
+                ],
+                capture_output=True,
+            )
+        if self.wt_dir.exists():
+            shutil.rmtree(self.wt_dir)
+        if self.tmpdir.exists():
+            shutil.rmtree(self.tmpdir)
+
+    def test_cross_worktree_overlap_detected(self):
+        """Agent A stores path from main cwd, Agent B detects from worktree."""
+        # Agent A (main checkout) stores a file in coordination
+        normalized_main = worktree.normalize_path("src/app.py", str(self.tmpdir))
+        coordination.update_coordination(self.smm_dir, "agent-a", [normalized_main])
+
+        # Agent B (worktree) checks for overlap — file doesn't exist in worktree
+        result = pre_tool_write.check_working_on_overlap(
+            self.smm_dir, "agent-b", "src/app.py", str(self.wt_dir)
+        )
+        self.assertIsNotNone(result, "Cross-worktree conflict should be detected")
+        assert result is not None
+        self.assertIn("agent-a", result)
+
+    def test_cross_worktree_no_false_conflict(self):
+        """Different files across worktrees should not conflict."""
+        normalized_main = worktree.normalize_path("src/app.py", str(self.tmpdir))
+        coordination.update_coordination(self.smm_dir, "agent-a", [normalized_main])
+
+        result = pre_tool_write.check_working_on_overlap(
+            self.smm_dir, "agent-b", "src/other.py", str(self.wt_dir)
+        )
+        self.assertIsNone(result)
+
+    def test_renormalize_repo_relative_from_different_cwd(self):
+        """Same relative path normalizes identically from main and worktree."""
+        main_result = worktree.normalize_path("src/app.py", str(self.tmpdir))
+        wt_result = worktree.normalize_path("src/app.py", str(self.wt_dir))
+        self.assertEqual(main_result, wt_result)
+        self.assertEqual(main_result, "src/app.py")
+
+
+if __name__ == "__main__":
+    unittest.main()

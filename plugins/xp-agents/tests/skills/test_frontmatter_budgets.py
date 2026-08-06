@@ -56,7 +56,7 @@ _AGENTS_DIR = _PLUGIN_ROOT / "agents"
 
 # Non-vacuity: a glob that silently stops matching must fail loudly rather than
 # report a green scan of nothing (the story-001 lesson).
-_EXPECTED_SKILLS = 18
+_EXPECTED_SKILLS = 19
 _EXPECTED_AGENTS = 7
 
 SKILL_DESCRIPTION_BUDGETS: dict[str, int] = {
@@ -70,6 +70,7 @@ SKILL_DESCRIPTION_BUDGETS: dict[str, int] = {
     "xp-quality-review": 130,
     "xp-review-plan": 130,
     "xp-scaffold-acceptance": 180,
+    "xp-scaffold-worktree": 170,
     "xp-schedule": 160,
     "xp-sprint-close": 150,
     "xp-sprint-review": 140,
@@ -105,6 +106,7 @@ SKILL_TRIGGERS: dict[str, tuple[str, ...]] = {
     "xp-quality-review": ("review", "diff"),
     "xp-review-plan": ("plan", "TDD"),
     "xp-scaffold-acceptance": ("scaffold", "acceptance test"),
+    "xp-scaffold-worktree": ("worktree", "bootstrap"),
     "xp-schedule": ("solo", "parallel"),
     "xp-sprint-close": ("sprint branch", "merge"),
     "xp-sprint-review": ("sprint", "shipped"),
@@ -359,6 +361,35 @@ class TestDescriptionRetainsTriggers(unittest.TestCase):
 
     def test_agent_descriptions_retain_triggers(self):
         self._assert_retained(_agents(), AGENT_TRIGGERS)
+
+
+class TestNoHarnessSpecificConfigLeaksIntoSkills(unittest.TestCase):
+    """No shipped skill carries a per-harness config sidecar.
+
+    A second harness reads `<skill>/agents/openai.yaml` for per-skill policy. That
+    is a legitimate thing to write while measuring one, and exactly the thing to
+    leave behind by accident — it would ship a harness-specific opt-out to every
+    user of the plugin, silently. Probes belong in the installed cache, which a
+    reinstall wipes; this pin is what makes "the repo stayed clean" checkable
+    rather than merely intended.
+
+    Kept general on purpose: any `agents/` sidecar under a skill fails, not one
+    filename, because the next harness will pick its own.
+    """
+
+    def test_no_skill_has_an_agents_sidecar(self):
+        skill_dirs = sorted(p.parent for p in _SKILLS_DIR.glob("*/SKILL.md"))
+        self.assertEqual(
+            len(skill_dirs),
+            _EXPECTED_SKILLS,
+            "skill glob stopped matching — this pin would scan nothing and pass",
+        )
+        offenders = [d.name for d in skill_dirs if (d / "agents").exists()]
+        self.assertEqual(
+            offenders,
+            [],
+            f"harness config sidecar left in shipped skill(s): {offenders}",
+        )
 
 
 if __name__ == "__main__":

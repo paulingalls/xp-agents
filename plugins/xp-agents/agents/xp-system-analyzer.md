@@ -116,8 +116,20 @@ Canonical acceptance harnesses per surface live in `scripts/scaffold_detect.py:_
 - `signals`: what you detected indicating this surface exists
 - `harness`: acceptance tooling name (omit if none found)
 - `status`: `"covered"` if harness exists, `"gap"` if not
+- `paths`, `command`: the globs this surface owns (max 20) and the narrowed command covering it. `command` requires `paths` or it is rejected at write.
 
-**Update mode:** Patch via `edit-acceptance-surfaces` and compare detected surfaces against existing entries — add new surfaces, update signals, do NOT remove surfaces the user may have manually added:
+**Propose `paths` and `command`, then confirm — do not infer silently.** Close gates narrow to these commands, so a guessed command runs the wrong tests before an auto-merge. Propose per surface from what you read (test layout, scripts, config), show the customer the proposed globs and command, and write **only what they confirm**. Anything unconfirmed is omitted, not guessed.
+
+**Propose `paths` only where you SAW independence** — separate deployables, separate test trees, no shared source. Otherwise **decline** for that surface and say why; a declined proposal is a result, not a gap. Coupled surfaces are where the risk below bites.
+
+**Say this when you ask for confirmation**, in your own words — it makes the opt-in informed, not merely agreed:
+
+- coverage is checked by PATH, not by blast radius. A change that breaks a surface the selection did not pick can auto-merge at story close, and **no later step re-runs the full suite**: sprint close reviews the diff and asks a human, it never runs `stack.test_command`.
+- `stack.test_command` must **cover every surface**. It is what the gate falls back to, and what a selection covering everything collapses to — point it at a script calling each suite, not at one of them.
+
+**Also propose a residue surface.** Propose one surface holding the `paths` no other surface claims — docs, config, prose — with **no `command`**: coverage without a run. Selection is all-or-nothing, so one unclaimed path vetoes narrowing entirely and every `paths`/`command` you wrote does nothing. Enumerate by GROUP (`docs/**`, never per file) — a catch-all glob claims code too. Past 20 groups, split across several command-less surfaces: over the cap the write is rejected WHOLE and this command replaces the array, so one long list discards every surface in the call.
+
+**Update mode:** Patch via `edit-acceptance-surfaces` and compare detected surfaces against existing entries — add new surfaces, update signals, do NOT remove surfaces the user may have manually added. This replaces the WHOLE array, so re-emit any `paths`/`command` you found: a declared value you omit is DELETED, silently:
 ```bash
 echo '<json-array>' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-acceptance-surfaces
 ```
@@ -157,11 +169,15 @@ Detect the project's full automated-test command and populate `stack.test_comman
 
 ### Step 3.75: Worktree Bootstrap Detection
 
-Populate optional `stack.worktree_bootstrap` when — and only when — the repo already contains a script whose stated purpose is to prepare a fresh checkout for work (a documented setup/bootstrap entry point: `./scripts/init-worktree.sh`, a `setup` target, a documented one-liner in README/CONTRIBUTING). Record the command that runs it, as a single string. Teammate worktrees materialize only tracked files, so anything gitignored is absent — the dominant failure that produces is a loud false-RED (a typecheck or test run erroring out over unresolvable modules), not merely a convenience gap, which is why recording the command is a correctness step rather than something left for mid-story discovery.
+Populate optional `stack.worktree_bootstrap` when — and only when — the repo already contains a script whose stated purpose is to prepare a fresh checkout for work (a documented setup/bootstrap entry point: `./scripts/init-worktree.sh`, a `setup` target, a documented one-liner in README/CONTRIBUTING). Record the command that runs it, as a single string. Teammate worktrees materialize only tracked files, so anything gitignored is absent — the dominant failure that produces is a loud false-RED, not merely a convenience gap, which is why recording the command is a correctness step rather than something left for mid-story discovery.
+
+A command recorded here is **unverified**: documented is not measured. Two plausible candidates were measured against real repositories and both exited 0, one closing nothing — so say the value is unverified and point the user at `/xp-scaffold-worktree`, which measures whether it actually closes the gap.
 
 **Never invent one, and never assemble one from install steps you inferred.** Gitignored state splits in two, and only the project knows which is which: some is checkout-invariant (installable dependencies), some is checkout-variant (generated artifacts, local config, anything deriving from the checkout's own path — copying or sharing that across checkouts is silently wrong). A command you composed encodes a guess about that split. If no such script exists, omit the field and raise a `concern` naming the gitignored state a fresh checkout would lack, so the user can write the script deliberately.
 
 **Update mode:** if `worktree_bootstrap` already exists, leave it alone — it is a deliberate user declaration.
+
+The same discipline applies to optional `stack.worktree_teardown`: record a command only when the project already documents one that stops what it started, never invent or compose one, and in update mode leave an existing value alone.
 
 ### Step 3.8: Test Layout Detection
 
@@ -222,7 +238,8 @@ Before filling each capped list, apply its discriminator test. The test is the *
     "dependencies_policy": "<optional, max 100 chars>",
     "package_manager": "<optional, max 100 chars>",
     "test_command": "<optional, max 100 chars — see Step 3.7>",
-    "worktree_bootstrap": "<optional, max 100 chars — see Step 3.75>"
+    "worktree_bootstrap": "<optional, max 100 chars — see Step 3.75>",
+    "worktree_teardown": "<optional, max 100 chars — see Step 3.75>"
   },
   "modules": [
     {"name": "auth (max 50 chars)", "path": "src/auth (max 200 chars)", "purpose": "<max 100 chars>"}
@@ -235,7 +252,7 @@ Before filling each capped list, apply its discriminator test. The test is the *
     {"name": "domain-glossary (max 50 chars)", "content": "<string, list, or object — serialized max 500 chars>"}
   ],
   "acceptance_surfaces": [
-    {"name": "browser (max 50 chars)", "signals": ["<max 100 chars each>"], "harness": "<optional, max 50 chars>", "status": "covered | gap"}
+    {"name": "browser (max 50 chars)", "signals": ["<max 100 chars each>"], "harness": "<optional, max 50 chars>", "status": "covered | gap", "paths": ["<optional, max 20 entries, 200 chars each>"], "command": "<optional, max 100 chars; requires paths>"}
   ]
 }
 ```

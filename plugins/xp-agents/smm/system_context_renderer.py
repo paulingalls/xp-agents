@@ -251,7 +251,7 @@ def _render_branching_strategy(lines: list[str], bs: dict) -> None:
         # fallback named here is branch_resolution._DEFAULT_PRIMARY; it is
         # spelled out rather than imported (smm/ must not depend on
         # scripts/), and kept in sync by a pin in
-        # tests/smm/test_system_context_schema_fields.py.
+        # tests/smm/test_integration_branch_ref.py.
         value = bs["integration_branch"]
         mark = (
             ""
@@ -276,6 +276,14 @@ def _render_acceptance_surfaces(lines: list[str], surfaces: list[dict]) -> None:
         signals = ", ".join(s.get("signals", []))
         signals_str = f" — {signals}" if signals else ""
         lines.append(f"- **{s['name']}** ({s['status']}){harness}{signals_str}")
+        # Declared `paths`/`command` must be VISIBLE here: update mode reads
+        # the document through this render and then replaces the whole
+        # surfaces array, so anything the render hides is silently deleted on
+        # the next run — the analyzer cannot re-emit what it never saw.
+        if s.get("paths"):
+            lines.append(f"  - paths: {', '.join(s['paths'])}")
+        if s.get("command"):
+            lines.append(f"  - command: `{s['command']}`")
     lines.append("")
 
 

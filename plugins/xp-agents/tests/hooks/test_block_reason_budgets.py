@@ -65,6 +65,7 @@ from conftest import _PLUGIN_ROOT, band_offender
 # reason added there must land under a budget rather than arriving unbounded.
 GATE_SCRIPTS: tuple[str, ...] = (
     "scripts/bash_failure.py",
+    "scripts/close_cycle_abandonment.py",
     "scripts/close_cycle_stop_gate.py",
     "scripts/close_verify_gate.py",
     "scripts/hook_io.py",
@@ -102,8 +103,23 @@ GATE_SCRIPTS: tuple[str, ...] = (
 # tightenings; the change here is the 98% band, not the numbers.
 REASON_BUDGETS: dict[str, int] = {
     "scripts/bash_failure.py": 60,
-    "scripts/close_cycle_stop_gate.py": 890,
-    "scripts/close_verify_gate.py": 840,
+    # New entry: the abandonment concern three detectors share now lives here,
+    # so the prose the gate used to hold is bounded at its new home rather than
+    # arriving unbudgeted. Measured 473, fitted to the same formula.
+    "scripts/close_cycle_abandonment.py": 530,
+    # Ratcheted 890 -> 430 (measured 385). The abandonment content moved out to
+    # the module above; a budget left at 890 would hand back the 500 chars that
+    # move released, which is exactly what the monotonic ratchet is for.
+    "scripts/close_cycle_stop_gate.py": 430,
+    # Bumped 840 -> 1010 (close review): the acceptance gate gained a THIRD
+    # refusal — a sprint with verify-bearing acceptance that no run ever
+    # recorded a result for, which the gate used to read as green. A whole new
+    # refusal path is what the module docstring's ~11% headroom is explicitly
+    # NOT for ("a gate that gains a clause"), so this is a considered bump
+    # rather than spending the clause allowance. Re-measured at 910 and refitted
+    # to the same ratchet(chars, 10) formula; the reason itself was cut to one
+    # sentence plus the documented override first.
+    "scripts/close_verify_gate.py": 1010,
     # Zero, deliberately: hook_io.py emits no reason prose today. Adding one
     # must be a considered bump here, not an unbounded arrival.
     "scripts/hook_io.py": 0,
@@ -120,7 +136,15 @@ REASON_BUDGETS: dict[str, int] = {
     "scripts/pre_tool_write.py": 720,
     "scripts/review_cycle_done.py": 960,
     "scripts/session_end_warning.py": 100,
-    "scripts/sprint_stop_gate.py": 230,
+    # Bumped 230 -> 460 (story-017), which added two messages to this gate: the
+    # accept message now names the firing stories nothing can check, and an
+    # unreadable sprint.json blocks instead of raising out of the hook. The gate
+    # stood at 204 of a 225.4 band — 89% used — so neither fit and trimming was
+    # not available: even a 26-char clause busted it. 460 is measured, not
+    # guessed: round(408 * _CALIBRATION / 10) * 10, the same rule every other
+    # entry here sits at (~89% used). `ratchet` cannot compute it — it is
+    # monotonic-down and would return the old 230 — so it is applied by hand.
+    "scripts/sprint_stop_gate.py": 460,
     "scripts/subagent_stop.py": 350,
     "scripts/task_completed.py": 70,
     "scripts/tdd_stop_gate.py": 110,
@@ -135,8 +159,14 @@ REASON_BUDGETS: dict[str, int] = {
 # budget cannot: a gate whose reason was deleted outright sails under its cap.
 MIN_REASON_CHARS: dict[str, int] = {
     "scripts/bash_failure.py": 40,
-    "scripts/close_cycle_stop_gate.py": 670,
-    "scripts/close_verify_gate.py": 640,
+    "scripts/close_cycle_abandonment.py": 400,
+    # Lowered with the budget above: the floor guards the direction a cap
+    # cannot, and one left at 670 would fail the module for prose that legitly
+    # moved rather than for prose that was deleted.
+    "scripts/close_cycle_stop_gate.py": 330,
+    # Raised with the budget above (round(910 * 0.85 / 10) * 10): a floor left
+    # at the old size would let the new refusal be deleted again for free.
+    "scripts/close_verify_gate.py": 770,
     "scripts/hook_io.py": 0,
     "scripts/housekeeping_stop_gate.py": 400,
     "scripts/kickoff_gate.py": 200,
@@ -151,7 +181,11 @@ MIN_REASON_CHARS: dict[str, int] = {
     "scripts/pre_tool_write.py": 540,
     "scripts/review_cycle_done.py": 720,
     "scripts/session_end_warning.py": 80,
-    "scripts/sprint_stop_gate.py": 170,
+    # Raised with the budget above (story-017): left at 170 the floor would let
+    # both new messages be deleted without failing, which is the one direction
+    # this table exists to catch. 350 is this table's own 0.85 rule on 408 —
+    # the floor rule, distinct from the 1.125 calibration the ceiling uses.
+    "scripts/sprint_stop_gate.py": 350,
     "scripts/subagent_stop.py": 270,
     "scripts/task_completed.py": 50,
     "scripts/tdd_stop_gate.py": 80,

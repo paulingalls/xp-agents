@@ -72,6 +72,14 @@ QUESTION_GATE = MarkerDef(marker_names.QUESTION_GATE, "text")
 ASKING_USER = MarkerDef(marker_names.ASKING_USER, "text")
 ASSIGN_PENDING = MarkerDef(marker_names.ASSIGN_PENDING, "text")
 NEEDS_HOUSEKEEPING = MarkerDef(marker_names.NEEDS_HOUSEKEEPING, "text")
+# Session-scoped record of having armed the gate above. Text, not json: the
+# shell `write_marker` wrapper the work-selection preload uses passes a string,
+# and a json marker's TypeError would vanish inside its `2>/dev/null || true`.
+# MarkerDef.filename() resolves the session id in Python, so the shell side
+# needs no session knowledge.
+HOUSEKEEPING_ARMED = MarkerDef(
+    marker_names.HOUSEKEEPING_ARMED, "text", session_scoped=True
+)
 CLOSE_CYCLE_ACTIVE = MarkerDef(marker_names.CLOSE_CYCLE_ACTIVE, "text")
 # The running close's id, written by all four close preloads and read by the
 # appender's pre-write path to tag concerns. Text, not json: the shell

@@ -22,147 +22,24 @@ does run, but only `&&` carries a segment's FAILURE out to the overall exit —
 `OUT=$(pytest); echo $?` exits 0 over a red suite. `exit_status_proves_runner_passed`
 is that direction; the two are mirrors, not an asymmetry.
 
+`head_token` and `ARGUMENT_CONSUMING_HEADS` — "which token of a segment is the
+executable, and does it merely consume its arguments as data" — live in
+`shell_exit_structure`, which grew a second caller for them. They carry no
+framework knowledge, so this module holds none of the shell vocabulary and
+`shell_exit_structure` holds none of the runner vocabulary.
+
 Pure — stdlib only, no SMM dependencies.
 """
 
-import re
-
 import git_commits
-from test_parsing import PARSER_STATUS_PARSED, is_test_run, parse_test_results
-
-# Shell operators that introduce a second executable segment. Command
-# substitution (`$(`/backtick) is included: its exit status can surface as the
-# whole command's, so the runner is not unambiguously to blame.
-#
-# ONE alternation, three uses, deliberately. The group is CAPTURING so `.split`
-# interleaves the operators with the segments — which of them matched is the
-# whole question `exit_status_proves_runner_passed` asks, and a second regex
-# spelling the same vocabulary beside this one would drift. Drift here does not
-# raise an error; it silently un-arms the gate.
-#   * `.search`  — is there a break at all (`is_compound`)
-#   * `.split`[::2] — the segments (`_segments`)
-#   * `.split`[1::2] — the operator after each segment, in order
-_SEGMENT_BREAK_RE = re.compile(r"(&&|\|\||;|\||\n|\$\(|`)")
-
-# The only operator that carries a preceding failure through to the overall
-# exit status: `&&` short-circuits, so the runner's non-zero IS the command's.
-# `;` and `\n` discard it, `||` masks it by design, and a pipeline reports its
-# LAST stage (no `pipefail` assumed — the conservative reading).
-_FAILURE_PROPAGATING_OPERATOR = "&&"
-
-# Operators that OPEN a command substitution. A runner inside one has its exit
-# status captured into a string, so the enclosing command's exit says nothing
-# about it. The backtick both opens and closes; `$(` is closed by a `)` glued
-# to some later token, which is why depth is tracked rather than flat-scanned.
-_SUBSTITUTION_OPEN = "$("
-_SUBSTITUTION_BACKTICK = "`"
-
-# Asynchronous execution: a bare `&` puts the runner in the background, so the
-# shell returns 0 before a single test has run — the hardest-discarded exit
-# there is. Deliberately NOT an entry in the segment alternation above: `2>&1`
-# and `&>` are redirects, present in commands that are not compound at all, and
-# teaching that alternation about `&` would change `is_compound` — and with it
-# the WRITE direction's evidence rule — for every redirect in the codebase. The
-# lookaround excludes both redirect forms, and this pattern is read only by
-# `_outer_exit_proves_runner_passed`, where the sole consequence of a false
-# positive is refusing to clear.
-_ASYNC_RE = re.compile(r"(?<![<>&])&(?![&>])")
-
-# Tokens that wrap another executable without being the thing under test, mapped
-# to the options each one takes a SEPARATE VALUE for. Peeled so `time grep pytest
-# x` is still seen as a grep, not as a test run.
-#
-# The value map is what keeps the peel from eating the executable. An option zone
-# holds two kinds of flag and they consume differently:
-#
-#   * value-taking (`sudo -u ci grep ...`) — the NEXT token is the flag's value.
-#     Not skipping it leaves `ci` as the head, which is in no refusal list, so
-#     the grep escapes and a no-match exit 1 is blamed on the runner it grepped
-#     for.
-#   * boolean (`time -p grep ...`) — the next token IS the executable. Skipping
-#     it eats `grep` and leaves `pytest` as the head: same false attribution,
-#     arrived at from the opposite direction.
-#
-# So neither blanket rule is safe, and "consume the value too" — which this did
-# unconditionally — is not the conservative choice it looks like. The set of
-# wrappers is small, closed, and ours; enumerating their value-taking options is
-# the only thing that answers both. An option NOT listed for a wrapper is treated
-# as boolean and consumes nothing; `--opt=value` carries its own value and never
-# consumes the next token either.
-_WRAPPER_VALUE_OPTS: dict[str, frozenset[str]] = {
-    "env": frozenset({"-u", "-C", "-S", "--unset", "--chdir", "--split-string"}),
-    "sudo": frozenset(
-        {"-u", "-g", "-p", "-C", "-U", "-h", "-r", "-t", "--user", "--group",
-         "--prompt", "--close-from", "--other-user", "--host", "--role", "--type"}
-    ),
-    "time": frozenset({"-o", "-f", "--output", "--format"}),
-    "nice": frozenset({"-n", "--adjustment"}),
-    "nohup": frozenset(),
-    "command": frozenset(),
-    "exec": frozenset({"-a"}),
-    "stdbuf": frozenset({"-i", "-o", "-e", "--input", "--output", "--error"}),
-    "xargs": frozenset(
-        {"-n", "-I", "-i", "-P", "-d", "-s", "-E", "-e", "-L", "-a", "--max-args",
-         "--replace", "--max-procs", "--delimiter", "--max-chars", "--eof",
-         "--max-lines", "--arg-file"}
-    ),
-}  # fmt: skip
-_WRAPPER_TOKENS = frozenset(_WRAPPER_VALUE_OPTS)
-
-# Commands that CONSUME a runner name as data (a search pattern, a filename)
-# instead of executing it. When one of these heads the segment, the runner
-# token is an argument and the exit code is not the runner's.
-#
-# This is a refusal list, NOT a whitelist of launchers, and the direction is
-# deliberate: an unrecognized head still attributes (today's behavior, gate
-# keeps its teeth), whereas an unrecognized LAUNCHER in a whitelist would
-# silently stop attributing — a disarm, which is the far worse failure. The
-# `test_every_framework_still_attributed` control pins that direction.
-_ARGUMENT_CONSUMING_HEADS = frozenset(
-    {
-        "grep", "egrep", "fgrep", "rg", "ripgrep", "ag", "ack", "git",
-        "sed", "awk", "cat", "echo", "printf", "head", "tail", "less", "more",
-        "find", "ls", "wc", "sort", "uniq", "cut", "tr", "diff", "jq",
-    }
-)  # fmt: skip
-
-_ASSIGNMENT_RE = re.compile(r"^\w+=")
-
-# A POSIX shell's `-c` argument is CODE, not data: `sh -c "pytest"` really does
-# execute pytest, so quote-stripping the body away would silently stop
-# attributing every such failure — a disarm, the worse direction. The body is
-# therefore scanned as an ordinary segment. Two deliberate narrowings keep this
-# from becoming a new false-positive source:
-#   * POSIX shells only. `python3 -c "import pytest"` and
-#     `gh pr create --title "pytest fix"` quote a runner they never execute.
-#   * The shell must HEAD a segment (start of line or after an operator), so a
-#     shell invocation quoted inside another command (`echo "sh -c 'pytest'"`)
-#     stays data.
-#
-# ONE spelling of the invocation itself, shared with `_SHELL_C_HEAD_RE` below:
-# the two ask different questions of the same launcher (what is its body / does
-# this segment invoke one), and a second hand-written copy is how they drift.
-_SHELL_C_INVOCATION = r"(?:\S*/)?(?:ba|z|k|da)?sh\s+(?:-\w+\s+)*-\w*c"
-_SHELL_C_RE = re.compile(
-    r"(?:^|&&|\|\||;|\||\n)\s*" + _SHELL_C_INVOCATION + r"\s+('[^']*'|\"[^\"]*\")"
+from shell_exit_structure import (
+    ARGUMENT_CONSUMING_HEADS,
+    SEGMENT_BREAK_RE,
+    head_token,
+    outer_exit_reaches_shell,
+    shell_c_bodies,
 )
-
-# The same launcher, recognized from the HEAD of an already-split segment.
-# `strip_quoted` has deleted the body by then, so the segment reads as a bare
-# `sh -c ` that names no framework — see `_outer_exit_proves_runner_passed`,
-# where a wrapper whose body runs a runner must still count as a
-# runner-executing segment or every operator AFTER it stops counting.
-_SHELL_C_HEAD_RE = re.compile(r"^" + _SHELL_C_INVOCATION + r"\b")
-
-# Shell punctuation that can prefix an executable without being part of its
-# name — `(grep ...)` must still read as a grep, or the refusal list below is
-# trivially bypassed by a subshell.
-_HEAD_PUNCTUATION = "({"
-
-
-def _shell_c_bodies(command: str) -> list[str]:
-    """The code bodies of any `sh -c '<body>'` launchers heading a segment."""
-    return [m.group(1)[1:-1] for m in _SHELL_C_RE.finditer(command)]
+from test_parsing import PARSER_STATUS_PARSED, is_test_run, parse_test_results
 
 
 def is_compound(command: str) -> bool:
@@ -173,9 +50,9 @@ def is_compound(command: str) -> bool:
     `sh -c` body is the exception: it is code, and `sh -c "cd app && pytest"`
     can short-circuit at the `cd` exactly as the unwrapped form does.
     """
-    if _SEGMENT_BREAK_RE.search(git_commits.strip_quoted(command)):
+    if SEGMENT_BREAK_RE.search(git_commits.strip_quoted(command)):
         return True
-    return any(is_compound(body) for body in _shell_c_bodies(command))
+    return any(is_compound(body) for body in shell_c_bodies(command))
 
 
 def _segments(command: str) -> list[str]:
@@ -186,59 +63,18 @@ def _segments(command: str) -> list[str]:
     outer segments is why it cannot also answer "did the runner's exit survive"
     (see `exit_status_proves_runner_passed`).
     """
-    parts = _SEGMENT_BREAK_RE.split(git_commits.strip_quoted(command))[::2]
+    parts = SEGMENT_BREAK_RE.split(git_commits.strip_quoted(command))[::2]
     segments = [p.strip() for p in parts if p.strip()]
-    for body in _shell_c_bodies(command):
+    for body in shell_c_bodies(command):
         segments.extend(_segments(body))
     return segments
-
-
-def _head_token(segment: str) -> str:
-    """The executable token of a segment: the first token left after peeling
-    shell punctuation, VAR=val assignments, and wrapper commands with their
-    options, reduced to its basename.
-
-    A flag is only ever reachable here while still inside a wrapper's option zone
-    (`sudo -u ci grep ...` — the executable cannot itself start with `-`), so
-    whether it swallows the token after it is a question about THAT wrapper, and
-    is answered by `_WRAPPER_VALUE_OPTS` rather than by a blanket rule. Both
-    blanket rules mis-attribute (see that table): always-consume eats the `grep`
-    in `time -p grep pytest x`, never-consume leaves `ci` heading
-    `sudo -u ci grep pytest src/`.
-
-    A flag seen with no wrapper open (`-x foo` — not a shape any real segment
-    takes) consumes nothing, which is the same fail-safe direction: the worst it
-    can do is attribute.
-    """
-    tokens = segment.split()
-    wrapper = ""  # the wrapper whose option zone we are in, if any
-    i = 0
-    while i < len(tokens):
-        token = tokens[i].lstrip(_HEAD_PUNCTUATION)
-        i += 1
-        if not token or _ASSIGNMENT_RE.match(token):
-            continue
-        if token.startswith("-"):
-            # `--opt=value` carries its own value; only the separated form can
-            # reach forward for the next token.
-            if "=" not in token and token in _WRAPPER_VALUE_OPTS.get(
-                wrapper, frozenset()
-            ):
-                i += 1
-            continue
-        basename = token.rsplit("/", 1)[-1]
-        if basename in _WRAPPER_TOKENS:
-            wrapper = basename
-            continue
-        return basename
-    return ""
 
 
 def _segment_framework(segment: str) -> str | None:
     """The framework this ONE segment plausibly EXECUTES, or None. A segment
     headed by an argument-consuming command merely names the runner."""
     framework = is_test_run(segment)
-    if framework and _head_token(segment) not in _ARGUMENT_CONSUMING_HEADS:
+    if framework and head_token(segment) not in ARGUMENT_CONSUMING_HEADS:
         return framework
     return None
 
@@ -270,87 +106,31 @@ def executed_framework(command: str) -> str | None:
     return next(_executing_frameworks(command), None)
 
 
-def _closed_substitutions(segment: str) -> int:
-    """How many enclosing command substitutions this segment CLOSES.
+def _runs_a_runner(text: str) -> bool:
+    """Does *text* execute a test runner? The `runs_target` half of
+    `shell_exit_structure.outer_exit_reaches_shell`, and the ONLY thing that
+    predicate does not already know.
 
-    The closing `)` is glued to a token instead of being a segment break, and
-    it is not always the last character — `$(git rev-parse --show-toplevel)/app`
-    closes mid-token — so closers are counted rather than tested for at the end.
-    Parentheses opened AND closed inside the segment (a subshell) balance out
-    and close nothing.
+    `_executing_frameworks` rather than `_segment_framework` because the walk
+    asks this of whole `sh -c` bodies as well as of already-split segments, and
+    a body can be compound: `cat pytest.ini && npm test` reads as a `cat` when
+    judged as one segment and as a jest run when split. On an already-split
+    segment the two agree — there is nothing left in it to split.
     """
-    local = closers = 0
-    for char in segment:
-        if char == "(":
-            local += 1
-        elif char == ")":
-            if local:
-                local -= 1
-            else:
-                closers += 1
-    return closers
+    return next(_executing_frameworks(text), None) is not None
 
 
 def _outer_exit_proves_runner_passed(command: str) -> bool:
     """`exit_status_proves_runner_passed` for one command's own segments,
     without descending into `sh -c` bodies.
 
-    A `sh -c "<body>"` whose BODY runs a runner is itself a runner-executing
-    segment out here, and has to be recognized as one even though the body is
-    gone: `strip_quoted` deletes it, leaving a bare `sh -c ` that names no
-    framework. Without this the wrapper laundered the very thing this predicate
-    exists to catch — `sh -c "pytest" | tee log` saw no runner in the outer
-    scan, so the pipe that swallowed its exit had nothing to swallow, while
-    `executed_framework` (which DOES read the body) reported a runner and the
-    gate cleared on tee's 0. Which body belongs to which wrapper is not tracked:
-    with more than one `sh -c` in a command, any of them running a runner arms
-    the rule at the first — over-refusal, the safe direction.
+    The walk itself is `shell_exit_structure.outer_exit_reaches_shell`, which is
+    pure shell structure and knows no framework names; this function supplies
+    the one piece of runner knowledge it needs. Extracted so
+    `worktree_differential` can ask the same structural question of a `tsc` or
+    `cargo` command, where the runner-aware answer is vacuously True.
     """
-    parts = _SEGMENT_BREAK_RE.split(git_commits.strip_quoted(command))
-    segments, operators = parts[::2], parts[1::2]
-    shell_c_runs_a_runner = any(
-        next(_executing_frameworks(body), None) is not None
-        for body in _shell_c_bodies(command)
-    )
-    open_substitutions: list[str] = []
-    runner_seen = False
-
-    for i, segment in enumerate(segments):
-        stripped = segment.strip()
-        runs_a_runner = _segment_framework(stripped) is not None or (
-            shell_c_runs_a_runner and _SHELL_C_HEAD_RE.match(stripped) is not None
-        )
-        if runs_a_runner:
-            if open_substitutions:
-                return False  # captured — the exit went into a string
-            runner_seen = True
-        if runner_seen and not open_substitutions and _ASYNC_RE.search(stripped):
-            return False  # backgrounded — the shell never waited for it
-        # Checked AFTER the runner, because a capture's `)` rides on the last
-        # token of the very segment that runs it: `echo $(pytest)`.
-        for _ in range(_closed_substitutions(segment)):
-            if open_substitutions and open_substitutions[-1] == _SUBSTITUTION_OPEN:
-                open_substitutions.pop()
-        if i >= len(operators):
-            break
-        operator = operators[i]
-        if operator == _SUBSTITUTION_OPEN:
-            open_substitutions.append(operator)
-        elif operator == _SUBSTITUTION_BACKTICK:
-            # One backtick both opens and closes; which it is depends only on
-            # whether one is already open.
-            if open_substitutions and open_substitutions[-1] == _SUBSTITUTION_BACKTICK:
-                open_substitutions.pop()
-            else:
-                open_substitutions.append(operator)
-        elif (
-            runner_seen
-            and not open_substitutions
-            and operator != _FAILURE_PROPAGATING_OPERATOR
-            and any(later.strip() for later in segments[i + 1 :])
-        ):
-            return False  # discarded — `;`, `\n`, `||` or a pipe swallowed it
-    return True
+    return outer_exit_reaches_shell(command, _runs_a_runner)
 
 
 def exit_status_proves_runner_passed(command: str) -> bool:
@@ -402,15 +182,21 @@ def exit_status_proves_runner_passed(command: str) -> bool:
     if not _outer_exit_proves_runner_passed(command):
         return False
     return all(
-        exit_status_proves_runner_passed(body) for body in _shell_c_bodies(command)
+        exit_status_proves_runner_passed(body) for body in shell_c_bodies(command)
     )
 
 
 def parsed_failed_count(error: str, framework: str) -> int | None:
     """Failed-test count when the payload really parsed as a failing run, else
     None. Shared with `bash_failure`, which reports the count it corroborates.
+
+    `allow_scan_fallback` because this caller is corroborating, not recording.
+    The non-zero exit is evidence the parse did not produce; the only open
+    question is whom to blame, so an unfamiliar summary shape must not silence
+    the answer. `bash_post_tool` takes the strict default for the opposite
+    reason — see `parse_test_results`.
     """
-    results = parse_test_results(error, framework)
+    results = parse_test_results(error, framework, allow_scan_fallback=True)
     if results["status"] == PARSER_STATUS_PARSED and results["failed"] > 0:
         return results["failed"]
     return None

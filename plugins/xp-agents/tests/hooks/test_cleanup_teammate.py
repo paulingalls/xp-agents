@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _repo_bases import _create_teammate_worktree
+from _system_context_fixtures import valid_doc, write_doc
 from conftest import _IntegrationTestCase, cleanup_test_worktrees
 
 
@@ -210,6 +211,35 @@ class TestCleanup(_IntegrationTestCase):
             "Branch should be deleted",
         )
 
+    def test_a_refused_branch_delete_keeps_the_records_naming_it(self):
+        """The TOCTOU window main() cannot close by checking first.
+
+        main() proves the merge in an earlier, separate step; the branch can
+        gain a commit before this call reaches the delete (the parallel-teammate
+        case). By then the worktree directory is already gone, so the markers,
+        the report and the story assignment are the only records naming that
+        branch. Discarding the refusal would delete all three and return
+        success, leaving the teammate's commits with nothing to find them by.
+        """
+        import cleanup_teammate
+
+        name = "worktree-story-018"
+        _create_teammate_worktree(self.tmpdir, name)  # deliberately NOT merged
+        report = self.smm_dir / f".teammate-report-{name}.txt"
+        report.write_text("Teammate report content")
+
+        ok = cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
+
+        self.assertFalse(ok, "an unmerged branch must not report clean cleanup")
+        result = subprocess.run(
+            ["git", "branch", "--list", name],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.stdout.strip(), "", "branch must survive")
+        self.assertTrue(report.exists(), "the report still names the branch")
+
     def test_removes_agent_markers(self):
         """Cleanup removes agent-scoped marker files."""
         import cleanup_teammate
@@ -316,6 +346,65 @@ class TestCleanup(_IntegrationTestCase):
         _merge_branch(self.tmpdir, name)
 
         cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
+
+    def tearDown(self):
+        cleanup_test_worktrees(self.tmpdir)
+        super().tearDown()
+
+
+class TestCleanupTearsDownAndClearsCoordination(_IntegrationTestCase):
+    """AC1 + AC3, exercised through the real production caller.
+
+    story-002's wiring lives in worktree.remove_worktree_dir, but
+    cleanup_teammate.cleanup is what actually removes a teammate's tree in
+    production — it must pass smm_dir through worktree.remove_worktree for
+    any of that wiring to fire at all (the interface contract's pass-through
+    requirement). These tests prove the FULL chain, not just the choke point.
+    """
+
+    def test_cleanup_runs_the_declared_teardown_command(self):
+        """AC1: cleanup_teammate removing a teammate worktree runs its
+        declared teardown command at the worktree path."""
+        import cleanup_teammate
+
+        name = "worktree-story-401"
+        _create_teammate_worktree(self.tmpdir, name)
+        _merge_branch(self.tmpdir, name)
+        doc = valid_doc()
+        doc["stack"]["worktree_teardown"] = 'echo torn > "$SMM_DIR/torn.txt"'
+        write_doc(self.smm_dir, doc)
+
+        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
+
+        self.assertTrue(
+            (self.smm_dir / "torn.txt").is_file(),
+            "cleanup_teammate.cleanup must run the declared teardown command",
+        )
+
+    def test_cleanup_clears_the_coordination_entry_post_tool_use_registered(self):
+        """AC3: the entry a real hook registered for this teammate is gone
+        after cleanup_teammate removes its worktree."""
+        import cleanup_teammate
+        import coordination
+        import post_tool_use
+
+        name = "worktree-story-402"
+        wt_path = _create_teammate_worktree(self.tmpdir, name)
+        _merge_branch(self.tmpdir, name)
+
+        post_tool_use.run(
+            {
+                "tool_name": "Write",
+                "tool_input": {"file_path": "notes.txt"},
+                "cwd": wt_path,
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIn(name, coordination.read_coordination(self.smm_dir))
+
+        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
+
+        self.assertNotIn(name, coordination.read_coordination(self.smm_dir))
 
     def tearDown(self):
         cleanup_test_worktrees(self.tmpdir)

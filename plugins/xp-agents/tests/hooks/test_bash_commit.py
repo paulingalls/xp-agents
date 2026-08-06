@@ -338,9 +338,11 @@ class TestPostCommitEffectiveCwd(_HookTestCase):
 
 class TestStripQuotedSingleScan(_HookTestCase):
     """bash_post_tool runs strip_quoted ONCE per Bash and threads the result
-    into both is_git_commit and parse_effective_cwd. Pins the wire-up so
-    nobody silently reintroduces the second re.DOTALL heredoc scan that
-    each helper used to run independently."""
+    into is_git_commit and the `-C` presence predicates below it. Pins the
+    wire-up so nobody silently reintroduces the second re.DOTALL heredoc scan
+    that each helper used to run independently. (story-013 took
+    parse_effective_cwd off the stripped scan entirely — it masks instead — so
+    the count this pins is one fewer consumer than when it was written.)"""
 
     def test_commit_shaped_bash_strips_once(self):
         with tempfile.TemporaryDirectory() as wt:

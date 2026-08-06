@@ -102,7 +102,7 @@ class TestSprintEnvPropagation(_SprintCLITestCase):
     def test_smm_dir_visible_in_sprint_subprocess(self):
         # Sprint-mode parallel: _run_sprint must also forward SMM_DIR into
         # each AC subprocess. The story-mode test covers _run_commands;
-        # this covers _run_sprint's separate subprocess.run call site.
+        # this covers _run_sprint's separate call site.
         # See test_verify_acceptance.test_smm_dir_visible_in_subprocess for
         # the same env-strip rationale.
         self._seed(
@@ -309,6 +309,47 @@ class TestCommandTimeout(_SprintCLITestCase):
         self.assertNotEqual(failing[0]["returncode"], 0)
         self.assertIn("timed out", failing[0]["output"])
 
+    def _run_hung(self, command: str) -> list[dict]:
+        self._seed(
+            [
+                _story(
+                    "story-001",
+                    acceptance_criteria=[
+                        {"description": "h", "surface": "cli", "command": command},
+                    ],
+                ),
+            ]
+        )
+        result = run_cli(
+            _VERIFY_ACCEPTANCE,
+            ["--sprint"],
+            self.smm_dir,
+            extra_env={"VERIFY_CMD_TIMEOUT_S": "1"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return self._verify_events()[0]["metadata"]["failing"]
+
+    def test_hung_command_carries_what_it_said_before_the_kill(self):
+        # The drained output is usually the only clue to WHY it hung.
+        failing = self._run_hung("echo WHYIHUNG >&2; sleep 5")
+        self.assertIn("WHYIHUNG", failing[0]["output"])
+
+    def test_chatty_hang_still_names_the_timeout(self):
+        # The stored detail is a TAIL slice, so a hung command that talked
+        # more than the tail budget must not evict its own "timed out"
+        # marker — without it the row reads as an ordinary non-zero exit and
+        # the operator has no idea the command never returned.
+        chatty = "x" * (verify_acceptance._OUTPUT_TAIL_CHARS * 4)
+        failing = self._run_hung(f"printf %s {chatty} >&2; sleep 5")
+        output = failing[0]["output"]
+        self.assertIn("timed out", output, output[:120])
+        self.assertIn("x", output)
+        self.assertLessEqual(
+            len(output),
+            verify_acceptance._OUTPUT_TAIL_CHARS + 60,
+            "the tail budget must still bound the stored detail",
+        )
+
 
 class TestEmitConfirmation(_SprintCLITestCase):
     def test_dropped_event_surfaces_error_not_silent_green(self):
@@ -329,6 +370,55 @@ class TestEmitConfirmation(_SprintCLITestCase):
         with patch.object(verify_acceptance._common, "append_safe"):
             rc = verify_acceptance._run_sprint(self.smm_dir)
         self.assertEqual(rc, verify_acceptance._EXIT_ERROR)
+
+
+class TestNeverVerifiedIsNotGreen(_SprintCLITestCase):
+    """A missing event has TWO meanings and only one of them is green.
+
+    The rerun reaches production through a harness-bounded tool call, and a run
+    killed by that OUTER bound dies before it can append — the inner per-command
+    and batch bounds are larger than the caller's, so they never get to convert
+    it into a red. Reading the resulting silence as `none` made absence of
+    evidence pass as evidence of absence at the one gate that holds the merge.
+    """
+
+    def _seed_verify_bearing(self) -> None:
+        self._seed(
+            [
+                _story(
+                    "story-001",
+                    acceptance_criteria=[
+                        {"description": "ok", "surface": "cli", "command": "true"},
+                    ],
+                ),
+            ]
+        )
+
+    def test_a_verify_bearing_sprint_with_no_run_reports_unverified(self):
+        """Mutation: read `_last_verify` directly -> `none`, exit 0, green."""
+        self._seed_verify_bearing()
+        result = self._run("--query-verify-status")
+        self.assertEqual(result.returncode, verify_acceptance._EXIT_RED)
+        self.assertIn(verify_acceptance.VERIFY_REPORT_UNVERIFIED, result.stdout)
+
+    def test_a_run_that_lands_clears_it(self):
+        """The refutation partner: `unverified` must not be the answer to
+        everything, or the gate is a permanent block rather than a gate."""
+        self._seed_verify_bearing()
+        self._run("--sprint")
+        result = self._run("--query-verify-status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("green", result.stdout)
+
+    def test_a_sprint_with_nothing_to_verify_is_still_none(self):
+        """The other half of the discriminator, already pinned by
+        `TestAllStringSkip` and restated here as this class's own control: a
+        sprint whose acceptance is all prose has nothing to run, so silence is
+        honest and the gate must not invent work for it."""
+        self._seed([_story("story-001", acceptance_criteria=["manual"])])
+        result = self._run("--query-verify-status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("none", result.stdout)
 
 
 class TestQueryStatusGreen(_SprintCLITestCase):

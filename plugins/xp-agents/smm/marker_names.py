@@ -23,6 +23,17 @@ NEEDS_EXECUTION_PLAN = ".needs-execution-plan"
 NEEDS_SYSTEM_CONTEXT = ".needs-system-context"
 ASSIGN_PENDING = ".assign-pending"
 NEEDS_HOUSEKEEPING = ".needs-housekeeping"
+# The record that NEEDS_HOUSEKEEPING was already armed THIS session. Session-
+# suffixed (see session_scope.scoped_name); nothing consumes it, and that is the
+# whole point.
+#
+# NEEDS_HOUSEKEEPING is consumed when the housekeeper finishes, so "already
+# curated this session" and "never armed" are the same observation on disk — a
+# not-already-armed check on the gate itself re-arms in exactly the broken case,
+# demanding a second curation of an SMM just curated. This is the one per-session
+# residue that tells the two apart (housekeeping_flight is consumed at
+# SubagentStop too, so it cannot).
+HOUSEKEEPING_ARMED = ".housekeeping-armed"
 # Written when the housekeeper subagent STARTS, consumed when it stops. Lets
 # the Stop gate tell "running right now" from "never invoked" — the harness
 # backgrounds Agent-tool subagents, so without it the two look identical.

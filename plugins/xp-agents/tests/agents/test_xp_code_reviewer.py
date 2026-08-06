@@ -38,7 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from _md_helpers import (
-    PROJECT_AGNOSTIC_FORBIDDEN_VOCAB,
+    MIXED_CASE_VOCAB_MEMBERS,
     _split_frontmatter_body,
     assert_project_agnostic,
 )
@@ -46,10 +46,9 @@ from conftest import _PLUGIN_ROOT
 
 _AGENT_PROMPT = _PLUGIN_ROOT / "agents" / "xp-code-reviewer.md"
 
-# Members of PROJECT_AGNOSTIC_FORBIDDEN_VOCAB whose casing is load-bearing, used
-# by both the helper's contract pin and the §1 mutation proof. See
-# TestProjectAgnosticAssertHelper for why the pair, and not either one alone.
-_MIXED_CASE_VOCAB_MEMBERS = ("ACCEPT_IN_FLIGHT", " LOC")
+# Casing-load-bearing members now live beside the vocabulary in _md_helpers;
+# the helper's own contract pin moved to tests/test_md_helpers.py. See
+# TestProjectAgnosticAssertHelper there for why the pair, not either alone.
 
 
 def _section_slice(body: str, start_heading: str, end_heading: str) -> str:
@@ -184,13 +183,13 @@ class TestXpCodeReviewerProse(unittest.TestCase):
         watching the scan go red is the difference between the two.
 
         Both mixed-case members are injected for the reason documented at
-        `_MIXED_CASE_VOCAB_MEMBERS`: a lowercase probe like `.py` would pass
+        `MIXED_CASE_VOCAB_MEMBERS`: a lowercase probe like `.py` would pass
         through a degraded scan and prove nothing.
         """
         section_1 = _section_slice(self.body, "## 1.", "## 2.")
         angle = self._removed_behavior_angle()
         self.assertIn(angle, section_1, "the angle must lie within §1")
-        for term in _MIXED_CASE_VOCAB_MEMBERS:
+        for term in MIXED_CASE_VOCAB_MEMBERS:
             with self.subTest(term=term):
                 mutated = section_1.replace(angle, f"{angle.rstrip()} {term} ")
                 self.assertNotEqual(mutated, section_1, "the injection landed")
@@ -384,49 +383,6 @@ class TestDecisionNudgeIsProseOnly(unittest.TestCase):
             lowered,
             "§3b must still ask for a stable topic — an ad-hoc one disables "
             "the superseded-decision detector it exists to arm",
-        )
-
-
-class TestProjectAgnosticAssertHelper(unittest.TestCase):
-    """Pin the shared vocab-scan helper's own contract: scan RAW.
-
-    Four prose suites across two agents route their forbidden-vocabulary scan
-    through `assert_project_agnostic`. Centralizing the loop is the point of
-    the extraction, but it also concentrates the blast radius: a helper that
-    lowercased its input would degrade all four guards at once, silently. So
-    the "scan RAW, never lowercase" contract is pinned here, at the helper,
-    rather than restated as a comment at each call site.
-    """
-
-    # Merely asserting "it raises" would leave `ACCEPT_IN_FLIGHT` inert: the
-    # tuple lists that name in BOTH casings, so a lowercasing helper still
-    # raises — on the lowercase twin. The assertion therefore pins WHICH member
-    # the failure names, in its raw casing, so a lowercasing helper goes red on
-    # both members rather than only on ` LOC` (the one member with no twin to
-    # cover for it). That the message names the offending token at all is part
-    # of the helper's contract too — a scan that fails without saying what
-    # leaked sends the reader back to the tuple.
-
-    def test_mixed_case_members_still_fail_through_the_helper(self):
-        for member in _MIXED_CASE_VOCAB_MEMBERS:
-            with self.subTest(member=member):
-                self.assertIn(member, PROJECT_AGNOSTIC_FORBIDDEN_VOCAB)
-                with self.assertRaisesRegex(
-                    AssertionError, re.escape(f"token: {member!r}")
-                ):
-                    assert_project_agnostic(
-                        self,
-                        f"a prose section mentioning{member} verbatim",
-                        "fixture section",
-                    )
-
-    def test_helper_passes_clean_prose(self):
-        """A guard that fails on everything is as useless as one that fails on
-        nothing — pin the negative case too."""
-        assert_project_agnostic(
-            self,
-            "a prose section using only generic terms: state field, marker, gate.",
-            "fixture section",
         )
 
 

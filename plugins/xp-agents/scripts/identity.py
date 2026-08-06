@@ -48,6 +48,58 @@ def get_current_branch(cwd: str) -> str:
     return _git_stdout(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd)
 
 
+def merge_in_progress(cwd: str) -> bool:
+    """True when a merge is in progress — MERGE_HEAD resolves.
+
+    THE one merge detector. It lives here, beside `get_current_branch`, because
+    it is the same kind of read off the same `_git_stdout`: a git-state fact
+    about the checkout. `acceptance_env` ABORTS the merge on this answer to heal
+    an interrupted accept run, so a second, drifting copy would let two callers
+    disagree about the same repo.
+
+    A property of the CHECKOUT, not of any file — which is why the schedule
+    gate's per-file exemption reads `unmerged_paths` instead. MERGE_HEAD
+    survives a merge that is abandoned rather than finished, and an exemption
+    keyed on it outlives its reason indefinitely.
+
+    Fails CLOSED. `_git_stdout` returns "" on a non-zero exit, a timeout or an
+    OSError, so "not a repo", "git is broken" and "unborn HEAD" all answer
+    False. That is the only honest default for the exempting consumer: an
+    exemption is a claim, and a claim we cannot substantiate is not one we make.
+    """
+    return bool(_git_stdout(["git", "rev-parse", "--verify", "MERGE_HEAD"], cwd))
+
+
+def unmerged_paths(cwd: str) -> set[str]:
+    """Repo-relative paths git reports as conflicted — the index's stage>0 entries.
+
+    The narrower sibling of `merge_in_progress`, and what the schedule gate's
+    exemption actually needs. "A merge is in progress" cannot say WHICH file is
+    being resolved, so it exempts every write for as long as MERGE_HEAD exists
+    — and a merge left neither committed nor aborted (the leftover
+    `acceptance_env.detect_interrupted` treats as a crashed run, so it does
+    persist) disarmed the gate for the rest of that checkout's life. An
+    unmerged entry, by contrast, disappears the moment its file is resolved and
+    staged, so the exemption cannot outlive its reason even by one file.
+
+    `-- :/` and `--full-name` are both load-bearing for a hook that fires from
+    a SUBDIRECTORY of the repo: `git ls-files` lists only the cwd's subtree and
+    reports paths relative to it, so without them a conflict one level up is
+    invisible and the gate blocks the very write it should exempt. The magic
+    pathspec widens the scan to the whole repo; the flag makes the paths
+    repo-root relative, which is the key the caller holds. Stage numbers vary
+    (1/2/3 per side), so the path is deduplicated by the set.
+
+    Fails CLOSED with the rest of this module: `_git_stdout` returns "" for a
+    non-repo, a broken git, a timeout or an OSError, and an empty set exempts
+    nothing.
+    """
+    out = _git_stdout(["git", "ls-files", "--unmerged", "--full-name", "--", ":/"], cwd)
+    # "<mode> <object> <stage>\t<path>" — everything before the tab is index
+    # metadata, and a path may legitimately contain spaces.
+    return {line.split("\t", 1)[1] for line in out.splitlines() if "\t" in line}
+
+
 def extract_story_id(branch_name: str) -> str | None:
     """Extract `story-NNN` from a `<user>/story-NNN-<slug>` branch name.
 

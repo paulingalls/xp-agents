@@ -31,9 +31,11 @@ from _common import (
     QUESTION,
     STATUS,
     current_session_start_index,
+    is_xp_agent_id,
     make_event,
 )
 from event_schema import (
+    METADATA_KEY_REFUTES,
     METADATA_KEY_RESOLVES,
     METADATA_KEY_SUPERSEDES,
     get_required_budget,
@@ -55,25 +57,41 @@ _SUPERSEDED_TOPIC_RE = re.compile(r"^Superseded decision: topic '([^']+)'")
 SUPERSEDED_DECISION_EXEMPT_TOPICS: frozenset[str] = frozenset({"execution-mode"})
 
 
+def _declares_id(meta: dict, target_id: str, *keys: str) -> bool:
+    """True if any of *keys* in an event's metadata names *target_id*.
+
+    The one prefix-tolerant id matcher, shared by every "did this event declare
+    something about that one" question in this module. Prefix-tolerant in BOTH
+    directions to honor the short-ID convention (mirrors
+    resolution.resolve_prefix), and empty/falsy declared entries are skipped so
+    a stray ``['']`` — which ``startswith("")``-matches every id in the log —
+    can't blanket-match.
+
+    Callers must pass a non-empty *target_id*: the same empty-string rule cuts
+    the other way round, making ``s.startswith("")`` vacuously true for any
+    declaration at all. The two call sites below both guard it. A declaration
+    that is not a LIST declares nothing, and only ``resolves`` is type-checked
+    at write time — so ``{"refutes": "<id>"}``, the bare string an author writes
+    with the brackets dropped, reaches here and iterates as single CHARACTERS,
+    each a one-char prefix matching roughly one id in sixteen.
+    """
+    return any(
+        s and (target_id == s or target_id.startswith(s) or s.startswith(target_id))
+        for key in keys
+        for s in (meta[key] if isinstance(meta.get(key), list) else [])
+        if isinstance(s, str)
+    )
+
+
 def _declares_supersession(meta: dict, target_id: str) -> bool:
     """True if an event's metadata declares it supersedes/resolves *target_id*.
 
-    Reads ``metadata.supersedes`` and ``metadata.resolves`` (OR semantics —
-    either key counts). Prefix-tolerant in both directions to honor the
-    short-ID convention (mirrors resolution.resolve_prefix). Empty/falsy
-    declared entries are skipped so a stray ``['']`` can't blanket-match.
-
-    Shared by Pattern 2 (assumption contradicted by discovery) and Pattern 5
-    (superseded decision) in detect_conflicts so the prefix rule stays
-    single-sourced.
+    OR semantics across ``metadata.supersedes`` and ``metadata.resolves`` —
+    either key counts. Suppresses Pattern 2 (a discovery that has already
+    settled the assumption is not an open contradiction) and Pattern 5
+    (superseded decision).
     """
-    declared = (meta.get(METADATA_KEY_SUPERSEDES) or []) + (
-        meta.get(METADATA_KEY_RESOLVES) or []
-    )
-    return any(
-        s and (target_id == s or target_id.startswith(s) or s.startswith(target_id))
-        for s in declared
-    )
+    return _declares_id(meta, target_id, METADATA_KEY_SUPERSEDES, METADATA_KEY_RESOLVES)
 
 
 def make_concern(
@@ -205,7 +223,21 @@ def detect_conflicts(
                 agent_files[e.get("agent_id", "")] = e["working_on"]
 
         for aid, files in agent_files.items():
-            if aid == agent_id:
+            # Skip self, and skip the plugin's own subagents: this pattern is
+            # about two INDEPENDENT actors racing one file, and an xp-* claim
+            # is a subagent working the diff in hand — a reviewer handed the
+            # very diff being committed reads as a rival otherwise. Same `xp-`
+            # rule the hooks use for recursion prevention.
+            #
+            # The skip is on the id alone, deliberately: the SMM is shared
+            # across worktrees, so ANOTHER teammate's reviewer is suppressed
+            # too. Accepted, because the events carry no reliable ownership
+            # fence — the session index anchors on the most recent
+            # SESSION_STARTED, which may be a different worktree's — and a
+            # false negative on a rare relayed claim beats the false positive
+            # this fired on every commit. The teammate's OWN id is not xp-*
+            # prefixed, so the cross-worktree conflict still fires on it.
+            if aid == agent_id or is_xp_agent_id(aid):
                 continue
             norm_files = {normalize_path(f, cwd) for f in files}
             if normalized in norm_files:
@@ -216,33 +248,52 @@ def detect_conflicts(
                     files=[normalized],
                 )
 
-    # 2. Assumption contradicted by discovery
+    # 2. Assumption contradicted by discovery — on a DECLARED refutation only.
+    #
+    # `metadata.refutes` is the trigger, and `references` deliberately is NOT.
+    # event_schema makes `references` mandatory and non-empty on every
+    # discovery, so a field every discovery must fill cannot carry a claim about
+    # any one of them: a discovery that CONFIRMS an assumption references it
+    # identically to one that falsifies it. Firing on the bare reference filed
+    # three high-severity false concerns in this project's own log — one
+    # confirmation, two pairs on unrelated subjects, and zero true positives.
+    #
+    # The narrowing changes the fail direction on purpose: an author who
+    # forgets to declare now loses a flag, where before every author who
+    # recorded a discovery gained a false one. Confirmation and refutation are
+    # indistinguishable in structure at the reference, and the only other place
+    # to look would be the natural-language content — a keyword list that would
+    # not survive another project's prose.
     assumptions: dict[str, dict] = {}
     for e in events:
         if e.get("type") == ASSUMPTION:
             assumptions[e.get("id", "")] = e
         elif e.get("type") == DISCOVERY:
-            # A discovery may declare it supersedes/resolves the assumption it
-            # references — the intended forward mechanism (mirrors the Pattern-5
-            # check below). Prefix-tolerant for short-ID conventions.
-            meta = e.get("metadata", {})
-            for ref in e.get("references", []):
-                if ref not in assumptions:
+            meta = e.get("metadata") or {}
+            # Cheap gate before the per-assumption scan: the overwhelming
+            # majority of discoveries declare no refutation at all.
+            if not meta.get(METADATA_KEY_REFUTES):
+                continue
+            for assumption_id, assumption in assumptions.items():
+                # Empty target: `s.startswith("")` is vacuously true, so an
+                # assumption with a missing id would match ANY declaration.
+                # Mirrors Pattern 5's prev_id guard.
+                if not assumption_id:
                     continue
-                assumption_id = assumptions[ref]["id"]
+                if not _declares_id(meta, assumption_id, METADATA_KEY_REFUTES):
+                    continue
                 # Acknowledged: a prior RESOLVED contradiction for this
                 # assumption already exists — stop re-firing (and escalating).
                 if assumption_id in resolved_ref_ids:
                     continue
-                # Explicitly superseded/resolved by this discovery. The
-                # `assumption_id and` guard mirrors Pattern 5's prev_id guard:
-                # an empty target would make `s.startswith("")` blanket-match.
-                if assumption_id and _declares_supersession(meta, assumption_id):
+                # Already settled forward by this same discovery: supersession
+                # /resolution is the mechanism, not an open conflict.
+                if _declares_supersession(meta, assumption_id):
                     continue
                 # Template = 57 chars; split remaining budget across both texts
                 _budget = get_required_budget(CONCERN)
                 _max_text = (_budget - 57) // 2
-                a_text = assumptions[ref]["content"][:_max_text]
+                a_text = assumption["content"][:_max_text]
                 d_text = e["content"][:_max_text]
                 _add_concern(
                     f"Assumption contradicted: '{a_text}' "

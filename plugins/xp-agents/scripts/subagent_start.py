@@ -254,7 +254,7 @@ def _resolve_tier(agent_type: str, bare: str) -> tuple[Callable[..., list[str]],
     tier = _TIERS.get(bare)
     if tier is not None:
         return tier
-    if agent_type.startswith("xp-"):
+    if _common.is_xp_agent_id(agent_type):
         return (_inject_no_smm, True)
     return (_inject_reference, True)
 
