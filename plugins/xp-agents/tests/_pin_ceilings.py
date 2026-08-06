@@ -19,7 +19,7 @@ ground the split just won.
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 BAND_CEILINGS = {
-    # shipped (16)
+    # shipped (15)
     # RETIRED (story-015): hook_liveness.py 469->371, by taking the extraction
     # its own ceiling note named — the per-session sibling scan moved to
     # scripts/hook_heartbeat_scan.py, which a second reader (coordination's
@@ -40,9 +40,10 @@ BAND_CEILINGS = {
     # sister include, collision attribution, save/run); collision attribution
     # is the cohesive group to extract next.
     "plugins/xp-agents/smm/sprint_save.py": 463,
-    # Entered the band at sprint close: extract_diagnostics learned to tell the
-    # spawn's own advisories from spawn-side evidence.
-    "plugins/xp-agents/scripts/teammate_output_filter.py": 461,
+    # RETIRED (story-015): teammate_output_filter.py 461->298. The stream
+    # reading half — deadline, fd loop, stream-json parsing, terminal-event
+    # detection — moved to scripts/teammate_stream_reader.py, leaving the host
+    # to decide what the outcome MEANS and report it.
     "plugins/xp-agents/scripts/pre_tool_write.py": 463,
     "plugins/xp-agents/scripts/session_start.py": 462,
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
