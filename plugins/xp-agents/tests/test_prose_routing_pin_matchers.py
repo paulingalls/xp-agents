@@ -90,24 +90,58 @@ class TestCommentRoutingMatcherStaysQuietOnNonOffenders(unittest.TestCase):
         self.assertEqual(find_unqualified_comment_routing(line, surface="x"), [])
 
     def test_each_fixed_wording_is_no_longer_flagged(self) -> None:
+        """The five wordings the tree ships in place of `_ORIGINAL_OFFENDERS`.
+        Kept in step with the real lines: a fixture pinning a wording no
+        surface carries any more proves nothing about what ships."""
         fixed_lines = [
             "- **Constraints** — architectural/process bounds. Checkable "
             "claims→tests; history→git; comments→why the code can't "
             "express. Cap 15-20.",
             "- Bad: tooling-specific troubleshooting (checkable → a test, "
-            "else a code comment)",
+            "history → git, else a code comment for what the code cannot "
+            "express)",
             "belongs in a test when checkable, git history when historical, "
-            "a code comment when neither.",
-            "goes to a test when checkable, else a code comment, a "
+            "a code comment only for what the code cannot express.",
+            "goes to a test when checkable, git history when historical, "
+            "else a code comment for what the code cannot express, a "
             "convention, an SMM Constraint event, or `docs/` instead.",
-            "those live in a test when checkable, otherwise a code comment, "
-            "git history, or sprint.json.",
+            "those live in a test when checkable, git history when "
+            "historical, a code comment for what the code cannot express, "
+            "or sprint.json.",
         ]
         for line in fixed_lines:
             with self.subTest(line=line):
                 self.assertEqual(
                     find_unqualified_comment_routing(line, surface="x"), []
                 )
+
+
+class TestSentenceInitialCapitalizationIsMatched(unittest.TestCase):
+    """Neither matcher may be fooled by a capital letter. A Markdown bullet
+    that opens with "Code comments ..." or names "A test" mid-sentence is the
+    same routing clause as its lowercase form."""
+
+    def test_a_capitalized_comment_destination_is_still_selected(self) -> None:
+        line = "Code comments hold anything left over."
+        self.assertEqual(
+            len(find_comment_routing_lines(line, surface="x")),
+            1,
+            "the selector missed a sentence-initial comment destination — "
+            "such a line escapes every leg that gates on it",
+        )
+        self.assertEqual(len(find_unqualified_comment_routing(line, surface="x")), 1)
+
+    def test_a_capitalized_test_destination_reads_as_compliant(self) -> None:
+        line = (
+            "A test holds the checkable claim; history to git; a code comment "
+            "carries only the why the code cannot express."
+        )
+        self.assertEqual(
+            find_unqualified_comment_routing(line, surface="x"),
+            [],
+            "a compliant line naming 'A test' was flagged — a false positive "
+            "on correct prose is what gets a pin disabled",
+        )
 
 
 class TestKnownMatcherBlindSpots(unittest.TestCase):
