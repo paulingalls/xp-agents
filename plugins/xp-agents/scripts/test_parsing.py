@@ -50,38 +50,58 @@ _RE_DOTNET_SUMMARY = r"(?:Passed|Failed|Skipped)!\s*-"
 _RE_MOCHA_SUMMARY = r"^\s*\d+\s+(?:passing|failing)\b"
 
 
+# The frameworks whose whole-response scan is a DECLARED strategy rather than
+# the residue of a missing anchor. `playwright` shares the jest arm but prints
+# no `Tests:` line of its own; an nx/turbo package running something other than
+# jest prints no line either arm can key on. Every other anchored arm resolves
+# to no result when its anchor finds nothing, because "this arm did not
+# recognise the output" is not "the run reported these counts".
+_DELIBERATE_SCAN_FALLBACK = frozenset({"playwright", "nx", "turbo"})
+
+
 def _apply_two_counts(
     result: dict,
     tool_response: str,
     pass_re: str,
     fail_re: str,
     summary_line: str | None = None,
+    scan_fallback: bool = False,
 ) -> None:
     """Parse counts into result and set status from match outcome.
 
     matched + non-zero counts → PARSED; matched + zero counts → ZERO
     (the framework's summary line proves it ran with zero tests, even when
     a framework-specific zero marker isn't recognized). Unmatched leaves
-    status at the caller's default (PARSER_FAILED).
+    status at the caller's default (PARSER_FAILED) with the counts at zero.
 
     *summary_line* is a per-framework anchor for runners whose counts sit on an
     identifiable summary line: those are SUMMED across every match, so a run
     that emits one summary per sub-run and no aggregate (cargo's test binaries
     plus its doc-test block, a dotnet solution, a workspace launcher) reports
-    the whole run instead of one arbitrary member of it. When the anchor finds
-    nothing the whole-response fallback runs, so an unfamiliar reporter shape
-    degrades to the old answer rather than to zero. See `result_counts`.
+    the whole run instead of one arbitrary member of it.
+
+    With no anchor the whole-response scan IS the arm's strategy (bun, deno,
+    node-test). With one, a miss means no result — UNLESS *scan_fallback* says
+    the scan is this framework's declared fallback too. Reading a count out of
+    arbitrary text is how a probe that merely MENTIONED a runner was recorded
+    as a real zero-passed/three-failed run, so the fallback has to be somebody's
+    stated intent, never a consequence of the anchor missing. See
+    `result_counts`.
     """
     passed = failed = 0
     matched = False
-    if summary_line is not None:
-        passed, failed, matched = result_counts.summary_line_counts(
-            tool_response, summary_line, pass_re, fail_re
-        )
-    if not matched:
+    if summary_line is None:
         passed, failed, matched = result_counts.two_counts(
             tool_response, pass_re, fail_re
         )
+    else:
+        passed, failed, matched = result_counts.summary_line_counts(
+            tool_response, summary_line, pass_re, fail_re
+        )
+        if not matched and scan_fallback:
+            passed, failed, matched = result_counts.two_counts(
+                tool_response, pass_re, fail_re
+            )
     result["passed"] = passed
     result["failed"] = failed
     if matched:
@@ -111,6 +131,7 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
         "failed": 0,
         "errors": 0,
     }
+    scan_fallback = framework in _DELIBERATE_SCAN_FALLBACK
 
     match framework:
         case "pytest":
@@ -147,13 +168,16 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             # launcher — `pnpm -r test`, `yarn workspaces foreach`, lerna, all
             # of which land in this arm — prints one per package with no
             # aggregate, so the counts have to be summed or a red package is
-            # erased by a green one. Playwright has no such line and falls back.
+            # erased by a green one. Playwright has no such line and falls back
+            # — deliberately, via `_DELIBERATE_SCAN_FALLBACK`. jest and vitest
+            # do have one, so for them a missing anchor is no result at all.
             _apply_two_counts(
                 result,
                 tool_response,
                 _RE_N_PASSED,
                 _RE_N_FAILED,
                 summary_line=_RE_JEST_SUMMARY,
+                scan_fallback=scan_fallback,
             )
 
         case "go":
@@ -216,6 +240,7 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                 _RE_N_PASSED,
                 _RE_N_FAILED,
                 summary_line=_RE_CARGO_SUMMARY,
+                scan_fallback=scan_fallback,
             )
 
         case "maven" | "gradle":
@@ -287,6 +312,7 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                 r"Passed:\s*(\d+)",
                 r"Failed:\s*(\d+)",
                 summary_line=_RE_DOTNET_SUMMARY,
+                scan_fallback=scan_fallback,
             )
 
         case "dart":
@@ -343,6 +369,7 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                 r"(\d+)\s+passing",
                 r"(\d+)\s+failing",
                 summary_line=_RE_MOCHA_SUMMARY,
+                scan_fallback=scan_fallback,
             )
 
         case "node-test":
@@ -363,13 +390,15 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             # `Tests:` anchor covers the common wrapped runner; a package
             # running something else has no line this can key on and falls back
             # to the whole-response scan, which still reports only ONE package.
-            # That residue is the recorded multi-sub-run debt.
+            # That residue is the recorded multi-sub-run debt, and it is why
+            # these two are in `_DELIBERATE_SCAN_FALLBACK`.
             _apply_two_counts(
                 result,
                 tool_response,
                 _RE_N_PASSED,
                 _RE_N_FAILED,
                 summary_line=_RE_JEST_SUMMARY,
+                scan_fallback=scan_fallback,
             )
 
     return result

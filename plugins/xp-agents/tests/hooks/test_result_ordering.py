@@ -62,9 +62,15 @@ class TestCountsComeFromTheSummaryNotTheNoise(unittest.TestCase):
         self.assertEqual(result["failed"], 3)
 
     def test_a_running_tally_yields_to_the_total(self):
-        """Generic shape, not bun-specific: per-file lines then a total."""
-        output = "src/a.test.ts: 2 passed\nsrc/b.test.ts: 3 passed\n5 passed\n"
-        result = test_parsing.parse_test_results(output, "jest")
+        """Generic shape, not bun-specific: per-file lines then a total.
+
+        Written against the jest arm, which no longer scans — jest HAS a
+        summary line, so a response without one is no result there. Playwright
+        is the same shape with the scan still in force by design, so the
+        last-match policy is pinned where it actually lives.
+        """
+        output = "spec/a.spec.ts: 2 passed\nspec/b.spec.ts: 3 passed\n5 passed\n"
+        result = test_parsing.parse_test_results(output, "playwright")
         self.assertEqual(result["passed"], 5)
 
     def test_suite_counts_do_not_beat_test_counts(self):
@@ -234,6 +240,113 @@ class TestASubRunIsNeverErasedByAnother(unittest.TestCase):
         result = test_parsing.parse_test_results(output, "jest")
         self.assertEqual(result["status"], "parsed")
         self.assertEqual(result["passed"], 30)
+
+
+class TestAnAnchoredArmRefusesToGuess(unittest.TestCase):
+    """No summary line, no result — for the arms that HAVE a summary line.
+
+    Detection reads the COMMAND, so output from anything that merely MENTIONS
+    a runner is routed into that runner's arm. When the anchor then finds
+    nothing, the arm has not recognised the output; it has not learned that
+    the run reported a count somewhere else. Falling back to the whole-response
+    scan there turned a probe's own label into a recorded run of
+    zero-passed/three-failed and filed the high-severity concern that arms the
+    Stop gate, over a fully green suite.
+
+    Every refusal below is paired, through the same call, with the shape that
+    still parses — a parser rewired to return nothing at all would pass the
+    refusals on its own.
+    """
+
+    # framework -> (real summary, noise a whole-response scan would read a
+    # count out of). Each noise line is shaped for that arm's OWN count
+    # regexes, so the pairing tests the anchor and not the regex.
+    _ANCHORED = (
+        (
+            "jest",
+            "Tests:       2 failed, 3 passed, 5 total\n",
+            "step 'must report 3 failed rows' finished\n",
+        ),
+        (
+            "vitest",
+            "      Tests  2 failed | 3 passed (5)\n",
+            "step 'must report 3 failed rows' finished\n",
+        ),
+        (
+            "cargo",
+            "test result: FAILED. 3 passed; 2 failed; 0 ignored\n",
+            "step 'must report 3 failed rows' finished\n",
+        ),
+        (
+            "dotnet",
+            "Failed!  - Failed: 2, Passed: 3, Skipped: 0, Total: 5\n",
+            "step 'must report Failed: 3 rows' finished\n",
+        ),
+        (
+            "mocha",
+            "  3 passing (12ms)\n  2 failing\n",
+            "step 'must report 3 failing rows' finished\n",
+        ),
+    )
+
+    def test_no_summary_line_yields_no_result(self):
+        for framework, _, noise in self._ANCHORED:
+            with self.subTest(framework=framework):
+                result = test_parsing.parse_test_results(noise, framework)
+                self.assertEqual(result["status"], "parser_failed")
+                self.assertEqual(result["failed"], 0)
+                self.assertEqual(result["passed"], 0)
+
+    def test_the_same_arm_still_reads_a_real_summary(self):
+        for framework, summary, _ in self._ANCHORED:
+            with self.subTest(framework=framework):
+                result = test_parsing.parse_test_results(summary, framework)
+                self.assertEqual(result["status"], "parsed")
+                self.assertEqual(result["passed"], 3)
+                self.assertEqual(result["failed"], 2)
+
+
+class TestADeliberateFallbackIsKept(unittest.TestCase):
+    """Two arms fall back BY DESIGN, and must not inherit the anchored rule.
+
+    `playwright` shares the jest arm but prints no `Tests:` line of its own,
+    and an nx/turbo package running something other than jest prints no line
+    either arm can key on. For them the whole-response scan is the strategy,
+    not the accident — so a missing anchor still has to produce their counts.
+    """
+
+    _NO_KEYABLE_LINE = (
+        (
+            "playwright",
+            "Running 5 tests using 2 workers\n\n  2 failed\n  3 passed (12.3s)\n",
+        ),
+        ("nx", "> nx run api:test\n  3 passed, 2 failed\n"),
+        ("turbo", "@acme/api:test:   3 passed, 2 failed\n"),
+    )
+
+    def test_the_whole_response_scan_still_answers(self):
+        for framework, output in self._NO_KEYABLE_LINE:
+            with self.subTest(framework=framework):
+                result = test_parsing.parse_test_results(output, framework)
+                self.assertEqual(result["status"], "parsed")
+                self.assertEqual(result["passed"], 3)
+                self.assertEqual(result["failed"], 2)
+
+    def test_deliberate_and_accidental_differ_on_the_same_text(self):
+        """The discriminator: identical input, opposite answers.
+
+        This is also the honest record of what the deliberate fallback still
+        costs — playwright reads the count out of a label here, exactly as
+        jest used to. That residue is the known multi-sub-run/no-anchor debt,
+        not something this pin endorses.
+        """
+        noise = "step 'must report 3 failed rows' finished\n"
+        self.assertEqual(
+            test_parsing.parse_test_results(noise, "jest")["status"], "parser_failed"
+        )
+        self.assertEqual(
+            test_parsing.parse_test_results(noise, "playwright")["failed"], 3
+        )
 
 
 class TestTextThatMerelyLooksLikeACount(unittest.TestCase):
