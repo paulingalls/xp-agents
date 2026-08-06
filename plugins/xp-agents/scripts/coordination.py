@@ -9,14 +9,23 @@ import contextlib
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import marker_names
+import session_scope
 from _append_impl import write_json_atomic
 
 _COORDINATION_MAX_AGE = 1800  # 30 minutes
+
+# How `has_active_teammates` reads the file unfiltered. `read_coordination` has
+# no "no TTL" sentinel and must not grow one — its other callers depend on the
+# filter — so the filter is disabled by asking for an age no real timestamp can
+# exceed.
+_NO_AGE_LIMIT = 10**9  # ~31 years
 
 
 def update_coordination(smm_dir: Path, agent_id: str, working_on: list[str]) -> None:
@@ -53,9 +62,22 @@ def update_coordination(smm_dir: Path, agent_id: str, working_on: list[str]) -> 
         # Update agent entry
         from _common import now_iso
 
+        # `session_id` records WHICH SESSION wrote this, so a reader can ask
+        # whether that session's hook runtime is still beating instead of
+        # trusting the timestamp. `session_scope` directly, never via
+        # `hook_liveness`: its `resolve_session_id` is a one-line delegate to
+        # this same chain, and importing it would pull the hook runtime onto
+        # the write path every file write goes through.
+        #
+        # None reaches the file as None, and that is the point. No candidate
+        # set (an unfamiliar host) and candidates that DISAGREE (an inherited
+        # id, which `resolve_session_id` refuses rather than guesses between)
+        # both mean "cannot tell", which the reader turns back into today's
+        # TTL rather than into a verdict.
         data[agent_id] = {
             "working_on": working_on,
             "updated": now_iso(),
+            "session_id": session_scope.resolve_session_id(),
         }
 
         write_json_atomic(coord_path, data)
@@ -92,10 +114,67 @@ def read_coordination(
     return result
 
 
+def _session_is_live(smm_dir: Path, session_id: object) -> bool | None:
+    """Is the session that wrote an entry still beating? None = cannot tell.
+
+    Reuses the heartbeat every hook already refreshes — there is no second
+    liveness implementation here, and must not be. `check_liveness` is the
+    wrong reader for this question: it takes no session id, so it can only
+    ever answer about the process it runs in.
+
+    Imported lazily. This module is loaded by the write-path hooks, which do
+    not ask the question, and only the Stop gates pay for the extra modules.
+    """
+    if not isinstance(session_id, str) or not session_id.strip():
+        return None
+
+    import hook_heartbeat_scan
+    import hook_liveness
+    import markers
+
+    path = markers.marker_path(smm_dir, hook_liveness.heartbeat_marker(session_id))
+    age = hook_heartbeat_scan.sibling_age(smm_dir, path, time.time())
+    # `sibling_age` returns None for every heartbeat it cannot age — absent,
+    # symlinked, corrupt, unparseable timestamp — and all four stay
+    # UNDETERMINED here rather than becoming a death.
+    #
+    # Absence is the tempting one to read as death, and it must not be. The
+    # heartbeat is keyed on the id the host handed the hook while this entry is
+    # keyed on the id the environment exposes; where those two sources differ,
+    # a live session's entry addresses a marker nothing ever writes. A writer
+    # whose heartbeat write failed (symlinked marker, full disk — it swallows
+    # and logs) leaves the same hole. Reading either as "dead" would hold a
+    # lead at Stop over a teammate that is working.
+    return None if age is None else hook_heartbeat_scan.within_window(age)
+
+
 def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
-    """Return True if other non-stale agents are active in coordination."""
-    coord = read_coordination(smm_dir)
-    return any(aid != agent_id for aid in coord)
+    """Return True if another agent is genuinely active in coordination.
+
+    Time is not liveness, and a timestamp-only answer errs in BOTH directions:
+    it releases a Stop gate on a dead agent whose entry is merely recent, and
+    it forgets a live-but-quiet teammate whose entry aged out — after which
+    the lead reads that teammate's unresolved failing-test concern as its own
+    and falsely blocks. So the entries are read unfiltered and the session
+    heartbeat decides.
+
+    Undetermined liveness — an entry written before the session id was
+    recorded, a host that exposes none, a heartbeat that cannot be read —
+    falls back to the TTL, which is exactly today's behaviour.
+
+    The liveness leg stops here. `read_coordination` keeps its filter for
+    every other caller: making the write-conflict detector liveness-aware
+    would pin a live-but-quiet teammate's last-written file as a rival
+    indefinitely, since the TTL is the only thing that frees it.
+    """
+    within_ttl = read_coordination(smm_dir)
+    for aid, entry in read_coordination(smm_dir, _NO_AGE_LIMIT).items():
+        if aid == agent_id:
+            continue
+        live = _session_is_live(smm_dir, entry.get("session_id"))
+        if live is True or (live is None and aid in within_ttl):
+            return True
+    return False
 
 
 def clear_coordination_agent(smm_dir: Path, agent_id: str) -> None:
