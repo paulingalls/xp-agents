@@ -33,7 +33,7 @@ Run the command from `## Diff Command` exactly as given. Do NOT substitute. Bash
 
 See `## Mode-Specific Focus` below. Use Read/Grep/Glob to follow up on hunks when context matters.
 
-## 5. Prose Hygiene
+## Step 3b: Prose Hygiene
 
 - Restates the code, or narrates removed history → Concern; fix is delete — git holds history.
 - States a checkable claim → Concern; fix is convert to a test, where it rots loudly.
