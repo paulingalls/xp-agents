@@ -222,7 +222,8 @@ def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
     """Why the named stories can or cannot run in parallel, with the facts.
 
         {"collisions": {path: [{"story_id", "origin", "pattern"?}, ...]},
-         "glob_forced": bool}
+         "glob_forced": bool,
+         "unscoped": [story_id, ...]}  # key present only when non-empty
 
     `collisions` is `file_domain_lock.collision_report`'s output forwarded
     unchanged — already sorted by path, already dependency- and terminal-aware,
@@ -238,6 +239,13 @@ def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
     oracle the overlap bool has always relied on, so conservatism fires on
     exactly the old inputs. Callers need the two apart to say "both stories
     claim x.py" versus "a glob domain means disjointness can't be proven".
+
+    `unscoped` is a THIRD signal: a named story whose `file_domain` resolves to
+    NO paths at all (missing, empty, or every entry description-only) makes an
+    undeclared claim, not an empty one — intersecting it against anything else
+    yields the empty set, which reads as "disjoint" unless called out
+    separately. Distinct from `glob_forced`: naming the glob would be false
+    when there is no glob, just an absent declaration.
 
     Fewer than two named stories: no pair, so no claim about paths, and the
     detector never runs.
@@ -263,17 +271,23 @@ def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
     collisions = file_domain_lock.collision_report(data, scope=wanted)
 
     glob_forced = False
+    unscoped = []
     for story in subset:
         # Filter non-str BEFORE the detector: entry_to_paths indexes the entry
         # and raises TypeError, not ValueError, on anything else.
         entries = [e for e in (story.get("file_domain") or []) if isinstance(e, str)]
         try:
-            extract_file_domain_paths(entries)
+            paths = extract_file_domain_paths(entries)
         except ValueError:
             glob_forced = True
-            break
+            continue
+        if not paths:
+            unscoped.append(story.get("id"))
 
-    return {"collisions": collisions, "glob_forced": glob_forced}
+    result = {"collisions": collisions, "glob_forced": glob_forced}
+    if unscoped:
+        result["unscoped"] = unscoped
+    return result
 
 
 def is_complete(smm_dir: Path) -> bool:
