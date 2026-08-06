@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
+import hook_heartbeat_scan
 import marker_names
 import markers
 import plugin_loader
@@ -44,37 +45,12 @@ import session_scope
 # and tests address it through this module.
 SESSION_ID_ENV_CANDIDATES: tuple[str, ...] = session_scope.SESSION_ID_ENV_CANDIDATES
 
-# How long a heartbeat stays trustworthy. Four hours is deliberately loose:
-# it must never refuse a user who stepped away between prompts, because a
-# check that false-refuses is a check people switch off.
-#
-# Be honest about what that costs. With session-id matching carrying the
-# precision, this leg's only remaining job is catching a runtime that dies
-# MID-session, and at four hours it will not catch that quickly. A
-# higher-frequency refresh source now exists — every Bash, every
-# Write/Edit/MultiEdit and every Skill call refreshes this — but it does not
-# yet cover the tool surface: Read/Grep/Glob have no PostToolUse handler, so a
-# long read-only stretch still ages out while hooks are demonstrably running.
-# Tightening therefore waits on two things, not one: closing that gap, and a
-# session sitting IDLE between prompts.
-STALE_AFTER_SECONDS = 4 * 60 * 60
-
-# How far in the FUTURE a heartbeat's timestamp may sit and still be believed.
-#
-# The window is bounded at both ends, for the same reason the housekeeping
-# in-flight record's is: `age >= STALE_AFTER_SECONDS` alone reads a negative age
-# as fresh FOREVER, so one wall-clock step backwards (NTP correction, VM
-# snapshot restore, a resume with a bad RTC) or a millisecond timestamp where
-# seconds were meant would report "live" for the rest of the session even after
-# the runtime died — the silent unenforcement this module exists to detect.
-#
-# It is a tolerance rather than a hard `0 <= age` because refusing a working
-# session is the failure that gets a check switched off, and a heartbeat is
-# rewritten by the next Bash, Write/Edit or Skill call: if the runtime is alive
-# a future timestamp self-heals within one tool call, so the refusal only
-# persists when the runtime is genuinely gone. A minute absorbs ordinary slew
-# without absorbing either failure above.
-FUTURE_SKEW_GRACE_SECONDS = 60
+# The freshness window. Owned by `hook_heartbeat_scan`, which is where the
+# scans that enforce it live; re-exported here, like the candidate chain above,
+# because callers and tests address the threshold through this module. One
+# object, not two that agree by coincidence.
+STALE_AFTER_SECONDS = hook_heartbeat_scan.STALE_AFTER_SECONDS
+FUTURE_SKEW_GRACE_SECONDS = hook_heartbeat_scan.FUTURE_SKEW_GRACE_SECONDS
 
 CODE_ID_CONFLICT = "id-conflict"
 CODE_LIVE = "live"
@@ -82,19 +58,6 @@ CODE_NO_MARKER = "no-marker"
 CODE_SESSION_MISMATCH = "session-mismatch"
 CODE_STALE = "stale"
 CODE_UNREADABLE = "unreadable"
-
-# One heartbeat PER SESSION, not one per SMM. The SMM is deliberately shared:
-# spawners export SMM_DIR verbatim to their teammates, and two windows on one
-# repo hash the same git-common-dir to the same project id. A single marker
-# keyed on one session id is therefore last-writer-wins — the moment a teammate
-# starts, the lead reads someone else's id and is told the plugin is probably
-# not loaded. The primary signal would manufacture the false alarm it exists
-# to prevent, in the mode this project is built around.
-#
-# Per-session FILES rather than a set of ids inside one file: concurrent
-# sessions would otherwise read-modify-write the same marker with no lock
-# between them, and a lost update reads exactly like a dead runtime.
-_SESSION_GLOB = f"{marker_names.HOOK_HEARTBEAT}-*"
 
 # Codes meaning "could not determine" rather than "determined not live". Both
 # refuse — a check that cannot see is not a check that passed — but only the
@@ -200,52 +163,6 @@ def heartbeat_marker(session_id: str | None) -> markers.MarkerDef:
     return session_markers.session_marker(marker_names.HOOK_HEARTBEAT, session_id)
 
 
-def _within_window(age: float | None) -> bool:
-    """True only for an age that is usable AND inside the window at BOTH ends.
-
-    One home for the bounds, so the three scans that ask "is this heartbeat
-    still good" cannot drift apart. None (unageable) and a timestamp further
-    ahead than the skew grace are both "not evidence of freshness" — see
-    FUTURE_SKEW_GRACE_SECONDS for why the far end is bounded at all.
-    """
-    return age is not None and -FUTURE_SKEW_GRACE_SECONDS <= age < STALE_AFTER_SECONDS
-
-
-def _reap_stale_siblings(smm_dir: Path, keep: Path, now: float) -> None:
-    """Delete other sessions' expired heartbeats. Best-effort, never raises.
-
-    Per-session files would otherwise accumulate one per session forever.
-    Reaping on write keeps it self-contained — no cleanup hook to wire, and
-    the work is bounded by the number of live-ish sessions.
-
-    Only expired or unreadable siblings go. A fresh one belongs to a session
-    that may still be running, and deleting it would make that session
-    believe its own hooks had stopped.
-    """
-    for path in smm_dir.glob(_SESSION_GLOB):
-        if path == keep or path.is_symlink():
-            continue
-        try:
-            if _within_window(_sibling_age(smm_dir, path, now)):
-                continue
-            path.unlink()
-        except OSError:
-            continue
-
-
-def _sibling_age(smm_dir: Path, path: Path, now: float) -> float | None:
-    """Age of another session's heartbeat, or None if it is unusable.
-
-    Rebuilds a `MarkerDef` from the filename so the read goes back through
-    `markers.marker_read` — symlink rejection and corrupt-JSON handling stay
-    in the one place that owns them.
-    """
-    data = markers.marker_read(smm_dir, markers.MarkerDef(path.name, "json"))
-    if not isinstance(data, dict):
-        return None
-    return session_markers.marker_age_seconds(now, data.get("written_at"))
-
-
 # ---------------------------------------------------------------------------
 # Write
 # ---------------------------------------------------------------------------
@@ -295,7 +212,9 @@ def write_heartbeat(
             error_class=type(exc).__name__,
         )
         return
-    _reap_stale_siblings(smm_dir, markers.marker_path(smm_dir, marker), stamp)
+    hook_heartbeat_scan.reap_stale_siblings(
+        smm_dir, markers.marker_path(smm_dir, marker), stamp
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -312,23 +231,6 @@ def _describe(seconds: float) -> str:
     if seconds < 5400:
         return f"{seconds / 60:.0f}m"
     return f"{seconds / 3600:.1f}h"
-
-
-def _freshest_sibling(smm_dir: Path, now: float) -> float | None:
-    """Age of the youngest per-session heartbeat still inside the threshold.
-
-    None means no other session's hooks have run recently. Shared by the two
-    callers that need "is the runtime alive anywhere", which must reach the
-    same answer without sharing a verdict — absence and staleness are
-    different diagnoses even when the scan result is identical.
-    """
-    freshest: float | None = None
-    for path in smm_dir.glob(_SESSION_GLOB):
-        age = _sibling_age(smm_dir, path, now)
-        if age is None or not _within_window(age):
-            continue
-        freshest = age if freshest is None else min(freshest, age)
-    return freshest
 
 
 def _live_on_freshness_alone(age: float) -> Liveness:
@@ -359,7 +261,7 @@ def _no_heartbeat_of_our_own(
     demonstrably running. Degrading to time-only means exactly this — any
     fresh heartbeat counts.
     """
-    freshest = _freshest_sibling(smm_dir, now)
+    freshest = hook_heartbeat_scan.freshest_sibling(smm_dir, now)
     if freshest is None:
         return Liveness(
             False,
@@ -422,7 +324,7 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
         # Only the LIVE half is borrowed. Falling through to the absent-path
         # verdict would report "no heartbeat has been recorded" about a
         # heartbeat that plainly was — staleness keeps its own diagnosis.
-        fresh = _freshest_sibling(smm_dir, now)
+        fresh = hook_heartbeat_scan.freshest_sibling(smm_dir, now)
         if fresh is not None:
             return _live_on_freshness_alone(fresh)
     if age >= STALE_AFTER_SECONDS:

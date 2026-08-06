@@ -151,7 +151,7 @@ def sweep_orphan_records(smm_dir: Path, now: float | None = None) -> None:
 
     So only a record past its own window goes, on the same bounds `state`
     uses: an unageable or future timestamp is not evidence of freshness. Same
-    rule, and for the same reason, as `hook_liveness._reap_stale_siblings` —
+    rule, and for the same reason, as `hook_heartbeat_scan.reap_stale_siblings` —
     different field, different window, so the two are cross-referenced rather
     than shared.
 

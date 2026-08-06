@@ -19,15 +19,11 @@ ground the split just won.
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 BAND_CEILINGS = {
-    # shipped (17)
-    # Entered the band adding the disagreeing-session-id refusal, which needed a
-    # verdict code, its reason prose, and a branch that must precede every
-    # degrade-to-time-only path. The cohesive group to extract next is the
-    # per-session sibling scan — _within_window, _sibling_age,
-    # _reap_stale_siblings, _freshest_sibling and _SESSION_GLOB, ~75 lines with
-    # no importer outside this module (only three prose mentions), which would
-    # land it near 400 rather than 31 short of the hard cap.
-    "plugins/xp-agents/scripts/hook_liveness.py": 469,
+    # shipped (16)
+    # RETIRED (story-015): hook_liveness.py 469->371, by taking the extraction
+    # its own ceiling note named — the per-session sibling scan moved to
+    # scripts/hook_heartbeat_scan.py, which a second reader (coordination's
+    # liveness leg) now imports without the verdict machinery.
     "plugins/xp-agents/smm/seed_smm.py": 499,
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     "plugins/xp-agents/scripts/close_common.py": 470,  # ratcheted from 496 (split)
