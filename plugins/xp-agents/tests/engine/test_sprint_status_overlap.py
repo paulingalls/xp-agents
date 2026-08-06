@@ -80,7 +80,9 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
             ],
             ["story-001", "story-002"],
         )
-        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+        self.assertEqual(
+            detail, {"collisions": {}, "glob_forced": False, "unscoped": []}
+        )
 
     def test_detail_empty_for_single_story(self):
         # Fewer than two named stories: no pair, so no claim about paths —
@@ -93,7 +95,9 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
             ],
             ["story-001"],
         )
-        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+        self.assertEqual(
+            detail, {"collisions": {}, "glob_forced": False, "unscoped": []}
+        )
 
     def test_detail_glob_forced_true(self):
         # collision_report compares "src/*" as a literal token and would say
@@ -125,7 +129,9 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
             ],
             ["story-001", "story-002"],
         )
-        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+        self.assertEqual(
+            detail, {"collisions": {}, "glob_forced": False, "unscoped": []}
+        )
 
     def test_detail_origin_auto_included_preserved(self):
         # The sister-test globber's claims are tagged auto_included, and the
@@ -168,7 +174,9 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
             ],
             ["story-001", "story-002"],
         )
-        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+        self.assertEqual(
+            detail, {"collisions": {}, "glob_forced": False, "unscoped": []}
+        )
 
     def test_detail_terminal_story_not_collision(self):
         # A done story has merged and released its files.
@@ -181,7 +189,9 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
             ],
             ["story-001", "story-002"],
         )
-        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+        self.assertEqual(
+            detail, {"collisions": {}, "glob_forced": False, "unscoped": []}
+        )
 
     def test_detail_non_str_entries_ignored(self):
         # entry_to_paths raises TypeError (not ValueError) on a non-str entry,
@@ -265,10 +275,11 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
         )
         self.assertEqual(detail["unscoped"], ["story-001"])
 
-    def test_detail_unscoped_key_absent_when_nothing_unscoped(self):
-        # Every scenario elsewhere in this suite asserts the legacy 2-key
-        # dict via full equality; this pins that the new key stays OUT of
-        # the shape rather than showing up as an always-present empty list.
+    def test_detail_unscoped_key_present_and_empty_when_nothing_unscoped(self):
+        # unscoped is ALWAYS present, even when nothing is unscoped — a
+        # caller reads the key unconditionally rather than guarding on its
+        # presence (decision 8729cf6dbfc7 supersedes the earlier conditional
+        # shape).
         detail = self._detail(
             [
                 _make_story(
@@ -280,7 +291,8 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
             ],
             ["story-001", "story-002"],
         )
-        self.assertNotIn("unscoped", detail)
+        self.assertIn("unscoped", detail)
+        self.assertEqual(detail["unscoped"], [])
 
     def test_detail_glob_forced_and_unscoped_are_distinct(self):
         # A glob story and an unscoped story in the same pair must be told
@@ -301,7 +313,9 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
             [_make_story(id="story-001", status="scheduled", file_domain=["src/a.py"])],
             ["story-001", "story-404"],
         )
-        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+        self.assertEqual(
+            detail, {"collisions": {}, "glob_forced": False, "unscoped": []}
+        )
 
     def test_detail_is_dependency_aware(self):
         # Two stories serialized by a dependency edge may share files.
@@ -327,7 +341,9 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
         # was `glob_forced or collisions`, so its `is False` pinned BOTH facts.
         # Checking only collisions would let a spurious glob_forced=True slip
         # through on this literal-path input.
-        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+        self.assertEqual(
+            detail, {"collisions": {}, "glob_forced": False, "unscoped": []}
+        )
 
     def test_detail_transitive_dependency_through_non_subset_story(self):
         # The edge serializing 001 and 002 runs THROUGH 003, which is NOT in
@@ -358,7 +374,9 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
             ],
             ["story-001", "story-002"],
         )
-        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+        self.assertEqual(
+            detail, {"collisions": {}, "glob_forced": False, "unscoped": []}
+        )
 
     def test_detail_non_subset_story_never_owns_a_collision(self):
         # The companion to the above: widening the DEPENDENCY graph to the whole
@@ -382,7 +400,9 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
             ],
             ["story-001", "story-002"],
         )
-        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+        self.assertEqual(
+            detail, {"collisions": {}, "glob_forced": False, "unscoped": []}
+        )
 
     def test_detail_called_as_sprint_frontier_will_call_it(self):
         # AC#5: sprint_frontier imports these helpers DIRECTLY from

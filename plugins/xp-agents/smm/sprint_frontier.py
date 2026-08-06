@@ -146,18 +146,20 @@ def ready_frontier_report(
     which is the dependency itself. ``overlap`` is ``file_domains_overlap_detail``'s
     dict forwarded verbatim — ``{"collisions": {path: [{"story_id", "origin",
     "pattern"?}, ...]}, "glob_forced": bool, "unscoped": [story_id, ...]}``;
-    a ``pattern`` key appears only on a claim a GLOB entry produced, and
-    ``unscoped`` is present only when at least one named story's file_domain
-    resolves to no paths at all — the dependency reason for a False verdict
+    a ``pattern`` key appears only on a claim a GLOB entry produced. All three
+    ``overlap`` keys are ALWAYS present — a caller reads ``unscoped`` (and
+    every sibling key) unconditionally rather than guarding on its presence —
+    and ``unscoped`` lists the story ids whose file_domain resolves to no
+    paths at all, empty when none. The dependency reason for a False verdict
     is deliberately NOT surfaced there. ``collisions``, ``glob_forced`` and
     ``unscoped`` are THREE DISTINCT signals: a concrete path collision names
     the clashing stories, glob_forced means a glob domain makes disjointness
     unprovable, and unscoped means a story declared no domain at all (an
     undeclared claim, not an empty one, so it must not read as disjoint from
     everything) — three different messages to the customer. All are
-    empty/false/absent on a 0- or 1-story frontier or a fully-disjoint pair,
-    and `frontier`/`parallelizable`/`overlap` are always present, even when
-    no sprint exists.
+    empty/false on a 0- or 1-story frontier or a fully-disjoint pair, and
+    `frontier`/`parallelizable`/`overlap` (and every key inside `overlap`)
+    are always present, even when no sprint exists.
     """
     from sprint_store import load_sprint
 
@@ -166,14 +168,13 @@ def ready_frontier_report(
         return {
             "frontier": [],
             "parallelizable": False,
-            "overlap": {"collisions": {}, "glob_forced": False},
+            "overlap": {"collisions": {}, "glob_forced": False, "unscoped": []},
         }
     frontier = ready_frontier_data(sprint, treat_as_done=treat_as_done)
     overlap = file_domains_overlap_detail(sprint, frontier)
-    unscoped = overlap.get("unscoped")
     parallelizable = (
         len(frontier) >= 2
-        and not (overlap["glob_forced"] or overlap["collisions"] or unscoped)
+        and not (overlap["glob_forced"] or overlap["collisions"] or overlap["unscoped"])
         and not _frontier_has_internal_dependency(sprint, frontier)
     )
     return {"frontier": frontier, "parallelizable": parallelizable, "overlap": overlap}

@@ -8,8 +8,10 @@ proven-overlapping, and `glob_forced`. Every scenario pairs the unprovable
 assertion with a permissive control run through the SAME call, so a
 hard-wired False verdict cannot pass silently.
 
-test_sprint_frontier.py is a regression pin at its exact line ceiling and
-must keep passing unedited — new verdict coverage lives here instead.
+`unscoped` is ALWAYS present in `overlap` — on every branch, not just the
+populated one (decision 8729cf6dbfc7). A test that only checks the populated
+case would pass equally if the key were still conditional, so this suite also
+pins presence on the no-sprint, sub-2-story, and nothing-unscoped branches.
 """
 
 import json
@@ -55,7 +57,7 @@ class TestFrontierUnscopedVerdict(_SMMTestCase):
             ]
         )
         self.assertTrue(report["parallelizable"])
-        self.assertNotIn("unscoped", report["overlap"])
+        self.assertEqual(report["overlap"]["unscoped"], [])
 
     def test_one_unscoped_story_forces_solo_and_is_named(self):
         # AC-1 + AC-3: an empty file_domain forces solo, and the report
@@ -102,7 +104,7 @@ class TestFrontierUnscopedVerdict(_SMMTestCase):
         )
         self.assertFalse(report["parallelizable"])
         self.assertTrue(report["overlap"]["glob_forced"])
-        self.assertNotIn("unscoped", report["overlap"])
+        self.assertEqual(report["overlap"]["unscoped"], [])
 
     def test_three_stories_all_unscoped_is_not_parallelizable(self):
         # Regression pin for the measured instance: story-004/005/006 each
@@ -127,6 +129,25 @@ class TestFrontierUnscopedVerdict(_SMMTestCase):
         self.assertEqual(
             report["overlap"]["unscoped"], ["story-004", "story-005", "story-006"]
         )
+
+    def test_unscoped_present_on_no_sprint_branch(self):
+        import sprint_store
+
+        report = sprint_store.ready_frontier_report(self.smm_dir)
+        self.assertEqual(report["overlap"]["unscoped"], [])
+
+    def test_unscoped_present_on_sub_two_story_frontier(self):
+        report = self._report(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["a.py"],
+                ),
+            ]
+        )
+        self.assertEqual(report["overlap"]["unscoped"], [])
 
 
 if __name__ == "__main__":

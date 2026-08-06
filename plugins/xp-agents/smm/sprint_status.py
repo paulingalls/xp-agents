@@ -223,7 +223,7 @@ def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
 
         {"collisions": {path: [{"story_id", "origin", "pattern"?}, ...]},
          "glob_forced": bool,
-         "unscoped": [story_id, ...]}  # key present only when non-empty
+         "unscoped": [story_id, ...]}  # always present, empty when no story is unscoped
 
     `collisions` is `file_domain_lock.collision_report`'s output forwarded
     unchanged — already sorted by path, already dependency- and terminal-aware,
@@ -248,12 +248,13 @@ def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
     when there is no glob, just an absent declaration.
 
     Fewer than two named stories: no pair, so no claim about paths, and the
-    detector never runs.
+    detector never runs. `unscoped` is still present (empty) — a caller reads
+    the key unconditionally, so its presence must not depend on frontier size.
     """
     wanted = set(story_ids)
     subset = [s for s in data["stories"] if s.get("id") in wanted]
     if len(subset) < 2:
-        return {"collisions": {}, "glob_forced": False}
+        return {"collisions": {}, "glob_forced": False, "unscoped": []}
 
     # `scope`, not a pre-filtered story list: the subset narrows whose claims
     # are REPORTED, never which dependencies exist. Serialization is transitive,
@@ -284,10 +285,7 @@ def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
         if not paths:
             unscoped.append(story.get("id"))
 
-    result = {"collisions": collisions, "glob_forced": glob_forced}
-    if unscoped:
-        result["unscoped"] = unscoped
-    return result
+    return {"collisions": collisions, "glob_forced": glob_forced, "unscoped": unscoped}
 
 
 def is_complete(smm_dir: Path) -> bool:
