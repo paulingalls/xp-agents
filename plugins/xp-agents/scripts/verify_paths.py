@@ -161,7 +161,7 @@ def _extract_paths_from_command(command: str) -> set[str]:
     Python shapes have dedicated branches: pytest / `python -m pytest <path>`
     (positional paths, `::selector` stripped), `python -m unittest discover -s
     <startdir> [-t <topdir>]`, and direct `python <path>` / `bash <path>`.
-    Every other command is routed by `test_parsing.classify_path_strategy`:
+    Every other command is routed by this module's `classify_path_strategy`:
     positional runners (playwright/jest/vitest/...) extract their CLI path
     tokens (a whole-suite run with no path → whole-tree sentinel); whole-tree
     runners (script aliases / package-or-scheme runners) → sentinel.
@@ -277,23 +277,23 @@ def _extract_positional_paths(tokens: list[str]) -> set[str]:
     token like `--filter <pkg>` — flags are skipped so the next token, "the
     runner binary", is never a flag itself; stopping after one would leave a
     second flag in the binary slot and let its path-shaped value through as a
-    false path), then the runner
-    binary, then a leading `test`/`run` subcommand, then keeps only
-    **path-shaped** positional tokens (containing `/` or `.`, with a
-    `::selector` stripped). For bun specifically, `bun` IS the binary and
-    `test` is its subcommand — the pre-binary flag-skip keeps a workspace
-    flag's value (e.g. `@legacy/db` in `bun --filter @legacy/db test`) from
-    being misread as "the binary" and, from there, as a path; that would be a
-    false positive, which is strictly worse than the whole-tree sentinel it
-    yields instead (a false positive demands a file that can never be
-    touched). The token after a space-form bare flag (starts with `-`, no
-    `=`) is dropped as that flag's value — so a path-shaped value like
-    `--config jest.config.js` or `--reporter ./r.js` is never mistaken for a
-    proof file. (A spurious gate firing is worse than under-extraction, which
-    fails open; conservatively skipping a boolean flag's following token only
-    ever under-extracts.) An attached `--flag=value` carries its own value,
-    so the next token survives. No path tokens (a whole-suite run) yields an
-    empty set; the caller maps that to the whole-tree sentinel.
+    false path), then the runner binary, then a leading `test`/`run`
+    subcommand, then keeps only **path-shaped** positional tokens (containing
+    `/` or `.`, with a `::selector` stripped). For bun specifically, `bun` IS
+    the binary and `test` is its subcommand — the pre-binary flag-skip keeps
+    a workspace flag's value (e.g. `@legacy/db` in `bun --filter @legacy/db
+    test`) from being misread as "the binary" and, from there, as a path;
+    that would be a false positive, which is strictly worse than the
+    whole-tree sentinel it yields instead (a false positive demands a file
+    that can never be touched). The token after a space-form bare flag
+    (starts with `-`, no `=`) is dropped as that flag's value — so a
+    path-shaped value like `--config jest.config.js` or `--reporter ./r.js`
+    is never mistaken for a proof file. (A spurious gate firing is worse than
+    under-extraction, which fails open; conservatively skipping a boolean
+    flag's following token only ever under-extracts.) An attached
+    `--flag=value` carries its own value, so the next token survives. No path
+    tokens (a whole-suite run) yields an empty set; the caller maps that to
+    the whole-tree sentinel.
     """
     i = 0
     n = len(tokens)

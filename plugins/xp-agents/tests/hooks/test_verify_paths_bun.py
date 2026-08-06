@@ -150,6 +150,52 @@ class TestBunDocumentedLimitations(unittest.TestCase):
         )
 
 
+class TestBunChainedCommands(unittest.TestCase):
+    """A chain carrying a direct `bun test <spec>` keeps that spec.
+
+    The alias regex scans the WHOLE command, so a `run <script>` token in a
+    later segment (`... && npm run build`) would otherwise classify the whole
+    chain as an alias and drop the spec into the whole-tree sentinel — the
+    same fail-open `TestChainedCommandRegressionPins` guards for jest/vitest,
+    which the alias check must not reintroduce for bun.
+    """
+
+    def test_bun_spec_then_npm_run_build_keeps_spec(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "bun test src/a.test.ts && npm run build"
+            ),
+            {"src/a.test.ts"},
+        )
+
+    def test_bun_spec_then_bun_run_build_keeps_spec(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "bun test src/a.test.ts && bun run build"
+            ),
+            {"src/a.test.ts"},
+        )
+
+    def test_bun_spec_then_bun_alias_script_keeps_spec(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "bun test src/a.test.ts && bun test:integration"
+            ),
+            {"src/a.test.ts"},
+        )
+
+    def test_alias_only_chain_stays_whole_tree(self):
+        # No direct segment anywhere: still the sentinel, not a false path.
+        self.assertEqual(
+            verify_paths.classify_path_strategy("bun run test && npm run lint"),
+            "whole_tree",
+        )
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("bun run test && npm run lint"),
+            {"."},
+        )
+
+
 class TestChainedCommandRegressionPins(unittest.TestCase):
     """These pass today. They pin the rejected "anchor after `test`" rule's
     failure mode so it can never be silently reintroduced: applied to

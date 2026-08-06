@@ -42,7 +42,13 @@ AGENT_BUDGETS: dict[str, int] = {
     # exact gap scripts/verify_paths.py's bun branch closes in code. Not
     # paid for by trimming: the pinned §10b prose
     # (tests/agents/test_plan_reviewer_prose.py) forbids it. Measured 21756
-    # after the edit, comfortably under the new 98% band (22344).
+    # after the edit — over the old 98% band (21501), under the new one
+    # (22344), which is what makes the bump necessary rather than optional.
+    # 21756 is CHARACTERS, which is what this budget counts
+    # (assert_md_under_budgets reads len(read_text)). `wc -c` says 21913:
+    # that is bytes, and this file is full of multi-byte em dashes, § and
+    # arrows. Re-measure with len(), never wc -c, or the ~150-char gap
+    # reads as drift that is not there.
     "xp-plan-reviewer": 22800,
     # Bumped 21770 -> 22050 for the --retro-kind sprint instruction. This agent
     # is the ONLY caller of save_retrospective.py, so without that instruction
