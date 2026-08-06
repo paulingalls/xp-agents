@@ -31,6 +31,28 @@ runs to 10 MB and only one match is ever used.
 
 import re
 
+# CSI escape sequences — `ESC [`, parameter and intermediate bytes, one final
+# byte. Every runner colours its summary, and a colour code sitting against the
+# anchor token is invisible to a human and fatal to a regex: it puts two word
+# characters side by side, so `\b` finds no boundary, and a leading sequence
+# defeats `^\s*` the same way. Measured on real `pytest --color=yes`, and the
+# same mechanism breaks the jest, mocha and dotnet anchors.
+#
+# The three byte classes are the ECMA-48 ones verbatim (parameter 0x30-0x3F,
+# intermediate 0x20-0x2F, final 0x40-0x7E) rather than the subset a given
+# runner happens to emit. A narrower parameter class does not fail safe: an
+# unrecognized sequence SURVIVES the strip, and a survivor sitting against the
+# anchor token is exactly the miss this is here to prevent — `:` alone covers
+# the T.416 colon form of truecolor SGR (`ESC [ 38:2:r:g:b m`).
+_ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def strip_ansi(text: str) -> str:
+    """*text* with CSI escape sequences removed, so anchors see what a human
+    reads. The `in` guard first: a tool response runs to 10 MB and the common
+    case is uncoloured, which makes this a scan rather than a rewrite."""
+    return _ANSI_CSI.sub("", text) if "\x1b" in text else text
+
 
 def _first(pattern: str, text: str) -> int | None:
     """The first numeric match of *pattern* in *text*, or None."""
@@ -100,18 +122,26 @@ _PYTEST_COUNT = re.compile(
 _PYTEST_DURATION = re.compile(r"\bin\s+[\d.]+\s*s")
 
 
-def pytest_summary_region(tool_response: str) -> str:
-    """pytest's own summary line, or the whole response when none is found.
+def pytest_summary_region(tool_response: str) -> str | None:
+    """pytest's own summary line, or None when the response carries none.
 
-    Falling back to the whole response keeps a reporter shape this does not
-    recognize parseable — a narrower answer than the caller had before, never
-    a blind one.
+    None, not the whole response. Widening to the whole response looked like
+    "a narrower answer than the caller had before, never a blind one", but the
+    caller's question is which text the counts may be read FROM, and answering
+    "all of it" is exactly the blind read: a command that merely mentions
+    pytest plus any count-shaped line in the output produced a recorded
+    result. The honest answer when this finds nothing is that it has no
+    answer, and the caller decides what that means.
+
+    Expects ANSI-stripped input: the count half of the anchor is word-bounded,
+    so a colour code against the digit hides it. `parse_test_results` strips
+    once for every arm — see `strip_ansi`.
     """
     region = None
     for line in tool_response.splitlines():
         if _PYTEST_COUNT.search(line) and _PYTEST_DURATION.search(line):
             region = line
-    return tool_response if region is None else region
+    return region
 
 
 def last_count(pattern: str, text: str) -> int | None:

@@ -189,8 +189,14 @@ def exit_status_proves_runner_passed(command: str) -> bool:
 def parsed_failed_count(error: str, framework: str) -> int | None:
     """Failed-test count when the payload really parsed as a failing run, else
     None. Shared with `bash_failure`, which reports the count it corroborates.
+
+    `allow_scan_fallback` because this caller is corroborating, not recording.
+    The non-zero exit is evidence the parse did not produce; the only open
+    question is whom to blame, so an unfamiliar summary shape must not silence
+    the answer. `bash_post_tool` takes the strict default for the opposite
+    reason — see `parse_test_results`.
     """
-    results = parse_test_results(error, framework)
+    results = parse_test_results(error, framework, allow_scan_fallback=True)
     if results["status"] == PARSER_STATUS_PARSED and results["failed"] > 0:
         return results["failed"]
     return None
