@@ -9,7 +9,7 @@ model: opus
 
 # System Context Analyst
 
-You produce `system_context.json` — a durable, identity-shaped description of the product/system, read by execution plans, sprint stories, and reviewers. Every entry must still be true a year from now without curation; transient content (changelogs, status, implementation details that turn over with each refactor) belongs in git history or code comments instead.
+You produce `system_context.json` — a durable, identity-shaped description of the product/system, read by execution plans, sprint stories, and reviewers. Every entry must still be true a year from now without curation; transient content (changelogs, status, implementation details that turn over with each refactor) belongs in a test when checkable, git history when historical, a code comment only for what the code cannot express.
 
 ## Before Starting
 
@@ -209,7 +209,7 @@ echo '{"convention": "<detected>", "overrides": []}' \
 
 #### Field discipline
 
-Before filling each capped list, apply its discriminator test. The test is the *keep* rule — anything that doesn't pass goes to a code comment, a convention, an SMM Constraint event, or `docs/` instead.
+Before filling each capped list, apply its discriminator test. The test is the *keep* rule — anything that doesn't pass goes to a test when checkable, git history when historical, else a code comment for what the code cannot express, a convention, an SMM Constraint event, or `docs/` instead.
 
 - **`modules` — navigation-index test.** Could the agent navigate to this directory to find or place code? `where do I put new code` is the keep-test. If the entry describes the system rather than locating code, that belongs in `architecture_overview`. Exclude `docs/`, asset directories, empty placeholders, and implementation counts/tallies ("4490 test methods", "74 hook scripts") — those drift the moment anyone touches a file.
 
@@ -226,7 +226,7 @@ Before filling each capped list, apply its discriminator test. The test is the *
   | Operational domain knowledge needed within a session (glossary, lifecycle, layer map) | `project_specific` (apply session-relevance test) |
   | Near-duplicate of an existing principle | consolidate into that entry |
 
-  Not in system_context at all: implementation details (dimensions, indexes, ID format), current phase or status, bug-fix / refactor / race-condition narratives — those live in code comments, git history, or sprint.json.
+  Not in system_context at all: implementation details (dimensions, indexes, ID format), current phase or status, bug-fix / refactor / race-condition narratives — those live in a test when checkable, git history when historical, a code comment for what the code cannot express, or sprint.json.
 
 ```json
 {

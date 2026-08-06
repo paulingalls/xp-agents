@@ -19,13 +19,18 @@ ground the split just won.
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 BAND_CEILINGS = {
-    # shipped (15). Counts here are measured, never incremented or merged:
-    # this back-merge combined a branch that ADDED an entry with a main that
-    # RETIRED several, so neither side's number was right.
+    # shipped — deliberately uncounted, following main. A hand-maintained
+    # count is drift-prone in exactly the way this table warns about: it read
+    # 57 while carrying 58 before anyone noticed, and a back-merge combining a
+    # branch that ADDS an entry with a main that RETIRES several leaves neither
+    # side's number right. Count the entries if you need the number.
     # RETIRED (story-015): hook_liveness.py 469->371, by taking the extraction
     # its own ceiling note named — the per-session sibling scan moved to
     # scripts/hook_heartbeat_scan.py, which a second reader (coordination's
     # liveness leg) now imports without the verdict machinery.
+    # RETIRED (sprint-001): seed_smm.py 499->250, detection split to
+    # smm/seed_detect.py. Below the 450 floor, so the entry is gone rather
+    # than dormant — a kept entry hands back the ground the split won.
     #
     # The first NON-Python entry. The band ratchet discovered only .py until
     # story-002, so every shipped shell file was ungoverned by a gate whose
@@ -35,7 +40,6 @@ BAND_CEILINGS = {
     # main shrank the file in parallel (story-016's once-per-session gate).
     # Carrying 492 across the merge would have handed back all 24 lines.
     "plugins/xp-agents/skills/_preload_base.sh": 468,
-    "plugins/xp-agents/smm/seed_smm.py": 499,
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     "plugins/xp-agents/scripts/close_common.py": 470,  # ratcheted from 496 (split)
     "plugins/xp-agents/smm/sprint_cli_mutate.py": 496,

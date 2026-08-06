@@ -2,10 +2,10 @@
 """Shared git-hook detection primitives.
 
 Two consumers compose these differently:
-- ``seed_smm.has_git_hooks`` (intent-aware) — ``will_fire_hook`` plus a
+- ``seed_detect.has_git_hooks`` (intent-aware) — ``will_fire_hook`` plus a
   content-sniff fallback for non-executable scripts that gesture at hooks.
   Used by SMM seeding to decide whether the project is hook-aware.
-- ``close_common.pre_commit_hook_present`` (strict) — ``will_fire_hook``
+- ``close_review_support.pre_commit_hook_present`` (strict) — ``will_fire_hook``
   alone. Used by close-skill preloads to decide whether to nudge "run the
   project's test command before merging" prose.
 

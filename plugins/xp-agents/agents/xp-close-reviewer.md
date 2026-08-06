@@ -33,6 +33,15 @@ Run the command from `## Diff Command` exactly as given. Do NOT substitute. Bash
 
 See `## Mode-Specific Focus` below. Use Read/Grep/Glob to follow up on hunks when context matters.
 
+## Step 3b: Prose Hygiene
+
+Judged per comment in the changed code — a documentation or narrative file is out of scope here:
+
+- Restates the code, or narrates removed history → Concern; fix is delete — git holds history.
+- States a checkable claim → Concern; fix is convert to a test, where it rots loudly.
+- Comment block ≥25 lines → simplification smell in the CODE.
+- Exempt: a comment carrying only a why the code cannot express — rejected-design rationale, external constraints, machine-checked markers.
+
 ## Mode-Specific Focus
 
 ### sprint

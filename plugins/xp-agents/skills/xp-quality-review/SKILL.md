@@ -1,8 +1,8 @@
 ---
 name: xp-quality-review
 description: >-
-  Independent review of the current diff. Spawns xp-code-reviewer for
-  correctness, drift, debt, and reuse/quality lenses.
+  Independent review of the diff. Spawns xp-code-reviewer for correctness,
+  drift, debt, reuse/quality, prose hygiene.
 effort: high
 allowed-tools:
   - Read
@@ -58,7 +58,7 @@ Build the `xp-code-reviewer` prompt now and spawn the reviewer **unconditionally
 ```
 Agent(
   subagent_type: "xp-agents:xp-code-reviewer",
-  prompt: "## Diff\n<diff>\n\n## Code-Review Findings\n<numbered list, or 'None — self-find correctness'>\n\n## Existing Debt\n<debt>\n\n## SMM Directory\nSMM_DIR=<path>\n\nReview all four areas: correctness, drift, debt, reuse/quality/efficiency + XP values."
+  prompt: "## Diff\n<diff>\n\n## Code-Review Findings\n<numbered list, or 'None — self-find correctness'>\n\n## Existing Debt\n<debt>\n\n## SMM Directory\nSMM_DIR=<path>\n\nReview all five areas: correctness, drift, debt, reuse/quality/efficiency + XP values, prose hygiene."
 )
 ```
 

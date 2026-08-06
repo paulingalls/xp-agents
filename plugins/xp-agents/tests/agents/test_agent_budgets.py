@@ -29,7 +29,13 @@ from conftest import (
 
 AGENT_BUDGETS: dict[str, int] = {
     "xp-close-reviewer": 8980,
-    "xp-code-reviewer": 8550,
+    # Bumped 8550 -> 8900 (story-002): the new §5 Prose Hygiene section names
+    # a review dimension the story's ACs require (the four-bucket comment
+    # rule, shared verbatim with xp-close-reviewer.md). Trimmed first — the
+    # §4 Efficiency bullet's redundant parenthetical (~35 chars) came out
+    # before the bump, per this module's docstring rule that a budget may
+    # only rise after paying down what it can. Measured 8535 after the edit.
+    "xp-code-reviewer": 8900,
     "xp-housekeeper": 10080,
     # Bumped 21940 -> 22800 (story-001, bun spec paths): §10b gained a
     # `bun test <spec>` positional-runner entry, narrowed the whole-tree

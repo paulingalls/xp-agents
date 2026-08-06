@@ -12,23 +12,40 @@ import unittest
 # appear in shipped agent/skill prose — the plugin ships to projects in any
 # language, and this repo is a test fixture for it, not its vocabulary.
 #
-# USAGE CONTRACT — scan the RAW section text, never a `.lower()` copy. The
-# tuple is deliberately mixed-case (`ACCEPT_IN_FLIGHT`, ` LOC`), so a scanner
-# that lowercases its section first can never match those members and the
-# guard silently degrades to an inert check that passes on a real leak.
+# USAGE CONTRACT — scan the RAW text, never a `.lower()` copy. Both tuples are
+# deliberately mixed-case (`Docstring`, `ACCEPT_IN_FLIGHT`, ` LOC`), so a scanner
+# that lowercases its input first can never match those members and the guard
+# silently degrades to an inert check that passes on a real leak. Both casings of
+# a mixed-case name are listed explicitly for the same reason.
 #
-# tests/skills/test_assign_tier_prose.py deliberately does NOT use this tuple:
-# the assign skill prose names the plugin's own `.py`/`.js` script files, which
-# is permitted (a leak is a predicate on a USER path, not on the plugin's own),
-# so it keeps a narrower hand-rolled list.
+# Split by SCOPE, not by content kind. Scope is the fact whose loss let a second
+# copy of this vocabulary grow in the routing pin: that pin scans EVERY shipped
+# prose file, so it can only ban tokens with no legitimate use anywhere, while
+# `assert_project_agnostic` runs on a selected SECTION and can ban more. A
+# content-kind split would also misfile ` LOC` and `lines of code`, which are
+# neither paths nor keywords.
+
+# Bannable across every shipped prose file — no member has a legitimate use in
+# one. `test_prose_routing_pin.py`'s vocabulary leg IS that ban, and the only
+# check of this category's scope: mis-filing a legitimately-used token here
+# reddens that leg, whose failure message names both readings (leaked prose, or
+# a token filed in the wrong category).
+CORPUS_WIDE_FORBIDDEN: tuple[str, ...] = (
+    "docstring",
+    "Docstring",
+    '"""',
+)
+
+# Legitimate SOMEWHERE in shipped prose, so these may only be applied to a
+# selected section: the plugin naming its own script files is permitted — a leak
+# is a predicate on a USER path, not on the plugin's own.
 #
 # `def `/`class `/`function ` are declaration keywords, but they are also
-# ordinary English ("its enclosing function", "a class of errors"). A hit on
-# one of those three may be a FALSE POSITIVE — reword the prose (a comma or a
+# ordinary English ("its enclosing function", "a class of errors"). A hit on one
+# of those three may be a FALSE POSITIVE — reword the prose (a comma or a
 # possessive is usually enough), do not delete the member: removing it is what
-# lets a real language leak back in. The mixed-case members are matched raw for
-# the same reason, so both casings of a mixed-case name are listed explicitly.
-PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
+# lets a real language leak back in.
+SECTION_SCOPED_FORBIDDEN: tuple[str, ...] = (
     ".py",
     ".ts",
     ".js",
@@ -46,6 +63,16 @@ PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
     "quality_review_done",
     "assign-pending",
     "review_cycle_done",
+)
+
+# The section-scoped guard applies BOTH categories: a token safe to ban
+# tree-wide is a fortiori safe to ban inside one section.
+#
+# tests/skills/test_assign_tier_prose.py deliberately does NOT use this tuple:
+# the assign skill prose names the plugin's own `.py`/`.js` script files, so it
+# keeps a narrower hand-rolled list.
+PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
+    CORPUS_WIDE_FORBIDDEN + SECTION_SCOPED_FORBIDDEN
 )
 
 # Members whose casing is load-bearing. Lives beside the vocabulary it

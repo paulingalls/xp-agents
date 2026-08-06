@@ -8,9 +8,11 @@ scan surfaces and rel-path convention. `shipped_prose_to_scan` serves the
 prose-side pin (`test_shipped_prose_language_agnostic.py`), which does no AST
 walking at all — the shared thing is the surface, not the walker.
 
-Each pin keeps its own detection pass because the violation shapes differ
+Detection stays out of here because the violation shapes differ per pin
 (make_event-call+dict-literal, assertEqual+type-subscript, a tool name in a
-line of Markdown). The pin owns detection; this helper owns discovery.
+line of Markdown). Each pin owns its own pass, or — where two pins share one
+rule, as the routing pins do via `_routing_detect` — a detection module beside
+them. This helper owns discovery either way.
 """
 
 import ast
