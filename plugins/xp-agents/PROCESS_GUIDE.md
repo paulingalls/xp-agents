@@ -94,7 +94,7 @@ CLIs (`sprint_cli.py`, `plan_cli.py`, `smm_cli.py`, `retro_cli.py`, `session_his
 ### Other Fields
 
 - **`working_on`** (status events) — JSON array of file paths being modified. Powers conflict detection.
-- **`references`** — link related events by ID. Answers reference questions; discoveries reference contradicted assumptions.
+- **`references`** — link related events by ID; mandatory on answers and discoveries. A reference is NOT a refutation: to flag an assumption as contradicted, declare it — `--metadata '{"refutes": ["<id>"]}'`.
 - **Commit linking** — add `Resolves-Event: <12-hex-id>` trailer to commit body. Case-insensitive, comma-separated. Hook auto-populates `metadata.resolves`.
 
 ### Refactor Mode

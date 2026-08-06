@@ -30,6 +30,19 @@ _IN_PLACE_NAME = "worktree-story-042"
 _LEAD_CWD = "/Users/dev/xp-agents"
 
 
+def _in_place_env_patch(smm_dir: Path, name: str = _IN_PLACE_NAME):
+    """The env an in-place teammate's hook process runs under.
+
+    Module-level so both classes below share ONE spelling of it — the same
+    duplicate-rule hazard story-011's review flagged for `_resolve`.
+    """
+    return patch.dict(
+        os.environ,
+        {"XP_TEAMMATE_NAME": name, "SMM_DIR": str(smm_dir)},
+        clear=False,
+    )
+
+
 class TestInPlaceTeammateReaderWindow(_GateTestCase):
     """concern bc32dcfe6905: an IN-PLACE teammate (solo behavior-table branch
     of xp-assign; `spawn_teammate --in-place`) runs in the MAIN checkout, so
@@ -46,11 +59,7 @@ class TestInPlaceTeammateReaderWindow(_GateTestCase):
     """
 
     def _in_place_env(self):
-        return patch.dict(
-            os.environ,
-            {"XP_TEAMMATE_NAME": _IN_PLACE_NAME, "SMM_DIR": str(self.smm_dir)},
-            clear=False,
-        )
+        return _in_place_env_patch(self.smm_dir)
 
     def test_own_failure_before_lead_clear_anchor_still_blocks(self):
         """Mirrors TestTeammateReaderWindow's worktree-teammate AC1, in-place
@@ -102,6 +111,61 @@ class TestInPlaceTeammateReaderWindow(_GateTestCase):
         ):
             result = self._stop(events, cwd=_LEAD_CWD, dirty=False)
         self.assertIsNotNone(result)
+
+
+class TestInPlaceTeammateIsNotReleasedByCoordination(_GateTestCase):
+    """AC-3: the in-place leg of the gate's coordination release.
+
+    By the time the release is considered, `find_last_test_signal` has already
+    scoped the read — and an in-place teammate IS scoped, to its own
+    `XP_TEAMMATE_NAME`. So a failure that reaches here is provably its own, and
+    releasing it because some other agent has a coordination entry abandons a
+    red suite it owns. Only the lead, which reads unscoped, can be looking at
+    someone else's failure.
+    """
+
+    def _coordinate(self, *agent_ids: str) -> None:
+        import coordination
+
+        for aid in agent_ids:
+            coordination.update_coordination(self.smm_dir, aid, [])
+
+    def test_own_failure_blocks_even_with_another_agent_active(self):
+        """The AC. Releases before the owner guard: with `agent_id` absent the
+        in-place teammate resolves to `main` (its cwd is the main checkout), a
+        foreign entry is present, so `has_active_teammates` said yes."""
+        worktree.in_place_marker_path(self.smm_dir, _IN_PLACE_NAME).touch()
+        self._coordinate("main", "worktree-story-007")
+        events = [failing_tests_concern(agent_id=_IN_PLACE_NAME), *filler(3)]
+        with _in_place_env_patch(self.smm_dir):
+            result = self._stop(events, cwd=_LEAD_CWD, dirty=False, agent_id=None)
+        self.assertIsNotNone(result)
+
+    def test_it_resolves_to_the_key_post_tool_use_writes(self):
+        """The stated resolution, pinned rather than left as prose. An in-place
+        teammate's cwd is the main checkout, so `resolve_agent_id` answers
+        `main` — the SAME key `post_tool_use` writes its coordination entry
+        under. Resolving it to `XP_TEAMMATE_NAME` here instead would compare
+        against a key space nothing writes, re-opening the fail-open from the
+        other side."""
+        import identity
+
+        with _in_place_env_patch(self.smm_dir):
+            self.assertEqual(
+                identity.resolve_agent_id({"session_id": "t", "cwd": _LEAD_CWD}),
+                "main",
+            )
+
+    def test_the_lead_in_the_same_env_is_still_released(self):
+        """Over-arming control. A leaked `XP_TEAMMATE_NAME` with NO live marker
+        is the lead, and the lead must keep its release — otherwise "never
+        release" would satisfy the block above while quietly deleting the
+        behaviour the gate is supposed to have."""
+        self._coordinate("main", "worktree-story-007")
+        events = [session_anchor(), *filler(3), failing_tests_concern(agent_id="main")]
+        with _in_place_env_patch(self.smm_dir):
+            result = self._stop(events, cwd=_LEAD_CWD, dirty=False, agent_id=None)
+        self.assertIsNone(result)
 
 
 class TestReaderScopeSharedResolver(_GateTestCase):

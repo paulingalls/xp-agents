@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+import close_window
 import concern_relevance
 from append_validation import parse_jsonl
 from event_metadata import CONCERN_ACTION_TRANSIENT_TEST
@@ -64,35 +65,37 @@ def _skipped_lines(raw: str) -> list[str]:
     return bad
 
 
-def _provably_out_of_window(line: str, since_ts: str | None) -> bool:
+def _provably_out_of_window(line: str, floor: str | None) -> bool:
     """True only when *line* is an unparseable JSONL line with a
-    recoverable "ts" substring that lexicographically precedes
-    *since_ts* — i.e. positive evidence the line predates the scoped
-    window, safe to exclude from the fail-closed floor.
+    recoverable "ts" substring that lexicographically precedes *floor*
+    — i.e. positive evidence the line predates the scoped window, safe
+    to exclude from the fail-closed floor. *floor* is the window's
+    effective lower bound, which count-concerns resolves through
+    close_window rather than passing its --since-ts straight through.
 
     Requires the line to still start with '{' (looks like an attempted
     JSON object) before trusting the extraction — the dominant
     real-world corruption mode is a truncated atomic write of an
     otherwise well-formed event, not adversarial garbage, so a
     recognizable "ts" field on an otherwise-object-shaped line is a
-    trustworthy signal. Returns False (never excludes) whenever
-    since_ts is unset or no ts can be extracted, so genuinely
-    unscopable corruption stays on the fail-closed floor.
+    trustworthy signal. Returns False (never excludes) whenever the
+    floor is unset or no ts can be extracted, so genuinely unscopable
+    corruption stays on the fail-closed floor.
     """
-    if not since_ts or not line.startswith("{"):
+    if not floor or not line.startswith("{"):
         return False
     match = _EMBEDDED_TS_RE.search(line)
     if not match:
         return False
-    return match.group(1) < since_ts
+    return match.group(1) < floor
 
 
-def _floor_count(bad_lines: list[str], since_ts: str | None) -> tuple[int, int]:
+def _floor_count(bad_lines: list[str], floor: str | None) -> tuple[int, int]:
     """Split unparseable lines into (still-counted, provably-excluded).
 
     Returns (in_scope, excluded) where in_scope + excluded == len(bad_lines).
     """
-    excluded = sum(1 for line in bad_lines if _provably_out_of_window(line, since_ts))
+    excluded = sum(1 for line in bad_lines if _provably_out_of_window(line, floor))
     return len(bad_lines) - excluded, excluded
 
 
@@ -231,12 +234,19 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
     filed and later fixed-and-linked must stop counting, or a resolved
     finding blocks the close gate forever.
 
+    How WIDE the count looks is close_window's decision, taken from the
+    gated cycle's own close_mode rather than from the flags: an
+    ENCLOSING close (sprint/plan/free) is bounded by the sprint start,
+    so a concern an earlier story-close left open still counts against
+    the merge gate that exists to catch it. A `story` close keeps the
+    narrow window (concern f106bf044ded / decision efed0cb00c62).
+
     Always exits 0 (missing file → 0) so callers can `$(...)` capture
     without exit-code branching. A malformed line is COUNTED (fail
     closed) — only an ABSENT events.jsonl returns 0; a hidden high
     concern must never silently lower the count — UNLESS a ts
     substring can be recovered from the raw line and it provably
-    precedes --since-ts, in which case it is excluded (see
+    precedes the window floor, in which case it is excluded (see
     _provably_out_of_window; concern a11e9132e5bc).
 
     With --cycle-id AND a non-empty --diff-paths, an UNTAGGED concern that is
@@ -272,6 +282,12 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         return 0
     raw_text = events_path.read_text()
     events, skipped = parse_jsonl(raw_text)
+    # ONE window for the tag rule and BOTH floor sites — the events filter below
+    # and the corrupt-line floor. Two spellings of one rule is the old drift.
+    window = close_window.resolve(
+        events, Path(args.smm_dir), cycle_id=args.cycle_id, since_ts=args.since_ts
+    )
+    close_window.report(window, "count-concerns")
     resolved_ids = compute_resolutions(events)["resolved_concern_ids"]
     count = 0
     for event in events:
@@ -281,9 +297,9 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
             continue
         meta = event.get("metadata", {})
         tag = meta.get(METADATA_KEY_CLOSE_CYCLE_ID)
-        if args.cycle_id and tag is not None and tag != args.cycle_id:
+        if window.excludes_tag(tag):
             continue
-        if args.since_ts and event.get("ts", "") < args.since_ts:
+        if window.floor and event.get("ts", "") < window.floor:
             continue
         if event.get("id", "") in resolved_ids:
             continue
@@ -297,8 +313,8 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         # the producers whose concerns bash_post_tool clears on green.
         if args.cycle_id and tag is None and _is_transient_test_concern(event):
             continue
-        # Second untagged carve-out, same shape as the one above: exclude by
-        # PROVABLE IRRELEVANCE, never by absence of a tag. The invariant —
+        # Relevance carve-out — which tags it may drop is window.allows_
+        # relevance_drop's call (d41cba499bf3); exclude by PROVABLE IRRELEVANCE —
         # excluded-from-scoped-gate IFF the concern names files that all EXIST
         # in the working tree and none of which intersect the close diff, i.e.
         # it is provably about OTHER code that is present and untouched
@@ -315,7 +331,7 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
             args.cycle_id
             and diff_paths
             and repo_root is not None
-            and tag is None
+            and window.allows_relevance_drop(tag)
             and concern_relevance.provably_outside_diff(event, diff_paths, repo_root)
         ):
             continue
@@ -324,12 +340,12 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
     # parse_jsonl actually skipped some — the healthy case (skipped == 0) must
     # not pay a second full parse of the whole log.
     bad_lines = _skipped_lines(raw_text) if skipped else []
-    in_scope, excluded = _floor_count(bad_lines, args.since_ts)
+    in_scope, excluded = _floor_count(bad_lines, window.floor)
     if excluded:
         print(
             f"count-concerns: excluded {excluded} unparseable line(s) in "
-            f"{events_path} with an embedded ts older than --since-ts "
-            f"{args.since_ts} (provably out of scope)",
+            f"{events_path} with an embedded ts older than the window floor "
+            f"{window.floor} (provably out of scope)",
             file=sys.stderr,
         )
     if in_scope:
@@ -391,12 +407,13 @@ def register_parsers(sub: argparse._SubParsersAction) -> None:
     cc_p.add_argument(
         "--cycle-id",
         default=None,
-        help="Filter by metadata.close_cycle_id; excludes events tagged "
-        "with a DIFFERENT cycle id, so a concurrent close-cycle's tagged "
-        "events do not leak in. An event WITHOUT the key is counted (fails "
-        "closed rather than dropping it) — pair with --since-ts to bound "
-        "untagged events, and with --diff-paths to drop the untagged ones "
-        "provably about code this close does not touch.",
+        help="Filter by metadata.close_cycle_id, and the key that sets the "
+        "window width — this cycle's close_started names the close MODE. A story "
+        "close excludes every differently-tagged event, so a concurrent "
+        "close-cycle's do not leak in; an ENCLOSING close excludes a tag only "
+        "when its close is provably from an earlier sprint. An event WITHOUT the "
+        "key always counts (fails closed) — pair with --diff-paths to drop the "
+        "untagged ones provably about code this close does not touch.",
     )
     cc_p.add_argument(
         "--diff-paths",
@@ -426,5 +443,8 @@ def register_parsers(sub: argparse._SubParsersAction) -> None:
     cc_p.add_argument(
         "--since-ts",
         default=None,
-        help="ISO 8601 timestamp; events with ts < this are excluded",
+        help="ISO 8601 timestamp; events with ts < this are excluded — but ONLY "
+        "when --cycle-id names a `story` close. An enclosing close is bounded by "
+        "its sprint's start instead, an unreadable mode by nothing at all; both "
+        "say so on stderr.",
     )

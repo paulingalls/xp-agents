@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from unittest.mock import patch
 
 import _common
+import commit_command
 import pre_tool_bash
 from conftest import _HookTestCase, _make_bash_input
 
@@ -81,9 +82,45 @@ class TestUnresolvableDashCFailsClosed(_HookTestCase):
 
     @patch("git_commits.is_git_commit", return_value=True)
     def test_block_names_the_actionable_fix(self, *_mocks):
-        """A refusal that doesn't say what to do instead just moves the problem."""
+        """A refusal that doesn't say what to do instead just moves the problem.
+
+        The advice used to read "use a literal ABSOLUTE path", which was wrong in
+        two ways even before story-011: a relative literal path has always been
+        permitted (pinned in test_commit_command.py), and a QUOTED literal path
+        now resolves correctly, so telling agents to unquote would push them off
+        the documented `git -C <path>` form for any path containing a space.
+        """
         message = self._assert_blocked('git -C "$WT" commit -m "x"')
-        self.assertIn("literal absolute path", message)
+        self.assertIn("single literal path", message)
+        self.assertIn("quoting it is fine", message)
+
+    @patch("git_commits.is_git_commit", return_value=True)
+    def test_mixed_quoting_concatenation_is_blocked(self, *_mocks):
+        """`-C '/tmp/'"$WT"` — only the first segment is readable, so the repo
+        the commit lands in is unknowable.
+
+        Previously recorded as an accepted fail-open. It became urgent once
+        parse_effective_cwd started reading raw tokens: the first segment is a
+        real directory, so instead of falling back it resolved CONFIDENTLY to the
+        wrong repo.
+        """
+        message = self._assert_blocked("""git -C '/tmp/'"$WT" commit -m "x\"""")
+        self.assertIn("concatenating quoting forms", message)
+
+    @patch("git_commits.is_git_commit", return_value=True)
+    def test_a_bare_backslash_escaped_path_is_blocked(self, *_mocks):
+        """`git -C /tmp/a\\ dir commit` — the shell joins the escape into ONE
+        path, the `-C` token regex stops at the backslash, and what it captured
+        (`/tmp/a\\`) is not the repo git receives.
+
+        Same failure mode as the mixed-quoting token this story closed, and a
+        likelier spelling: a real user path with a space in it. The captured
+        segment carries no `$`, no backtick, no `~` and no glob, so it read as
+        REACHABLE, `is_dir()` failed on it, and every gate silently scanned the
+        caller's repo while the commit landed in the escaped one.
+        """
+        message = self._assert_blocked('git -C /tmp/a\\ dir commit -m "x"')
+        self.assertIn("Cannot determine which repo", message)
 
 
 class TestTheBlockDoesNotOverreach(_HookTestCase):
@@ -165,6 +202,95 @@ class TestTheBlockPreemptsEveryDownstreamGate(_HookTestCase):
             reads, [], "a gate read the caller's repo before the block fired"
         )
 
+    @patch("git_commits.is_git_commit", return_value=True)
+    def test_a_quoted_literal_path_makes_the_gates_read_THAT_repo(self, *_mocks):
+        """The end-to-end shape of the defect, asserted on the repo the gates
+        actually inspected rather than on whether the hook raised.
+
+        This is the leg that would have caught the bug. `git -C "<dir>" commit`
+        never raised — it proceeded, quietly — and every gate ran `git` in the
+        CALLER's repo, where nothing was staged. An empty diff is not a blocked
+        commit, it is a silent one: the tier-1 secret scan had nothing to scan,
+        the lint gate had no files to group, and the review-cycle gate counted
+        zero changed files. Asserting "does not raise" passes both before and
+        after the fix, which is exactly why no existing test caught it.
+        """
+        reads: list[str] = []
+
+        def _record(where, *_a, **_kw):
+            reads.append(where)
+            return ""
+
+        with (
+            tempfile.TemporaryDirectory() as worktree,
+            patch("commits.get_staged_diff", side_effect=_record),
+            patch("commits.get_staged_files", side_effect=_record),
+            patch("commits.get_code_files_for_review", side_effect=_record),
+        ):
+            pre_tool_bash.run(
+                _make_bash_input(
+                    command=f'git -C "{worktree}" commit -m "x"', cwd="/tmp"
+                ),
+                smm_dir=self.smm_dir,
+            )
+            self.assertTrue(reads, "no gate ran at all — the assertion is vacuous")
+            self.assertEqual(
+                set(reads),
+                {worktree},
+                "a gate read a repo the command did not name",
+            )
+
+    @patch("git_commits.is_git_commit", return_value=True)
+    def test_a_line_continued_dash_c_still_targets_the_named_repo(self, *_mocks):
+        """A `\\`-wrapped invocation is one command to the shell, so the `-C`
+        past the wrap is a real target — not an absent flag.
+
+        The token gap between `git` and `-C` was `\\s+`, which a backslash does
+        not match, so the flag went unrecognized: no refusal (`$WT` past a wrap
+        was NOT blocked either) and no retarget, leaving every gate on the
+        caller's repo. The CI-identity form the project documents
+        (`git -c commit.gpgsign=false -C <path> commit`) is exactly long enough
+        that an agent wraps it.
+        """
+        reads: list[str] = []
+
+        def _record(where, *_a, **_kw):
+            reads.append(where)
+            return ""
+
+        with (
+            tempfile.TemporaryDirectory() as worktree,
+            patch("commits.get_staged_diff", side_effect=_record),
+            patch("commits.get_staged_files", side_effect=_record),
+            patch("commits.get_code_files_for_review", side_effect=_record),
+        ):
+            pre_tool_bash.run(
+                _make_bash_input(
+                    command=(
+                        "git -c commit.gpgsign=false \\\n"
+                        f'  -C "{worktree}" commit -m "x"'
+                    ),
+                    cwd="/tmp",
+                ),
+                smm_dir=self.smm_dir,
+            )
+            self.assertTrue(reads, "no gate ran at all — the assertion is vacuous")
+            self.assertEqual(
+                set(reads), {worktree}, "a gate read a repo the command did not name"
+            )
+
+    @patch("git_commits.is_git_commit", return_value=True)
+    def test_a_line_continued_variable_dash_c_is_still_refused(self, *_mocks):
+        """The other half: the refusal must survive the wrap too, or the
+        continuation is a bypass of the block rather than only of the parse."""
+        with self.assertRaises(_common.BlockedError):
+            pre_tool_bash.run(
+                _make_bash_input(
+                    command='git \\\n  -C "$WT" commit -m "x"', cwd="/tmp"
+                ),
+                smm_dir=self.smm_dir,
+            )
+
 
 class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
     """The gate and the docs must agree.
@@ -181,6 +307,12 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
     Backslash continuations are joined first: a fenced block that wraps
     `git -C "$WT"` onto a second line with a trailing backslash is the same
     instruction, and scanning raw lines would let that form back in.
+
+    WHICH forms are refused is asked of the gate itself (`dash_c_unreachable`),
+    never re-derived here. A hand-rolled "`$` or leading `~`" test drifted the
+    moment the gate learned a third refused form (concatenated quoting) and a
+    fourth (a backslash escape): the pin kept passing on prose the gate would
+    block, which is the one thing it exists to prevent.
     """
 
     _COMMIT_SHAPED = re.compile(
@@ -204,7 +336,35 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
         if pending:
             yield start, " ".join(part.strip() for part in pending).strip()
 
-    def test_no_shipped_md_instructs_a_variable_dash_c_commit(self):
+    # story-013: `cd <path> && … git commit` is refused too, so prose mandating
+    # one must be caught by the same scan. Kept as a second pattern rather than a
+    # widened first one so each keeps asking ITS OWN gate predicate — the whole
+    # point of this class is that the pin never carries its own copy of the rule.
+    _CD_COMMIT_SHAPED = re.compile(
+        r"\bcd\s+(?P<cdpath>\S+)[^\n]*?\bgit\s+(?:-\S+\s+)*"
+        r"(?:commit|add|stash|merge|push)\b"
+    )
+
+    @staticmethod
+    def _gate_refuses(path: str) -> bool:
+        """Ask the gate, on a minimal commit built from the prose's own path."""
+        return commit_command.dash_c_unreachable(f"git -C {path} commit -m x")
+
+    @staticmethod
+    def _gate_refuses_cd(path: str) -> bool:
+        return commit_command.cd_target_unreachable(f"cd {path} && git commit -m x")
+
+    def _mandates_a_refused_form(self, line: str) -> bool:
+        """True when this logical line mandates a form either gate refuses."""
+        return any(
+            self._gate_refuses(m.group("path") or m.group("solo") or "")
+            for m in self._COMMIT_SHAPED.finditer(line)
+        ) or any(
+            self._gate_refuses_cd(m.group("cdpath"))
+            for m in self._CD_COMMIT_SHAPED.finditer(line)
+        )
+
+    def test_no_shipped_md_instructs_a_commit_the_gate_refuses(self):
         plugin_root = Path(__file__).parent.parent.parent
         offenders: list[str] = []
 
@@ -212,25 +372,22 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
             if "/tests/" in str(md):
                 continue
             for lineno, line in self._logical_lines(md.read_text(encoding="utf-8")):
-                for m in self._COMMIT_SHAPED.finditer(line):
-                    path = m.group("path") or m.group("solo") or ""
-                    if "$" in path or path.lstrip("`\"'").startswith("~"):
-                        rel = md.relative_to(plugin_root)
-                        offenders.append(f"{rel}:{lineno}: {line.strip()}")
+                if self._mandates_a_refused_form(line):
+                    rel = md.relative_to(plugin_root)
+                    offenders.append(f"{rel}:{lineno}: {line.strip()}")
 
         self.assertEqual(
             offenders,
             [],
-            "shipped prose instructs a `git -C` commit the gate will refuse; "
-            "substitute the literal absolute path:\n" + "\n".join(offenders),
+            "shipped prose instructs a `git -C` or `cd` commit the gate will "
+            "refuse; substitute a single literal path:\n" + "\n".join(offenders),
         )
 
     def _flagged(self, text: str) -> list[int]:
         return [
             lineno
             for lineno, line in self._logical_lines(text)
-            for m in self._COMMIT_SHAPED.finditer(line)
-            if "$" in (m.group("path") or m.group("solo") or "")
+            if self._mandates_a_refused_form(line)
         ]
 
     def test_the_pin_is_not_vacuous(self):
@@ -244,10 +401,37 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
             self._flagged('intro\ngit -C "$TEAMMATE_CWD" \\\n  commit -m "x"\n'), [2]
         )
 
+    def test_the_pin_tracks_the_gate_rather_than_its_own_copy_of_the_rule(self):
+        """A refused form the hand-rolled `$`-or-leading-`~` test never saw.
+
+        An unquoted GLOB carries neither, so prose mandating it passed the pin
+        while the gate blocked it — and a glob is the one expansion that does
+        NOT abort, so it is the form that most needs the docs to agree. Same for
+        the concatenated quoting the gate learned this story.
+        """
+        self.assertEqual(self._flagged("run `git -C ../wt-story-* commit -m x`"), [1])
+        self.assertEqual(
+            self._flagged("""run `git -C '/tmp/'"$WT" commit -m x` in the worktree"""),
+            [1],
+        )
+
     def test_the_pin_permits_the_placeholder_form(self):
         """`<worktree-path>` is a placeholder the agent substitutes, not a
         shell variable — flagging it would forbid writing the rule at all."""
         self.assertEqual(self._flagged("`git -C <worktree-path> commit ...`"), [])
+
+    def test_the_pin_covers_the_cd_leg_too(self):
+        """story-013 gave `cd` the same refusal, so prose mandating an
+        unresolvable `cd` must be caught by the same scan.
+
+        Green on arrival — no shipped `.md` carries a `cd` whose path holds `$`,
+        `~` or a glob — so this is a GUARD, not a red-first proof, and saying so
+        matters: a guard claimed as red-first is the reachability-not-behaviour
+        trap. The placeholder leg keeps it from forbidding the sentence our own
+        guides use to tell agents NOT to `cd`.
+        """
+        self.assertEqual(self._flagged('run `cd "$WT" && git commit -m x`'), [1])
+        self.assertEqual(self._flagged("`cd <worktree> && git commit` is wrong"), [])
 
 
 if __name__ == "__main__":

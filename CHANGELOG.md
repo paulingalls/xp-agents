@@ -2,7 +2,7 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
-## v5.6.0 — Shipped guidance had no reverse gear for its own prose
+## v5.7.0 — Shipped guidance had no reverse gear for its own prose
 
 ### Five lines told readers to put things in comments, and offered no way back
 
@@ -95,6 +95,97 @@ architectural bounds for the crime of being checkable.
 Releasing is now recorded as a convention — a merge to main bumps the manifest
 version and adds a CHANGELOG entry — held deliberately as a convention rather
 than a test.
+## v5.6.0 — Gates tuned on one harness, measured against another
+
+We set out to answer whether this plugin could run on a second CLI harness. The
+answer is in `docs/completed/CODEX_SPIKE_FINDINGS.md`. The more useful result
+was accidental: pointing the gates at an unfamiliar harness, and reading what
+they actually recorded, caught twelve of them reporting something other than
+what happened. Those fixes are the release. The spike rig itself is deleted —
+the findings document is written for a reader who cannot re-run anything.
+
+### A gate that released itself
+
+The TDD Stop gate read `agent_id` straight off the hook payload. On `Stop` that
+field is always empty, so the coordination check it fed compared an empty id
+against every entry, concluded another agent held the work, and released. Not
+occasionally — every time, in every solo session, for as long as the gate has
+existed. It was reported as a gate; it was a no-op.
+
+### Two ways a path stopped pointing at your repo
+
+`git -C "/some/path" commit` and `cd "/some path" && git commit` both resolved
+to the hook's own working directory. Quoted paths were stripped before anything
+read them, so the commit gate scanned a different repository than the one being
+committed to, found no story branch, and allowed the commit. Neither form
+errored; both silently answered about the wrong tree.
+
+Both now route through one masked-locate/raw-read module rather than two
+parallel fixes, and a target that cannot be read confidently **refuses** instead
+of falling back. A line-continuation form (`git -C /p \` + newline + `commit`)
+that previously matched no detector at all is now matched.
+
+### A parser that invented results
+
+With no summary line to anchor on, the test parser scanned the whole tool
+response and reported whatever numbers it found. A co-executed tool supplied
+them: `ruff check && pytest` with ruff at *"Found 2 errors"* recorded `88
+passed, 2 failed` against a suite that was 88/0 — and then armed the failure
+gate on the phantom. Counts are now scoped to the runner's own summary line, and
+a run with no identifiable summary reports **no result** rather than a
+fabricated one.
+
+Colour was doing the same damage more quietly: an escape sequence sitting
+against the anchor token puts two word characters side by side, so `\b` finds no
+boundary and the anchor never matches a coloured run.
+
+Two more surfaced at close review. pytest read only the **last** summary line
+while every other runner summed, so `pytest unit && pytest integration` with
+three failures followed by forty passes parsed as zero failed — and since the
+shell reports only the last command's status, nothing downstream would have
+caught it. And one package printing `No tests found` zeroed an entire workspace
+run, discarding its siblings' counts.
+
+### Coordination could not tell a dead agent from a live one
+
+Teammate liveness was a 30-minute TTL on a timestamp. A killed teammate kept
+releasing the lead's gates for the rest of that window, and a report of a
+teammate's death was indistinguishable from its success — a process that died
+mid-edit still exited 0 and printed the success line. Liveness now reads a
+heartbeat the dead cannot refresh.
+
+Honestly stated, because the first version of this fix was wrong in the other
+direction and the second is a judgement call: the trust window is a dial, not a
+proof. The comments that oversold it — claiming the two clocks always age
+together, and that both callers fail safe — were measured and corrected rather
+than left standing.
+
+### Scheduling decisions made on absent evidence
+
+An empty `file_domain` meant *unknown*, but intersecting two empties yields an
+empty set, so unscoped stories always read as mutually disjoint and were offered
+as a parallel batch. Three stories that would have collided on the same files
+were cleared to run concurrently.
+
+The accept gate prompted *"run /xp-accept to verify acceptance criteria"* for
+stories that declared nothing any command could check. It still fires exactly as
+often; it now names the stories whose acceptance nothing can prove.
+
+A contradiction detector filed confirmations as contradictions, because it read
+an event's `references` list as *refutes* — and that field is mandatory and
+non-empty on every discovery, so supporting evidence and contradicting evidence
+were indistinguishable to it.
+
+### Also
+
+The schedule gate's merge exemption was per-checkout rather than per-file: while
+`MERGE_HEAD` existed, every write was exempt, so an abandoned merge disarmed the
+gate wholesale. Only files with genuinely open conflicts are exempt now, and
+staging a resolution ends that file's exemption immediately.
+
+An outer close counted concerns from a window that began after an inner close
+had already filed its findings, so a story close's discoveries could not reach
+the sprint close's own gate.
 
 ## v5.5.1 — Three gates that were reporting things that weren't happening
 

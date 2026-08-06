@@ -13,11 +13,7 @@ Usage:
 """
 
 import argparse
-import json
-import os
-import select
 import sys
-from collections.abc import Iterator
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -28,13 +24,20 @@ import coordination
 import identity
 import spawn_command
 import spawn_prompt
-import teammate_runner
+import teammate_stream_reader
 import worktree
 
 get_current_branch = identity.get_current_branch
 
+# Re-exported because this module's own suites address them here: reading the
+# stream moved to `teammate_stream_reader`, and the names those tests use are
+# part of this module's established surface.
+_DEFAULT_READ_TIMEOUT_S = teammate_stream_reader.DEFAULT_READ_TIMEOUT_S
+_read_timeout = teammate_stream_reader.read_timeout
+_is_result = teammate_stream_reader.is_result
+parse_result_event = teammate_stream_reader.parse_result_event
+
 _DECISION_BLOCK = "block"
-_STREAM_JSON_RESULT_TYPE = "result"
 # Markers that make a non-JSON line get its OWN dedicated wording ("Spawn
 # failed: ...") ahead of the generic unrecognized-output tier below. The
 # spawn's own refusal is the one signal we OWN rather than inherit from a
@@ -63,136 +66,6 @@ _DIAGNOSTIC_LINE_CHARS = 200
 # JSON fragment whose text happens to carry "Error:" reaches this tier too —
 # unbounded, that is a ~64KB dump into the lead's context.
 _ERROR_LINE_CHARS = 2000
-
-# No-progress deadline. Primary liveness is owned by spawn_teammate.py's
-# watchdog (teammate_runner._WATCHDOG_TIMEOUT_S): when the child `claude -p`
-# goes silent the watchdog kills it, the stream EOFs, and the no-result path
-# below fires. A deadline here SHORTER than the watchdog would preempt it and
-# kill teammates during legitimately silent tool calls (nested reviews,
-# acceptance runs) — the stream is silent to the parent stdout even though the
-# teammate is working. So the default deadline is set LONGER than the watchdog
-# window (+ kill grace + margin): it never preempts the watchdog and never
-# fires during healthy-but-silent work, yet still provides a SECOND, independent
-# backstop the watchdog cannot — a spawn-side tee-loop wedge (e.g. blocked in a
-# log flush) where the stream neither advances nor EOFs, which would otherwise
-# hang this filter forever. Set XP_TEAMMATE_FILTER_TIMEOUT to override; "0" (or
-# any value <= 0) disables the deadline entirely (block until EOF). Tests also
-# use the override to force the timeout path quickly.
-_TIMEOUT_ENV_VAR = "XP_TEAMMATE_FILTER_TIMEOUT"
-_BACKSTOP_MARGIN_S = 300
-_DEFAULT_READ_TIMEOUT_S = (
-    teammate_runner._WATCHDOG_TIMEOUT_S
-    + teammate_runner._WATCHDOG_KILL_GRACE_S
-    + _BACKSTOP_MARGIN_S
-)
-# Brief drain after the result event so any final lines (warnings, hook
-# diagnostics) make it into the lines list before EOF. 0.1s suits the
-# common case where claude -p closes stdout immediately after `result`;
-# on a contended host a slower trailing line could be lost, but stream-
-# json treats `result` as terminal so the diagnostic value of any tail
-# is low enough that env-overriding this would be overkill.
-_POST_RESULT_DRAIN_TIMEOUT = 0.1
-_READ_CHUNK_BYTES = 65536
-
-
-def _read_timeout() -> float | None:
-    """No-progress deadline in seconds, or None for no deadline.
-
-    Env unset/empty → the watchdog-exceeding backstop default
-    (_DEFAULT_READ_TIMEOUT_S). An explicit XP_TEAMMATE_FILTER_TIMEOUT
-    overrides; a value <= 0 disables the deadline (None), so a stray "0"
-    means "block until EOF" rather than an instant-timeout that would abort
-    a healthy run.
-
-    Read each call so tests can override without re-importing the module.
-    """
-    raw = os.environ.get(_TIMEOUT_ENV_VAR)
-    if not raw:
-        return _DEFAULT_READ_TIMEOUT_S
-    try:
-        value = float(raw)
-    except ValueError:
-        # A malformed override must not crash the filter (the teammate's sole
-        # stdout reader) — that would re-deadlock the very run this guards.
-        sys.stderr.write(
-            f"WARN: invalid {_TIMEOUT_ENV_VAR}={raw!r}; using default backstop\n"
-        )
-        return _DEFAULT_READ_TIMEOUT_S
-    return value if value > 0 else None
-
-
-def _iter_lines_with_timeout(fd: int, timeout: float | None) -> Iterator[str]:
-    """Yield decoded lines from fd; raise TimeoutError on no progress.
-
-    When *timeout* is None there is no deadline — select blocks until the fd is
-    readable or EOF (liveness is the spawn watchdog's job). A float *timeout*
-    raises TimeoutError after that many seconds of no activity (opt-in backstop).
-
-    Drives os.read directly (NOT sys.stdin.readline) because select on a
-    buffered TextIOWrapper deadlocks: bytes can sit in Python's read-ahead
-    buffer with the OS pipe empty, so select reports "not ready" and the
-    caller hangs.
-    """
-    buf = b""
-    while True:
-        ready, _, _ = select.select([fd], [], [], timeout)
-        if not ready:
-            raise TimeoutError(f"no stdin activity for {timeout}s")
-        chunk = os.read(fd, _READ_CHUNK_BYTES)
-        if not chunk:
-            if buf:
-                yield buf.decode("utf-8", errors="replace")
-            return
-        buf += chunk
-        while b"\n" in buf:
-            line, buf = buf.split(b"\n", 1)
-            yield line.decode("utf-8", errors="replace")
-
-
-def _parse_stream_object(line: str) -> dict | None:
-    """Parse one captured line as a stream-json event, or None if it isn't one.
-
-    Single definition of "parsed as stream-json", shared by the fd-side reader
-    (_consume_stream), parse_result_event and extract_diagnostics, so the
-    diagnostic's counts cannot drift from what the reader actually accepted.
-
-    Non-object JSON (a bare number, string, null, array) is NOT an event: the
-    stream is merged with the spawn's stderr (2>&1), so such a line is
-    spawn-side text that happens to be JSON-parseable. Returning it would hand
-    a non-dict to `.get()` and kill the filter — the teammate's sole stdout
-    reader — losing the whole capture on the exact path meant to preserve it.
-    """
-    try:
-        data = json.loads(line)
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def _iter_json_objects(lines: list[str]) -> Iterator[dict]:
-    """Yield parsed JSON objects from stream-json lines, skipping malformed."""
-    for line in lines:
-        data = _parse_stream_object(line)
-        if data is not None:
-            yield data
-
-
-def _is_result(data: dict) -> bool:
-    """Stream-json terminal-event predicate. Single source of truth.
-
-    Used by parse_result_event (list-based, edge-case unit-tested) AND by
-    _consume_stream (fd-based, integration-tested). Keeps both detection
-    paths in sync.
-    """
-    return data.get("type") == _STREAM_JSON_RESULT_TYPE
-
-
-def parse_result_event(lines: list[str]) -> dict | None:
-    """Find the type:result event in stream-json lines."""
-    for data in _iter_json_objects(lines):
-        if _is_result(data):
-            return data
-    return None
 
 
 def _clip(line: str, limit: int) -> str:
@@ -240,7 +113,7 @@ def extract_diagnostics(lines: list[str]) -> str:
     non_json_lines: list[str] = []
     parsed_count = 0
     for line in lines:
-        data = _parse_stream_object(line)
+        data = teammate_stream_reader.parse_stream_object(line)
         if data is None:
             non_json_lines.append(line)
             continue
@@ -274,9 +147,47 @@ def extract_diagnostics(lines: list[str]) -> str:
     )
 
 
-def write_report(smm_dir: Path, teammate_id: str, result_text: str) -> Path:
-    """Write teammate report file. Returns the file path."""
+# Marks every rendering of a terminal event that did NOT complete: the report
+# file's first line, the completion event's content, and the summary line the
+# lead reads. One token so none of the three can be made to look like the
+# others' success shape by accident.
+_FAILED = "FAILED"
+_SUCCESS_SUBTYPE = "success"
+_UNNAMED_FAILURE = "unspecified error"
+
+
+def failure_reason(result: dict) -> str | None:
+    """The terminal reason a result event carries, or None if it completed.
+
+    Two independent signals, and EITHER alone is enough. `is_error` is the
+    flag; `subtype` names which failure it was (error_during_execution,
+    error_max_turns, ...) and is the half worth printing. Requiring both would
+    reinstate the defect one signal at a time: the death that went unnoticed
+    exited 0, and the exit status was the only thing anyone checked.
+
+    A result carrying NEITHER signal is a success. Absence is not evidence
+    here — a simpler harness emits a bare terminal event, and reading those as
+    deaths would report every run it makes as failed.
+    """
+    subtype = result.get("subtype")
+    named = isinstance(subtype, str) and subtype not in ("", _SUCCESS_SUBTYPE)
+    if not named and not result.get("is_error"):
+        return None
+    return subtype if named else _UNNAMED_FAILURE
+
+
+def write_report(
+    smm_dir: Path, teammate_id: str, result_text: str, *, failure: str | None = None
+) -> Path:
+    """Write teammate report file. Returns the file path.
+
+    A failed run's report holds nothing but the error string, which on its own
+    reads like a note the teammate chose to leave. The header says otherwise,
+    on the first line, before the text it belongs to.
+    """
     path = worktree.teammate_report_path(smm_dir, teammate_id)
+    if failure is not None:
+        result_text = f"TEAMMATE {_FAILED} ({failure})\n---\n{result_text}"
     path.write_text(result_text)
     return path
 
@@ -285,31 +196,55 @@ def record_completion(
     smm_dir: Path,
     teammate_id: str,
     result: dict,
+    *,
+    failure: str | None = None,
 ) -> None:
-    """Append a completion event with cost/duration metadata."""
+    """Append a completion event with cost/duration metadata.
+
+    A death records its cost and turns like any other run — the money was
+    spent and the turns were taken, and dropping them would hide an expensive
+    failure from every cost and velocity reading. Only the CLAIM changes:
+    "completed" is not true of a run that died, and a reader that aggregates
+    gets a metadata flag rather than having to parse the prose.
+    """
     cost = result.get("total_cost_usd", 0.0)
     turns = result.get("num_turns", 0)
     duration_ms = result.get("duration_ms", 0)
     minutes = duration_ms // 60000
     seconds = (duration_ms % 60000) // 1000
-    content = f"Teammate completed: ${cost:.2f}, {turns} turns, {minutes}m {seconds}s"
+    outcome = "completed" if failure is None else f"{_FAILED} ({failure})"
+    content = f"Teammate {outcome}: ${cost:.2f}, {turns} turns, {minutes}m {seconds}s"
+    metadata = {
+        "cost_usd": cost,
+        "turns": turns,
+        "duration_ms": duration_ms,
+    }
+    if failure is not None:
+        metadata["failed"] = True
+        metadata["failure_reason"] = failure
     event = _common.make_event(
         _common.STATUS,
         teammate_id,
         content,
         working_on=[],
-        metadata={
-            "cost_usd": cost,
-            "turns": turns,
-            "duration_ms": duration_ms,
-        },
+        metadata=metadata,
     )
     _common.append_safe(smm_dir, event)
 
 
-def format_summary(report_path: Path, branch_name: str, cost: float) -> str:
-    """One-line summary for the lead's Bash task output."""
-    return f"Report: {report_path} | Branch: {branch_name} | Cost: ${cost:.2f}"
+def format_summary(
+    report_path: Path, branch_name: str, cost: float, *, failure: str | None = None
+) -> str:
+    """One-line summary for the lead's Bash task output.
+
+    The failure shape leads with the verdict rather than the report path: the
+    lead skims this line, and a death that opened with `Report: ...` is
+    precisely how one went unnoticed while acceptance ran against its branch.
+    """
+    tail = f"Report: {report_path} | Branch: {branch_name} | Cost: ${cost:.2f}"
+    if failure is None:
+        return tail
+    return f"TEAMMATE {_FAILED} ({failure}) — the run did not complete. {tail}"
 
 
 # Retention cap for the stream-dump artifact. Split head/tail rather than
@@ -356,50 +291,14 @@ def _compose_stream_dump(
     return "\n".join(header) + "\n---\n" + "\n".join(retained) + "\n"
 
 
-def _consume_stream(
-    fd: int, timeout: float | None
-) -> tuple[list[str], dict | None, bool]:
-    """Read until a result event arrives, EOF, or no-progress timeout.
-
-    Returns (lines_seen, result_event_or_None, timed_out_flag).
-    On result-event hit, drains briefly so trailing lines are captured
-    without risking another full-timeout wait.
-    """
-    lines: list[str] = []
-    result: dict | None = None
-    timed_out = False
-
-    try:
-        for line in _iter_lines_with_timeout(fd, timeout):
-            lines.append(line)
-            data = _parse_stream_object(line)
-            if data is None:
-                continue
-            if _is_result(data):
-                result = data
-                # Drain any trailing lines briefly; ignore another timeout here.
-                try:
-                    for extra in _iter_lines_with_timeout(
-                        fd, _POST_RESULT_DRAIN_TIMEOUT
-                    ):
-                        lines.append(extra)
-                except TimeoutError:
-                    pass
-                break
-    except TimeoutError:
-        timed_out = True
-
-    return lines, result, timed_out
-
-
 def process_stream(smm_dir: Path, teammate_id: str) -> None:
     """Read stdin stream-json with progress timeout, capture result, write report."""
     timeout = _read_timeout()
     fd = sys.stdin.fileno()
-    lines, result, timed_out = _consume_stream(fd, timeout)
+    lines, result, timed_out = teammate_stream_reader.consume_stream(fd, timeout)
 
     if result is None:
-        parsed_count = sum(1 for _ in _iter_json_objects(lines))
+        parsed_count = sum(1 for _ in teammate_stream_reader.iter_json_objects(lines))
         mode = "timeout" if timed_out else "eof"
         dump_text = _compose_stream_dump(
             lines,
@@ -429,16 +328,32 @@ def process_stream(smm_dir: Path, teammate_id: str) -> None:
         print(diag, file=sys.stderr)
         sys.exit(1)
 
+    # A terminal event is not the same claim as a successful one. This branch
+    # took the success path for ANY result event, so a teammate killed by an
+    # API drop mid-edit — exit 0, `is_error` true, a report holding only the
+    # error string — was handed to the lead as `Report: … | Cost: $8.86`.
+    failure = failure_reason(result)
     cost = result.get("total_cost_usd", 0.0)
     result_text = result.get("result", "")
 
-    report_path = write_report(smm_dir, teammate_id, result_text)
-    record_completion(smm_dir, teammate_id, result)
+    report_path = write_report(smm_dir, teammate_id, result_text, failure=failure)
+    record_completion(smm_dir, teammate_id, result, failure=failure)
+    # Cleared either way. The process is gone and this filter watched it go, so
+    # the entry can only mislead from here: it pins the dead teammate's files
+    # against every other agent, and its heartbeat is FRESH at the moment of
+    # death, so the liveness leg would read it as working for hours.
     coordination.clear_coordination_agent(smm_dir, teammate_id)
 
     branch = get_current_branch(str(smm_dir))
-    summary = format_summary(report_path, branch or teammate_id, cost)
-    print(summary)
+    summary = format_summary(report_path, branch or teammate_id, cost, failure=failure)
+    if failure is None:
+        print(summary)
+        return
+    # Non-zero, on the same channel as the no-result path just above. Exiting 0
+    # is what hid the earlier death: the spawn saw a clean exit and the lead
+    # ran acceptance against a half-finished branch.
+    print(summary, file=sys.stderr)
+    sys.exit(1)
 
 
 def main(

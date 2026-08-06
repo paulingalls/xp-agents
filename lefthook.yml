@@ -42,12 +42,13 @@ pre-commit:
     # -u XP_PERF: an exported XP_PERF=1 must not re-arm the wall-clock scale
     # timers on the commit gate. They are only meaningful when they run alone,
     # which only pre-push's `piped` sequencing guarantees.
-    # -u XP_SESSION_ID -u CLAUDE_CODE_SESSION_ID: the hook-liveness heartbeat is
-    # keyed on the session id, so an inherited real one aims the suite at the
-    # developer's own live marker. tests/_env_hygiene.py pins the same pair in
-    # process; both places are required and a test asserts they agree.
+    # -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID: the
+    # hook-liveness heartbeat is keyed on the session id, so an inherited real
+    # one aims the suite at the developer's own live marker.
+    # tests/_env_hygiene.py pins the same chain in process; both places are
+    # required and a test asserts they agree.
     tests:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_PERF -u XP_SESSION_ID -u CLAUDE_CODE_SESSION_ID pytest -n auto -q
+      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_PERF -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest -n auto -q
 
 # piped (NOT parallel — lefthook rejects both) runs the commands sequentially,
 # in alphabetical order by name: integration, then perf. The scale timers are
@@ -67,6 +68,6 @@ pre-push:
   piped: true
   commands:
     integration:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CLAUDE_CODE_SESSION_ID pytest plugins/xp-agents/tests/integration -n auto -q
+      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest plugins/xp-agents/tests/integration -n auto -q
     perf:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CLAUDE_CODE_SESSION_ID XP_PERF=1 pytest plugins/xp-agents/tests/engine/test_scale_invariants.py -k TestScaleBenchmarks -p no:xdist -q
+      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID XP_PERF=1 pytest plugins/xp-agents/tests/engine/test_scale_invariants.py -k TestScaleBenchmarks -p no:xdist -q

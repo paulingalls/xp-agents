@@ -140,19 +140,26 @@ def ready_frontier_report(
     or more frontier stories that form an antichain (no member transitively
     depends on another, directly or through a story off the frontier) AND
     have disjoint file domains. A single-story frontier, overlapping domains,
-    or a dependency edge within the frontier all mean solo — and when the
-    frontier degrades to solo for the dependency reason, /xp-schedule's solo
-    path promotes the lowest-id dep-satisfied story first, which is the
-    dependency itself. ``overlap`` is ``file_domains_overlap_detail``'s dict
-    forwarded verbatim — ``{"collisions": {path: [{"story_id", "origin",
-    "pattern"?}, ...]}, "glob_forced": bool}`` — and stays exactly that; a
-    ``pattern`` key appears only on a claim a GLOB entry produced; the dependency
-    reason for a False verdict is deliberately NOT surfaced there. `collisions`
-    and `glob_forced` are DISTINCT signals: a concrete path collision names
-    the clashing stories, while glob_forced means a glob domain makes
-    disjointness unprovable — a different message to the customer. Both are
-    empty/false on a 0- or 1-story frontier, and all three top-level keys are
-    always present, even when no sprint exists.
+    an unscoped domain, or a dependency edge within the frontier all mean
+    solo — and when the frontier degrades to solo for the dependency reason,
+    /xp-schedule's solo path promotes the lowest-id dep-satisfied story first,
+    which is the dependency itself. ``overlap`` is ``file_domains_overlap_detail``'s
+    dict forwarded verbatim — ``{"collisions": {path: [{"story_id", "origin",
+    "pattern"?}, ...]}, "glob_forced": bool, "unscoped": [story_id, ...]}``;
+    a ``pattern`` key appears only on a claim a GLOB entry produced. All three
+    ``overlap`` keys are ALWAYS present — a caller reads ``unscoped`` (and
+    every sibling key) unconditionally rather than guarding on its presence —
+    and ``unscoped`` lists the story ids whose file_domain resolves to no
+    paths at all, empty when none. The dependency reason for a False verdict
+    is deliberately NOT surfaced there. ``collisions``, ``glob_forced`` and
+    ``unscoped`` are THREE DISTINCT signals: a concrete path collision names
+    the clashing stories, glob_forced means a glob domain makes disjointness
+    unprovable, and unscoped means a story declared no domain at all (an
+    undeclared claim, not an empty one, so it must not read as disjoint from
+    everything) — three different messages to the customer. All are
+    empty/false on a 0- or 1-story frontier or a fully-disjoint pair, and
+    `frontier`/`parallelizable`/`overlap` (and every key inside `overlap`)
+    are always present, even when no sprint exists.
     """
     from sprint_store import load_sprint
 
@@ -161,13 +168,13 @@ def ready_frontier_report(
         return {
             "frontier": [],
             "parallelizable": False,
-            "overlap": {"collisions": {}, "glob_forced": False},
+            "overlap": {"collisions": {}, "glob_forced": False, "unscoped": []},
         }
     frontier = ready_frontier_data(sprint, treat_as_done=treat_as_done)
     overlap = file_domains_overlap_detail(sprint, frontier)
     parallelizable = (
         len(frontier) >= 2
-        and not (overlap["glob_forced"] or overlap["collisions"])
+        and not (overlap["glob_forced"] or overlap["collisions"] or overlap["unscoped"])
         and not _frontier_has_internal_dependency(sprint, frontier)
     )
     return {"frontier": frontier, "parallelizable": parallelizable, "overlap": overlap}

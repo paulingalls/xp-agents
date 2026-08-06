@@ -423,7 +423,7 @@ class TestReadyFrontierCommand(_SMMTestCase):
             {
                 "frontier": [],
                 "parallelizable": False,
-                "overlap": {"collisions": {}, "glob_forced": False},
+                "overlap": {"collisions": {}, "glob_forced": False, "unscoped": []},
             },
         )
 

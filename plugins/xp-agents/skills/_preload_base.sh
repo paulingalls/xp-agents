@@ -460,33 +460,9 @@ _get_review_cadence() {
     python3 "${PLUGIN_ROOT}/scripts/cadence_cli.py" --smm-dir "${SMM_DIR}" read 2>/dev/null || echo commit
 }
 
-# Marker helpers (thin wrappers over markers.py).
-# Usage: consume_marker ACCEPT
-#        write_marker NEEDS_HOUSEKEEPING "kickoff"
-#
-# Values are passed via sys.argv so content with quotes/backslashes is safe.
-consume_marker() {
-    local marker_name="$1"
-    python3 -c '
-import sys
-sys.path.insert(0, sys.argv[1])
-sys.path.insert(0, sys.argv[2])
-from pathlib import Path
-import markers
-markers.marker_consume(Path(sys.argv[3]), getattr(markers, sys.argv[4]))
-' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" "${marker_name}" 2>/dev/null || true
-}
-
-write_marker() {
-    local marker_name="$1"
-    local content="$2"
-    python3 -c '
-import sys
-sys.path.insert(0, sys.argv[1])
-sys.path.insert(0, sys.argv[2])
-from pathlib import Path
-import markers
-markers.marker_write(Path(sys.argv[3]), getattr(markers, sys.argv[4]), sys.argv[5])
-' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" "${marker_name}" "${content}" 2>/dev/null || true
-}
-
+# Marker helpers (consume_marker, write_marker, marker_exists) live in a sibling
+# module — extracted when this file crossed the 500-line cap, the same move that
+# produced _preload_emit.sh and _preload_diff.sh. Sourced here so every preload
+# that sources _preload_base.sh gets them transitively, with no call-site changes.
+# shellcheck source=_preload_markers.sh
+source "$(dirname "${BASH_SOURCE[0]}")/_preload_markers.sh"

@@ -197,6 +197,16 @@ class TestMilestone6Files(unittest.TestCase):
         claim-vs-coverage defect the story exists to fix. Trimmed to the
         minimum first — the narrowing tradeoff is stated in full where the
         customer actually confirms it, in the analyzer prompt, not here.
+
+        Bumped 1450→1550 (story-016), and the disagreement noted above is
+        exactly what bit: the guide measured ~1449 tokens (99.9% of cap) while
+        the character budget showed ~115 chars free, so a mandatory 84-char
+        correction breached this cap and not that one. Mandatory again, and for
+        the same species of defect: the `references` line asserted that
+        discoveries reference the assumptions they contradict, which the schema
+        makes impossible (the field is mandatory on every discovery), and three
+        false high-severity concerns were filed on that reading. 1550 leaves
+        ~85 tokens rather than one.
         """
         path = self.plugin_root / "PROCESS_GUIDE.md"
         if not path.exists():
@@ -207,7 +217,7 @@ class TestMilestone6Files(unittest.TestCase):
             estimated_tokens, 150, f"Too short: ~{estimated_tokens:.0f} tokens"
         )
         self.assertLessEqual(
-            estimated_tokens, 1450, f"Too long: ~{estimated_tokens:.0f} tokens"
+            estimated_tokens, 1550, f"Too long: ~{estimated_tokens:.0f} tokens"
         )
 
     def test_process_guide_includes_event_protocol(self):

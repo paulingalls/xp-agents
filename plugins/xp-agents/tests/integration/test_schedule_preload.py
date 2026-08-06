@@ -114,6 +114,69 @@ class TestSchedulePreload(_IntegrationTestCase):
         self.assertIn("*.py", detail)
         self.assertIn("story-001", detail)
 
+    def test_unscoped_frontier_names_the_story_and_forces_solo(self):
+        # AC-1 + AC-3: an unscoped domain forces solo and the message names
+        # which story declared nothing, distinct from GLOB_FORCED/collisions.
+        self._write(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["a.py — x"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=[],
+                ),
+            ]
+        )
+        out = self._run()
+        self.assertEqual(_extract_preload_var(out, "PARALLELIZABLE"), "false")
+        self.assertEqual(_extract_preload_var(out, "UNSCOPED_IDS"), "story-002")
+        self.assertEqual(_extract_preload_var(out, "GLOB_FORCED"), "false")
+        self.assertEqual(_extract_preload_var(out, "OVERLAP_DETAIL"), "")
+
+    def test_disjoint_multi_frontier_has_empty_unscoped_ids(self):
+        # The permissive control through the SAME preload: a genuinely
+        # disjoint pair must not spuriously name anyone as unscoped.
+        self._write(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["a.py — x"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["b.py — y"],
+                ),
+            ]
+        )
+        out = self._run()
+        self.assertEqual(_extract_preload_var(out, "PARALLELIZABLE"), "true")
+        self.assertEqual(_extract_preload_var(out, "UNSCOPED_IDS"), "")
+
+    def test_cli_failure_falls_back_to_a_safe_solo_verdict(self):
+        # The `|| echo '{...}'` branch, reached whenever ready-frontier exits
+        # non-zero (here: a hand-corrupted sprint.json, which raises
+        # SprintCorruptError). The preload must still exit 0 and emit EVERY
+        # frontier var at its conservative default — a missing UNSCOPED_IDS
+        # line would leave the skill reading None and reporting no reason.
+        (self.smm_dir / "sprint.json").write_text("{not json")
+        out = self._run()
+        self.assertEqual(_extract_preload_var(out, "FRONTIER_COUNT"), "0")
+        self.assertEqual(_extract_preload_var(out, "PARALLELIZABLE"), "false")
+        self.assertEqual(_extract_preload_var(out, "GLOB_FORCED"), "false")
+        self.assertEqual(_extract_preload_var(out, "FRONTIER_IDS"), "")
+        self.assertEqual(_extract_preload_var(out, "OVERLAP_DETAIL"), "")
+        self.assertEqual(_extract_preload_var(out, "UNSCOPED_IDS"), "")
+
     def test_overlapping_multi_frontier_not_parallelizable(self):
         self._write(
             [

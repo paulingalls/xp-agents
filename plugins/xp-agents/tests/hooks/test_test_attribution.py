@@ -300,8 +300,57 @@ class TestParsedFailedCount(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestCorroborationStaysPermissive(unittest.TestCase):
+    """This module asks a DIFFERENT question, so it gets a different parser.
+
+    `bash_post_tool` RECORDS a result and must never invent one, so its parse
+    refuses when no summary line anchors it. Here the non-zero exit is already
+    independent evidence that something failed; the parse is only deciding
+    whether to blame the runner. Tightening one parser for both callers would
+    make a real failing COMPOUND run — `cd app && <runner>`, the ordinary
+    teammate shape — file no concern in either hook, which disarms the gate in
+    every language rather than merely quietening it.
+
+    So the permissive whole-response scan survives here, as a named argument
+    rather than a silent default.
+    """
+
+    # Unrecognised summaries: a real red run whose output carries counts on no
+    # line the arm can anchor on.
+    _UNANCHORED = (
+        # pytest without its `in Ns` duration: no anchor, real counts.
+        ("cd app && pytest tests/", "Exit code 1\n2 failed, 3 passed\n", "pytest"),
+        ("cd app && npx jest", "Exit code 1\n  2 failed\n  3 passed\n", "jest"),
+        (
+            "cd crate && cargo test",
+            "Exit code 1\nsummary line: 2 failed, 3 passed\n",
+            "cargo",
+        ),
+    )
+
+    def test_compound_failure_with_unanchored_counts_is_still_attributed(self):
+        for command, error, framework in self._UNANCHORED:
+            with self.subTest(command=command):
+                self.assertEqual(attribute_failure(command, error), framework)
+
+    def test_the_same_payloads_report_their_counts(self):
+        """`bash_failure` prints the count it corroborates, so it must have one."""
+        for _, error, framework in self._UNANCHORED:
+            with self.subTest(framework=framework):
+                self.assertEqual(parsed_failed_count(error, framework), 2)
+
+    def test_permissiveness_does_not_reach_a_payload_with_no_counts(self):
+        """Anti-over-attribution: the scan still needs a number to find.
+
+        Without this, "permissive" would slide into "always blames the runner",
+        and the compound branch would stop being a corroboration check at all.
+        """
+        for command, _, _framework in self._UNANCHORED:
+            with self.subTest(command=command):
+                self.assertIsNone(attribute_failure(command, BARE_EXIT))
+        self.assertIsNone(
+            attribute_failure("ruff check . && pytest tests/", RUFF_STDOUT)
+        )
 
 
 if __name__ == "__main__":
