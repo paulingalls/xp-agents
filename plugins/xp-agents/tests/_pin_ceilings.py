@@ -51,7 +51,7 @@ BAND_CEILINGS = {
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
-    # tests (57)
+    # tests (56)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
@@ -94,7 +94,12 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/skills/test_scaffold_worktree_skill.py": 475,
     "plugins/xp-agents/tests/engine/test_compact_concurrency.py": 473,
     "plugins/xp-agents/tests/smm/test_integration_branch_ref.py": 470,
-    "plugins/xp-agents/tests/engine/test_sprint_frontier.py": 470,
+    # RETIRED (story-019 follow-up): test_sprint_frontier.py 470->283. The
+    # unscoped-verdict tests had already moved to test_frontier_unprovable.py;
+    # the dependency-edge / treat_as_done group moved to
+    # test_frontier_dependency_edges.py, leaving only the collision/glob/
+    # shape tests the always-present `unscoped` key otherwise would have
+    # pushed past the ceiling.
     "plugins/xp-agents/tests/integration/test_story_close.py": 468,
     # Entered the band with the close-cycle marker scrub: a close preload now
     # leaves state a sibling preload reacts to, so the shared measurement loop

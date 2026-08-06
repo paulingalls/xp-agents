@@ -36,9 +36,10 @@ The preload emits `FRONTIER_IDS` (space-separated), `FRONTIER_COUNT`, and
 antichain — no story depends on another, directly or transitively — with
 disjoint file domains). If `FRONTIER_COUNT` is `0`, nothing is ready to
 schedule — report that and stop.
-`OVERLAP_DETAIL`/`GLOB_FORCED` explain a false PARALLELIZABLE **when set**; a
-false verdict with both empty means these stories cannot run concurrently for
-a different reason — a dependency edge within the frontier.
+`OVERLAP_DETAIL`/`GLOB_FORCED`/`UNSCOPED_IDS` explain a false PARALLELIZABLE
+**when set**; a false verdict with all three empty means these stories cannot
+run concurrently for a different reason — a dependency edge within the
+frontier.
 
 ## Step 2: Choose the mode (gate)
 
@@ -52,8 +53,11 @@ Otherwise:
   (teammates would collide, or one would be branched without the other's
   commits) — but report why instead of downgrading silently: name
   `OVERLAP_DETAIL`'s colliding stories/path when set; if `GLOB_FORCED`, note a
-  glob domain blocks proving disjointness; if neither is set, the frontier
-  carries a dependency edge between two of its members.
+  glob domain blocks proving disjointness; if `UNSCOPED_IDS` is set, name those
+  stories — each declared no file domain, so disjointness can't be proven
+  either;
+  if none of the three is set, the frontier carries a dependency edge between
+  two of its members.
 - `FRONTIER_COUNT >= 2` and `PARALLELIZABLE == true` → ask via `AskUserQuestion`:
   *"Solo (sequential) or CLI teammates (parallel)?"* Present the rationale
   (the disjoint frontier ids).
