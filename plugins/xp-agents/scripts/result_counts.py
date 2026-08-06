@@ -100,18 +100,22 @@ _PYTEST_COUNT = re.compile(
 _PYTEST_DURATION = re.compile(r"\bin\s+[\d.]+\s*s")
 
 
-def pytest_summary_region(tool_response: str) -> str:
-    """pytest's own summary line, or the whole response when none is found.
+def pytest_summary_region(tool_response: str) -> str | None:
+    """pytest's own summary line, or None when the response carries none.
 
-    Falling back to the whole response keeps a reporter shape this does not
-    recognize parseable — a narrower answer than the caller had before, never
-    a blind one.
+    None, not the whole response. Widening to the whole response looked like
+    "a narrower answer than the caller had before, never a blind one", but the
+    caller's question is which text the counts may be read FROM, and answering
+    "all of it" is exactly the blind read: a command that merely mentions
+    pytest plus any count-shaped line in the output produced a recorded
+    result. The honest answer when this finds nothing is that it has no
+    answer, and the caller decides what that means.
     """
     region = None
     for line in tool_response.splitlines():
         if _PYTEST_COUNT.search(line) and _PYTEST_DURATION.search(line):
             region = line
-    return tool_response if region is None else region
+    return region
 
 
 def last_count(pattern: str, text: str) -> int | None:

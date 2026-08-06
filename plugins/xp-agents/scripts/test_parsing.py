@@ -110,7 +110,9 @@ def _apply_two_counts(
         )
 
 
-def parse_test_results(tool_response: str, framework: str) -> dict:
+def parse_test_results(
+    tool_response: str, framework: str, *, allow_scan_fallback: bool = False
+) -> dict:
     """Parse test output. Returns {status, passed, failed, errors}.
 
     status is one of PARSER_STATUS_PARSED / _ZERO / _FAILED:
@@ -124,6 +126,17 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
     unmatched leaves status at PARSER_FAILED. `errors` is folded into `failed`
     in every framework so consumers see a single disjoint "did-not-pass"
     count.
+
+    *allow_scan_fallback* opts an anchored arm back into the whole-response
+    scan, and exists because the two callers ask different questions of the
+    same text. `bash_post_tool` RECORDS a result: with nothing to anchor on it
+    must answer "no result", or a command that merely MENTIONED a runner gets
+    a recorded count. `test_attribution.parsed_failed_count` ATTRIBUTES an
+    already-observed non-zero exit: the failure is evidence it did not
+    produce, and it is only deciding whom to blame — so it opts in, and a
+    genuinely failing `cd app && <runner>` with an unfamiliar summary still
+    files its concern. Strict is the default so the recording caller cannot
+    get the permissive answer by omission.
     """
     result = {
         "status": PARSER_STATUS_FAILED,
@@ -131,7 +144,7 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
         "failed": 0,
         "errors": 0,
     }
-    scan_fallback = framework in _DELIBERATE_SCAN_FALLBACK
+    scan_fallback = allow_scan_fallback or framework in _DELIBERATE_SCAN_FALLBACK
 
     match framework:
         case "pytest":
@@ -143,7 +156,15 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             # tool_response (`pytest -q; pyright`), and `errors` folds into
             # `failed` — so a stray "0 errors" from the tool that ran next used
             # to zero the collection errors that were the run's only signal.
+            # No summary line, no region, no result — for BOTH reads below.
+            # pytest has a summary line in every reporter shape this meets, so
+            # its absence means this output is not a pytest run's, however
+            # count-shaped the rest of it looks.
             region = result_counts.pytest_summary_region(tool_response)
+            if region is None:
+                if not scan_fallback:
+                    return result
+                region = tool_response
             _apply_two_counts(result, region, _RE_N_PASSED, _RE_N_FAILED)
             errors = result_counts.last_count(r"(\d+)\s+error", region)
             if errors is not None:

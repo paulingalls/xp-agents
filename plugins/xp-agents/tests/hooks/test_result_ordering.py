@@ -306,6 +306,44 @@ class TestAnAnchoredArmRefusesToGuess(unittest.TestCase):
                 self.assertEqual(result["failed"], 2)
 
 
+class TestPytestWithoutItsSummaryLine(unittest.TestCase):
+    """The pytest arm is region-scoped in BOTH of its reads, so both skip.
+
+    The region used to widen to the whole response when no summary line was
+    found, which is the same guess by another route: a `pytest` in the command
+    plus any count-shaped text in the output produced a recorded result. Both
+    the pass/fail pair and the separate `N error` read take the region, so a
+    region that does not exist has to stop both.
+    """
+
+    _SUMMARY = "=========== 1 failed, 4 passed, 2 errors in 0.42s ===========\n"
+
+    def test_counts_are_not_read_without_a_summary_line(self):
+        result = test_parsing.parse_test_results(
+            "some tool reported 3 failed things\n", "pytest"
+        )
+        self.assertEqual(result["status"], "parser_failed")
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(result["passed"], 0)
+
+    def test_errors_are_not_read_without_a_summary_line(self):
+        """The `N error` read is a second, separate scan over the region."""
+        result = test_parsing.parse_test_results(
+            "pyright: 2 errors, 0 warnings, 0 informations\n", "pytest"
+        )
+        self.assertEqual(result["status"], "parser_failed")
+        self.assertEqual(result["errors"], 0)
+        self.assertEqual(result["failed"], 0)
+
+    def test_a_real_summary_line_still_feeds_both_reads(self):
+        """The pairing: refusing is only right if answering still works."""
+        result = test_parsing.parse_test_results(self._SUMMARY, "pytest")
+        self.assertEqual(result["status"], "parsed")
+        self.assertEqual(result["passed"], 4)
+        self.assertEqual(result["errors"], 2)
+        self.assertEqual(result["failed"], 3, "1 failed + 2 errors")
+
+
 class TestADeliberateFallbackIsKept(unittest.TestCase):
     """Two arms fall back BY DESIGN, and must not inherit the anchored rule.
 
