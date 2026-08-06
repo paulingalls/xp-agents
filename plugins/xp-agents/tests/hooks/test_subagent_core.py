@@ -24,13 +24,13 @@ import user_prompt_log
 from conftest import (
     _HookTestCase,
     make_event,
+    refuting_discovery,
 )
 from event_helpers import events_of_type
 from event_schema import (
     EVENT_TYPE_ASSUMPTION,
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_CUSTOMER_INPUT,
-    EVENT_TYPE_DISCOVERY,
     EVENT_TYPE_GOAL,
     EVENT_TYPE_STATUS,
     STATUS_ACTION_PLAN_AWAITING_REVIEW,
@@ -223,11 +223,10 @@ class TestSubagentStop(_HookTestCase):
         self.assertEqual(len(statuses), 1)
 
     def test_conflict_detection_runs(self):
-        # Set up a contradiction in the log
+        # Set up a contradiction in the log — a DECLARED refutation, the one
+        # shape the detector fires on (see TestReferenceIsNotRefutation).
         a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
-        d = make_event(
-            EVENT_TYPE_DISCOVERY, content="Actually GraphQL", references=[a["id"]]
-        )
+        d = refuting_discovery(a, "Actually GraphQL")
         self._write_events([a, d])
 
         subagent_stop.run(

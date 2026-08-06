@@ -4,6 +4,12 @@
 Split from test_common_conflicts.py (pure move, no test-body edits).
 Sibling patterns: overlap (1), convention (3), stale_question (4),
 superseded (5) each live in their own test_common_conflicts_<pattern>.py.
+
+Every case that expects a contradiction DECLARES the refutation, through the
+shared `refutes_metadata` fixture — one home for the shape across the four
+suites that seed one. A bare reference is not a refutation; see
+TestReferenceIsNotRefutation at the bottom for why, and for the three measured
+shapes it fires on.
 """
 
 import sys
@@ -15,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import concerns
-from conftest import _HookTestCase, make_event
+from conftest import _HookTestCase, make_event, refutes_metadata
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
@@ -25,6 +31,7 @@ from event_schema import (
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_DISCOVERY,
     EVENT_TYPE_STATUS,
+    METADATA_KEY_REFUTES,
     METADATA_KEY_RESOLVES,
     METADATA_KEY_SUPERSEDES,
 )
@@ -35,7 +42,10 @@ class TestDetectConflictsCommon(_HookTestCase):
         """Patterns 2-5 still run when file_path=None."""
         a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
         d = make_event(
-            EVENT_TYPE_DISCOVERY, content="Actually GraphQL", references=[a["id"]]
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL",
+            references=[a["id"]],
+            metadata=refutes_metadata(a),
         )
         found = concerns.detect_conflicts([a, d], "main")
         self.assertTrue(any("contradict" in c["content"].lower() for c in found))
@@ -44,7 +54,10 @@ class TestDetectConflictsCommon(_HookTestCase):
         """Flag concern references the assumption event it flags (WEAK link)."""
         a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
         d = make_event(
-            EVENT_TYPE_DISCOVERY, content="Actually GraphQL", references=[a["id"]]
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL",
+            references=[a["id"]],
+            metadata=refutes_metadata(a),
         )
         found = concerns.detect_conflicts([a, d], "main")
         flag = next(c for c in found if "contradict" in c["content"].lower())
@@ -56,7 +69,12 @@ class TestDetectConflictsCommon(_HookTestCase):
         from event_schema import get_required_budget
 
         a = make_event(EVENT_TYPE_ASSUMPTION, content="x" * 300)
-        d = make_event(EVENT_TYPE_DISCOVERY, content="y" * 300, references=[a["id"]])
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="y" * 300,
+            references=[a["id"]],
+            metadata=refutes_metadata(a),
+        )
         found = concerns.detect_conflicts([a, d], "main")
         flag = next(c for c in found if "contradict" in c["content"].lower())
         budget = get_required_budget("concern")
@@ -79,16 +97,19 @@ class TestDetectConflictsCommon(_HookTestCase):
             EVENT_TYPE_DISCOVERY,
             content="packages/shared re-exports flat",
             references=[a["id"]],
+            metadata=refutes_metadata(a),
         )
         d2 = make_event(
             EVENT_TYPE_DISCOVERY,
             content="createFieldCrypto exported at top",
             references=[a["id"]],
+            metadata=refutes_metadata(a),
         )
         d3 = make_event(
             EVENT_TYPE_DISCOVERY,
             content="encryption barrel has the type",
             references=[a["id"]],
+            metadata=refutes_metadata(a),
         )
         found = concerns.detect_conflicts([a, d1, d2, d3], "main")
         contradicts = [c for c in found if "contradict" in c["content"].lower()]
@@ -120,6 +141,7 @@ class TestDetectConflictsCommon(_HookTestCase):
             EVENT_TYPE_DISCOVERY,
             content="Supersedes the assumption: never shipped",
             references=[a["id"]],
+            metadata=refutes_metadata(a),
         )
         found = concerns.detect_conflicts([a, prior, resolver, d], "main")
         contradicts = [c for c in found if "contradict" in c["content"].lower()]
@@ -153,6 +175,7 @@ class TestDetectConflictsCommon(_HookTestCase):
             EVENT_TYPE_DISCOVERY,
             content="Supersedes the assumption: never shipped",
             references=[a["id"]],
+            metadata=refutes_metadata(a),
         )
         found = concerns.detect_conflicts([a, other, prior, resolver, d], "main")
         contradicts = [c for c in found if "contradict" in c["content"].lower()]
@@ -172,7 +195,7 @@ class TestDetectConflictsCommon(_HookTestCase):
             EVENT_TYPE_DISCOVERY,
             content="Actually GraphQL",
             references=[a["id"]],
-            metadata={METADATA_KEY_RESOLVES: [""]},
+            metadata={METADATA_KEY_RESOLVES: [""], **refutes_metadata(a)},
         )
         found = concerns.detect_conflicts([a, d], "main")
         contradicts = [c for c in found if "contradict" in c["content"].lower()]
@@ -181,13 +204,18 @@ class TestDetectConflictsCommon(_HookTestCase):
     def test_supersedes_metadata_on_discovery_skips_contradiction(self):
         """A discovery that structurally declares metadata.supersedes of the
         assumption never raises the contradiction — supersession is the
-        intended forward mechanism, not an unresolved conflict."""
+        intended forward mechanism, not an unresolved conflict.
+
+        Declares the refutation TOO, so supersession is the only thing that can
+        explain the silence. Without it the case passes on the trigger alone and
+        the suppression it names goes unexercised.
+        """
         a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
         d = make_event(
             EVENT_TYPE_DISCOVERY,
             content="Actually GraphQL — supersedes the REST assumption",
             references=[a["id"]],
-            metadata={METADATA_KEY_SUPERSEDES: [a["id"]]},
+            metadata={METADATA_KEY_SUPERSEDES: [a["id"]], **refutes_metadata(a)},
         )
         found = concerns.detect_conflicts([a, d], "main")
         contradicts = [c for c in found if "contradict" in c["content"].lower()]
@@ -202,7 +230,7 @@ class TestDetectConflictsCommon(_HookTestCase):
             EVENT_TYPE_DISCOVERY,
             content="Actually GraphQL",
             references=[a["id"]],
-            metadata={METADATA_KEY_RESOLVES: [a["id"]]},
+            metadata={METADATA_KEY_RESOLVES: [a["id"]], **refutes_metadata(a)},
         )
         found = concerns.detect_conflicts([a, d], "main")
         contradicts = [c for c in found if "contradict" in c["content"].lower()]
@@ -212,7 +240,10 @@ class TestDetectConflictsCommon(_HookTestCase):
         """Should not re-generate concern if one already exists for same conflict."""
         a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
         d = make_event(
-            EVENT_TYPE_DISCOVERY, content="Actually GraphQL", references=[a["id"]]
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL",
+            references=[a["id"]],
+            metadata=refutes_metadata(a),
         )
         existing_concern = make_event(
             EVENT_TYPE_CONCERN,
@@ -225,6 +256,129 @@ class TestDetectConflictsCommon(_HookTestCase):
             c for c in found if "contradict" in c["content"].lower()
         ]
         self.assertEqual(len(contradiction_concerns), 0)
+
+
+class TestReferenceIsNotRefutation(_HookTestCase):
+    """A reference is a link; only a DECLARED refutation is a contradiction.
+
+    `references` is mandatory and non-empty on every discovery
+    (event_schema.validate_event), so it cannot carry the claim "this refutes
+    that" — a field every discovery must fill says nothing about any one of
+    them. Reading it as a refutation filed three high-severity false concerns in
+    this project's own log, in two distinct modes, both reproduced below from
+    the measured shapes.
+
+    All three shapes go through the SAME `detect_conflicts` call so the trigger
+    itself is what is under test. A declared-refutation case ALONE would pass
+    identically with the old bare-reference trigger left in place.
+    """
+
+    def _contradictions(self, events: list[dict]) -> list[dict]:
+        found = concerns.detect_conflicts(events, "main")
+        return [c for c in found if "contradict" in c["content"].lower()]
+
+    def test_a_confirming_discovery_raises_nothing(self):
+        """Mode (a), measured: an assumption that a headless run writes a
+        rollout log, "contradicted" by a discovery proving that it DOES.
+
+        The discovery references the assumption because the schema requires it
+        to reference something and this is what it is about. Confirmation and
+        refutation are indistinguishable at the reference — which is why the
+        signal has to be declared, and why sentiment in the content text is not
+        an option (it would not survive another project's prose).
+        """
+        a = make_event(
+            EVENT_TYPE_ASSUMPTION,
+            content="a headless exec run writes a rollout session log, so "
+            "effective model/effort is readable per run",
+        )
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="a HEADLESS exec DOES write a rollout log, and it records "
+            "the EFFECTIVE model and effort. Verified on this session's runs.",
+            references=[a["id"]],
+        )
+        self.assertEqual(self._contradictions([a, d]), [])
+
+    def test_an_unrelated_discovery_raises_nothing(self):
+        """Mode (b), measured twice: assumption and discovery on entirely
+        different subjects, linked only because the discovery arose while the
+        assumption was open."""
+        a = make_event(
+            EVENT_TYPE_ASSUMPTION,
+            content="the top tier stays entitled to this account for the sprint",
+        )
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="that tier did NOT delegate in the run: no spawn tool call "
+            "appears in its rollout",
+            references=[a["id"]],
+        )
+        self.assertEqual(self._contradictions([a, d]), [])
+
+    def test_a_declared_refutation_still_raises(self):
+        """The fail-closed direction, preserved. Narrowing the trigger must not
+        delete the detector: a discovery that DECLARES it refutes the assumption
+        is still flagged, at high severity, referencing the assumption."""
+        a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL",
+            references=[a["id"]],
+            metadata=refutes_metadata(a),
+        )
+        found = self._contradictions([a, d])
+        self.assertEqual(len(found), 1, found)
+        self.assertEqual(found[0]["severity"], "high")
+        self.assertEqual(found[0].get("references"), [a["id"]])
+
+    def test_a_declared_refutation_is_prefix_tolerant(self):
+        """The short-id convention, in both directions — the same rule declared
+        supersession already honors, which is why the matcher is shared rather
+        than written twice."""
+        a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
+        short = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL",
+            references=[a["id"]],
+            metadata={METADATA_KEY_REFUTES: [a["id"][:6]]},
+        )
+        self.assertEqual(len(self._contradictions([a, short])), 1)
+
+        longer = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL",
+            references=[a["id"]],
+            metadata={METADATA_KEY_REFUTES: [a["id"] + "extra"]},
+        )
+        self.assertEqual(len(self._contradictions([a, longer])), 1)
+
+    def test_empty_string_in_refutes_does_not_blanket_match(self):
+        """`refutes: ['']` must refute NOTHING. Empty-string startswith-matches
+        every id, so a stray entry would flag every open assumption at once —
+        the inverse of the bug being fixed, and just as loud."""
+        a1 = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
+        a2 = make_event(EVENT_TYPE_ASSUMPTION, content="storage is Postgres")
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL",
+            references=[a1["id"]],
+            metadata={METADATA_KEY_REFUTES: [""]},
+        )
+        self.assertEqual(self._contradictions([a1, a2, d]), [])
+
+    def test_refuting_an_id_that_is_not_an_assumption_raises_nothing(self):
+        """A declaration is not self-certifying: the target must actually be an
+        assumption in the log. A discovery refuting a decision id is somebody
+        else's pattern, not this one's."""
+        other = make_event(EVENT_TYPE_CONCERN, content="unrelated concern")
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL",
+            references=[other["id"]],
+            metadata={METADATA_KEY_REFUTES: [other["id"]]},
+        )
+        self.assertEqual(self._contradictions([other, d]), [])
 
 
 if __name__ == "__main__":

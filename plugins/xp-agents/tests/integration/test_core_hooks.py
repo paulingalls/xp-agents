@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _IntegrationTestCase, make_event
+from conftest import _IntegrationTestCase, make_event, refuting_discovery
 from event_helpers import events_of_type
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
@@ -26,7 +26,6 @@ from event_schema import (
     EVENT_TYPE_COMMIT,
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_CUSTOMER_INPUT,
-    EVENT_TYPE_DISCOVERY,
     EVENT_TYPE_GOAL,
     EVENT_TYPE_QUESTION,
     EVENT_TYPE_STATUS,
@@ -421,9 +420,7 @@ class TestSubagentStopIntegration(_IntegrationTestCase):
 
     def test_conflict_detection_appends_concern(self):
         a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
-        d = make_event(
-            EVENT_TYPE_DISCOVERY, content="Actually GraphQL", references=[a["id"]]
-        )
+        d = refuting_discovery(a, "Actually GraphQL")
         self._seed_events([a, d])
 
         self._run_script(
