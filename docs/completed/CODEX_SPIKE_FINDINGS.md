@@ -1,6 +1,6 @@
 # Codex dual-target spike — findings and go/no-go
 
-Phase 0 deliverable for `docs/ideas/CODEX_DUAL_TARGET_PLAN.md`. Sprint-004 built a
+Phase 0 deliverable for `docs/ideas/8-CODEX_DUAL_TARGET_PLAN.md`. Sprint-004 built a
 throwaway rig, ran it against a real Codex install across eight observation stories,
 and this is what it found. **The rig is deleted at sprint close**, so this document is
 the only surviving record — it is written for a reader who cannot re-run anything.
@@ -763,7 +763,7 @@ Listed because silent omission reads as covered.
 
 ## Corrections applied to the plan doc
 
-Every claim below was corrected **in place** in `docs/ideas/CODEX_DUAL_TARGET_PLAN.md`
+Every claim below was corrected **in place** in `docs/ideas/8-CODEX_DUAL_TARGET_PLAN.md`
 rather than only contradicted here — a later milestone reads that doc and would
 otherwise trust a falsified claim. The marker there is `**Measured 2026-08-05 (P0
 spike):**`, matching the doc's own existing convention. **Severity cells moved with the
