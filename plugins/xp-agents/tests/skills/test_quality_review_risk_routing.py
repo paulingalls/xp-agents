@@ -18,6 +18,7 @@ injection — decision recorded sprint-113). The single-spawn invariant from
 sprint-103 (3-spawn fan-out had irreducible coordination races) still holds.
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -29,6 +30,22 @@ from conftest import _PLUGIN_ROOT
 
 _SKILL_PATH = _PLUGIN_ROOT / "skills" / "xp-quality-review" / "SKILL.md"
 _PRELOAD_PATH = _PLUGIN_ROOT / "skills" / "xp-quality-review" / "scripts" / "preload.sh"
+_AGENT_PATH = _PLUGIN_ROOT / "agents" / "xp-code-reviewer.md"
+
+# Both sides of the spawn contract state how many review areas there are.
+_AGENT_AREA_COUNT_RE = re.compile(r"work through all (\w+) areas", re.IGNORECASE)
+_SKILL_AREA_COUNT_RE = re.compile(r"review all (\w+) areas", re.IGNORECASE)
+
+_SKILLS_DIR = _PLUGIN_ROOT / "skills"
+_CLOSE_AGENT_PATH = _PLUGIN_ROOT / "agents" / "xp-close-reviewer.md"
+
+# The prose section's own label, read from the agent rather than hardcoded: it
+# was renumbered once already (§5 -> Step 3b, so the close reviewer's Step
+# numbering stayed contiguous), and a hardcoded copy here would have gone stale
+# on that rename while still passing.
+_PROSE_SECTION_RE = re.compile(
+    r"^##\s+(Step \d+[a-z]?|\d+)\.?\s*:?\s*Prose Hygiene", re.M
+)
 
 
 class TestQualityReviewSpawnStructure(unittest.TestCase):
@@ -157,6 +174,95 @@ class TestQualityReviewSpawnStructure(unittest.TestCase):
             self.body,
             "SKILL.md must not pass a ## Design Context block to the reviewer — "
             "it gets Constraints via injection",
+        )
+
+
+class TestSpawnPromptEnumeratesEveryReviewArea(unittest.TestCase):
+    """Both sides of the spawn contract, pinned together.
+
+    The task instruction in the spawn prompt is the concrete order the subagent
+    follows; its definition's preamble is only background. An area added to the
+    agent and not to this prompt is an area no review runs — a green gate over
+    a lens that never fired. Pinning the agent alone cannot see that, so the
+    count and the area names are asserted across BOTH files here.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        _, cls.skill_body = _split_frontmatter_body(
+            _SKILL_PATH.read_text(encoding="utf-8")
+        )
+        cls.agent_text = _AGENT_PATH.read_text(encoding="utf-8")
+
+    def test_area_count_matches_the_agent_preamble(self):
+        agent_match = _AGENT_AREA_COUNT_RE.search(self.agent_text)
+        skill_match = _SKILL_AREA_COUNT_RE.search(self.skill_body)
+        self.assertIsNotNone(
+            agent_match, "xp-code-reviewer.md must state how many areas it covers"
+        )
+        self.assertIsNotNone(
+            skill_match, "the spawn prompt must tell the reviewer how many areas"
+        )
+        assert agent_match is not None and skill_match is not None
+        self.assertEqual(
+            skill_match.group(1).lower(),
+            agent_match.group(1).lower(),
+            "the spawn prompt and the agent definition disagree about how many "
+            "review areas there are — the subagent follows the prompt, so the "
+            "extra area silently never runs",
+        )
+
+    def test_spawn_prompt_names_each_area(self):
+        lowered = self.skill_body.lower()
+        for area in ("correctness", "drift", "debt", "reuse", "prose hygiene"):
+            self.assertIn(
+                area,
+                lowered,
+                f"the spawn prompt must name the {area!r} area — an unnamed "
+                "area is one the subagent has no instruction to run",
+            )
+
+
+class TestCloseSkillsOrderTheProseLens(unittest.TestCase):
+    """The same contract on the OTHER reviewer pair.
+
+    xp-close-reviewer carries a mode-independent prose section, but each of the
+    four close skills writes its own spawn prompt naming only that mode's focus.
+    The first version of this pin covered the quality-review pair alone, and the
+    close pair went out with the identical gap: the section shipped, no prompt
+    ordered it, and a close review ran it only if the lead happened to read the
+    agent definition. One reviewer's contract pinned and its sibling's left open
+    is how the same defect ships twice.
+    """
+
+    _CLOSE_SKILLS = (
+        "xp-sprint-close",
+        "xp-story-close",
+        "xp-free-close",
+        "xp-plan-close",
+    )
+
+    def test_every_close_skill_orders_the_prose_section(self):
+        section = _PROSE_SECTION_RE.search(_CLOSE_AGENT_PATH.read_text("utf-8"))
+        self.assertIsNotNone(
+            section,
+            "xp-close-reviewer.md must carry a numbered prose-hygiene section "
+            "for the close prompts to reference",
+        )
+        assert section is not None
+        label = section.group(1)
+        missing = []
+        for name in self._CLOSE_SKILLS:
+            _, body = _split_frontmatter_body(
+                (_SKILLS_DIR / name / "SKILL.md").read_text(encoding="utf-8")
+            )
+            if label not in body:
+                missing.append(name)
+        self.assertEqual(
+            missing,
+            [],
+            f"close skills whose spawn prompt never orders {label} — the "
+            f"section ships but nothing tells the reviewer to run it: {missing}",
         )
 
 

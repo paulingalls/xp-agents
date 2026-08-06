@@ -10,7 +10,19 @@ echo ""
 # Set .needs-housekeeping here (not in kickoff_gate) so the stop gate
 # only activates right before housekeeping runs — not during the entire
 # kickoff flow where the agent may need to stop for user input.
-write_marker NEEDS_HOUSEKEEPING "kickoff"
+#
+# ONCE PER SESSION, and the second marker is what makes "once" decidable. The
+# housekeeper's SubagentStop handler CONSUMES the gate marker, so after a
+# completed curation "already curated" and "never armed" are the same observation
+# on disk — a guard reading the gate itself would re-arm in exactly the broken
+# case. HOUSEKEEPING_ARMED is session-scoped and nothing consumes it, so it is the
+# residue that tells them apart: running work-selection standalone no longer
+# demands a second curation of an SMM that was just curated, while a genuinely
+# new session still gets one.
+if ! marker_exists HOUSEKEEPING_ARMED; then
+    write_marker NEEDS_HOUSEKEEPING "kickoff"
+    write_marker HOUSEKEEPING_ARMED "kickoff"
+fi
 
 # Try items from latest retrospective
 RETRO_DIR="${SMM_DIR}/retrospectives"

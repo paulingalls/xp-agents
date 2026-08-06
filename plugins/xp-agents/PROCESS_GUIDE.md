@@ -19,7 +19,7 @@ The harness batches independent tool calls in parallel; XP flows are step-gated.
 ## Pillars
 
 - **Intent** — what we're building. Cap 2-5.
-- **Constraints** — architectural/process bounds. Implementation details belong in code comments. Cap 15-20.
+- **Constraints** — architectural/process bounds. Detail routes out: checkable claims→tests; history→git; comments→why code can't express. Cap 15-20.
 - **Risks** — what could go wrong. Cap 2-5.
 - **Wisdom** — durable lessons. Cap 5-10.
 
@@ -36,7 +36,7 @@ Three link types close events and risk pillar items:
 
 ## When to Run XP Skills
 
-**Plan cycle:** `/xp-schedule` → `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → `/xp-assign` → execute. Multi-file changes (3+ files). State-derived gates: the schedule gate (pre-promotion window) blocks writes + plan-entry until `/xp-schedule` promotes; `.plan-awaiting-review` until reviewed; `.assign-pending` until assigned (teammate-mode plans only).
+**Plan cycle:** `/xp-schedule` → `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → `/xp-assign` → execute. Multi-file changes (3+ files). State-derived gates: the schedule gate blocks writes + plan-entry until `/xp-schedule` promotes; `.plan-awaiting-review` until reviewed; `.assign-pending` until assigned (teammate-mode plans only).
 
 **Per commit (cadence set at kickoff):** *commit* — `/xp-quality-review` → `git commit`, gate blocks if skipped. *story* — gate defers; review at `/xp-story-close` Step 4.5b. At `/xp-{free,sprint,plan}-close`: threshold-gated `/code-review` (Step 4b, Workflow tool) + LLM `/security-review` (Step 4). Deterministic patterns scan staged diffs.
 
@@ -94,7 +94,7 @@ CLIs (`sprint_cli.py`, `plan_cli.py`, `smm_cli.py`, `retro_cli.py`, `session_his
 ### Other Fields
 
 - **`working_on`** (status events) — JSON array of file paths being modified. Powers conflict detection.
-- **`references`** — link related events by ID. Answers reference questions; discoveries reference contradicted assumptions.
+- **`references`** — link related events by ID; mandatory on answers and discoveries. A reference is NOT a refutation: to flag an assumption as contradicted, declare it — `--metadata '{"refutes": ["<id>"]}'`.
 - **Commit linking** — add `Resolves-Event: <12-hex-id>` trailer to commit body. Case-insensitive, comma-separated. Hook auto-populates `metadata.resolves`.
 
 ### Refactor Mode

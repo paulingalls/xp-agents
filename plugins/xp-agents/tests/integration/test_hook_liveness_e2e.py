@@ -104,7 +104,7 @@ class _LivenessE2ECase(_IntegrationTestCase):
     def _assert_only_our_marker(self, when: str) -> None:
         """The SMM under test holds this session's heartbeat and no other.
 
-        `check_liveness` has sibling logic — `_freshest_sibling`,
+        `check_liveness` has sibling logic — `hook_heartbeat_scan.freshest_sibling`,
         `_live_on_freshness_alone`, `_no_heartbeat_of_our_own` — so ANOTHER
         session's fresh heartbeat can produce a live verdict while our own
         marker is stale. Without this guard a future concurrent-story seed

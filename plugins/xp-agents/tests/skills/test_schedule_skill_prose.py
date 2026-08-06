@@ -45,8 +45,12 @@ class TestScheduleSkillProse(unittest.TestCase):
         self.assertIn("PARALLELIZABLE", self.body)
 
     def test_consumes_overlap_vars(self):
+        # The preload emits three unprovable/collision signals; the skill must
+        # name all three, or the branch it forgets is a false PARALLELIZABLE
+        # the agent reports as "no reason given".
         self.assertIn("OVERLAP_DETAIL", self.body)
         self.assertIn("GLOB_FORCED", self.body)
+        self.assertIn("UNSCOPED_IDS", self.body)
 
     def test_reports_downgrade_reason_instead_of_silent_solo(self):
         # Story-004: the auto-solo branch must direct the agent to report why

@@ -19,8 +19,14 @@ ground the split just won.
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 BAND_CEILINGS = {
-    # shipped (16)
-    "plugins/xp-agents/smm/seed_smm.py": 499,
+    # shipped
+    # RETIRED (story-015): hook_liveness.py 469->371, by taking the extraction
+    # its own ceiling note named — the per-session sibling scan moved to
+    # scripts/hook_heartbeat_scan.py, which a second reader (coordination's
+    # liveness leg) now imports without the verdict machinery.
+    # RETIRED (sprint-001): seed_smm.py 499->250, detection split to
+    # smm/seed_detect.py. Below the 450 floor, so the entry is gone rather
+    # than dormant — a kept entry hands back the ground the split won.
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     "plugins/xp-agents/scripts/close_common.py": 470,  # ratcheted from 496 (split)
     "plugins/xp-agents/smm/sprint_cli_mutate.py": 496,
@@ -36,15 +42,18 @@ BAND_CEILINGS = {
     # sister include, collision attribution, save/run); collision attribution
     # is the cohesive group to extract next.
     "plugins/xp-agents/smm/sprint_save.py": 463,
-    # Entered the band at sprint close: extract_diagnostics learned to tell the
-    # spawn's own advisories from spawn-side evidence.
-    "plugins/xp-agents/scripts/teammate_output_filter.py": 461,
-    "plugins/xp-agents/scripts/pre_tool_write.py": 463,
+    # RETIRED (story-015): teammate_output_filter.py 461->376. The stream
+    # reading half — deadline, fd loop, stream-json parsing, terminal-event
+    # detection — moved to scripts/teammate_stream_reader.py, leaving the host
+    # to decide what the outcome MEANS and report it.
+    # RETIRED (story-016): pre_tool_write.py 463->379, by extracting the
+    # schedule gate's exemption predicates to write_scope.py. Left in place, its
+    # 463 would have handed back every one of the 84 lines the split just won.
     "plugins/xp-agents/scripts/session_start.py": 462,
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
-    # tests (57)
+    # tests (56)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
@@ -87,7 +96,12 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/skills/test_scaffold_worktree_skill.py": 475,
     "plugins/xp-agents/tests/engine/test_compact_concurrency.py": 473,
     "plugins/xp-agents/tests/smm/test_integration_branch_ref.py": 470,
-    "plugins/xp-agents/tests/engine/test_sprint_frontier.py": 470,
+    # RETIRED (story-019 follow-up): test_sprint_frontier.py 470->283. The
+    # unscoped-verdict tests had already moved to test_frontier_unprovable.py;
+    # the dependency-edge / treat_as_done group moved to
+    # test_frontier_dependency_edges.py, leaving only the collision/glob/
+    # shape tests the always-present `unscoped` key otherwise would have
+    # pushed past the ceiling.
     "plugins/xp-agents/tests/integration/test_story_close.py": 468,
     # Entered the band with the close-cycle marker scrub: a close preload now
     # leaves state a sibling preload reacts to, so the shared measurement loop
@@ -108,7 +122,8 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_spawn_teammate_markers.py": 462,
     "plugins/xp-agents/tests/smm/test_init_migration_lock.py": 462,
     "plugins/xp-agents/tests/smm/test_triage.py": 460,
-    "plugins/xp-agents/tests/skills/test_preload_liveness.py": 459,
+    # RETIRED (back-merge): test_preload_liveness.py 459->363 on the sprint
+    # branch, so main's carried entry would hand back ground already won.
     "plugins/xp-agents/tests/engine/test_sprint_cli.py": 458,
     "plugins/xp-agents/tests/hooks/test_subagent_tiers_sprint.py": 457,
     # Entered the band with the close review's refusal pin for a --smm-dir

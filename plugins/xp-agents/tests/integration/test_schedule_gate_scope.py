@@ -379,7 +379,9 @@ class TestFrontierVerdictCLI(_IntegrationTestCase):
         report = self._report(edge=True)
 
         self.assertEqual(report["frontier"], ["story-003", "story-004"])
-        self.assertEqual(report["overlap"], {"collisions": {}, "glob_forced": False})
+        self.assertEqual(
+            report["overlap"], {"collisions": {}, "glob_forced": False, "unscoped": []}
+        )
         self.assertFalse(report["parallelizable"])
 
     def test_control_without_the_edge_the_same_frontier_fans_out(self):
@@ -395,7 +397,9 @@ class TestFrontierVerdictCLI(_IntegrationTestCase):
         report = self._report(edge=False)
 
         self.assertEqual(report["frontier"], ["story-003", "story-004"])
-        self.assertEqual(report["overlap"], {"collisions": {}, "glob_forced": False})
+        self.assertEqual(
+            report["overlap"], {"collisions": {}, "glob_forced": False, "unscoped": []}
+        )
         self.assertTrue(report["parallelizable"])
 
 

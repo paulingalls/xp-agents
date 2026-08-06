@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Tiny config-probe helper shared across the smm and scripts layers.
 
-Both `smm/seed_smm.py` (linter/formatter detection during SMM seeding)
+Both `smm/seed_detect.py` (linter/formatter detection during SMM seeding)
 and `scripts/scaffold_detect.py` (acceptance-tool detection) walk a
 directory looking for known config filenames, optionally verifying a
 marker substring inside the file. This module hosts the single helper
 they share.
 
-Lives in smm/ (the foundational layer) so seed_smm.py — which only
+Lives in smm/ (the foundational layer) so seed_detect.py — which only
 imports from smm/ — can use it without a reverse cross-layer import.
 """
 

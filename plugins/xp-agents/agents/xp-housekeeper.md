@@ -107,7 +107,7 @@ Actions:
 
 **Filter — timeless patterns.** Ask: "Will this still apply in 3 months?"
 - Good: "Declare refactor-mode at plan time when behavior-preserving"
-- Bad: tooling-specific troubleshooting (belongs as code comments)
+- Bad: tooling-specific troubleshooting (checkable → a test, history → git, else a code comment for what the code cannot express)
 
 Promote when (never speculatively):
 - A retro "Try" was adopted and worked (in `adopted_tries`)
