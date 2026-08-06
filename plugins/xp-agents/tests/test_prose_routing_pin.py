@@ -112,8 +112,9 @@ _KNOWN_ROUTING_SURFACES = (
 # comment(s)", or "comment(s)" immediately arrow-routed ("comments→why...").
 # Matching "code comment(s)" (not bare "comment(s)") is what keeps this off
 # `xp-code-reviewer.md`'s "what-not-why comments" — a review target, never
-# adjacent to the word "code".
-_COMMENT_DEST_RE = re.compile(r"\bcode\s+comments?\b|\bcomments?\s*→")
+# adjacent to the word "code". Case-insensitive so a sentence-initial "Code
+# comments ..." bullet — ordinary in Markdown — is selected like any other.
+_COMMENT_DEST_RE = re.compile(r"\bcode\s+comments?\b|\bcomments?\s*→", re.IGNORECASE)
 
 # Destination shape for "routes to a test": the destination article ("a
 # test") or an arrow immediately before it ("→tests"). Deliberately NOT
@@ -121,8 +122,9 @@ _COMMENT_DEST_RE = re.compile(r"\bcode\s+comments?\b|\bcomments?\s*→")
 # discriminator-test clause contains "test" twice as an UNRELATED noun
 # ("discriminator test", "The test is") in its ORIGINAL, offending form, and
 # a bare word-presence check would have been fooled by that into calling it
-# compliant.
-_TEST_DEST_RE = re.compile(r"\ba\s+tests?\b|→\s*tests?\b")
+# compliant. Case-insensitive so a sentence-initial "A test ..." counts as the
+# destination it plainly is, rather than reading as a missing test leg.
+_TEST_DEST_RE = re.compile(r"\ba\s+tests?\b|→\s*tests?\b", re.IGNORECASE)
 
 _LANGUAGE_TOKENS = ("docstring", '"""')
 

@@ -2,7 +2,7 @@
 """Tests for smm/git_hooks.py — shared git-hook detection primitives.
 
 Two consumers compose these primitives differently:
-- `seed_smm.has_git_hooks`: will_fire_hook OR content-sniff (intent-aware)
+- `seed_detect.has_git_hooks`: will_fire_hook OR content-sniff (intent-aware)
 - `close_review_support.pre_commit_hook_present`: will_fire_hook (strict)
 
 This file tests the primitives at their own level so coverage isn't only
