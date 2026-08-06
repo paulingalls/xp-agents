@@ -19,7 +19,7 @@ ground the split just won.
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 BAND_CEILINGS = {
-    # shipped (15)
+    # shipped (14)
     # RETIRED (story-015): hook_liveness.py 469->371, by taking the extraction
     # its own ceiling note named — the per-session sibling scan moved to
     # scripts/hook_heartbeat_scan.py, which a second reader (coordination's
@@ -44,7 +44,9 @@ BAND_CEILINGS = {
     # reading half — deadline, fd loop, stream-json parsing, terminal-event
     # detection — moved to scripts/teammate_stream_reader.py, leaving the host
     # to decide what the outcome MEANS and report it.
-    "plugins/xp-agents/scripts/pre_tool_write.py": 463,
+    # RETIRED (story-016): pre_tool_write.py 463->379, by extracting the
+    # schedule gate's exemption predicates to write_scope.py. Left in place, its
+    # 463 would have handed back every one of the 84 lines the split just won.
     "plugins/xp-agents/scripts/session_start.py": 462,
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.

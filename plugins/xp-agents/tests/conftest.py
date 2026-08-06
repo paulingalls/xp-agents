@@ -137,6 +137,8 @@ from _event_fixtures import (  # noqa: E402, F401
     make_retrospective_with_try,
     make_session_history_entry,
     passing_tests_status,
+    refutes_metadata,
+    refuting_discovery,
     tests_run_status,
     triage_event,
     verify_events,

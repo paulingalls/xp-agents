@@ -127,6 +127,7 @@ from event_metadata import (  # noqa: E402, F401
     METADATA_KEY_DEFER_UNTIL,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_FLAGGED_STALE,
+    METADATA_KEY_REFUTES,
     METADATA_KEY_RESOLVED_BY_COMMITS,
     METADATA_KEY_RESOLVES,
     METADATA_KEY_STALE_SESSION_COUNT,
@@ -412,9 +413,8 @@ def validate_event(event: dict) -> list[str]:
                 errors.append("Field 'files' must be an array")
 
         case "answer" | "discovery":
-            # Both link to the event they react to (answer→question,
-            # discovery→assumption-it-contradicts). Universal references
-            # validation already checks list-of-strings; require non-empty.
+            # Both link the event they react to. MANDATORY, so it cannot also
+            # mean "refutes" — that claim goes in metadata.refutes.
             refs = event.get("references")
             if not refs:
                 errors.append(

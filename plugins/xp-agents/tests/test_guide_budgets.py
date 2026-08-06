@@ -48,7 +48,16 @@ GUIDE_BUDGETS: dict[str, int] = {
     # stale "(teammate only)" qualifier from the plan cycle — /xp-assign is
     # solo-first and runs in both modes; only its GATE is teammate-scoped, and
     # the same line already says so. Measured 8019 = 96.6%, ~115 chars left.
-    # The next clause here trims first.
+    #
+    # story-016 replaced the `references` line, which was FALSE: it said
+    # "discoveries reference contradicted assumptions", and the schema makes
+    # `references` mandatory on every discovery, so it cannot mean that — three
+    # high-severity false concerns were filed on that reading. The replacement
+    # names the field that does carry the claim, at a cost of 84 chars, and
+    # LANDS under this budget at 8103 (97.6%, 31 chars inside the 98% band). No
+    # bump: the budget only ever comes DOWN, and raising a cap a change already
+    # fits under hands back headroom nobody had to spend. The next clause here
+    # trims first.
     "PROCESS_GUIDE": 8300,
     "TEAMMATE_GUIDE": 4240,
 }

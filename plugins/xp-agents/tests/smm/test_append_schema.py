@@ -315,6 +315,20 @@ class TestContentBudgets(unittest.TestCase):
         help_text = build_parser().format_help()
         self.assertIn("Examples:", help_text)
 
+    def test_cli_help_shows_how_to_declare_a_refutation(self):
+        """The detector fires on `metadata.refutes` and on nothing else, so an
+        author who does not know the key silently loses the flag. This help text
+        is the surface read at the moment of appending — the guide is not — and
+        the example must show BOTH halves: the mandatory reference, and the
+        declaration that a reference alone cannot carry."""
+        from event_builder import build_parser
+        from event_schema import METADATA_KEY_REFUTES
+
+        help_text = build_parser().format_help()
+        self.assertIn("--type discovery", help_text)
+        self.assertIn(f'"{METADATA_KEY_REFUTES}"', help_text)
+        self.assertIn("--references", help_text)
+
 
 class TestQuestionGate(unittest.TestCase):
     """Test that 🔴 question events create a .question-gate file."""
