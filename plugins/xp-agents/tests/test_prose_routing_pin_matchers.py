@@ -110,6 +110,39 @@ class TestCommentRoutingMatcherStaysQuietOnNonOffenders(unittest.TestCase):
                 )
 
 
+class TestKnownMatcherBlindSpots(unittest.TestCase):
+    """The under-match LIMITS bullet, made checkable instead of merely
+    claimed — a limit stated only in prose is the same unverified claim this
+    milestone exists to route into a test.
+
+    These assert the CURRENT, documented misses. Broadening a matcher to
+    catch one is an improvement, not a regression: delete the case and its
+    LIMITS bullet together, so the two can never disagree.
+    """
+
+    def test_a_comment_destination_in_other_words_is_missed(self) -> None:
+        for line in (
+            "leftover detail belongs in an inline comment",
+            "anything else lives as a comment in the source",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(
+                    find_unqualified_comment_routing(line, surface="x"),
+                    [],
+                    "matcher grew to catch this phrasing — update the LIMITS "
+                    "under-match bullet in test_prose_routing_pin",
+                )
+
+    def test_an_incidental_mention_of_a_test_reads_as_compliant(self) -> None:
+        line = "implementation detail belongs in code comments, not in a test"
+        self.assertEqual(
+            find_unqualified_comment_routing(line, surface="x"),
+            [],
+            "matcher grew to discriminate an incidental 'a test' — update the "
+            "LIMITS under-match bullet in test_prose_routing_pin",
+        )
+
+
 class TestCommentRoutingShapeMatcherBacksVacuityGuard(unittest.TestCase):
     """Leg 2's vacuity guard reads `find_comment_routing_lines`, which must
     stay non-empty on a compliant (fixed) line and empty out only when the

@@ -21,7 +21,9 @@ FOUR LEGS.
    comments" names a review target, not a routing destination, and must not
    be flagged — see `find_unqualified_comment_routing`'s docstring. Being
    corpus-wide, this leg also catches a new routing line added anywhere later,
-   including in files this story does not own.
+   including in files this story does not own — provided that line uses the
+   same destination shape the tree uses today. It is not a general detector
+   of "routes to a comment"; see LIMITS.
 
 2. **Vacuity guard, per file.** Each of the three files this story amends
    (`PROCESS_GUIDE.md`, `agents/xp-housekeeper.md`,
@@ -62,6 +64,15 @@ LIMITS — READ THIS BEFORE TRUSTING THE GREEN CHECK.
   coverage") is still reported as an offender: leg 1 over-flags rather than
   under-flags on unfamiliar phrasing, which is the safer direction for a gate
   but is still a false positive a human has to dismiss.
+* That over-flagging claim covers only the "names a test" half. BOTH matchers
+  also UNDER-flag, and the reader gets no signal when they do. A future line
+  routing content to "an inline comment" or "a comment in the source" matches
+  no destination shape `_COMMENT_DEST_RE` knows, so leg 1 never considers it
+  at all; and `_TEST_DEST_RE` accepts any "a test" on the line, so a routing
+  line mentioning a test incidentally ("belongs in code comments, not in a
+  test") reads as compliant. Neither shape is in the tree today. Both are the
+  deliberate price of a matcher precise enough that nobody disables it for
+  noise — the same tradeoff leg 3 makes by not banning `#`.
 * Leg 3 reads literal substrings only. A Python-specific instruction that
   never spells "docstring" or `\"\"\"` (e.g. "put it in the module's opening
   string") is out of reach entirely — the same limit `find_prose_tool_names`
@@ -85,9 +96,12 @@ from _pin_helpers import shipped_prose_to_scan
 PLUGIN_ROOT = Path(__file__).parent.parent  # plugins/xp-agents/
 REPO_ROOT = PLUGIN_ROOT.parent.parent  # repo root, for stable rel paths
 
-# The three surfaces this story amends. A suffix match on the repo-relative
-# path, so it is immune to which glob group (root guides vs agents) a rename
-# might move the file into.
+# The three surfaces this story amends. A path-segment-anchored suffix match
+# on the repo-relative path, so it is immune to which glob group (root guides
+# vs agents) a rename might move the file into, while still not matching a
+# longer FILENAME that merely ends with one of these ("XP_PROCESS_GUIDE.md").
+# That second case would trip the exactly-one assertion below as a false
+# failure rather than as the rename it is meant to report.
 _KNOWN_ROUTING_SURFACES = (
     "PROCESS_GUIDE.md",
     "agents/xp-housekeeper.md",
@@ -214,7 +228,7 @@ class TestKnownRoutingFilesStillRoute(unittest.TestCase):
                 matches = [
                     path
                     for rel_path, path in by_rel.items()
-                    if rel_path.endswith(surface)
+                    if rel_path.endswith(f"/{surface}")
                 ]
                 self.assertEqual(
                     len(matches),
