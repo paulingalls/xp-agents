@@ -23,6 +23,7 @@ from markers import (
     ACCEPT,
     ACCEPT_IN_FLIGHT,
     CLOSE_CYCLE_ID,
+    HOUSEKEEPING_ARMED,
     SISTER_TEST_LAYOUT_WARN,
     TEAMMATE_CONFIG,
     MarkerDef,
@@ -108,8 +109,17 @@ def marker_age_seconds(now: float, written_at: object) -> float | None:
 # marker is untouched by construction (this consumes only the name our own
 # environment resolves) and must be: it can belong to a teammate's close that
 # is still running against this shared SMM.
+#
+# HOUSEKEEPING_ARMED is here for exactly the same reason, and only that reason.
+# It records that this session already armed the housekeeping gate. Scoping
+# already makes a previous session's record unaddressable on a host that exposes
+# a session id, so there the consume is a no-op on our own not-yet-written name.
+# On a host that exposes NONE, both sessions resolve the same unsuffixed file,
+# and a leaked record there is worse than none: it suppresses the new session's
+# curation offer permanently — the mirror of the bug the record was added to fix.
 _STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (
     CLOSE_CYCLE_ID,
+    HOUSEKEEPING_ARMED,
     ACCEPT,
     ACCEPT_IN_FLIGHT,
     SISTER_TEST_LAYOUT_WARN,
