@@ -2,6 +2,69 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.6.0 — Shipped guidance had no reverse gear for its own prose
+
+### Five lines told readers to put things in comments, and offered no way back
+
+The guidance that decides where content goes had one destination for anything
+that didn't fit: a code comment. Five lines across `PROCESS_GUIDE.md`,
+`xp-housekeeper.md` and `xp-system-analyzer.md` routed overflow there —
+"belongs in code comments", "belongs as code comments", "goes to a code
+comment" — and not one of them named a test as an alternative. A comment is a
+claim with no test. Guidance that only ever routes *into* prose is a pipeline
+with no reverse gear, and this tree's characteristic defect is the fail-silent
+one: a comment describing code that no longer exists fails nothing, ever.
+
+All five now route by checkability: a checkable claim goes to a test, where it
+rots loudly; history goes to git; a comment carries only the why or constraint
+the code cannot express. The rule is language-agnostic by construction — it
+turns on the *kind* of claim, never on any language's comment syntax.
+
+Both reviewers gained a named Prose Hygiene dimension stating the same rule,
+with rejected-design and external-constraint comments explicitly exempt. Those
+are the hardest-won knowledge in a tree and have no other home; a lens that
+attacked them would do more damage than the rot it was hunting.
+
+And the rule now ships rather than living only here: `smm/seed_smm.py` seeds it
+as Wisdom, so a project adopting the plugin inherits the lesson and not just the
+reviewers that enforce it.
+
+### The pins that enforce it were themselves under-matching
+
+Three defects in this release's own gates were found by review, not by the
+author, and each is the exact shape the release is about — a check that reports
+success while seeing less than it claims.
+
+Both routing matchers were case-sensitive. An ordinary Markdown bullet opening
+`- Code comments hold anything left over.` escaped the selector completely, so
+neither the offender check nor its vacuity guard ever considered it; meanwhile a
+compliant line opening `A test holds the checkable claim…` was reported as
+*missing* a test destination. A gate that false-positives on correct prose is a
+gate someone switches off.
+
+Each surface was also pinned alone, so nothing compared them, and the tree
+shipped four different versions of one rule. Only one of five lines stated all
+three destinations. A cross-surface pin now holds every routing line to the
+whole rule, matching on the rule's **body** rather than on a heading or filename
+— heading-anchored pins pass vacuously the moment a section is renamed.
+
+The forbidden-vocabulary list had grown a second copy inside the routing pin,
+free to drift from the registry it duplicated. Consolidating it needed a
+distinction that had been lost: the registry is applied to a selected *section*
+and legitimately contains tokens shipped prose uses (`.py` appears in 29 of 31
+files), while the corpus-wide pin can only ban tokens with no legitimate use
+anywhere. So the registry is now split by the scope its consumers apply it at,
+and detection lives in one module both pins read instead of one reaching into
+the other's private names.
+
+### Also
+
+`smm/seed_smm.py` sat at 499 lines against a 500-line cap, leaving the new
+seeded entry nowhere to go; its project-feature detection moved to
+`smm/seed_detect.py`, behavior-preserving. Releasing is now recorded as a
+convention — a merge to main bumps the manifest version and adds a CHANGELOG
+entry — held deliberately as a convention rather than a test.
+
 ## v5.5.1 — Three gates that were reporting things that weren't happening
 
 ### A green suite could file a failure, and then refuse to let go of it
