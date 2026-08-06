@@ -375,7 +375,7 @@ class TestSessionBoundarySweep(_GateTestCase):
 
     But the glob spans EVERY session's record, and the SMM is shared: a second
     window on the same repo resolves the same project id. So the sweep is
-    bounded by freshness, exactly as `hook_liveness._reap_stale_siblings` is —
+    bounded by freshness, exactly as `hook_heartbeat_scan.reap_stale_siblings` is —
     a record still inside its window may have a housekeeper running behind it.
     """
 

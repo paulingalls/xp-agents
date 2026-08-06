@@ -136,6 +136,61 @@ class TestOnlyTheLeadMayReleaseOnASibling(_GateTestCase):
         )
 
 
+class TestADeadSiblingDoesNotReleaseTheGate(_GateTestCase):
+    """AC-1 through the gate, which is where the criterion is written.
+
+    The predicate is pinned in test_coordination.py; this is the sentence
+    itself — "an entry younger than the TTL whose agent is no longer alive
+    does not release" — asserted where a lead actually meets it.
+
+    Twenty minutes is chosen so BOTH rows are states a real run reaches: the
+    entry is still inside the 30-minute TTL, so the timestamp alone would
+    release either way, and only the heartbeat separates the pair. It is the
+    window, not the TTL, deciding both answers here.
+    """
+
+    SIBLING = "worktree-story-007"
+    SESSION = "the-siblings-session"
+    #: Inside the entry TTL (30m), outside the heartbeat trust window (15m).
+    ENTRY_AGE = 20 * 60
+
+    def _sibling(self, *, beat_age: float) -> None:
+        """One teammate entry aged inside the TTL, with a heartbeat of its own."""
+        import json
+        import time
+        from datetime import datetime, timedelta, timezone
+
+        import coordination
+        import hook_liveness
+
+        coordination.update_coordination(self.smm_dir, "main", [])
+        path = self.smm_dir / ".coordination.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        updated = datetime.now(timezone.utc) - timedelta(seconds=self.ENTRY_AGE)
+        data[self.SIBLING] = {
+            "working_on": [],
+            "updated": updated.isoformat(),
+            "session_id": self.SESSION,
+        }
+        path.write_text(json.dumps(data), encoding="utf-8")
+        hook_liveness.write_heartbeat(
+            self.smm_dir, session_id=self.SESSION, now=time.time() - beat_age
+        )
+
+    def test_a_sibling_whose_session_died_does_not_release(self):
+        """The lead is left holding its own red suite, which is its own."""
+        self._sibling(beat_age=self.ENTRY_AGE)
+        events = [session_anchor(), *filler(3), failing_tests_concern()]
+        self.assertIsNotNone(self._stop(events, dirty=False, agent_id=None))
+
+    def test_the_same_sibling_still_releases_while_it_beats(self):
+        """Over-arming control: identical entry, live heartbeat. Without it,
+        "never release on a sibling" satisfies the test above."""
+        self._sibling(beat_age=60)
+        events = [session_anchor(), *filler(3), failing_tests_concern()]
+        self.assertIsNone(self._stop(events, dirty=False, agent_id=None))
+
+
 if __name__ == "__main__":
     import unittest
 
