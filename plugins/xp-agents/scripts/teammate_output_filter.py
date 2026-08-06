@@ -147,9 +147,47 @@ def extract_diagnostics(lines: list[str]) -> str:
     )
 
 
-def write_report(smm_dir: Path, teammate_id: str, result_text: str) -> Path:
-    """Write teammate report file. Returns the file path."""
+# Marks every rendering of a terminal event that did NOT complete: the report
+# file's first line, the completion event's content, and the summary line the
+# lead reads. One token so none of the three can be made to look like the
+# others' success shape by accident.
+_FAILED = "FAILED"
+_SUCCESS_SUBTYPE = "success"
+_UNNAMED_FAILURE = "unspecified error"
+
+
+def failure_reason(result: dict) -> str | None:
+    """The terminal reason a result event carries, or None if it completed.
+
+    Two independent signals, and EITHER alone is enough. `is_error` is the
+    flag; `subtype` names which failure it was (error_during_execution,
+    error_max_turns, ...) and is the half worth printing. Requiring both would
+    reinstate the defect one signal at a time: the death that went unnoticed
+    exited 0, and the exit status was the only thing anyone checked.
+
+    A result carrying NEITHER signal is a success. Absence is not evidence
+    here — a simpler harness emits a bare terminal event, and reading those as
+    deaths would report every run it makes as failed.
+    """
+    subtype = result.get("subtype")
+    named = isinstance(subtype, str) and subtype and subtype != _SUCCESS_SUBTYPE
+    if not named and not result.get("is_error"):
+        return None
+    return subtype if named else _UNNAMED_FAILURE
+
+
+def write_report(
+    smm_dir: Path, teammate_id: str, result_text: str, *, failure: str | None = None
+) -> Path:
+    """Write teammate report file. Returns the file path.
+
+    A failed run's report holds nothing but the error string, which on its own
+    reads like a note the teammate chose to leave. The header says otherwise,
+    on the first line, before the text it belongs to.
+    """
     path = worktree.teammate_report_path(smm_dir, teammate_id)
+    if failure is not None:
+        result_text = f"TEAMMATE {_FAILED} ({failure})\n---\n{result_text}"
     path.write_text(result_text)
     return path
 
@@ -158,31 +196,55 @@ def record_completion(
     smm_dir: Path,
     teammate_id: str,
     result: dict,
+    *,
+    failure: str | None = None,
 ) -> None:
-    """Append a completion event with cost/duration metadata."""
+    """Append a completion event with cost/duration metadata.
+
+    A death records its cost and turns like any other run — the money was
+    spent and the turns were taken, and dropping them would hide an expensive
+    failure from every cost and velocity reading. Only the CLAIM changes:
+    "completed" is not true of a run that died, and a reader that aggregates
+    gets a metadata flag rather than having to parse the prose.
+    """
     cost = result.get("total_cost_usd", 0.0)
     turns = result.get("num_turns", 0)
     duration_ms = result.get("duration_ms", 0)
     minutes = duration_ms // 60000
     seconds = (duration_ms % 60000) // 1000
-    content = f"Teammate completed: ${cost:.2f}, {turns} turns, {minutes}m {seconds}s"
+    outcome = "completed" if failure is None else f"{_FAILED} ({failure})"
+    content = f"Teammate {outcome}: ${cost:.2f}, {turns} turns, {minutes}m {seconds}s"
+    metadata = {
+        "cost_usd": cost,
+        "turns": turns,
+        "duration_ms": duration_ms,
+    }
+    if failure is not None:
+        metadata["failed"] = True
+        metadata["failure_reason"] = failure
     event = _common.make_event(
         _common.STATUS,
         teammate_id,
         content,
         working_on=[],
-        metadata={
-            "cost_usd": cost,
-            "turns": turns,
-            "duration_ms": duration_ms,
-        },
+        metadata=metadata,
     )
     _common.append_safe(smm_dir, event)
 
 
-def format_summary(report_path: Path, branch_name: str, cost: float) -> str:
-    """One-line summary for the lead's Bash task output."""
-    return f"Report: {report_path} | Branch: {branch_name} | Cost: ${cost:.2f}"
+def format_summary(
+    report_path: Path, branch_name: str, cost: float, *, failure: str | None = None
+) -> str:
+    """One-line summary for the lead's Bash task output.
+
+    The failure shape leads with the verdict rather than the report path: the
+    lead skims this line, and a death that opened with `Report: ...` is
+    precisely how one went unnoticed while acceptance ran against its branch.
+    """
+    tail = f"Report: {report_path} | Branch: {branch_name} | Cost: ${cost:.2f}"
+    if failure is None:
+        return tail
+    return f"TEAMMATE {_FAILED} ({failure}) — the run did not complete. {tail}"
 
 
 # Retention cap for the stream-dump artifact. Split head/tail rather than
@@ -266,16 +328,32 @@ def process_stream(smm_dir: Path, teammate_id: str) -> None:
         print(diag, file=sys.stderr)
         sys.exit(1)
 
+    # A terminal event is not the same claim as a successful one. This branch
+    # took the success path for ANY result event, so a teammate killed by an
+    # API drop mid-edit — exit 0, `is_error` true, a report holding only the
+    # error string — was handed to the lead as `Report: … | Cost: $8.86`.
+    failure = failure_reason(result)
     cost = result.get("total_cost_usd", 0.0)
     result_text = result.get("result", "")
 
-    report_path = write_report(smm_dir, teammate_id, result_text)
-    record_completion(smm_dir, teammate_id, result)
+    report_path = write_report(smm_dir, teammate_id, result_text, failure=failure)
+    record_completion(smm_dir, teammate_id, result, failure=failure)
+    # Cleared either way. The process is gone and this filter watched it go, so
+    # the entry can only mislead from here: it pins the dead teammate's files
+    # against every other agent, and its heartbeat is FRESH at the moment of
+    # death, so the liveness leg would read it as working for hours.
     coordination.clear_coordination_agent(smm_dir, teammate_id)
 
     branch = get_current_branch(str(smm_dir))
-    summary = format_summary(report_path, branch or teammate_id, cost)
-    print(summary)
+    summary = format_summary(report_path, branch or teammate_id, cost, failure=failure)
+    if failure is None:
+        print(summary)
+        return
+    # Non-zero, on the same channel as the no-result path just above. Exiting 0
+    # is what hid the earlier death: the spawn saw a clean exit and the lead
+    # ran acceptance against a half-finished branch.
+    print(summary, file=sys.stderr)
+    sys.exit(1)
 
 
 def main(
