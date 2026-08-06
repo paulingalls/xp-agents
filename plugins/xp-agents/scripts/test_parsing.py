@@ -15,7 +15,7 @@ landed. `is_test_run` is re-exported below so existing importers and
 import re
 
 import result_counts
-from framework_detect import is_test_run  # noqa: F401  (re-export)
+from framework_detect import is_bun_script_alias, is_test_run  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Test result parsing

@@ -139,6 +139,13 @@ class TestClassifyPathStrategy(unittest.TestCase):
     (alias, no path) and `npx jest x.test.js` (direct, names a path). The alias
     form must map to "whole_tree" so `test:e2e` is never mis-read as a path;
     the direct form to "positional".
+
+    bun has the same alias/direct split (`bun run test` vs. `bun test
+    a.test.ts`), disambiguated differently since `bun` is the literal binary
+    token in both forms — see test_verify_paths_bun.py for that cluster.
+    `test_bun_run_test_whole_tree` below predates the split and stays
+    unchanged here: the assertion was already true before bun grew a
+    positional form to disambiguate from.
     """
 
     def test_npm_run_script_alias_whole_tree(self):
