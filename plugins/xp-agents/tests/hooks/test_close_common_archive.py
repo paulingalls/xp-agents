@@ -258,33 +258,6 @@ class TestMergeArchiveSprint(unittest.TestCase):
             self.assertTrue((smm / "sprint.json").exists())
             self.assertFalse(_bf.branch_exists(td, "feature-off"))
 
-    def test_flag_without_smm_dir_refuses_and_keeps_source(self):
-        # A misconfigured invocation (--archive-sprint with no --smm-dir) must
-        # not silently skip the archive — it fails the same way an archive
-        # failure would: nonzero, source intact, no push/delete.
-        with tempfile.TemporaryDirectory() as td:
-            _bf.init_repo(td)
-            main = _bf.get_current_branch(td)
-            _bf.make_commit(td, "feature-noargs", "f.txt", "x", "feature commit")
-            subprocess.run(
-                ["git", "checkout", main], cwd=td, capture_output=True, check=True
-            )
-            result = _run(
-                [
-                    "merge",
-                    "--cwd",
-                    td,
-                    "--source",
-                    "feature-noargs",
-                    "--target",
-                    main,
-                    "--archive-sprint",
-                ]
-            )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("--smm-dir", result.stderr)
-            self.assertTrue(_bf.branch_exists(td, "feature-noargs"))
-
     def test_verify_gate_acceptance_stays_armed_across_a_failed_push(self):
         # Pins the production combination sprint-close actually runs: `merge
         # --verify-gate acceptance --archive-sprint`. The acceptance gate fails
@@ -347,6 +320,135 @@ class TestMergeArchiveSprint(unittest.TestCase):
             self.assertFalse(_bf.branch_exists(td, "feature-gated"))
             archived_after = list((smm / "sprints").glob("sprint_*.json"))
             self.assertEqual(len(archived_after), 1)
+
+    def test_flag_without_smm_dir_refuses_before_the_merge_lands(self):
+        """The refusal is static arg validation, so it must precede the merge.
+
+        A misconfigured invocation must never silently skip the archive: it
+        fails the way an archive failure does — nonzero, source intact, no
+        push, no delete. This is the only pin on that refusal; an earlier
+        near-duplicate asserted the same three things minus the ordering.
+
+        `--archive-sprint` without `--smm-dir` is knowable at parse time. When
+        the check ran after `merge_branch`, the refusal left a merge commit on
+        the target with the close reporting failure — a state no retry cleans
+        up, and the reason the stderr had to say "refused AFTER the merge
+        commit". Pins the target ref, which is what the ordering protects.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            _bf.make_commit(td, "feature-early", "f.txt", "x", "feature commit")
+            _bf.checkout_main(td)
+            before = _bf.get_head_sha(td)
+            result = _run(
+                [
+                    "merge",
+                    "--cwd",
+                    td,
+                    "--source",
+                    "feature-early",
+                    "--target",
+                    main,
+                    "--archive-sprint",
+                ]
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("--smm-dir", result.stderr)
+            self.assertTrue(_bf.branch_exists(td, "feature-early"))
+            self.assertEqual(
+                _bf.get_head_sha(td),
+                before,
+                "the refusal must precede the merge — no commit may land on "
+                "the target when the invocation was refused",
+            )
+
+    def test_a_smm_dir_that_is_not_an_smm_is_refused_before_anything_moves(self):
+        """The probe proves it BEFORE the first side effect — so act on it.
+
+        `--archive-sprint --smm-dir <typo>` used to exit 0 while merging,
+        writing an events.jsonl/lock and a sprints/ tree into the typo'd
+        directory, recording no merge-commit event in the REAL SMM (silently
+        reopening the merge-gap hole cmd_merge exists to close), archiving
+        nothing, and deleting the source branch. All knowable before the
+        merge: init.sh touches events.jsonl on every SMM, so its absence is
+        proof, not a guess."""
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            not_an_smm = Path(td) / "typo-dir"
+            not_an_smm.mkdir()
+            _bf.make_commit(td, "feature-typo", "f.txt", "x", "feature commit")
+            _bf.checkout_main(td)
+            before = _bf.get_head_sha(td)
+            typo = _run(
+                [
+                    "merge",
+                    "--cwd",
+                    td,
+                    "--source",
+                    "feature-typo",
+                    "--target",
+                    main,
+                    "--archive-sprint",
+                    "--smm-dir",
+                    str(not_an_smm),
+                ]
+            )
+            self.assertNotEqual(typo.returncode, 0, typo.stderr)
+            self.assertIn("not an SMM", typo.stderr)
+            self.assertEqual(
+                _bf.get_head_sha(td),
+                before,
+                "nothing may land on the target when the SMM path is wrong",
+            )
+            self.assertTrue(
+                _bf.branch_exists(td, "feature-typo"),
+                "the source branch must survive a refused merge",
+            )
+            self.assertEqual(
+                sorted(p.name for p in not_an_smm.iterdir()),
+                [],
+                "a refused merge must not write into the directory it refused",
+            )
+
+    def test_nothing_to_archive_names_the_benign_cause_on_a_real_smm(self):
+        """ "Nothing archived" is reported, never silent.
+
+        A wrong --smm-dir can no longer reach here (refused above), so the
+        remaining reading is an earlier attempt of this close having already
+        archived — stated as the evidence it is, naming the file it found.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            smm = self._make_smm(td)
+            (smm / "sprints").mkdir()
+            (smm / "sprints" / "sprint_20260101T000000.json").write_text("{}")
+            _bf.make_commit(td, "feature-again", "f.txt", "x", "feature commit")
+            _bf.checkout_main(td)
+            again = _run(
+                [
+                    "merge",
+                    "--cwd",
+                    td,
+                    "--source",
+                    "feature-again",
+                    "--target",
+                    main,
+                    "--archive-sprint",
+                    "--smm-dir",
+                    str(smm),
+                ]
+            )
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertIn("no sprint.json", again.stderr)
+            self.assertIn(
+                "already archived",
+                again.stderr,
+                "a real SMM carrying prior archives is the benign case",
+            )
+            self.assertNotIn("not an SMM directory", again.stderr)
 
 
 if __name__ == "__main__":

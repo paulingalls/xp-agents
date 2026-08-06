@@ -194,10 +194,16 @@ _MAX_STDIN_SIZE = 10_485_760  # 10 MB — large enough to absorb lefthook output
 # ---------------------------------------------------------------------------
 
 
+def is_xp_agent_id(agent: str) -> bool:
+    """True for one of the plugin's own subagents, by name — sole owner of the
+    `xp-` prefix rule. Hook payloads go through `is_xp_agent`; bare names (an
+    event-log `agent_id`, an already-extracted `agent_type`) come here."""
+    return isinstance(agent, str) and agent.startswith("xp-")
+
+
 def is_xp_agent(input_data: dict) -> bool:
     """Check if this is one of our own agent hooks (xp- prefix)."""
-    agent_type = input_data.get("agent_type", "")
-    return isinstance(agent_type, str) and agent_type.startswith("xp-")
+    return is_xp_agent_id(input_data.get("agent_type", ""))
 
 
 def is_task_notification(prompt: str) -> bool:
