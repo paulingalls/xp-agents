@@ -273,9 +273,11 @@ def _extract_positional_paths(tokens: list[str]) -> set[str]:
     """Path tokens of a positional-path runner (playwright/jest/vitest/mocha/
     node-test/deno/rspec/phpunit/mix/dart/bun...).
 
-    Skips package-manager wrappers, then a single leading flag (a bun
-    workspace token like `--filter <pkg>` — the flag is skipped so the next
-    token, "the runner binary", is never a flag itself), then the runner
+    Skips package-manager wrappers, then EVERY leading flag (a bun workspace
+    token like `--filter <pkg>` — flags are skipped so the next token, "the
+    runner binary", is never a flag itself; stopping after one would leave a
+    second flag in the binary slot and let its path-shaped value through as a
+    false path), then the runner
     binary, then a leading `test`/`run` subcommand, then keeps only
     **path-shaped** positional tokens (containing `/` or `.`, with a
     `::selector` stripped). For bun specifically, `bun` IS the binary and
@@ -297,7 +299,7 @@ def _extract_positional_paths(tokens: list[str]) -> set[str]:
     n = len(tokens)
     while i < n and tokens[i] in _WRAPPER_TOKENS:
         i += 1
-    if i < n and tokens[i].startswith("-"):
+    while i < n and tokens[i].startswith("-"):
         i += 1
     if i < n:  # the runner binary itself
         i += 1

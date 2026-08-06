@@ -33,9 +33,7 @@ import verify_paths
 class TestBunDirectRunnerPositional(unittest.TestCase):
     def test_bun_test_single_spec_positional(self):
         self.assertEqual(
-            verify_paths.classify_path_strategy(
-                "bun test packages/db/src/x.test.ts"
-            ),
+            verify_paths.classify_path_strategy("bun test packages/db/src/x.test.ts"),
             "positional",
         )
         self.assertEqual(
@@ -67,6 +65,22 @@ class TestBunDirectRunnerPositional(unittest.TestCase):
         # it never appears as a path, and the real spec still extracts.
         paths = verify_paths._extract_paths_from_command(
             "bun --config bunfig.toml test a.test.ts"
+        )
+        self.assertEqual(paths, {"a.test.ts"})
+        self.assertNotIn("bunfig.toml", paths)
+
+    def test_two_leading_flags_still_yield_no_false_path(self):
+        """A single-flag skip leaves the SECOND flag in the binary slot, so
+        its path-shaped value lands in the scanned region and is extracted.
+
+        `--bail --config bunfig.toml` is the shape: skip one flag, consume
+        `--config` as "the binary", and `bunfig.toml` is then a plain
+        positional. A false positive demands a file that can never be
+        touched — strictly worse than the sentinel — so the skip has to
+        consume EVERY leading flag, not just the first.
+        """
+        paths = verify_paths._extract_paths_from_command(
+            "bun --bail --config bunfig.toml test a.test.ts"
         )
         self.assertEqual(paths, {"a.test.ts"})
         self.assertNotIn("bunfig.toml", paths)
@@ -112,9 +126,7 @@ class TestBunFilterFlagNeverReadAsPath(unittest.TestCase):
             verify_paths.classify_path_strategy("bun --filter @legacy/db test"),
             "positional",
         )
-        paths = verify_paths._extract_paths_from_command(
-            "bun --filter @legacy/db test"
-        )
+        paths = verify_paths._extract_paths_from_command("bun --filter @legacy/db test")
         self.assertEqual(paths, {"."})
         self.assertNotIn("@legacy/db", paths)
 
@@ -125,9 +137,7 @@ class TestBunDocumentedLimitations(unittest.TestCase):
         # consumes the following token as its value, same as
         # `npx jest --coverage a.test.js`. Not a regression to "fix".
         self.assertEqual(
-            verify_paths._extract_paths_from_command(
-                "bun test --coverage a.test.ts"
-            ),
+            verify_paths._extract_paths_from_command("bun test --coverage a.test.ts"),
             {"."},
         )
 
