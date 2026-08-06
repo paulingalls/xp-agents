@@ -33,6 +33,7 @@ PARSER_STATUS_FAILED = "parser_failed"
 # failed) and parameterized for cargo, dotnet, bun.
 _RE_N_PASSED = r"(\d+)\s+passed"
 _RE_N_FAILED = r"(\d+)\s+failed"
+_RE_N_ERRORS = r"(\d+)\s+error"
 
 # Summary-line anchors (see `_apply_two_counts`). Each names the ONE line a
 # runner puts its counts on, so several sub-runs sum instead of overwriting and
@@ -102,6 +103,12 @@ def _apply_two_counts(
             passed, failed, matched = result_counts.two_counts(
                 tool_response, pass_re, fail_re
             )
+    _apply_counts(result, passed, failed, matched)
+
+
+def _apply_counts(result: dict, passed: int, failed: int, matched: bool) -> None:
+    """Counts plus the status they imply. Shared with the pytest arm, which
+    selects its own summary lines and must not re-derive this."""
     result["passed"] = passed
     result["failed"] = failed
     if matched:
@@ -120,12 +127,14 @@ def parse_test_results(
       - ZERO          — framework-specific zero-tests marker matched
       - FAILED        — nothing recognized
 
-    Precedence: framework-specific zero markers first (pytest/jest/vitest/
-    playwright/unittest), then numeric regexes via `_apply_two_counts` which
-    treats matched-but-zero counts as ZERO (long-tail bistate fallback);
-    unmatched leaves status at PARSER_FAILED. `errors` is folded into `failed`
-    in every framework so consumers see a single disjoint "did-not-pass"
-    count.
+    Precedence: a framework's zero marker is read where it cannot ERASE a
+    count — pytest's `no tests ran` first, because it replaces the summary;
+    jest's `No tests found` last and only if nothing parsed, because a
+    workspace prints it for one empty package beside another package's real
+    counts. In between, numeric regexes via `_apply_two_counts`, which treats
+    matched-but-zero counts as ZERO (long-tail bistate fallback); unmatched
+    leaves status at PARSER_FAILED. `errors` is folded into `failed` in every
+    framework so consumers see a single disjoint "did-not-pass" count.
 
     *allow_scan_fallback* opts an anchored arm back into the whole-response
     scan, and exists because the two callers ask different questions of the
@@ -155,39 +164,28 @@ def parse_test_results(
             if re.search(r"\bno tests ran\b|\bcollected 0 items\b", tool_response):
                 result["status"] = PARSER_STATUS_ZERO
                 return result
-            # Every count comes from pytest's OWN summary line, never from the
-            # rest of the response. Chained tools share one Bash call and one
-            # tool_response (`pytest -q; pyright`), and `errors` folds into
-            # `failed` — so a stray "0 errors" from the tool that ran next used
-            # to zero the collection errors that were the run's only signal.
-            # No summary line, no region, no result — for BOTH reads below.
-            # pytest has a summary line in every reporter shape this meets, so
-            # its absence means this output is not a pytest run's, however
-            # count-shaped the rest of it looks.
-            region = result_counts.pytest_summary_region(tool_response)
-            if region is None:
-                if not scan_fallback:
-                    return result
-                region = tool_response
-            _apply_two_counts(result, region, _RE_N_PASSED, _RE_N_FAILED)
-            errors = result_counts.last_count(r"(\d+)\s+error", region)
-            if errors is not None:
-                result["errors"] = errors
+            # Both reads take pytest's OWN summary lines, summed across every
+            # one of them, and no summary line means no result — see
+            # `result_counts.pytest_counts` for what each of those buys.
+            counts = result_counts.pytest_counts(
+                tool_response,
+                _RE_N_PASSED,
+                _RE_N_FAILED,
+                _RE_N_ERRORS,
+                scan_fallback=scan_fallback,
+            )
+            if counts is None:
+                return result
+            _apply_counts(result, counts.passed, counts.failed, counts.matched)
+            if counts.errors is not None:
+                result["errors"] = counts.errors
                 # Fold errors into failed so consumers see one disjoint
                 # "did-not-pass" count — matches unittest/maven/minitest convention.
-                result["failed"] += errors
+                result["failed"] += counts.errors
                 result["status"] = PARSER_STATUS_PARSED
 
         case "jest" | "vitest" | "playwright":
             # "Tests:  2 failed, 3 passed, 5 total" or "Tests:  5 passed, 5 total"
-            # "No tests found" is the only zero marker that needs its own
-            # branch: it carries no counts. A `Tests: 0 passed, 0 total` line
-            # does, so the summed path below reaches ZERO on its own — and it
-            # must, because a short-circuit on the FIRST such line reported a
-            # whole workspace as zero when one package happened to be empty.
-            if re.search(r"\bNo tests found\b", tool_response):
-                result["status"] = PARSER_STATUS_ZERO
-                return result
             # Anchor on the `Tests:` line: it is the one that counts TESTS
             # (`Test Suites:` precedes it and counts files), and a workspace
             # launcher — `pnpm -r test`, `yarn workspaces foreach`, lerna, all
@@ -204,6 +202,15 @@ def parse_test_results(
                 summary_line=_RE_JEST_SUMMARY,
                 scan_fallback=scan_fallback,
             )
+            # "No tests found" is the only zero marker carrying no counts, so
+            # it is read LAST and only when nothing else parsed. Ahead of the
+            # summed path it zeroed a whole workspace the moment ONE package
+            # was empty, discarding the red counts of the packages that ran —
+            # the same erasure the `Tests: 0 passed` marker caused before it.
+            if result["status"] == PARSER_STATUS_FAILED and re.search(
+                r"\bNo tests found\b", tool_response
+            ):
+                result["status"] = PARSER_STATUS_ZERO
 
         case "go":
             # Count ok lines (passes) and FAIL lines. Go has no distinct

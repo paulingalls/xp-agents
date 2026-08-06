@@ -249,11 +249,13 @@ class TestLivenessOverridesTheTtl(_LivenessTestCase):
 class TestADeadTeammateStopsCountingAtTheWindow(_LivenessTestCase):
     """The shape a session actually dies in, which is the one that regressed.
 
-    A killed teammate stops writing BOTH files at the same instant, so its
-    entry and its heartbeat age together and are always the same age. Reading
-    the heartbeat against the four-hour preload window therefore held that
-    entry active for four hours — far longer than the 30-minute TTL it
-    replaced, in the direction the liveness leg exists to close.
+    A killed teammate stops writing BOTH files at the same instant, so neither
+    clock advances afterwards; `_dead_for` plants them at the SAME age, which
+    is the closest the two ever get (the heartbeat has extra writers — Bash,
+    Skill, prompts — so in the field it is the younger of the two). Reading it
+    against the four-hour preload window held such an entry active for four
+    hours — far longer than the 30-minute TTL it replaced, in the direction the
+    liveness leg exists to close.
 
     Every row plants one age into both files and asks the predicate the Stop
     gates ask. The pairs on either side of the window are what stop the
@@ -289,9 +291,11 @@ class TestADeadTeammateStopsCountingAtTheWindow(_LivenessTestCase):
         self.assertFalse(self._dead_for(coordination._HEARTBEAT_TRUST_SECONDS + 60))
 
     def test_the_window_stays_below_the_entry_ttl(self):
-        """The point of the threshold: tightening the answer the TTL gives,
-        never loosening it. A window at or above the TTL would hold a dead
-        entry active past the moment the TTL alone would have dropped it."""
+        """The threshold tightens the answer the TTL gives for the shape above,
+        where both clocks are equal. It cannot promise that in general — the
+        heartbeat has writers the entry does not, so it may be much younger —
+        which is exactly why the window is not also allowed to be the larger of
+        the two numbers. See `_HEARTBEAT_TRUST_SECONDS`."""
         self.assertLess(
             coordination._HEARTBEAT_TRUST_SECONDS, coordination._COORDINATION_MAX_AGE
         )

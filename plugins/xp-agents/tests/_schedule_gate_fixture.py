@@ -37,7 +37,7 @@ class _Probes(NamedTuple):
     """The two subprocess probes the gate's exemption chain can pay for.
 
     Both are stubbed on every gate test, not just the ones that assert on them.
-    An unstubbed `merge_in_progress` would shell `git rev-parse` against the
+    An unstubbed `unmerged_paths` would shell `git ls-files` against the
     fixture's cwd — a bare mkdtemp — in every gate-window test, which answers
     correctly today only because that directory happens not to be a repo.
     """
@@ -87,11 +87,16 @@ class _ScheduleGateFixture(_HookTestCase):
         super().tearDown()
 
     @contextlib.contextmanager
-    def _probes(self, *, root: str | None, branch: str, merging: bool = False):
+    def _probes(
+        self, *, root: str | None, branch: str, conflicted: tuple[str, ...] = ()
+    ):
         """Stub the git root and both git-state probes at their late-bound seams.
 
-        `merging` defaults to False — no merge in progress — which is the state
-        every pre-existing case in this file was written against.
+        `conflicted` is the set of REPO-RELATIVE paths git reports as unmerged,
+        and defaults to empty — no conflict being resolved — which is the state
+        every pre-existing case in this file was written against. A path, not a
+        boolean, because the exemption is per-file: MERGE_HEAD alone exempted
+        every write for as long as an abandoned merge sat on disk.
         """
         with (
             patch.object(
@@ -101,7 +106,7 @@ class _ScheduleGateFixture(_HookTestCase):
                 pre_tool_write.identity, "get_current_branch", return_value=branch
             ) as branch_probe,
             patch.object(
-                pre_tool_write.identity, "merge_in_progress", return_value=merging
+                pre_tool_write.identity, "unmerged_paths", return_value=set(conflicted)
             ) as merge_probe,
         ):
             yield _Probes(branch=branch_probe, merge=merge_probe)

@@ -2,7 +2,7 @@
 """End-to-end: a real conflicted merge opens the schedule gate, and committing
 the merge closes it again (story-016 AC-6).
 
-The unit suite stubs `identity.merge_in_progress` at its seam, which proves the
+The unit suite stubs `identity.unmerged_paths` at its seam, which proves the
 gate CONSULTS the probe but not that the probe reads what git actually writes.
 This drives the real `pre_tool_write.py` as a subprocess against a real repo in a
 real conflicted-merge state — no mocks, no monkeypatching anywhere in this file.
@@ -196,6 +196,35 @@ class TestMergeInProgressOpensTheScheduleGate(_IntegrationTestCase):
         self._start_conflicting_merge()
         self._resolve_and_commit_the_merge()
         self._assert_no_sibling_exemption_can_explain_an_allow()
+
+        self._assert_blocked_by_the_schedule_gate(self._edit(self._target()))
+
+    def test_an_unconflicted_file_is_refused_during_the_same_merge(self):
+        """The blast radius, at real git fidelity.
+
+        One repo, one merge, one instant: the conflicted file is exempt and a
+        file git says nothing about is not. Keying the exemption on MERGE_HEAD
+        could not tell them apart — it opened the gate for every write in the
+        tree until the merge was committed or aborted, and an abandoned merge
+        is never either.
+        """
+        self._assert_gate_window_is_real()
+        self._start_conflicting_merge()
+        self._assert_no_sibling_exemption_can_explain_an_allow()
+        untouched = str(self.tmpdir / "brand_new_story_code.py")
+
+        self._assert_allowed(self._edit(self._target()))
+        self._assert_blocked_by_the_schedule_gate(self._edit(untouched))
+
+    def test_staging_the_resolution_closes_the_exemption_before_the_commit(self):
+        """The self-clearing half. `git add` of the resolved file ends that
+        file's exemption while MERGE_HEAD is still on disk, so the exemption
+        tracks the conflict rather than the merge."""
+        self._assert_gate_window_is_real()
+        self._start_conflicting_merge()
+        (self.tmpdir / _CONFLICTED).write_text("resolved\n")
+        self._git("add", _CONFLICTED)
+        self.assertTrue(identity.merge_in_progress(str(self.tmpdir)), "still mid-merge")
 
         self._assert_blocked_by_the_schedule_gate(self._edit(self._target()))
 

@@ -355,12 +355,14 @@ class TestCorruptSprintKeepsThePredicatesApart(_ScheduleGateFixture):
             )
         self.assertIn("cannot be read", str(ctx.exception))
 
-    def test_a_merge_in_progress_still_blocks_when_the_sprint_is_corrupt(self):
-        """The third leg, same claim. A merge in progress exempts a write from
-        the SCHEDULE gate — a statement about scope. It says nothing about
+    def test_a_conflicted_file_still_blocks_when_the_sprint_is_corrupt(self):
+        """The third leg, same claim. A conflict being resolved exempts a write
+        from the SCHEDULE gate — a statement about scope. It says nothing about
         sprint.json being readable, so it buys nothing here."""
         with (
-            self._probes(root=self._root, branch=_STORY_BRANCH, merging=True),
+            self._probes(
+                root=self._root, branch=_STORY_BRANCH, conflicted=("src/app.py",)
+            ),
             self.assertRaises(_common.BlockedError) as ctx,
         ):
             pre_tool_write.run(

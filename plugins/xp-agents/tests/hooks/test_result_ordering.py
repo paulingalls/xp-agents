@@ -10,6 +10,10 @@ the failure gate arms, so it is its own question and gets its own file.
 Two strategies are pinned here (see `result_counts`): summing over an anchored
 summary LINE, and the whole-response last-match fallback for runners with no
 such line.
+
+How several summaries COMBINE is the sibling question, and lives in
+`test_result_multi_sub_run.py` — this file is about which text within one
+response is authoritative.
 """
 
 import sys
@@ -162,84 +166,6 @@ class TestCountsComeFromTheSummaryLine(unittest.TestCase):
         result = test_parsing.parse_test_results(output, "pytest")
         self.assertEqual(result["errors"], 2)
         self.assertEqual(result["failed"], 3, "1 failed + 2 errors")
-
-
-class TestASubRunIsNeverErasedByAnother(unittest.TestCase):
-    """One summary per sub-run and no aggregate — so they sum.
-
-    The failure mode all of these share: a run whose sub-runs disagree gets
-    recorded as whichever one the extraction happened to land on. When that is
-    a GREEN one, no failure concern is filed and the resolver records the red
-    suite as passing — the gate is disarmed, not merely noisy.
-    """
-
-    def test_cargo_does_not_report_only_the_first_test_binary(self):
-        """A green lib binary must not hide a red integration binary."""
-        output = (
-            "test result: ok. 12 passed; 0 failed; 0 ignored\n\n"
-            "     Running tests/integration.rs\n"
-            "test result: FAILED. 3 passed; 2 failed; 0 ignored\n\n"
-            "   Doc-tests mycrate\n"
-            "test result: ok. 0 passed; 0 failed; 0 ignored\n"
-        )
-        result = test_parsing.parse_test_results(output, "cargo")
-        self.assertEqual(result["failed"], 2, "the second binary was red")
-        self.assertEqual(result["passed"], 15, "12 + 3 across both binaries")
-
-    def test_a_workspace_launcher_does_not_report_only_one_package(self):
-        """`pnpm -r test` and friends resolve to the jest arm.
-
-        Every npm/pnpm/yarn/lerna script alias lands there, and those are
-        exactly the multi-package/no-aggregate shape — the same one the
-        workspace task runners have. A red package must survive a green one
-        whichever order they print in.
-        """
-        red_first = (
-            "Tests:       2 failed, 8 passed, 10 total\n"
-            "Tests:       0 failed, 30 passed, 30 total\n"
-        )
-        for output in (red_first, "".join(reversed(red_first.splitlines(True)))):
-            with self.subTest(order=output.splitlines()[0]):
-                result = test_parsing.parse_test_results(output, "jest")
-                self.assertEqual(result["failed"], 2)
-                self.assertEqual(result["passed"], 38)
-
-    def test_vitest_prints_its_counts_without_a_colon(self):
-        """vitest shares the jest arm but not jest's `Tests:` punctuation.
-
-        Its default reporter prints `      Tests  5 passed (5)` — indented,
-        no colon — so an anchor spelled `Tests:` never matches and the arm
-        falls back to the whole-response scan, silently reporting one package
-        of a workspace. `is_test_run` routes vitest here, and turbo/nx
-        wrapping vitest land in the same place.
-        """
-        output = (
-            " Test Files  1 passed (1)\n"
-            "      Tests  30 passed (30)\n"
-            " Test Files  1 failed (1)\n"
-            "      Tests  2 failed | 6 passed (8)\n"
-        )
-        result = test_parsing.parse_test_results(output, "vitest")
-        self.assertEqual(result["failed"], 2)
-        self.assertEqual(
-            result["passed"],
-            36,
-            "both packages must be summed — the fallback scan reports only "
-            "the last line it happens to see",
-        )
-
-    def test_one_empty_package_does_not_zero_the_whole_workspace(self):
-        """The zero marker short-circuited on the FIRST `0 passed, 0 total`.
-
-        A workspace where one package has no tests is ordinary, and it used to
-        return ZERO for the entire run — recording 0 tests for a suite that ran
-        30. The summed path reaches ZERO on its own when everything is zero, so
-        the marker was never needed for count-bearing lines.
-        """
-        output = "Tests:       0 passed, 0 total\nTests:       30 passed, 30 total\n"
-        result = test_parsing.parse_test_results(output, "jest")
-        self.assertEqual(result["status"], "parsed")
-        self.assertEqual(result["passed"], 30)
 
 
 class TestAnAnchoredArmRefusesToGuess(unittest.TestCase):

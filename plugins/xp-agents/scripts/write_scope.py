@@ -22,27 +22,43 @@ import identity
 import worktree
 
 
+def _resolved_target(target_file: str, cwd: str) -> Path | None:
+    """The write's target as an absolute, symlink-resolved path, or None.
+
+    Every comparison in this module goes through it, because the payload's path
+    is whatever the caller typed: relative to the hook's cwd, or absolute
+    through whatever symlinks that cwd carried (on macOS /tmp is /private/tmp,
+    and mkdtemp hands back /var/folders -> /private/var/folders). Compare an
+    unresolved target against a resolved fact and the answer is "outside" or
+    "not conflicted" for a path that is neither.
+    """
+    p = Path(target_file)
+    if not p.is_absolute():
+        p = Path(cwd) / p
+    try:
+        return p.resolve()
+    except OSError:
+        return None
+
+
 def _resolves_under(target_file: str, base: Path | str, cwd: str) -> bool:
     """True if `target_file` resolves to a path inside `base`.
 
-    BOTH sides are resolved, and that is the whole point. git reports the
-    PHYSICAL toplevel and $SMM_DIR may itself be a symlink, while a target built
-    from the hook payload's cwd runs through whatever symlinks the caller had (on
-    macOS /tmp is /private/tmp, and mkdtemp hands back /var/folders ->
-    /private/var/folders). Resolve one side only and every contained path reads
-    as outside — for the schedule gate that means failing OPEN for exactly the
-    case it exists to catch.
+    BOTH sides are resolved, and that is the whole point: git reports the
+    PHYSICAL toplevel and $SMM_DIR may itself be a symlink. Resolve one side
+    only and every contained path reads as outside — for the schedule gate that
+    means failing OPEN for exactly the case it exists to catch.
 
     Shared by both exemption predicates below. Sharing the path MATH is not
     unioning the exemptions: they stay two predicates with two justifications
     (see the gate in pre_tool_write.run) and only agree on what "inside a
     directory" means.
     """
-    p = Path(target_file)
-    if not p.is_absolute():
-        p = Path(cwd) / p
+    target = _resolved_target(target_file, cwd)
+    if target is None:
+        return False
     try:
-        p.resolve().relative_to(Path(base).resolve())
+        target.relative_to(Path(base).resolve())
         return True
     except (ValueError, OSError):
         return False
@@ -70,6 +86,37 @@ def _is_outside_tree(target_file: str | None, root: str, cwd: str) -> bool:
     return not _resolves_under(target_file, root, cwd)
 
 
+def _is_conflicted(target_file: str | None, root: str, cwd: str) -> bool:
+    """True if git reports THIS path as an unresolved conflict.
+
+    The per-file question, deliberately not `identity.merge_in_progress`. That
+    one is a property of the CHECKOUT, so it exempted every write in the tree
+    for as long as MERGE_HEAD existed — and a merge left neither committed nor
+    aborted keeps it forever, which disarmed the schedule gate wholesale rather
+    than for the resolution it was meant to cover. An unmerged index entry
+    names one file and disappears the instant that file's resolution is staged.
+
+    Both sides are resolved, as everywhere else here: git names the conflict
+    relative to the PHYSICAL root while the target arrives through the hook
+    payload's cwd, so comparing the raw strings answers "not conflicted" for a
+    file that is — and the write the gate then refuses is the conflict
+    resolution itself.
+    """
+    if not target_file:
+        return False
+    resolved = _resolved_target(target_file, cwd)
+    if resolved is None:
+        return False
+    root_path = Path(root)
+    for rel in identity.unmerged_paths(cwd):
+        try:
+            if (root_path / rel).resolve() == resolved:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def is_out_of_story_scope(target_file: str | None, cwd: str) -> bool:
     """True if the write is outside what the schedule gate governs.
 
@@ -78,31 +125,35 @@ def is_out_of_story_scope(target_file: str | None, cwd: str) -> bool:
     tree (a memory file under ~/.claude is not this sprint's implementation — and
     the only way to satisfy the gate for it was to promote a story against a
     customer pause); one made on a FREE branch, where the sprint is not the frame
-    at all and /xp-free-close is the right path; and one made while a MERGE is in
-    progress, where the file being written is a conflict being resolved, not new
-    implementation.
+    at all and /xp-free-close is the right path; and one to a file git reports as
+    CONFLICTED, which is a merge being resolved, not new implementation.
 
     Free-branch detection keys on branch SHAPE, never on a marker: a marker can be
     `rm`'d to bypass the gate, a branch name cannot be forged without being on it.
-    The merge leg is structural for the same reason and a stronger one — an opt-in
-    marker can be left behind and would silently disarm the gate for the rest of
-    the session, while git creates MERGE_HEAD when the merge starts and removes it
-    when the merge ends, so the exemption cannot outlive its reason. The recorded
-    misfire: a back-merge onto a sprint branch with stories scheduled and none in
-    motion, where resolving the conflicts meant writing to the conflicted files
-    and every such write was refused. The commit gate already carries an escape
-    for this case.
+    The conflict leg is structural for the same reason and a stronger one — an
+    opt-in marker can be left behind and would silently disarm the gate for the
+    rest of the session. So would MERGE_HEAD, which is why this leg asks the
+    narrower question: a merge abandoned without a commit or an abort (the
+    leftover `acceptance_env.detect_interrupted` treats as a crashed run) leaves
+    MERGE_HEAD on disk indefinitely, and keying on it exempted EVERY write in the
+    tree for the rest of that checkout's life. An unmerged index entry names the
+    one file whose conflict is open and vanishes when that resolution is staged,
+    so the exemption cannot outlive its reason even by one file. The recorded
+    misfire it still covers: a back-merge onto a sprint branch with stories
+    scheduled and none in motion, where resolving the conflicts meant writing to
+    the conflicted files and every such write was refused. The commit gate
+    already carries an escape for this case.
 
     Fails closed at every leg. No git root (not a repo, git broken) -> we cannot
-    prove the write is out of scope, so we do not exempt it. `merge_in_progress`
-    reads "" from a failed `rev-parse` and answers False, so a broken git is not
-    a merge. `get_current_branch` returns "" on git failure and the literal
-    "HEAD" when detached; neither is a free branch, so both leave the gate
-    standing.
+    prove the write is out of scope, so we do not exempt it. `unmerged_paths`
+    reads "" from a failed `ls-files` and answers with an empty set, so a broken
+    git conflicts with nothing. `get_current_branch` returns "" on git failure
+    and the literal "HEAD" when detached; neither is a free branch, so both
+    leave the gate standing.
 
     ORDER IS COST, and the branch leg stays LAST. The out-of-tree leg is
-    deliberately FIRST: it is pure path math, while the other two each shell out,
-    so a write that is already out of tree pays no subprocess at all.
+    deliberately FIRST: it is pure path math, while the other two each shell out
+    once, so a write that is already out of tree pays no subprocess at all.
     TestScheduleGateBranchProbeCost and TestScheduleGateMergeProbeCost each pin
     their own leg, so neither can be reordered without a named failure.
 
@@ -119,6 +170,6 @@ def is_out_of_story_scope(target_file: str | None, cwd: str) -> bool:
         return False
     if _is_outside_tree(target_file, root, cwd):
         return True
-    if identity.merge_in_progress(cwd):
+    if _is_conflicted(target_file, root, cwd):
         return True
     return branch_names.is_free_branch(identity.get_current_branch(cwd))

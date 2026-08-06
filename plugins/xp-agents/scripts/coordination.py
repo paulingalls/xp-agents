@@ -36,17 +36,30 @@ _NO_AGE_LIMIT = 10**9  # ~31 years
 # replaces, or the liveness leg makes a dead teammate look active for LONGER
 # than the plain 30-minute TTL did.
 #
-# A killed session stops writing its entry and its heartbeat at the same
-# instant, so the two always age together and no gap between them ever opens.
-# The window is therefore the only thing deciding when a dead teammate stops
-# counting, and it must sit strictly below `_COORDINATION_MAX_AGE`.
+# A killed session stops writing both files at once, so neither clock advances
+# after death and the window alone decides when a dead teammate stops counting.
+#
+# The two clocks are NOT the same age, though, and the difference runs one way:
+# the entry is written only from PostToolUse Write/Edit/MultiEdit, while the
+# heartbeat is ALSO written from Bash, Skill/Agent and every user prompt. So a
+# heartbeat is never older than its entry and is often much younger. Two
+# consequences, both worth stating plainly rather than assuming away:
+#
+#   - Reading the heartbeat measures the age of the last PROOF OF LIFE, where
+#     the TTL measured the age of the last file write. That is the better
+#     clock, and it is why a teammate that has been running Bash for an hour
+#     without writing a file is no longer forgotten.
+#   - A window BELOW `_COORDINATION_MAX_AGE` therefore does not guarantee a
+#     dead teammate is dropped sooner than the plain TTL would have dropped
+#     it: one killed 5 minutes after its last Bash call but 25 after its last
+#     write is held 10 minutes LONGER than the TTL alone would have. Bounded,
+#     and in exchange for the bullet above — not the strict tightening the
+#     ordering of the two numbers suggests.
 #
 # 15 minutes: the window has to exceed the longest gap between heartbeat writes
-# on a WORKING session. Every Bash, Write/Edit and Skill call on the MAIN
-# thread refreshes it, so a tool call alone is a comfortable fit — the longest
+# on a WORKING session. A tool call alone is a comfortable fit — the longest
 # here is a full-suite run, measured 5m35s alone and 9m49s with four sibling
-# teammates on the same machine. It still halves the 30 minutes a dead teammate
-# used to hold the gate.
+# teammates on the same machine.
 #
 # Be honest about what it does NOT clear. Every heartbeat writer skips its own
 # subagents, so nothing refreshes the marker for the DURATION of one: a session
@@ -55,14 +68,15 @@ _NO_AGE_LIMIT = 10**9  # ~31 years
 # PostToolUse refresh either. So a live-but-quiet teammate read as dead is a
 # state to expect, not a corner.
 #
-# What that costs is bounded, which is why the window is still set here rather
-# than raised: both callers fail SAFE on it. The TDD gate declines to release
-# and holds the lead on its own red suite; the sprint gate falls through to
-# `worktree.has_live_teammates`, a process/marker check that still sees the
-# teammate. The opposite error has no such backstop — a lead held on a corpse
-# never moves at all. Raising the window is not the fix if this bites: it
-# cannot pass `_COORDINATION_MAX_AGE` without reinstating the very defect. A
-# refresh source that survives a subagent run is.
+# What that costs differs by caller, and only one of them has a backstop. The
+# sprint gate falls through to `worktree.has_live_teammates`, a registration
+# check that still sees the teammate. The TDD gate does not: it reaches this
+# question only on the LEAD's unscoped read, so the red suite it then refuses
+# to stop on may be the teammate's rather than its own, and the lead re-runs
+# its own suite to clear it. Neither error is silent and both self-heal within
+# a tool call, which is why the number is left where the story set it. Raising
+# it is not the fix if this bites, because it buys the false block back as a
+# longer false release. A refresh source that survives a subagent run is.
 _HEARTBEAT_TRUST_SECONDS = 15 * 60
 
 

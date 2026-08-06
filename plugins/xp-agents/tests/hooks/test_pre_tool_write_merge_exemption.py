@@ -35,14 +35,17 @@ class TestScheduleGateMergeExemption(_ScheduleGateFixture):
     procedural workaround. The commit gate already has an escape for exactly this
     case; the write gate had none.
 
-    STRUCTURAL, not an opt-in marker. A marker can be left behind and would
-    silently disarm the gate for the rest of the session; MERGE_HEAD exists for
-    precisely as long as the merge does and git removes it, so the exemption
-    cannot outlive its reason.
+    STRUCTURAL, not an opt-in marker, and PER FILE rather than per repo. A
+    marker can be left behind and would silently disarm the gate for the rest of
+    the session — but so does MERGE_HEAD, which an abandoned merge leaves on
+    disk indefinitely while exempting every write in the tree. An unmerged index
+    entry names the one file whose conflict is unresolved and vanishes the
+    moment that resolution is staged, so the exemption cannot outlive its
+    reason.
 
     Every case here writes IN-TREE on a NON-free branch, so neither sibling leg
-    can carry the result: the merge probe is the only thing that can explain an
-    allow, and its absence the only thing that can explain a block.
+    can carry the result: the conflict probe is the only thing that can explain
+    an allow, and its absence the only thing that can explain a block.
     """
 
     def setUp(self):
@@ -52,14 +55,34 @@ class TestScheduleGateMergeExemption(_ScheduleGateFixture):
     def _in_tree(self) -> str:
         return str(Path(self._cwd) / "src" / "app.py")
 
-    def test_a_merge_in_progress_exempts_an_in_tree_story_branch_write(self):
-        with self._probes(root=self._root, branch=_STORY_BRANCH, merging=True):
+    def test_a_conflicted_file_is_exempt_on_an_in_tree_story_branch(self):
+        with self._probes(
+            root=self._root, branch=_STORY_BRANCH, conflicted=("src/app.py",)
+        ):
             result = pre_tool_write.run(
                 self._write(self._in_tree()), smm_dir=self.smm_dir
             )
         self.assertIsNone(result)
 
-    def test_no_merge_in_progress_still_blocks(self):
+    def test_an_unconflicted_file_is_still_blocked_while_a_merge_runs(self):
+        """The blast radius MERGE_HEAD could not limit.
+
+        A merge is in progress and a DIFFERENT file is conflicted, so the
+        boolean probe answered "merge" and exempted this write too. Brand-new
+        story implementation against a customer pause is not conflict
+        resolution — and an abandoned merge, never committed and never aborted,
+        made that exemption permanent.
+        """
+        with (
+            self._probes(
+                root=self._root, branch=_STORY_BRANCH, conflicted=("src/other.py",)
+            ),
+            self.assertRaises(_common.BlockedError) as ctx,
+        ):
+            pre_tool_write.run(self._write(self._in_tree()), smm_dir=self.smm_dir)
+        self.assertIn("xp-schedule", str(ctx.exception))
+
+    def test_no_conflict_still_blocks(self):
         """The paired control, identical in every field but the merge state.
 
         Without it the exemption test above passes just as well with the whole
@@ -67,30 +90,34 @@ class TestScheduleGateMergeExemption(_ScheduleGateFixture):
         out. One variable, opposite verdicts.
         """
         with (
-            self._probes(root=self._root, branch=_STORY_BRANCH, merging=False),
+            self._probes(root=self._root, branch=_STORY_BRANCH, conflicted=()),
             self.assertRaises(_common.BlockedError) as ctx,
         ):
             pre_tool_write.run(self._write(self._in_tree()), smm_dir=self.smm_dir)
         self.assertIn("xp-schedule", str(ctx.exception))
 
     def test_the_exemption_does_not_depend_on_the_branch_shape(self):
-        """A merge is a merge. The back-merge that motivated this landed on a
-        SPRINT branch, which is neither a story branch nor free — so the leg must
-        not be scoped to any branch shape."""
+        """A conflict is a conflict. The back-merge that motivated this landed on
+        a SPRINT branch, which is neither a story branch nor free — so the leg
+        must not be scoped to any branch shape."""
         sprint_branch = "paulingalls/sprint-004"
-        with self._probes(root=self._root, branch=sprint_branch, merging=True):
+        with self._probes(
+            root=self._root, branch=sprint_branch, conflicted=("src/app.py",)
+        ):
             result = pre_tool_write.run(
                 self._write(self._in_tree()), smm_dir=self.smm_dir
             )
         self.assertIsNone(result)
 
-    def test_a_merge_does_not_rescue_a_write_with_no_git_root(self):
+    def test_a_conflict_does_not_rescue_a_write_with_no_git_root(self):
         """Fail closed at the same place every sibling leg does. With no root
         there is nothing to contain a path, and the out-of-tree leg returns
-        early — so neither subprocess is paid and nothing is exempt, merge or
+        early — so neither subprocess is paid and nothing is exempt, conflict or
         not."""
         with (
-            self._probes(root=None, branch=_STORY_BRANCH, merging=True) as probes,
+            self._probes(
+                root=None, branch=_STORY_BRANCH, conflicted=("src/app.py",)
+            ) as probes,
             self.assertRaises(_common.BlockedError),
         ):
             pre_tool_write.run(self._write(self._in_tree()), smm_dir=self.smm_dir)
@@ -98,7 +125,7 @@ class TestScheduleGateMergeExemption(_ScheduleGateFixture):
 
 
 class TestScheduleGateMergeProbeCost(_ScheduleGateFixture):
-    """`merge_in_progress` is a second uncached subprocess on the Write hot path.
+    """`unmerged_paths` is a second uncached subprocess on the Write hot path.
 
     Its own cost pin, paired with the branch probe's below rather than folded
     into it: two probes in one `and` chain need two claims, and a single

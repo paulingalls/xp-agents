@@ -171,6 +171,69 @@ class TestMergeInProgress(unittest.TestCase):
             self.assertFalse(identity.merge_in_progress(td))
 
 
+class TestUnmergedPaths(unittest.TestCase):
+    """`unmerged_paths` names the files a conflict is actually being resolved in.
+
+    The schedule gate exempts a write while a conflict is being resolved, and
+    MERGE_HEAD alone cannot say WHICH file that is: it exempts every write for
+    as long as the merge exists, and an abandoned merge (neither committed nor
+    aborted — `acceptance_env.detect_interrupted` treats exactly that leftover
+    as a crashed run, so it persists) then disarmed the gate wholesale. The
+    index's unmerged entries are the narrower fact, and they self-clear per
+    file as each is resolved and staged.
+
+    Fails CLOSED like its neighbours: no repo, no git, no answer means no
+    exemption, so every failure returns an EMPTY set.
+    """
+
+    def _repo(self) -> str:
+        td = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(td.cleanup)
+        init_repo_with_ignored_worktrees(td.name)
+        return td.name
+
+    def _git(self, repo: str, *args: str) -> None:
+        subprocess.run(
+            ["git", *args], cwd=repo, env=GIT_ENV, capture_output=True, check=True
+        )
+
+    def test_the_conflicted_file_is_named(self):
+        repo = self._repo()
+        make_conflicted_merge(repo)
+
+        self.assertEqual(identity.unmerged_paths(repo), {"base.txt"})
+
+    def test_a_resolved_and_staged_file_leaves_the_set(self):
+        """The self-clearing half, and the reason this is narrower than
+        MERGE_HEAD: staging the resolution ends that file's exemption even
+        though the merge itself is still in progress."""
+        repo = self._repo()
+        make_conflicted_merge(repo)
+        (Path(repo) / "base.txt").write_text("resolved\n")
+        self._git(repo, "add", "base.txt")
+
+        self.assertTrue(identity.merge_in_progress(repo), "still mid-merge")
+        self.assertEqual(identity.unmerged_paths(repo), set())
+
+    def test_a_clean_checkout_has_none(self):
+        self.assertEqual(identity.unmerged_paths(self._repo()), set())
+
+    def test_a_non_repo_has_none(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(identity.unmerged_paths(td), set())
+
+    def test_paths_are_repo_relative_from_a_subdirectory(self):
+        """`git ls-files` reports paths relative to the CWD by default, so a
+        hook firing from a subdirectory would otherwise get `../base.txt` and
+        match nothing. The caller joins these onto the repo root."""
+        repo = self._repo()
+        make_conflicted_merge(repo)
+        sub = Path(repo) / "sub"
+        sub.mkdir()
+
+        self.assertEqual(identity.unmerged_paths(str(sub)), {"base.txt"})
+
+
 class TestExactlyOneMergeDetector(unittest.TestCase):
     """`acceptance_env` must not keep a second MERGE_HEAD probe of its own.
 
