@@ -301,5 +301,118 @@ class TestSprintStopGateAcceptInFlightConsume(_HookTestCase):
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
 
 
+_RUNNABLE = {"type": "pytest", "commands": ["pytest tests/ -q"]}
+_MANUAL_WITH_STEPS = {"type": "manual", "steps": ["Read the doc against each AC."]}
+_MANUAL_EMPTY = {"type": "manual"}
+
+
+class TestTheGateDoesNotClaimProofItLacks(_HookTestCase):
+    """The accept message names a story whose acceptance nothing can check.
+
+    `conftest._STORY_BASE` carries NO `acceptance_execution`, so every shared
+    fixture and every bare `_s()` lands on the names-the-gap side. A gap
+    assertion written on those would pass just as well if the clause were
+    appended unconditionally — so the has-proof story below is built with an
+    explicit kwarg, and it is that pin, not the gap pin, that gives the pair
+    its meaning.
+    """
+
+    def _run(self, story):
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(_sprint_json([story]))
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        return self._assert_not_none(result)
+
+    def test_declared_runnable_proof_leaves_the_message_unchanged(self):
+        import sprint_stop_gate
+
+        result = self._run(
+            _s("story-1", "t", "reviewing", acceptance_execution=_RUNNABLE)
+        )
+        self.assertEqual(result, sprint_stop_gate._ACCEPT_MESSAGE)
+        self.assertNotIn("story-1", result)
+
+    def test_a_manual_block_with_steps_is_declared_proof(self):
+        import sprint_stop_gate
+
+        result = self._run(
+            _s("story-1", "t", "reviewing", acceptance_execution=_MANUAL_WITH_STEPS)
+        )
+        self.assertEqual(result, sprint_stop_gate._ACCEPT_MESSAGE)
+
+    def test_no_acceptance_execution_at_all_is_named(self):
+        result = self._run(_s("story-1", "t", "reviewing"))
+        self.assertIn("story-1", result)
+        self.assertIn("xp-accept", result)
+
+    def test_a_manual_block_with_no_steps_is_named(self):
+        """Schema-valid and declares nothing: `type` is the only required key,
+        so this shape would read as proof if the check keyed on absence."""
+        result = self._run(
+            _s("story-1", "t", "reviewing", acceptance_execution=_MANUAL_EMPTY)
+        )
+        self.assertIn("story-1", result)
+
+    def test_only_the_storyless_ones_are_named(self):
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-1", "t", "reviewing", acceptance_execution=_RUNNABLE),
+                    _s("story-2", "t", "reviewing"),
+                ]
+            )
+        )
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("story-2", result)
+        self.assertNotIn("story-1", result)
+
+    def test_a_done_story_without_proof_is_not_named(self):
+        """Only the stories that FIRED the branch are named. A done story has
+        left the accept window and is nobody's outstanding proof."""
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-1", "t", "reviewing", acceptance_execution=_RUNNABLE),
+                    _s("story-2", "t", "done"),
+                ]
+            )
+        )
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertNotIn("story-2", result)
+
+    def test_the_recorded_false_accept_shape_is_named(self):
+        """AC-3: the shape both recorded false accepts ran through — in-progress
+        plus the ACCEPT marker plus work, not the under-acceptance branch.
+        Varying acceptance_execution alone never reaches this path."""
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json([_s("story-5", "t", "in-progress")])
+        )
+        (self.smm_dir / ".accept").write_text("done")
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("story-5", result)
+
+    def test_that_same_path_is_unchanged_when_proof_exists(self):
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [_s("story-5", "t", "in-progress", acceptance_execution=_RUNNABLE)]
+            )
+        )
+        (self.smm_dir / ".accept").write_text("done")
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertEqual(result, sprint_stop_gate._ACCEPT_MESSAGE)
+
+
 if __name__ == "__main__":
     unittest.main()

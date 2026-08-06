@@ -33,6 +33,7 @@ import markers
 import sprint_state
 import worktree
 from event_schema import EVENT_TYPE_SPRINT, SPRINT_ACTION_END
+from sprint_schema import UNDER_ACCEPTANCE_STORY_STATUSES
 from sprint_status import (
     has_active_stories_data,
     has_in_progress_stories_data,
@@ -123,6 +124,49 @@ def _in_progress_has_work(smm_dir: Path, cwd: str) -> bool:
     return n != 0
 
 
+def _has_checkable_proof(story: dict) -> bool:
+    """True when /xp-accept has something to check for *story*.
+
+    Command presence is the primary route — `_acceptance_execution` states the
+    rule as "gate on command PRESENCE, not on type" — and a manual block's
+    `steps` are the documented walkthrough, which is declared proof even though
+    nothing runs.
+
+    Absence is NOT the discriminator, and that distinction is the whole point:
+    `type` is the only required key, so `{"type": "manual"}` carrying neither a
+    command nor steps is schema-valid and declares nothing. Keying on
+    absent/null would read that shape as proof.
+    """
+    block = story.get("acceptance_execution")
+    if not isinstance(block, dict):
+        return False
+    if block.get("command") or block.get("commands"):
+        return True
+    steps = block.get("steps")
+    if not isinstance(steps, list):
+        return False
+    return any(isinstance(step, str) and step.strip() for step in steps)
+
+
+def _accept_message(firing: list[dict]) -> str:
+    """The accept message, naming any firing story nothing can check.
+
+    Scoped to the stories that actually FIRED the branch, never the whole
+    sprint: a done story has left the accept window and is nobody's outstanding
+    proof. The base text is returned byte-for-byte when every firing story
+    declares proof, so the working direction is untouched.
+    """
+    unprovable = sorted(
+        story.get("id", "") for story in firing if not _has_checkable_proof(story)
+    )
+    if not unprovable:
+        return _ACCEPT_MESSAGE
+    return (
+        f"{_ACCEPT_MESSAGE} No proof is declared for "
+        f"{', '.join(unprovable)} — nothing there can be checked."
+    )
+
+
 def _compute_block_message(smm_dir: Path, sprint_data: dict, cwd: str) -> str | None:
     """Return the first triggered cascade block message, or None.
 
@@ -135,13 +179,18 @@ def _compute_block_message(smm_dir: Path, sprint_data: dict, cwd: str) -> str | 
     # where the user must run /xp-accept (or finish the in-flight close)
     # before stopping. These carry committed+merged work, so they fire
     # unconditionally — only the in-progress+marker path is refined below.
+    stories = sprint_data["stories"]
     if has_under_acceptance_stories_data(sprint_data):
-        return _ACCEPT_MESSAGE
+        return _accept_message(
+            [s for s in stories if s.get("status") in UNDER_ACCEPTANCE_STORY_STATUSES]
+        )
     if has_in_progress_stories_data(sprint_data):
         if markers.marker_exists(smm_dir, markers.ACCEPT) and _in_progress_has_work(
             smm_dir, cwd
         ):
-            return _ACCEPT_MESSAGE
+            return _accept_message(
+                [s for s in stories if s.get("status") == "in-progress"]
+            )
         return None
 
     # Cascade step 2: sprint-review gate — requires sprint complete.

@@ -136,7 +136,12 @@ REASON_BUDGETS: dict[str, int] = {
     "scripts/pre_tool_write.py": 720,
     "scripts/review_cycle_done.py": 960,
     "scripts/session_end_warning.py": 100,
-    "scripts/sprint_stop_gate.py": 230,
+    # Bumped 230 -> 320 (story-017). The gate stood at 204 of a 225.4 band —
+    # 89% used — so no clause of any useful length fit, and trimming was not
+    # available: even a 26-char one busted it. The accept message now names the
+    # firing stories nothing can check, which is the whole point of that story;
+    # 320 leaves ~47 chars of real headroom rather than the 21 it had.
+    "scripts/sprint_stop_gate.py": 320,
     "scripts/subagent_stop.py": 350,
     "scripts/task_completed.py": 70,
     "scripts/tdd_stop_gate.py": 110,
@@ -173,7 +178,10 @@ MIN_REASON_CHARS: dict[str, int] = {
     "scripts/pre_tool_write.py": 540,
     "scripts/review_cycle_done.py": 720,
     "scripts/session_end_warning.py": 80,
-    "scripts/sprint_stop_gate.py": 170,
+    # Raised with the budget above (story-017): left at 170 the floor would let
+    # the whole names-the-gap clause be deleted without failing, which is the
+    # one direction this table exists to catch.
+    "scripts/sprint_stop_gate.py": 230,
     "scripts/subagent_stop.py": 270,
     "scripts/task_completed.py": 50,
     "scripts/tdd_stop_gate.py": 80,
