@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""The `merge --archive-sprint` step, extracted from close_common.py.
+"""The `merge --archive-sprint` step.
 
-Extracted at the commit that pushed close_common.py over the 500-line cap. It
-is the natural seam: a single step in the merge chain whose placement rules and
-failure semantics are self-contained, and which the rest of cmd_merge touches
-only through one call.
+A single step in the merge chain whose placement rules and failure semantics
+are self-contained. cmd_merge reaches it twice: `smm_dir_notice` to validate
+the flags before anything moves, and `archive_step` in the chain itself.
 
 WHERE THE CALLER MUST KEEP IT. The archive is LAST-but-one: after the merge
 commit AND the target push, before delete_branch (the one irreversible step).
