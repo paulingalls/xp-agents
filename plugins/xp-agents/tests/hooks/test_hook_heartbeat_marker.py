@@ -156,13 +156,18 @@ class TestDegradesToTimeOnly(_HookTestCase):
             result = hook_liveness.check_liveness(self.smm_dir, now=self.NOW + 60)
         self.assertTrue(result.live, result.reason)
 
-    def test_a_stale_shared_marker_still_consults_the_siblings(self):
-        """The absent-vs-stale asymmetry.
+    def test_a_stale_shared_marker_does_not_consult_the_siblings(self):
+        """REVERSED. This pin used to assert the opposite: that staleness
+        should borrow a fresh sibling the way absence then did, since a hook
+        handed a payload id writes a per-session file this reader cannot name
+        while the shared marker ages out.
 
-        Absence already consulted siblings; staleness did not, though the
-        argument is identical — a hook handed a payload id writes a
-        per-session file this reader cannot name, so the shared marker goes
-        stale while hooks are demonstrably running.
+        Symmetry was the right instinct pointed the wrong way. Both copies
+        were fail-opens — a session whose runtime died mid-way reads LIVE off
+        a heartbeat belonging to a session that is not it, which is precisely
+        the silent unenforcement the check exists to surface. The asymmetry
+        was closed by removing the borrow from both paths, not by adding it
+        here.
         """
         with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="live-one")):
             hook_liveness.write_heartbeat(
@@ -172,7 +177,7 @@ class TestDegradesToTimeOnly(_HookTestCase):
             result = hook_liveness.check_liveness(
                 self.smm_dir, now=self.NOW + hook_liveness.STALE_AFTER_SECONDS + 60
             )
-        self.assertTrue(result.live, result.reason)
+        self.assertFalse(result.live, result.reason)
 
     def test_no_discoverable_id_still_honours_the_threshold(self):
         with patch.dict(os.environ, _env()):
