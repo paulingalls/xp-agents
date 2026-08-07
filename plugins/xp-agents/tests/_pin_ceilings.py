@@ -62,7 +62,10 @@ BAND_CEILINGS = {
     # RETIRED (story-016): pre_tool_write.py 463->379, by extracting the
     # schedule gate's exemption predicates to write_scope.py. Left in place, its
     # 463 would have handed back every one of the 84 lines the split just won.
-    "plugins/xp-agents/scripts/session_start.py": 462,
+    # RETIRED (sprint-005 story-002): session_start.py 462->364, by extracting
+    # the user-facing banner block to scripts/session_start_banner.py. Below the
+    # 450 floor, so the entry is deleted rather than re-recorded — kept at 462 it
+    # would have handed back ~98 of the lines the split just won.
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,

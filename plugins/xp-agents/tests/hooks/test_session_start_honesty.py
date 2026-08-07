@@ -46,6 +46,19 @@ def _context_says_enforcement_is_off(context: str) -> bool:
     return "SMM init failed" in context
 
 
+def _enforcing_banner() -> str:
+    """The whole active banner, spelled out for the byte-identity rows.
+
+    A literal, not a call back into the code under test, or the comparison is a
+    tautology. Spelled once and shared by the lead and teammate legs so the two
+    pins cannot drift apart. Version read at assert time, never at import: the
+    plugin root is env-derived and other suites repoint it.
+    """
+    import plugin_loader
+
+    return f"XP agents (v{plugin_loader.plugin_version()}) active. Run /xp-kickoff."
+
+
 class _BannerTestCase(_HookTestCase):
     """Drives `main` with the init.sh resolution stubbed, like the core suite.
 
@@ -156,12 +169,13 @@ class TestTheChannelsAgree(_BannerTestCase):
         )
 
     def test_the_working_banner_is_unchanged(self):
-        """Over-arming control. The active path keeps its claim AND its nudge;
-        without this, suppressing the banner entirely would pass every row
-        above."""
+        """Over-arming control, pinned byte-for-byte. The active path keeps its
+        claim AND its nudge; without this, suppressing the banner entirely would
+        pass every row above. Whole-line rather than two substrings, because the
+        claim being made is that the enforcing banner is unchanged, and a
+        substring pair passes a reworded line that still contains both."""
         _, message = self._emit(self.smm_dir)
-        self.assertIn(_ACTIVE_CLAIM, message)
-        self.assertIn(_KICKOFF_INVITE, message)
+        self.assertEqual(message, _enforcing_banner())
 
 
 class TestATeammateIsNotToldTheGatesAreOff(_BannerTestCase):
@@ -183,18 +197,16 @@ class TestATeammateIsNotToldTheGatesAreOff(_BannerTestCase):
         )
 
     def test_the_teammate_banner_is_byte_identical_to_today(self):
-        """Unchanged means unchanged, INCLUDING the kickoff nudge.
+        """Unchanged means unchanged: the WHOLE line, not one substring.
 
-        Measured, not assumed: a teammate's banner does carry "Run /xp-kickoff"
-        today. I first pinned the opposite from a plausible-sounding argument
-        (kickoff is lead-owned, and the privilege gate blocks a teammate from
-        it), and the red run refuted it. That invitation is arguably its own
-        small honesty wart — it offers a skill the teammate will be refused —
-        but it is pre-existing and not this story's, so it is pinned as-is
-        rather than quietly changed while fixing something else.
+        A teammate's banner does carry "Run /xp-kickoff" — measured, against a
+        plausible-sounding argument that it would not (kickoff is lead-owned and
+        the privilege gate refuses a teammate). That invitation is arguably its
+        own small honesty wart, but pinning it as-is is what keeps a later fix to
+        it deliberate rather than a side effect of some other change.
         """
         _, message = self._emit(None, teammate=True)
-        self.assertIn(_KICKOFF_INVITE, message)
+        self.assertEqual(message, _enforcing_banner())
 
 
 if __name__ == "__main__":

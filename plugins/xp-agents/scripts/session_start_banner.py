@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 """The SessionStart systemMessage — the only channel the USER reads.
 
-Extracted from session_start.py, which sat at its recorded 450+ band ceiling, so
-adding the not-enforcing banner would have landed it at 499 of a 500 cap. The
-Constraints pillar is explicit that fitting "just under 500" is the shape that
-produced that debt four times, so the block moved rather than the ceiling.
-
-Cohesive on its own terms, not merely convenient: everything here composes the
-one string the user sees at session start — the enforcing banner, the kickoff
-nudge, the at-risk-root advisory and its remedies, and the not-enforcing line.
+Everything here composes the one string the user sees at session start — the
+enforcing banner, the kickoff nudge, the at-risk-root advisory and its remedies,
+and the not-enforcing line. Split out of session_start.py to keep both files well
+clear of the file-size cap rather than fitting one just under it.
 
 `_is_fresh_start` moved with them because the banner needs it and importing it
-back from session_start would make a cycle. session_start re-imports the names
-it still uses, so `session_start._system_message` keeps resolving for the 16
-existing test call sites — none of them had to change.
+back from session_start would make a cycle. session_start re-exports the names it
+still uses, so `session_start._system_message` keeps resolving for the call sites
+that reach it through that module.
 
 WHAT DOES NOT BELONG HERE: deciding whether enforcement is on. `main` performs
 that validation once and passes the answer in. A second validation in this
@@ -121,16 +117,20 @@ def _lock_advisory(state: migration_lock.LockState) -> str:
             return _UNPROBEABLE_ADVISORY
 
 
-# The USER's line when the shared model could not be initialised. `hook_output`
-# sends the context to the AGENT and this to the user, so the two were free to
-# disagree — and did: the agent read `disabled` while this said `active` and
-# invited /xp-kickoff, into the one session no gate could police. Says neither,
-# names a cause true on any host, and avoids `inactive` too (the substring, and
-# because the gates are absent rather than in a state).
+# The USER's line when the shared model could not be initialized. Claims neither
+# "active" nor the /xp-kickoff invitation, and avoids "inactive" — the honesty
+# suite reads the enforcement claim as the substring "active", so a word
+# containing it reddens those rows.
+#
+# The remedy names exactly what the resolution and validation actually check —
+# the directory resolves, exists, and is owned by this user — because a line that
+# tells the user to check something the code never looked at cannot be acted on.
+# The retry covers the remaining cause the code cannot distinguish here: the
+# resolution timing out mid-relocation.
 _DISABLED_MESSAGE = (
     "XP agents (v{version}) NOT ENFORCING — the shared model could not be "
-    "initialised, so none of its gates are running. Check the data root is "
-    "writable and not a broken symlink, then start a new session."
+    "initialized, so none of its gates are running. Check that the data root "
+    "exists and is owned by you, then start a new session."
 )
 
 
