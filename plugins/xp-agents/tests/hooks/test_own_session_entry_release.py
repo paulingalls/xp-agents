@@ -30,7 +30,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import sprint_stop_gate
 from _heartbeat_fixtures import env as _env
+from _tdd_gate_fixtures import _GateTestCase, filler, session_anchor
+from conftest import SPRINT_IN_PROGRESS, _make_stop_input, failing_tests_concern
 from test_coordination import _LivenessTestCase
 
 
@@ -104,6 +107,66 @@ class TestOurOwnSubagentIsNotASibling(_OwnSessionTestCase):
         self._entry(self.TEAMMATE, age=self.FRESH, session_id=self.SESSION)
         self._beat(self.SESSION, age=self.FRESH)
         self.assertTrue(self._as_us(self._active))
+
+
+class TestTheTddGateHoldsARedSuiteOfItsOwn(_OwnSessionTestCase, _GateTestCase):
+    """AC-4, at the gate, which is where the criterion is written.
+
+    The predicate above says "not a teammate"; this says what that buys — the
+    lead keeps holding a red suite nobody else owns, instead of being let go on
+    the strength of a file its own subagent touched.
+
+    Driven on the MAIN thread with no `agent_id` in the payload, the shape a
+    real Stop firing has: the harness sends that field only inside a subagent
+    call. The gate reaches the release only for a reader whose test signals were
+    read unscoped, which is the lead.
+    """
+
+    def _stop_on_red(self) -> str | None:
+        events = [session_anchor(), *filler(3), failing_tests_concern()]
+        return self._as_us(lambda: self._stop(events, dirty=False, agent_id=None))
+
+    def test_our_own_subagents_entry_does_not_release_the_gate(self):
+        self._our_subagents_entry(age=self.FRESH)
+        self.assertIsNotNone(self._stop_on_red())
+
+    def test_a_real_sibling_still_releases_the_same_red_suite(self):
+        """Over-arming control. Identical suite, identical staging, an entry
+        from another session — and the lead must still be let go, because that
+        failure really may be the sibling's."""
+        self._entry(self.TEAMMATE, age=self.FRESH, session_id=self.SESSION)
+        self._beat(self.SESSION, age=self.FRESH)
+        self.assertIsNone(self._stop_on_red())
+
+
+class TestTheSprintGateStopsDeferringOnIt(_OwnSessionTestCase):
+    """AC-5. The other consumer of the same predicate.
+
+    Its deferral is a list of reasons to postpone a nudge, and "a teammate is
+    still working" was answering yes to an entry of ours. Every other leg is
+    left unarmed here — no dialogue marker, no in-flight acceptance, no review
+    mid-cycle, no registered teammate — so the entry is the only thing that can
+    decide the answer, and a pass cannot be borrowed from a neighbour.
+    """
+
+    def _stop_with_a_story_to_accept(self) -> str | None:
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        return self._as_us(
+            lambda: sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        )
+
+    def test_our_own_subagents_entry_no_longer_defers_the_nudge(self):
+        self._our_subagents_entry(age=self.FRESH)
+        self.assertIsNotNone(self._stop_with_a_story_to_accept())
+
+    def test_a_real_sibling_still_defers_it(self):
+        """Over-arming control, and the behaviour the gate is meant to keep:
+        while a teammate is genuinely working, the lead is not nudged to accept
+        a sprint that teammate is still adding to."""
+        self._entry(self.TEAMMATE, age=self.FRESH, session_id=self.SESSION)
+        self._beat(self.SESSION, age=self.FRESH)
+        self.assertIsNone(self._stop_with_a_story_to_accept())
 
 
 if __name__ == "__main__":
