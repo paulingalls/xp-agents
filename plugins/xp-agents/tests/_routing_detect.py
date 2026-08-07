@@ -23,7 +23,7 @@ Named for routing rather than prose to stay distinct from milestone 2's planned
 
 import re
 
-from _md_helpers import CORPUS_WIDE_FORBIDDEN
+from _md_helpers import CORPUS_WIDE_FORBIDDEN, SECTION_SCOPED_FORBIDDEN
 
 # The surfaces that state the rule today. A path-segment-anchored suffix match
 # on the repo-relative path, so it is immune to which glob group (root guides vs
@@ -107,6 +107,22 @@ def find_single_language_tokens(text: str, surface: str) -> list[tuple[str, str]
     caller can exercise.
     """
     return [(surface, token) for token in CORPUS_WIDE_FORBIDDEN if token in text]
+
+
+def find_section_scoped_tokens(text: str, surface: str) -> list[tuple[str, str]]:
+    """(surface, token) for every section-scoped token present in *text*.
+
+    Mirror of `find_single_language_tokens`, non-injectable for the same reason.
+    Its caller asks the opposite question: not "did a banned token leak" but
+    "does this token still have the legitimate use that justified filing it
+    section-scoped".
+    """
+    return [(surface, token) for token in SECTION_SCOPED_FORBIDDEN if token in text]
+
+
+def zero_use_members(members: tuple[str, ...], texts: list[str]) -> list[str]:
+    """Members of *members* occurring in none of *texts*."""
+    return [member for member in members if not any(member in text for text in texts)]
 
 
 def find_incomplete_rule_lines(text: str, surface: str) -> list[tuple[str, int, str]]:
