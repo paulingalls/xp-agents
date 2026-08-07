@@ -253,6 +253,40 @@ class TestWillFireHook(unittest.TestCase):
         self.assertTrue(git_hooks.will_fire_hook(str(self.tmpdir)))
 
 
+class TestNonRepoRootNeverBorrowsAncestorHooks(unittest.TestCase):
+    """A directory that is not itself a repo has no hooks of its own.
+
+    `git rev-parse --git-path hooks` answers about the repo it FINDS, walking
+    up from cwd — so asked about a plain directory nested under a repo it
+    reports the ancestor's hooks dir and exits 0. Answering that way makes
+    both consumers describe a different repository than the one they were
+    handed: seeding records hooks=true for a project under no version control
+    of its own, and the close preloads report the gate present, suppressing
+    the "this merge fires no project tests" block for a project that has no
+    test gate at all.
+    """
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+        _init_repo(self.tmpdir)
+        _make_executable(self.tmpdir / ".git" / "hooks" / "pre-commit")
+        self.nested = self.tmpdir / "subproject"
+        self.nested.mkdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_nested_non_repo_does_not_fire(self):
+        self.assertFalse(git_hooks.will_fire_hook(str(self.nested)))
+
+    def test_nested_non_repo_is_not_hook_aware(self):
+        self.assertFalse(seed_detect.has_git_hooks(self.nested))
+
+    def test_the_ancestor_itself_still_fires(self):
+        """The guard rejects the borrow, not the detection."""
+        self.assertTrue(git_hooks.will_fire_hook(str(self.tmpdir)))
+
+
 class TestTheTwoConsumersDisagree(unittest.TestCase):
     """The declared-but-not-installed repo is the case the split exists for.
 

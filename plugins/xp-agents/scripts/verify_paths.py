@@ -122,10 +122,10 @@ def classify_path_strategy(command: str) -> str:
     and pytest/unittest are handled by the shape branches in
     `_extract_paths_from_command` before this is consulted.)
 
-    "bun" has the same alias/direct split, but the disambiguator differs: a
-    literal `bun` token is present in BOTH forms (bun is the binary either
-    way), so `test_parsing.is_bun_script_alias` reads the `run`/colon-suffix
-    shape instead of a binary-name check.
+    "bun" needs more than an alias check: its positionals are substring
+    filter patterns, so several direct forms name nothing extractable.
+    `test_parsing.bun_names_extractable_specs` owns that judgment; every
+    shape it rejects retreats to the sentinel, which fails open.
     """
     framework = test_parsing.is_test_run(command)
     if framework is None:
@@ -133,9 +133,9 @@ def classify_path_strategy(command: str) -> str:
     if framework == "jest":
         return "positional" if re.search(r"\bjest\b", command) else "whole_tree"
     if framework == "bun":
-        if test_parsing.is_bun_script_alias(command):
-            return "whole_tree"
-        return "positional"
+        if test_parsing.bun_names_extractable_specs(command):
+            return "positional"
+        return "whole_tree"
     if framework in _POSITIONAL_FRAMEWORKS:
         return "positional"
     if framework in _WHOLE_TREE_FRAMEWORKS:
@@ -316,7 +316,7 @@ def _extract_positional_paths(tokens: list[str]) -> set[str]:
             continue
         candidate = tok.split("::", 1)[0]
         if "/" in candidate or "." in candidate:
-            paths.add(candidate)
+            paths.add(posixpath.normpath(candidate))
     return paths
 
 

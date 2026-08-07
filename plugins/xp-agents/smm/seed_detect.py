@@ -240,9 +240,16 @@ def _has_non_sample_pre_commit_content(root: Path) -> bool:
 
     Intent-aware fallback: catches scripts a developer wrote but forgot to
     chmod +x. ``git_hooks.will_fire_hook`` is strict and would say False here.
-    Resolves the dir through ``git_hooks.resolved_hooks_dir`` rather than
-    joining ``.git/hooks``, so a ``core.hooksPath`` override or a linked
-    worktree (where ``.git`` is a file) looks where git looks.
+
+    Reads ``.git/hooks`` literally rather than the resolved dir. A
+    ``core.hooksPath`` override is where GIT looks; it is not where a
+    developer who hand-wrote a hook put it. Following the override made a
+    global dotfiles setting (``~/.githooks``, common) hide a real project
+    hook that merely lacks +x — the exact case this fallback exists to catch.
+    The exec-bit leg still follows the override, because that leg is asking
+    git's question, not the developer's. Reading the literal join also drops
+    the second ``git rev-parse`` this function used to spawn on every hookless
+    repo — the common case, and one that runs at SessionStart.
 
     Two rejections, because a hook that runs nothing gates nothing, and reading
     one as intent suppresses the very risk the seed exists to raise: git's own
@@ -250,7 +257,7 @@ def _has_non_sample_pre_commit_content(root: Path) -> bool:
     body is a single comment is out of reach — telling one from a real one-line
     hook needs the comment syntax of whatever language the shebang names.
     """
-    hook = git_hooks.resolved_hooks_dir(str(root)) / "pre-commit"
+    hook = root / ".git" / "hooks" / "pre-commit"
     if not hook.exists():
         return False
     try:

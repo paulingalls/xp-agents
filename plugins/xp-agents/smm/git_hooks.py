@@ -46,13 +46,24 @@ def resolved_hooks_dir(repo_root: str) -> Path:
     the worktree and the override in one call, with tilde already expanded.
     Relative results still resolve against the repo root, and a failed call
     falls back to the plain join without raising.
+
+    Guarded on ``<root>/.git`` existing first, because ``rev-parse`` answers
+    about the repo it FINDS by walking up from cwd. Asked about a plain
+    directory nested under a repo it reports the ANCESTOR's hooks dir and
+    exits 0 — so an unguarded call describes a different repository than the
+    one it was handed, and both consumers then speak about that other repo.
+    The guard is an existence check, not an ``is_dir``: a linked worktree's
+    ``.git`` is a file, and that is the case this function exists for.
     """
+    if not (Path(repo_root) / ".git").exists():
+        return Path(repo_root) / ".git" / "hooks"
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--git-path", "hooks"],
             cwd=repo_root,
             capture_output=True,
             text=True,
+            timeout=5,
         )
         hooks_path = result.stdout.strip() if result.returncode == 0 else ""
     except (subprocess.SubprocessError, OSError):

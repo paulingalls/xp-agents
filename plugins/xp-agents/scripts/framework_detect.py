@@ -15,8 +15,12 @@ Stdlib only (re).
 import re
 
 # Bounded lazy-quantifier "0-5 intervening tokens" — the upper bound keeps
-# regex engines from backtracking pathologically on long arg lists.
-_FLAG_GAP = r"(?:\s+\S+){0,5}?"
+# regex engines from backtracking pathologically on long arg lists. The token
+# class excludes shell separators so the gap cannot span them: with a bare
+# `\S+`, `&&` is an ordinary token and `bun build x.ts && npm test` binds the
+# `bun` of one command to the `test` of another, reporting a bun test run
+# where none exists.
+_FLAG_GAP = r"(?:\s+[^\s;&|]+){0,5}?"
 # Reject characters that would extend `test` into a different identifier.
 # Includes `.` (file extensions: `bun build test.ts` shouldn't match `test`),
 # `-` (kebab tool names: `pnpm exec test-fixture-builder`), and word chars
@@ -54,6 +58,28 @@ _BUN_ALIAS_RE = r"\bbun" + _FLAG_GAP + r"\s+(?:run\s+\S+|test:[\w:-]+)"
 # token in a LATER segment (`bun test a.test.ts && npm run build`) reads the
 # whole chain as an alias and the spec path is lost to the whole-tree sentinel.
 _CHAIN_SPLIT_RE = r"&&|\|\||;|\|"
+# Anything that ends the run bun's positionals belong to. Redirects join the
+# chain separators here because `bun test 2>&1 | tee out.log` puts a
+# path-shaped artifact in the scanned region just as surely as `&&` does.
+_SHELL_BREAK_RE = r"&&|\|\||;|\||>|<"
+# Flags naming the directory the specs are relative to. Their value is
+# discarded by the pre-binary skip, so the specs lose the only context that
+# made them resolvable.
+_CWD_FLAGS = ("--cwd", "-C")
+_CWD_FLAG_PREFIXES = ("--cwd=", "-C=")
+_GLOB_CHARS = ("*", "?", "[")
+# Extensions bun can actually load as a spec file. A positional carrying one
+# (or a directory separator) is a path; one carrying neither is a filter.
+_SPEC_SUFFIXES = (
+    ".ts",
+    ".tsx",
+    ".mts",
+    ".cts",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+)
 _NPM_SCRIPT_RE = (
     r"\b(?:npm|pnpm|yarn|lerna)" + _FLAG_GAP + r"\s+(?:run\s+)?" + _TEST_SCRIPT_TAIL
 )
@@ -78,6 +104,48 @@ def is_bun_script_alias(command: str) -> bool:
         if re.search(_BUN_SCRIPT_RE, segment) and not re.search(_BUN_ALIAS_RE, segment):
             return False
     return bool(re.search(_BUN_ALIAS_RE, command))
+
+
+def bun_names_extractable_specs(command: str) -> bool:
+    """True when a bun command's positionals are real, comparable spec paths.
+
+    bun's positionals are substring FILTER PATTERNS — `bun test math.test`
+    runs `src/math.test.ts` — so a path-shaped token is only sometimes a file.
+    Extracting one that isn't demands a proof path no commit can ever touch,
+    and an unsatisfiable required path is strictly worse than no path at all:
+    the whole-tree sentinel fails OPEN, while a false positive can never go
+    green. So this answers conservatively, and every False retreats the caller
+    to the sentinel — exactly the behaviour bun commands had before they were
+    extracted at all, which is why no retreat here can block a merge.
+
+    Four disqualifiers, each an observed false positive:
+
+    - an alias form (delegated to `is_bun_script_alias`) — no CLI path exists
+    - a shell separator or redirect: the scan runs to end of string, so a
+      later segment's `| tee out.log` or `&& node build.js` is harvested as a
+      spec. Judging bun per-segment instead would have to re-home the leading
+      `cd <dir> &&` peel, which is the caller's, so the chain retreats whole
+    - a working-directory flag (`--cwd`, `-C`): its value is dropped, leaving
+      directory-relative specs compared against repo-relative git output
+    - a glob: `src/*.test.ts` is matched by the shell or by bun, never by
+      literal string comparison against a changed-file list
+
+    Then at least one positional must LOOK like a file — carry a directory
+    separator, or a source-file extension. A bare `math.test` carries neither,
+    which is the only lexical signal separating a dotted filter from a real
+    spec without touching the filesystem (which extraction never does).
+    """
+    if is_bun_script_alias(command):
+        return False
+    if re.search(_SHELL_BREAK_RE, command):
+        return False
+    tokens = command.split()
+    if any(t in _CWD_FLAGS or t.startswith(_CWD_FLAG_PREFIXES) for t in tokens):
+        return False
+    positionals = [t for t in tokens if not t.startswith("-")]
+    if any(g in t for t in positionals for g in _GLOB_CHARS):
+        return False
+    return any("/" in t or t.endswith(_SPEC_SUFFIXES) for t in positionals)
 
 
 def is_test_run(command: str) -> str | None:

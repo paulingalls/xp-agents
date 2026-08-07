@@ -272,10 +272,20 @@ class TestExtractPositionalRunners(unittest.TestCase):
         )
 
     def test_deno_test_names_dir(self):
+        # Stored in normal form: extraction normalizes, so the trailing slash
+        # is gone. Matching is unchanged — `_is_touched` appends the separator
+        # itself when a declared dir lacks one — and this is the same form
+        # `extract_verify_paths` already normalizes pins into, so a pin written
+        # `src/` now cancels an extracted `src` instead of missing it.
         self.assertEqual(
             verify_paths._extract_paths_from_command("deno test src/"),
-            {"src/"},
+            {"src"},
         )
+
+    def test_directory_declaration_still_matches_files_beneath_it(self):
+        self.assertTrue(verify_paths._is_touched("src", {"src/a.py"}))
+        self.assertTrue(verify_paths._is_touched("src/", {"src/a.py"}))
+        self.assertFalse(verify_paths._is_touched("src", {"srcfoo/a.py"}))
 
     def test_rspec_names_path(self):
         self.assertEqual(
