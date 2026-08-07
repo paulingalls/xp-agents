@@ -43,9 +43,8 @@ _LINE_CAP = 500
 _BAND_FLOOR = 450
 
 # Per-root non-vacuity floors for the shipped leg. Set well below the current
-# counts (scripts=127, smm=68, skills/*/scripts=13) so ordinary growth or
-# shrink never trips this; a whole root going missing (a selector typo, a
-# dropped glob) does.
+# counts so ordinary growth or shrink never trips this; a whole root going
+# missing (a selector typo, a dropped glob) does.
 _SHIPPED_ROOT_FLOORS = {
     "scripts": 50,
     "smm": 30,
