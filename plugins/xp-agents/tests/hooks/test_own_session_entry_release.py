@@ -169,5 +169,28 @@ class TestTheSprintGateStopsDeferringOnIt(_OwnSessionTestCase):
         self.assertIsNone(self._stop_with_a_story_to_accept())
 
 
+class TestWhatTheVerdictDoesNotReach(_OwnSessionTestCase):
+    """The residual, measured rather than left in a docstring.
+
+    The skip can only fire where the host names its session. Where it does not,
+    the writer records None for our own subagent and for a real teammate alike,
+    nothing tells the two apart, and both keep the TTL fallback — so on such a
+    host the defect this story closes is still reachable. Pinned here so the
+    limit is a stated fact with a test behind it, and so the day a host grows a
+    session id this row is what says the gap moved.
+    """
+
+    def test_an_id_less_host_still_reads_our_own_subagent_as_a_teammate(self):
+        self._entry(self.OUR_SUBAGENT, age=self.FRESH, session_id=None)
+        with patch.dict(os.environ, _env()):
+            self.assertTrue(self._active())
+
+    def test_and_still_drops_it_at_the_ttl(self):
+        """Bounded, at least: the fallback is the TTL, not forever."""
+        self._entry(self.OUR_SUBAGENT, age=self.AGED, session_id=None)
+        with patch.dict(os.environ, _env()):
+            self.assertFalse(self._active())
+
+
 if __name__ == "__main__":
     unittest.main()

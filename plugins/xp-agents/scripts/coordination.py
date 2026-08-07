@@ -220,6 +220,15 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
     recorded, a host that exposes none, a heartbeat that cannot be read —
     falls back to the TTL, which is exactly today's behaviour.
 
+    An entry this session wrote is not a sibling's at any age, so it is skipped
+    rather than aged; see the loop. Say plainly what that leaves: the skip can
+    only fire where the host names its session. Where it does not, our own
+    subagent's entry and a real teammate's both record None, nothing
+    distinguishes them, and both keep the TTL fallback — so on such a host one
+    file write by a subagent of ours still releases this gate for the length of
+    the TTL. Telling them apart there needs provenance the entry does not carry
+    today; it is not a threshold that could be tuned into a fix.
+
     The liveness leg stops here. `read_coordination` keeps its filter for
     every other caller: making the write-conflict detector liveness-aware
     would pin a live-but-quiet teammate's last-written file as a rival
@@ -241,7 +250,7 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
         # minutes on work no sibling owns.
         #
         # This changes which entries are ELIGIBLE, not what any threshold is;
-        # neither number below moves.
+        # neither constant at the top of this module moves.
         #
         # No real teammate is hidden by it: the spawn builds ONE child
         # environment with every session-id candidate popped, and uses that
