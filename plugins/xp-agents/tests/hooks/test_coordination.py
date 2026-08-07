@@ -369,17 +369,15 @@ class TestUndeterminedLivenessKeepsTheTtl(_LivenessTestCase):
         self.assertFalse(self._active())
 
 
-class TestOurOwnSessionsEntryKeepsTheTtl(_LivenessTestCase):
+class TestOurOwnSessionsEntryIsNotASibling(_LivenessTestCase):
     """Our own beating heartbeat is not evidence that ANOTHER agent id lives.
 
-    One session holds several agent ids: a non-xp subagent writes its own
-    entry under its own id inside OUR session, and one that never reaches
-    SubagentStop leaves it behind. Our heartbeat would then hold that entry
-    active for as long as we keep working, where the TTL dropped it at 30
-    minutes — this story's defect surviving with an unbounded window. So our
-    own session's entries fall back to the TTL, the answer "cannot tell"
-    already gets. No teammate is caught by it: `spawn_teammate` strips every
-    session-id candidate from the child, so a teammate has its own id or None.
+    One session holds several agent ids: a non-xp subagent writes its own entry
+    under its own id inside OUR session. Reading that as undetermined bounded
+    the damage at the TTL, but undetermined falls back to the timestamp, so a
+    fresh entry still released the gate. An own-session entry is now a definite
+    not-a-teammate at any age; test_own_session_entry_release.py carries that
+    property and these rows stop the verdict widening.
     """
 
     OURS = "the-leads-own-session"
@@ -393,12 +391,17 @@ class TestOurOwnSessionsEntryKeepsTheTtl(_LivenessTestCase):
         self._beat(self.OURS, age=self.FRESH)
         self.assertFalse(self._active_as())
 
-    def test_our_own_sessions_fresh_entry_still_counts(self):
-        """Control: inside the TTL, unchanged. Without it, "ignore our own
-        session" silently drops a sibling the gate is meant to wait on."""
+    def test_our_own_sessions_fresh_entry_is_not_a_sibling_either(self):
+        """REVERSED. This row read "still counts", guarding a sibling that
+        cannot exist: the spawn builds ONE child environment with every
+        session-id candidate popped and uses it for both teammate shapes, so a
+        teammate records its own id or None — never ours. What it pinned WAS
+        reachable: one file write by one non-xp subagent of ours released the
+        lead's Stop gates for the TTL. Its duty passes to the row below.
+        """
         self._entry("subagent-42", age=self.FRESH, session_id=self.OURS)
         self._beat(self.OURS, age=self.FRESH)
-        self.assertTrue(self._active_as())
+        self.assertFalse(self._active_as())
 
     def test_another_sessions_aged_entry_still_reads_live(self):
         """Over-narrowing control: the liveness leg itself must survive."""

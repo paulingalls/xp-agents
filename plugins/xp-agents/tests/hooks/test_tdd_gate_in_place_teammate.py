@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import tdd_check
 import worktree
+from _heartbeat_fixtures import coordinate
 from _tdd_gate_fixtures import _GateTestCase, filler, session_anchor
 from conftest import failing_tests_concern
 
@@ -125,10 +126,7 @@ class TestInPlaceTeammateIsNotReleasedByCoordination(_GateTestCase):
     """
 
     def _coordinate(self, *agent_ids: str) -> None:
-        import coordination
-
-        for aid in agent_ids:
-            coordination.update_coordination(self.smm_dir, aid, [])
+        coordinate(self.smm_dir, *agent_ids)
 
     def test_own_failure_blocks_even_with_another_agent_active(self):
         """The AC. Releases before the owner guard: with `agent_id` absent the

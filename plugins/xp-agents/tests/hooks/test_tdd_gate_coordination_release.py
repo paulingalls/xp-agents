@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import identity
 import tdd_check
+from _heartbeat_fixtures import coordinate
 from _tdd_gate_fixtures import TEAMMATE_CWD, _GateTestCase, filler, session_anchor
 from conftest import failing_tests_concern
 
@@ -46,10 +47,7 @@ class TestAbsentAgentIdIsNotASibling(_GateTestCase):
     """
 
     def _coordinate(self, *agent_ids: str) -> None:
-        import coordination
-
-        for aid in agent_ids:
-            coordination.update_coordination(self.smm_dir, aid, [])
+        coordinate(self.smm_dir, *agent_ids)
 
     def test_no_agent_id_and_no_sibling_blocks(self):
         """AC-1. The lead, alone, with its own red suite. `main` IS in
@@ -95,10 +93,7 @@ class TestOnlyTheLeadMayReleaseOnASibling(_GateTestCase):
     """
 
     def _coordinate(self, *agent_ids: str) -> None:
-        import coordination
-
-        for aid in agent_ids:
-            coordination.update_coordination(self.smm_dir, aid, [])
+        coordinate(self.smm_dir, *agent_ids)
 
     def test_a_worktree_teammate_is_not_released_by_the_leads_entry(self):
         """`agent_id=None` is payload FIDELITY, not non-vacuity — measured, not

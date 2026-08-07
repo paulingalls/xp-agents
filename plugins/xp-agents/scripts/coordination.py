@@ -220,6 +220,15 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
     recorded, a host that exposes none, a heartbeat that cannot be read —
     falls back to the TTL, which is exactly today's behaviour.
 
+    An entry this session wrote is not a sibling's at any age, so it is skipped
+    rather than aged; see the loop. The skip can only fire where the host names
+    its session, and where it names none our own subagent's entry and a real
+    teammate's both record None with nothing to separate them — so both keep
+    the TTL fallback there, and one file write by a subagent of ours still
+    releases this gate for the length of it. That residual is measured in
+    test_own_session_entry_release.py rather than only asserted here; closing
+    it needs provenance the entry does not carry, not a different threshold.
+
     The liveness leg stops here. `read_coordination` keeps its filter for
     every other caller: making the write-conflict detector liveness-aware
     would pin a live-but-quiet teammate's last-written file as a rival
@@ -233,19 +242,18 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
         written_by = entry.get("session_id")
         # Agent id and session are different keys, and one session holds
         # several agent ids: a non-xp subagent writes its own entry under its
-        # own id inside OUR session. Our heartbeat says nothing about whether
-        # THAT agent still exists, so an entry we wrote ourselves is
-        # undetermined, not live — otherwise a subagent that never reached its
-        # completion handler would hold the gate released for the whole
-        # session, where the TTL dropped it at 30 minutes. No real teammate is
-        # caught by this: `spawn_teammate` strips every session-id candidate
-        # from the child's environment, so a teammate resolves its own id or
-        # records None.
-        live = (
-            None
-            if own_session is not None and written_by == own_session
-            else _session_is_live(smm_dir, written_by)
-        )
+        # own id inside OUR session. That entry is not a sibling's at any age,
+        # so it is skipped outright rather than read through a clock: reading
+        # it through one can only bound the damage at whatever the clock says,
+        # and no threshold makes an entry of ours into a teammate's.
+        #
+        # No real teammate is hidden by it: the spawn builds ONE child
+        # environment with every session-id candidate popped, and uses that
+        # same environment for the separate-checkout shape and the in-place
+        # shape alike, so a teammate records its own id or None — never ours.
+        if own_session is not None and written_by == own_session:
+            continue
+        live = _session_is_live(smm_dir, written_by)
         if live is True or (live is None and aid in within_ttl):
             return True
     return False
