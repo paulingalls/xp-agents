@@ -8,9 +8,13 @@ and stays isolated rather than cross-import.
 import re
 import unittest
 
-# Language-specific tokens and plugin-internal surface names that must not
-# appear in shipped agent/skill prose — the plugin ships to projects in any
-# language, and this repo is a test fixture for it, not its vocabulary.
+# Three kinds of token that must not appear in shipped agent/skill prose:
+# language-specific tokens, plugin-internal surface names, and size metrics
+# whose unit is language-bound (` LOC`, `lines of code` — a line means a
+# different amount of work per language, so a threshold stated in them is a
+# language assumption in the same way a `.py` suffix is). The plugin ships to
+# projects in any language, and this repo is a test fixture for it, not its
+# vocabulary.
 #
 # USAGE CONTRACT — scan the RAW text, never a `.lower()` copy. Both tuples are
 # deliberately mixed-case (`Docstring`, `ACCEPT_IN_FLIGHT`, ` LOC`), so a scanner
@@ -134,8 +138,8 @@ def assert_project_agnostic(
         testcase.assertNotIn(
             token,
             section,
-            f"{label} must not contain language-specific or plugin-internal "
-            f"token: {token!r}",
+            f"{label} must not contain a language-specific, plugin-internal, "
+            f"or language-bound-metric token: {token!r}",
         )
 
 

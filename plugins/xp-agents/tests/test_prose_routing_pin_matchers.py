@@ -29,7 +29,6 @@ from _md_helpers import (
 from _routing_detect import (
     find_comment_routing_lines,
     find_incomplete_rule_lines,
-    find_section_scoped_tokens,
     find_single_language_tokens,
     zero_use_members,
 )
@@ -248,21 +247,6 @@ class TestLanguageTokenMatcher(unittest.TestCase):
         """
         hits = find_single_language_tokens("a Docstring here", surface="x")
         self.assertEqual(hits, [("x", "Docstring")])
-
-
-class TestSectionScopedTokenMirrorFinder(unittest.TestCase):
-    """`find_section_scoped_tokens` is the reverse leg's finder: the forward
-    leg asks "did a banned token leak", this asks "does a filed-section-scoped
-    token still have the use that justified filing it there"."""
-
-    def test_a_section_scoped_member_is_detected(self) -> None:
-        hits = find_section_scoped_tokens("written in .py", surface="x")
-        self.assertEqual(hits, [("x", ".py")])
-
-    def test_clean_prose_is_not_flagged(self) -> None:
-        self.assertEqual(
-            find_section_scoped_tokens("a comment carrying a why", surface="x"), []
-        )
 
 
 class TestZeroUseMembersReddens(unittest.TestCase):
