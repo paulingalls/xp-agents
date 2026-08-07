@@ -240,6 +240,9 @@ def _has_non_sample_pre_commit_content(root: Path) -> bool:
 
     Intent-aware fallback: catches scripts a developer wrote but forgot to
     chmod +x. ``git_hooks.will_fire_hook`` is strict and would say False here.
+    Resolves the dir through ``git_hooks.resolved_hooks_dir`` rather than
+    joining ``.git/hooks``, so a ``core.hooksPath`` override or a linked
+    worktree (where ``.git`` is a file) looks where git looks.
 
     Two rejections, because a hook that runs nothing gates nothing, and reading
     one as intent suppresses the very risk the seed exists to raise: git's own
@@ -247,7 +250,7 @@ def _has_non_sample_pre_commit_content(root: Path) -> bool:
     body is a single comment is out of reach — telling one from a real one-line
     hook needs the comment syntax of whatever language the shebang names.
     """
-    hook = root / ".git" / "hooks" / "pre-commit"
+    hook = git_hooks.resolved_hooks_dir(str(root)) / "pre-commit"
     if not hook.exists():
         return False
     try:
@@ -265,21 +268,13 @@ def _has_non_sample_pre_commit_content(root: Path) -> bool:
 def has_git_hooks(root: Path) -> bool:
     """Check if git commit hooks are configured (intent-aware).
 
-    Three legs, deliberately broader than "will git fire something":
-    a framework marker (``lefthook.yml``, ``.husky/``,
-    ``.pre-commit-config.yaml``) declaring a runner the project intends to
-    use; a hook git will really fire (executable pre-commit/pre-push, or a
-    ``core.hooksPath`` override pointing at one); or a non-executable
-    pre-commit script with real content — a developer's intent that won't
-    fire as-is.
+    Deliberately broader than "will git fire something": seeding asks whether
+    the project is hook-aware, so a declared-but-uninstalled runner counts yes.
 
     The marker leg is composed HERE rather than inside ``will_fire_hook``,
-    which answers only the strict question. Seeding wants to know whether the
-    project is hook-aware, and a declared-but-uninstalled runner answers that
-    yes; the close preloads want to know whether this merge runs anything, and
-    it answers that no. One predicate cannot serve both, which is why the
-    marker check reads as duplicated between here and the strict path but is
-    not: it is the leg that distinguishes the two questions.
+    which must answer the strict question for the close preloads ("does this
+    merge run anything?") — and the marker is exactly what makes the two
+    answers differ. It reads as duplicated against the strict path; it is not.
     """
     return (
         git_hooks.has_framework_marker(str(root))

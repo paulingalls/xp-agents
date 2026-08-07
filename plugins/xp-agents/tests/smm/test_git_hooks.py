@@ -165,6 +165,46 @@ class TestHasExecutableHook(unittest.TestCase):
         # Don't chmod.
         self.assertFalse(git_hooks.has_executable_hook(str(self.tmpdir)))
 
+    def test_executable_hook_in_a_linked_worktree(self):
+        """A linked worktree's `.git` is a FILE, so `<root>/.git/hooks` names a
+        path that never exists — yet the shared hooks fire on every commit made
+        there. This is where the close skills actually run (teammate
+        worktrees), so answering False here tells every teammate close that the
+        merge runs no tests while lefthook is running them.
+        """
+        commit = subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=t@example.invalid",
+                "-c",
+                "user.name=t",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "init",
+            ],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(commit.returncode, 0, commit.stderr)
+        _make_executable(self.tmpdir / ".git" / "hooks" / "pre-commit")
+        worktree = self.tmpdir.parent / f"{self.tmpdir.name}-wt"
+        result = subprocess.run(
+            ["git", "worktree", "add", "-b", "wt", str(worktree)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        try:
+            self.assertTrue((worktree / ".git").is_file())
+            self.assertTrue(git_hooks.has_executable_hook(str(worktree)))
+            self.assertTrue(git_hooks.will_fire_hook(str(worktree)))
+        finally:
+            shutil.rmtree(worktree, ignore_errors=True)
+
     def test_executable_in_core_hookspath_override(self):
         custom = self.tmpdir / "custom-hooks"
         custom.mkdir()
@@ -182,10 +222,9 @@ class TestWillFireHook(unittest.TestCase):
     """Strict: an executable hook in the resolved hooks dir → True.
 
     A framework marker does NOT count. A config file on disk declares that a
-    runner would install a hook; it is not evidence git will fire one, and
-    reading it as such reported a commit gate present in this very repo while
-    `.git/hooks/pre-commit` did not exist. The declared-intent question moved
-    to the consumer that actually wants it — see `seed_detect.has_git_hooks`.
+    runner would install a hook; it is not evidence git will fire one. The
+    declared-intent question belongs to the consumer that wants it — see
+    `seed_detect.has_git_hooks`.
     """
 
     def setUp(self):
@@ -217,10 +256,7 @@ class TestWillFireHook(unittest.TestCase):
 class TestTheTwoConsumersDisagree(unittest.TestCase):
     """The declared-but-not-installed repo is the case the split exists for.
 
-    Before this, both consumers read one predicate that had already folded the
-    marker in, so they could not disagree about anything — while the module
-    docstring claimed the divergence was "encoded at composition time". On a
-    repo carrying a runner config it never installed, the two answers must now
+    On a repo carrying a runner config it never installed, the two answers must
     differ: nothing will fire, AND the project is still hook-aware.
     """
 
@@ -239,8 +275,8 @@ class TestTheTwoConsumersDisagree(unittest.TestCase):
         self.assertTrue(seed_detect.has_git_hooks(self.tmpdir))
 
     def test_installing_the_hook_makes_them_agree(self):
-        """Not a restatement: it pins that the split is about the DECLARATION,
-        not a blanket downgrade. Once a hook is really wired up, both say yes."""
+        """The split is about the DECLARATION, not a blanket downgrade: once a
+        hook is really wired up, both consumers say yes."""
         _make_executable(self.tmpdir / ".git" / "hooks" / "pre-commit")
         self.assertTrue(git_hooks.will_fire_hook(str(self.tmpdir)))
         self.assertTrue(seed_detect.has_git_hooks(self.tmpdir))

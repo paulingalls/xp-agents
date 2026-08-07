@@ -278,9 +278,6 @@ class TestHookPresent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)
             (Path(td) / ".pre-commit-config.yaml").write_text("repos: []\n")
-            # A declared runner config is not an installed hook: git fires
-            # nothing here, and reporting "present" suppressed the very
-            # guidance block that says so.
             result = _run(["hook-present", "--cwd", td])
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "absent")
@@ -289,9 +286,6 @@ class TestHookPresent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)
             (Path(td) / "lefthook.yml").write_text("pre-commit:\n  commands: {}\n")
-            # A declared runner config is not an installed hook: git fires
-            # nothing here, and reporting "present" suppressed the very
-            # guidance block that says so.
             result = _run(["hook-present", "--cwd", td])
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "absent")
@@ -301,9 +295,6 @@ class TestHookPresent(unittest.TestCase):
             _bf.init_repo(td)
             (Path(td) / ".husky").mkdir()
             (Path(td) / ".husky" / "pre-commit").write_text("#!/bin/sh\nexit 0\n")
-            # A declared runner config is not an installed hook: git fires
-            # nothing here, and reporting "present" suppressed the very
-            # guidance block that says so.
             result = _run(["hook-present", "--cwd", td])
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "absent")
