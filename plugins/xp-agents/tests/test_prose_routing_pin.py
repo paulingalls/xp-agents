@@ -15,7 +15,7 @@ lines is:
 destinations, which subsumes any weaker "names a test" check over the same
 corpus. This module owns the two guards that assertion cannot make.
 
-TWO LEGS.
+THREE LEGS.
 
 1. **Vacuity guard, per file.** Each of the three files this story amends
    (`PROCESS_GUIDE.md`, `agents/xp-housekeeper.md`,
@@ -38,6 +38,23 @@ TWO LEGS.
    with a legitimate use, mis-filed into it, fails right here, which is why the
    failure message spells out both readings.
 
+3. **Occupancy, corpus-wide, the reverse of leg 2 — story-007.** Leg 2 checks
+   that a corpus-wide member has no legitimate use anywhere; nothing checked
+   the opposite direction, so a token with NO legitimate use ANYWHERE, filed
+   into `_md_helpers.SECTION_SCOPED_FORBIDDEN` instead, was examined only
+   inside the four files/six sections that call `assert_project_agnostic` — 4
+   of 31 shipped prose files, not all of them. This leg closes that: every
+   `SECTION_SCOPED_FORBIDDEN` member not in `_md_helpers.OCCUPANCY_EXEMPT` must
+   occur in at least one of the same 31 shipped prose files leg 2 scans. "Tree-
+   wide" here means that 31-file PROSE corpus, not shipped code — against
+   shipped `.py` files the occupancy counts invert completely (`def ` alone
+   hits hundreds of files), so a reader who checks the wrong corpus will see
+   this leg as nonsense. `OCCUPANCY_EXEMPT` carves out the members this leg
+   cannot safely judge either way: `def `/`class `/`function ` read as used or
+   unused depending on whether the hit is the declaration keyword or ordinary
+   English, and `.rs` only reads as "used" because it is a substring of
+   `.rspec`, an artifact rather than a genuine use.
+
 LIMITS — READ THIS BEFORE TRUSTING THE GREEN CHECK.
 
 * Leg 1 proves a routing line is PRESENT on each known surface. It never
@@ -58,6 +75,21 @@ LIMITS — READ THIS BEFORE TRUSTING THE GREEN CHECK.
 * Leg 2 is only as wide as that category. A token with even one legitimate use
   in shipped prose belongs in `SECTION_SCOPED_FORBIDDEN` instead and so is NOT
   checked here; `.py` and `assign-pending` are two the tree relies on.
+* Leg 3 reads literal substrings only, same as leg 2 — so it has a
+  FALSE-NEGATIVE class leg 2 does not: a token that is a proper prefix of a
+  longer, genuinely-used token reads as "used" when it is not. `.rs` inside
+  `.rspec` is the live example, which is why it sits in `OCCUPANCY_EXEMPT`
+  rather than passing leg 3 on a real use. `.js` is the same shape and NOT
+  exempted: 21 files carry the substring, 19 of them only via `.json`, and
+  only 2 carry a genuine `.js` mention — occupancy is a FLOOR on legitimate
+  use, not a ceiling, and a member could in principle owe its entire count to
+  such an artifact without anyone noticing.
+* Leg 3 promotes several members whose only remaining shipped-prose use is a
+  single occurrence: `.go`, `function `, `ACCEPT_IN_FLIGHT`, `simplify_done`,
+  `assign-pending`. One prose edit that removes that one use reddens this leg
+  — a designed tripwire pointing at the token's sole legitimizing use, not a
+  flaky test. When leg 3 fires on one of these, read the failure message's two
+  readings before assuming the fix is deletion.
 
 Both matchers are mutation-proved against synthetic input in the sibling
 `test_prose_routing_pin_matchers.py`; this module owns only the assertions
@@ -70,12 +102,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from _md_helpers import OCCUPANCY_EXEMPT, SECTION_SCOPED_FORBIDDEN
 from _pin_helpers import rel as _rel_impl
 from _pin_helpers import shipped_prose_to_scan
 from _routing_detect import (
     KNOWN_ROUTING_SURFACES,
     find_comment_routing_lines,
     find_single_language_tokens,
+    zero_use_members,
 )
 
 PLUGIN_ROOT = Path(__file__).parent.parent  # plugins/xp-agents/
@@ -152,6 +186,29 @@ class TestNoSingleLanguageCommentVocabulary(unittest.TestCase):
                 for surface, hits in sorted(offenders.items())
                 for _, token in hits
             ),
+        )
+
+
+class TestSectionScopedMembersStillEarnTheirScope(unittest.TestCase):
+    """Leg 3: the reverse of leg 2. A `SECTION_SCOPED_FORBIDDEN` member with
+    zero uses across all 31 shipped prose files has no legitimate use to
+    protect and was mis-filed — it belongs in `CORPUS_WIDE_FORBIDDEN`."""
+
+    def test_every_non_exempt_member_occurs_somewhere_in_shipped_prose(self) -> None:
+        texts = [p.read_text(encoding="utf-8") for p in _all_shipped_prose()]
+        candidates = tuple(
+            token for token in SECTION_SCOPED_FORBIDDEN if token not in OCCUPANCY_EXEMPT
+        )
+        unused = zero_use_members(candidates, texts)
+        self.assertEqual(
+            unused,
+            [],
+            "SECTION_SCOPED_FORBIDDEN member(s) with zero uses across all 31 "
+            "shipped prose files — TWO READINGS: either the token has no "
+            "legitimate use anywhere and belongs promoted to "
+            "CORPUS_WIDE_FORBIDDEN, or its one legitimate use was just edited "
+            "away and restoring it is the fix:\n"
+            + "\n".join(f"  {token!r}" for token in unused),
         )
 
 
