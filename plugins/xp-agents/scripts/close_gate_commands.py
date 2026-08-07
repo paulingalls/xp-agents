@@ -38,10 +38,10 @@ Which operators discard an exit status is decidable from the string alone, so
 `shell_exit_structure.exit_reaches_shell` is the owner. `&&` propagates failure
 and is accepted; `;`, a bare pipe, a trailing `&` and a capture the shell
 reports INSTEAD of the runner (`echo $(make build)`) are not. A substitution
-that merely computes an
-argument (`pytest -n $(nproc)`) is accepted — refusing those switched the gate
-off for a whole class of ordinary declared commands. Structural, so it holds for
-a Rust or TypeScript project as readily as a Python one — no language table.
+that merely computes an argument (`pytest -n $(nproc)`) is accepted — refusing
+those switched the gate off for a whole class of ordinary declared commands.
+Structural, so it holds for a Rust or TypeScript project as readily as a Python
+one — no language table.
 
 REFUSAL IS ALL-OR-NOTHING, NEVER A FILTER. Step 4's veto has already proved
 every changed path is claimed by some surface. Dropping just the refused

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Read-only review-support commands for the close-skill pipeline.
 
-These three commands don't mutate git state — they drive the review step the
-close skills run before merging. close_common.py holds the mutating half:
+`close-review-gate` (sizing threshold for the full /code-review),
+`diff-command` (the merged-range diff to review) and `hook-present` (a project
+test-running git hook) drive the review step the close skills run before
+merging. None mutates git state; close_common.py holds the mutating half:
 `merge`, `push`, `preflight`, `create-pr`.
 """
 

@@ -11,8 +11,9 @@ This pins one root against one moment.
 
 And it is a WEAK proxy for the pass that earned it. The pass's real output was
 claims corrected against the code; narrowing a false claim to a true one can
-leave the ratio untouched. A green check here means prose did not regrow, not
-that prose is true.
+leave the ratio untouched. Green means prose did not outgrow CODE — the measure
+is a ratio, so added code buys headroom for added prose. It does not mean prose
+shrank, and it does not mean prose is true.
 
 The real-tree assertion below is green by construction the moment anything is
 deleted, so it says nothing about whether the comparison works.
@@ -48,9 +49,18 @@ def _ratio_regression(
     Cross-multiplied rather than divided — integer comparison has no rounding
     to argue about, and a zero `total` would otherwise raise instead of
     reporting.
+
+    Both denominators are guarded, not just the measured one: a zero
+    *base_total* makes every measurement "below" the baseline, so a mistyped
+    constant would disable the pin without failing.
     """
     if total <= 0:
         return f"no lines measured at all ({total}) — the scan found nothing"
+    if base_total <= 0:
+        return (
+            f"baseline is unusable ({base_prose}/{base_total}) — "
+            "nothing to compare against"
+        )
     if prose * base_total >= base_prose * total:
         now = prose / total * 100
         was = base_prose / base_total * 100
@@ -82,6 +92,11 @@ class TestTheRatioComparisonItself(_AssertNotNoneMixin, unittest.TestCase):
     def test_a_measurement_of_nothing_is_a_regression_not_a_pass(self):
         """A scan that found no files must not read as a clean tree."""
         self.assertIsNotNone(_ratio_regression(0, 0, 12602, 31422))
+
+    def test_a_zero_baseline_is_reported_not_silently_passed(self):
+        """A baseline of zero makes every measurement 'below' it. Guarding only
+        the measured side would let a mistyped constant disable the pin."""
+        self.assertIsNotNone(_ratio_regression(12602, 31422, 12602, 0))
 
     def test_the_message_names_both_ratios(self):
         message = self._assert_not_none(_ratio_regression(60, 100, 50, 100))
