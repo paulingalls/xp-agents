@@ -18,7 +18,6 @@ in the field.
 """
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -26,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _bases import _PLUGIN_ROOT
 from conftest import _IntegrationTestCase
 
 _ACTIVE_CLAIM = "active"
@@ -45,13 +45,8 @@ class TestTheEmittedBannerAgreesWithTheContext(_IntegrationTestCase):
         """
         env = self._env_with_plugin_root()
         env["SMM_DIR"] = smm_dir_value
-        result = subprocess.run(
-            ["python3", str(self.scripts_dir / "session_start.py")],
-            input=json.dumps({"session_id": "e2e", "source": "startup"}),
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=env,
+        result = self._run_script_with_env(
+            "session_start.py", {"session_id": "e2e", "source": "startup"}, env
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
@@ -82,3 +77,31 @@ class TestTheEmittedBannerAgreesWithTheContext(_IntegrationTestCase):
         context, message = self._emit(str(self.smm_dir))
         self.assertNotIn("SMM init failed", context)
         self.assertIn(_ACTIVE_CLAIM, message)
+
+    def test_the_enforcing_banner_names_the_running_version(self):
+        """The version the user reads must be the version that is running.
+
+        Read from the manifest here, NOT through `plugin_loader.plugin_version`.
+        The in-process pin (`hooks/test_session_start_honesty.py`) builds its
+        expected banner from that same function, so it is self-consistent by
+        construction: if the loader ever returned the wrong string, both sides
+        would move together and the row would stay green. Comparing against the
+        file on disk is what makes this an independent check rather than a
+        tautology.
+
+        Deliberately not asserting a literal like "5.8.0" — that would redden on
+        every release and get "fixed" by pasting in the new number, which trains
+        exactly the wrong reflex. The claim is agreement between two sources, not
+        a particular value.
+        """
+        manifest = json.loads(
+            (_PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text()
+        )
+        version = manifest["version"]
+        self.assertTrue(version, "the manifest carries no version to compare against")
+        _, message = self._emit(str(self.smm_dir))
+        self.assertIn(
+            f"v{version}",
+            message,
+            f"banner does not name the manifest's version {version!r}: {message!r}",
+        )

@@ -259,14 +259,7 @@ class TestWorktreeSharing(_IntegrationTestCase):
             "cwd": str(self.tmpdir),
             "agent_id": "agent-a",
         }
-        r_post = subprocess.run(
-            ["python3", str(self.scripts_dir / "post_tool_use.py")],
-            input=json.dumps(post_input),
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=self._test_env,
-        )
+        r_post = self._run_script("post_tool_use.py", post_input)
         self.assertEqual(r_post.returncode, 0, r_post.stderr)
 
         # Agent B: try to write same file from worktree (file doesn't exist there)
@@ -277,14 +270,7 @@ class TestWorktreeSharing(_IntegrationTestCase):
             "cwd": str(wt_dir),
             "agent_id": "agent-b",
         }
-        r_pre = subprocess.run(
-            ["python3", str(self.scripts_dir / "pre_tool_write.py")],
-            input=json.dumps(pre_input),
-            capture_output=True,
-            text=True,
-            cwd=str(wt_dir),
-            env=self._test_env,
-        )
+        r_pre = self._run_script("pre_tool_write.py", pre_input, cwd=wt_dir)
         self.assertEqual(
             r_pre.returncode,
             2,
