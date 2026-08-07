@@ -2,6 +2,15 @@
 """Tree-wide file-size pin. Cap = 500 lines, customer-settled — see the
 decision recorded at close.
 
+"Tree-wide" means Python under `scripts/`, `smm/`, `skills/*/scripts/` and
+`tests/`, plus every shipped shell script at any depth. It said the same thing
+before story-002 while discovering only `.py`, so `skills/_preload_base.sh` sat
+at 492 — inside the band, 8 lines from the cap — governed by nothing. A gate
+whose stated scope is wider than its real one is the defect class this file now
+guards against in others, so the claim is spelled out rather than assumed.
+Nothing here is Python-specific: `_line_count` is `splitlines()`, and
+`_cap_offenders`/`_band_violations` take paths. Only discovery ever was.
+
 Two files are counted differently than a shell `wc -l` would: a file with no
 trailing newline undercounts by one under `wc -l` but not under
 `str.splitlines()`, so counting is pinned to
@@ -34,6 +43,7 @@ from _pin_helpers import (
     scan_shortfalls,
     shipped_files_to_scan,
     shipped_prose_to_scan,
+    shipped_shell_to_scan,
 )
 
 _PLUGIN_ROOT = Path(__file__).parent.parent
@@ -50,6 +60,14 @@ _SHIPPED_ROOT_FLOORS = {
     "smm": 30,
     "skills/*/scripts": 5,
 }
+
+# Non-vacuity floor for the shell surface. No hand-written count: the one that
+# was here had already drifted. Set well below the current count: ordinary
+# growth or shrink must never trip it, while a scan that collapses to nothing
+# -- a broken suffix, an inverted exclusion -- must. One floor, not several,
+# because `shipped_shell_to_scan` selects by suffix at any depth: there is no
+# per-location glob that could quietly stop matching.
+_SHELL_FLOOR = 15
 
 
 def _line_count(path: Path) -> int:
@@ -208,6 +226,102 @@ class TestBandRatchetRedProof(unittest.TestCase):
         self.assertEqual(violations, [])
 
 
+def _shell_shortfalls(paths: list[Path]) -> list[str]:
+    """Shortfall when the shell scan has collapsed; empty when healthy."""
+    if len(paths) < _SHELL_FLOOR:
+        return [
+            f"only {len(paths)} shell file(s) scanned, expected at least {_SHELL_FLOOR}"
+        ]
+    return []
+
+
+class TestShellScanRedProofs(unittest.TestCase):
+    """The shell surface's own discovery, proven to go red.
+
+    Separate proofs, each red for a different reason: the scan collapsing to
+    nothing, the tests/ exclusion inverting, and the band and cap legs not
+    biting on a shell path. The band one matters most -- the real-tree band
+    assertion goes green the moment the ceiling is recorded and stays green
+    forever, so `shell path in band -> flagged` is otherwise pinned by nothing.
+    """
+
+    def _tree(self, root: Path) -> Path:
+        plugin = root / "plugins" / "xp-agents"
+        for sub in ("smm", "skills", "skills/xp-thing/scripts", "tests"):
+            (plugin / sub).mkdir(parents=True, exist_ok=True)
+        return plugin
+
+    def _write_sh(self, path: Path, lines: int) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(f"echo {i}" for i in range(lines)) + "\n")
+        self.assertEqual(_line_count(path), lines)
+        return path
+
+    def test_a_collapsed_shell_scan_is_flagged(self):
+        """No shell anywhere: the floor must fire rather than report clean."""
+        with tempfile.TemporaryDirectory() as td:
+            plugin = self._tree(Path(td))
+            shortfalls = _shell_shortfalls(shipped_shell_to_scan(plugin))
+
+        self.assertEqual(len(shortfalls), 1)
+        self.assertIn("0", shortfalls[0])
+
+    def test_a_healthy_shell_tree_reports_no_shortfall(self):
+        with tempfile.TemporaryDirectory() as td:
+            plugin = self._tree(Path(td))
+            for i in range(_SHELL_FLOOR):
+                self._write_sh(plugin / "skills" / f"s{i}.sh", 3)
+            shortfalls = _shell_shortfalls(shipped_shell_to_scan(plugin))
+
+        self.assertEqual(shortfalls, [])
+
+    def test_shell_under_tests_is_not_scanned(self):
+        """tests/ never ships. If this exclusion ever inverts, the pin starts
+        governing files the cap was never meant to reach, and the count drifts
+        for a reason nobody can see."""
+        with tempfile.TemporaryDirectory() as td:
+            plugin = self._tree(Path(td))
+            shipped = self._write_sh(plugin / "smm" / "init.sh", 3)
+            self._write_sh(plugin / "tests" / "fixture.sh", 3)
+            scanned = shipped_shell_to_scan(plugin)
+
+        self.assertEqual(scanned, [shipped])
+
+    def test_shell_is_found_in_a_directory_no_glob_anticipated(self):
+        """The whole point of scanning by suffix rather than by enumerated
+        location: a shell script in a directory nobody listed is still governed.
+        An enumerated-glob discovery would report clean here."""
+        with tempfile.TemporaryDirectory() as td:
+            plugin = self._tree(Path(td))
+            surprise = self._write_sh(plugin / "hooks" / "helpers" / "new.sh", 3)
+            self.assertIn(surprise, shipped_shell_to_scan(plugin))
+
+    def test_a_banded_shell_file_is_flagged_end_to_end(self):
+        """Discovery composed with the band leg -- the assertion the real tree
+        can never make again once the ceiling is on record."""
+        with tempfile.TemporaryDirectory() as td:
+            td_root = Path(td)
+            plugin = self._tree(td_root)
+            self._write_sh(plugin / "skills" / "big.sh", 460)
+            violations = _band_violations(shipped_shell_to_scan(plugin), td_root, {})
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("big.sh", violations[0])
+        self.assertIn("460", violations[0])
+        self.assertIn("no recorded ceiling", violations[0])
+
+    def test_a_shell_file_over_the_cap_is_named_an_offender(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_root = Path(td)
+            plugin = self._tree(td_root)
+            self._write_sh(plugin / "smm" / "huge.sh", 501)
+            offenders = _cap_offenders(shipped_shell_to_scan(plugin), td_root)
+
+        self.assertEqual(len(offenders), 1)
+        self.assertIn("huge.sh", offenders[0])
+        self.assertIn("501", offenders[0])
+
+
 class TestShippedRootFloorRedProof(unittest.TestCase):
     """A narrowed selection (a whole shipped root missing) must trip the
     per-root non-vacuity check -- an automated red proof, not a manual
@@ -271,6 +385,10 @@ class TestTreeWideCap(unittest.TestCase):
         offenders = _cap_offenders(paths, _REPO_ROOT)
         self.assertEqual(offenders, [], msg="; ".join(offenders))
 
+    def test_every_shipped_shell_file_is_at_or_under_the_cap(self):
+        offenders = _cap_offenders(shipped_shell_to_scan(_PLUGIN_ROOT), _REPO_ROOT)
+        self.assertEqual(offenders, [], msg="; ".join(offenders))
+
 
 class TestBandRatchet(unittest.TestCase):
     """Every file above 450 lines is at or under its recorded ceiling."""
@@ -285,6 +403,10 @@ class TestBandRatchet(unittest.TestCase):
         violations = _band_violations(paths, _REPO_ROOT)
         self.assertEqual(violations, [], msg="; ".join(violations))
 
+    def test_shipped_shell_files_honor_their_recorded_ceiling(self):
+        violations = _band_violations(shipped_shell_to_scan(_PLUGIN_ROOT), _REPO_ROOT)
+        self.assertEqual(violations, [], msg="; ".join(violations))
+
 
 class TestNonVacuity(unittest.TestCase):
     """The scanned count can't quietly go to zero and report clean."""
@@ -292,6 +414,10 @@ class TestNonVacuity(unittest.TestCase):
     def test_shipped_scan_covers_every_root_at_a_floor(self):
         paths = shipped_files_to_scan(_PLUGIN_ROOT)
         shortfalls = _shipped_root_shortfalls(paths, _REPO_ROOT)
+        self.assertEqual(shortfalls, [], msg="; ".join(shortfalls))
+
+    def test_shell_scan_clears_its_floor(self):
+        shortfalls = _shell_shortfalls(shipped_shell_to_scan(_PLUGIN_ROOT))
         self.assertEqual(shortfalls, [], msg="; ".join(shortfalls))
 
     def test_test_scan_clears_a_tree_wide_floor(self):
@@ -316,15 +442,15 @@ class TestPinDoesNotShip(unittest.TestCase):
         self.assertEqual(hits, [], msg="; ".join(hits))
 
     def _search(self, needle: str) -> list[str]:
-        hits = []
-        for path in shipped_files_to_scan(_PLUGIN_ROOT):
-            if needle in path.read_text(encoding="utf-8"):
-                hits.append(rel(path, _REPO_ROOT))
-        for _group, paths in shipped_prose_to_scan(_PLUGIN_ROOT).items():
-            for path in paths:
-                if needle in path.read_text(encoding="utf-8"):
-                    hits.append(rel(path, _REPO_ROOT))
-        return hits
+        surfaces = shipped_files_to_scan(_PLUGIN_ROOT)
+        surfaces += shipped_shell_to_scan(_PLUGIN_ROOT)
+        for paths in shipped_prose_to_scan(_PLUGIN_ROOT).values():
+            surfaces += paths
+        return [
+            rel(p, _REPO_ROOT)
+            for p in surfaces
+            if needle in p.read_text(encoding="utf-8")
+        ]
 
 
 class TestSelfCoverage(unittest.TestCase):
