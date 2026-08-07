@@ -2,8 +2,10 @@
 """Lifecycle primitives for branch merge and deletion.
 
 Closed call island extracted from branching.py to keep that module
-under the 500-line target. branching.py re-exports every symbol here
-for backwards compat — callers should keep importing from branching.
+under the 500-line target. branching.py re-exports the merge/delete
+symbols (is_merged_into, merge_branch, delete_branch and friends) for
+backwards compat; `push_source_no_verify` and `combined_output` are not
+among them and are imported from here directly.
 Also owns the git-subprocess combined-output convention (`combined_output`),
 shared with close_common.py's push relay.
 

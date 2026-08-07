@@ -295,8 +295,6 @@ class TestCloseCommonPushSolo(unittest.TestCase):
         self.assertIn("skipped", result.stdout)
 
     def test_relayed_output_carries_a_stdout_only_hook_cause(self):
-        # story-006: lefthook writes hook output to stdout, so a relay that
-        # reads r.stderr alone drops the cause of a hook-rejected push.
         _stdout_only_failing_pre_push_hook(self.repo, "hook said: cause-006")
         result = _push(self.repo, "story-solo")
         self.assertNotEqual(result.returncode, 0)
