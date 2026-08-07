@@ -150,6 +150,35 @@ class TestExtractVerifyPaths(unittest.TestCase):
         self.assertEqual(verify_paths.extract_verify_paths(story), set())
 
 
+class TestIsTouchedComparesInOneNormalForm(unittest.TestCase):
+    """Declared paths are normalized at the comparison, not per-extractor.
+
+    git reports changed files repo-relative, so a `./`-prefixed declaration
+    compared raw is unsatisfiable — the can-never-go-green failure the bun
+    narrowing exists to prevent, reachable here through the runners this
+    project itself uses. Normalizing `declared` inside `_is_touched` covers
+    all four extractors at once, rather than the positional branch only.
+    """
+
+    def test_directory_declaration_matches_files_beneath_it(self):
+        self.assertTrue(verify_paths._is_touched("src", {"src/a.py"}))
+        self.assertTrue(verify_paths._is_touched("src/", {"src/a.py"}))
+
+    def test_a_sibling_with_a_shared_prefix_does_not_match(self):
+        self.assertFalse(verify_paths._is_touched("src", {"srcfoo/a.py"}))
+
+    def test_dot_slash_declaration_matches_repo_relative_change(self):
+        self.assertTrue(verify_paths._is_touched("./tests/a.py", {"tests/a.py"}))
+        self.assertTrue(verify_paths._is_touched("./tests", {"tests/a.py"}))
+        self.assertTrue(verify_paths._is_touched("tests/../tests/a.py", {"tests/a.py"}))
+
+    def test_pytest_dot_slash_spec_is_satisfiable_end_to_end(self):
+        declared = verify_paths._extract_paths_from_command("pytest ./tests/a.py")
+        self.assertTrue(
+            any(verify_paths._is_touched(d, {"tests/a.py"}) for d in declared)
+        )
+
+
 class _GitRepoCase(_TempRepoTestCase):
     """Adds per-test git-commit helpers atop the shared temp repo."""
 

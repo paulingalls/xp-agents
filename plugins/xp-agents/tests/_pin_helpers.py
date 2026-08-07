@@ -157,6 +157,36 @@ def shipped_files_to_scan(plugin_root: Path) -> list[Path]:
     return paths
 
 
+def shipped_shell_to_scan(plugin_root: Path) -> list[Path]:
+    """Every shipped shell script under *plugin_root*, at any depth.
+
+    Selected by SUFFIX, not by enumerated location, and that is the whole
+    design. `shipped_files_to_scan` above can enumerate roots because a Python
+    module outside them is not shipped code; shell has no such invariant --
+    preloads live in `skills/`, `skills/*/scripts/`, and `smm/`, and the next
+    one may live somewhere none of those globs anticipated. A size gate whose
+    scope is narrower than it claims is the exact defect this scan exists to
+    close (docs/ideas/1-VERIFY_GATE_COVERAGE.md §5); enumerating globs here
+    would reproduce it one level down, invisibly, because no floor can fire for
+    a surface that never existed. Over-inclusion is the safe direction: the
+    line cap is a project convention that applies to any file, so governing a
+    shell script in a new location is right, not a false positive.
+
+    `tests/` is excluded -- it never ships. Keyed on the FIRST path segment
+    rather than membership, so a legitimately shipped `skills/foo/tests/x.sh`
+    is still governed.
+
+    Flat, unlike `shipped_prose_to_scan` below: that one groups because a floor
+    over its total cannot see one glob empty out. There is only one selector
+    here, so there is no glob left to drop and nothing for a group to protect.
+    """
+    return sorted(
+        p
+        for p in plugin_root.rglob("*.sh")
+        if p.relative_to(plugin_root).parts[0] != "tests"
+    )
+
+
 def shipped_prose_to_scan(plugin_root: Path) -> dict[str, list[Path]]:
     """Every shipped PROSE surface under *plugin_root*, grouped by its glob.
 

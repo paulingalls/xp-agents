@@ -2,15 +2,18 @@
 """Shared git-hook detection primitives.
 
 Two consumers compose these differently:
-- ``seed_detect.has_git_hooks`` (intent-aware) — ``will_fire_hook`` plus a
-  content-sniff fallback for non-executable scripts that gesture at hooks.
-  Used by SMM seeding to decide whether the project is hook-aware.
+- ``seed_detect.has_git_hooks`` (intent-aware) — ``has_framework_marker`` OR
+  ``will_fire_hook`` OR a content-sniff fallback for non-executable scripts
+  that gesture at hooks. Used by SMM seeding to decide whether the project is
+  hook-aware, where a declared-but-uninstalled runner still counts.
 - ``close_review_support.pre_commit_hook_present`` (strict) — ``will_fire_hook``
   alone. Used by close-skill preloads to decide whether to nudge "run the
-  project's test command before merging" prose.
+  project's test command before merging" prose, where only a hook git will
+  really run counts.
 
-The semantic divergence (content-sniff vs exec-bit) is encoded at
-composition time, not via duplicated marker checks.
+The semantic divergence is encoded at composition time, not via duplicated
+checks: the marker leg is the one that separates the two questions, so only the
+intent-aware consumer composes it.
 """
 
 import os
@@ -26,6 +29,16 @@ _FRAMEWORK_MARKERS = (
 
 _HOOK_NAMES = ("pre-commit", "pre-push")
 
+# Guards a genuine hang (index.lock contention, a repo on a stalled network
+# mount), NOT slowness. Deliberately far above any real spawn latency: every
+# failure of this call degrades to the plain join, and for a repo using
+# `core.hooksPath` that join answers "no hook" for a repo that has one. A
+# tight bound therefore buys nothing and silently flips the answer under load
+# — measured at 5s, where 16-way parallel test runs tripped it and turned
+# `present` into `absent` with no signal. That the fallback cannot say "I do
+# not know" is the real limitation; this value only keeps it out of reach.
+_GIT_TIMEOUT_S = 30
+
 
 def has_framework_marker(repo_root: str) -> bool:
     """Project declares hooks via a runner config (lefthook, husky, pre-commit)."""
@@ -36,22 +49,38 @@ def has_framework_marker(repo_root: str) -> bool:
 def resolved_hooks_dir(repo_root: str) -> Path:
     """Return the hooks dir git uses (``core.hooksPath`` override or ``.git/hooks``).
 
-    Honors tilde expansion and resolves relative paths against the repo root,
-    matching git's own semantics.
+    Asks git rather than joining ``.git/hooks`` and reading ``core.hooksPath``
+    separately: in a linked worktree ``.git`` is a FILE pointing at the shared
+    common dir, so the join names a path that never exists there even when the
+    hooks are installed and will fire. ``rev-parse --git-path hooks`` answers
+    the worktree and the override in one call, with tilde already expanded.
+    Relative results still resolve against the repo root, and a failed call
+    falls back to the plain join without raising.
+
+    Guarded on ``<root>/.git`` existing first, because ``rev-parse`` answers
+    about the repo it FINDS by walking up from cwd. Asked about a plain
+    directory nested under a repo it reports the ANCESTOR's hooks dir and
+    exits 0 — so an unguarded call describes a different repository than the
+    one it was handed, and both consumers then speak about that other repo.
+    The guard is an existence check, not an ``is_dir``: a linked worktree's
+    ``.git`` is a file, and that is the case this function exists for.
     """
+    if not (Path(repo_root) / ".git").exists():
+        return Path(repo_root) / ".git" / "hooks"
     try:
         result = subprocess.run(
-            ["git", "config", "core.hooksPath"],
+            ["git", "rev-parse", "--git-path", "hooks"],
             cwd=repo_root,
             capture_output=True,
             text=True,
+            timeout=_GIT_TIMEOUT_S,
         )
-        override = result.stdout.strip() if result.returncode == 0 else ""
+        hooks_path = result.stdout.strip() if result.returncode == 0 else ""
     except (subprocess.SubprocessError, OSError):
-        override = ""
-    if not override:
+        hooks_path = ""
+    if not hooks_path:
         return Path(repo_root) / ".git" / "hooks"
-    path = Path(override).expanduser()
+    path = Path(hooks_path).expanduser()
     return path if path.is_absolute() else Path(repo_root) / path
 
 
@@ -64,7 +93,15 @@ def has_executable_hook(repo_root: str) -> bool:
 def will_fire_hook(repo_root: str) -> bool:
     """Strict: will git actually fire a hook on commit/push?
 
-    Composition: a framework marker declares intent runners will honor, OR
-    an executable hook is wired up directly.
+    An executable hook in the resolved hooks dir is the whole of it —
+    ``has_executable_hook`` already resolves the dir the way git does, so
+    there is nothing else git consults.
+
+    A framework marker is deliberately NOT part of this. ``lefthook.yml`` on
+    disk declares that a runner WOULD install a hook; until someone runs the
+    installer, git fires nothing, and answering "present" for such a clone
+    suppresses the close preloads' "the merge fires no project tests"
+    guidance. The declared-intent question lives at the consumer that wants
+    it — ``seed_detect.has_git_hooks`` composes the marker leg itself.
     """
-    return has_framework_marker(repo_root) or has_executable_hook(repo_root)
+    return has_executable_hook(repo_root)

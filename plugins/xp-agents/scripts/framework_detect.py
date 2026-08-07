@@ -15,8 +15,12 @@ Stdlib only (re).
 import re
 
 # Bounded lazy-quantifier "0-5 intervening tokens" — the upper bound keeps
-# regex engines from backtracking pathologically on long arg lists.
-_FLAG_GAP = r"(?:\s+\S+){0,5}?"
+# regex engines from backtracking pathologically on long arg lists. The token
+# class excludes shell separators so the gap cannot span them: with a bare
+# `\S+`, `&&` is an ordinary token and `bun build x.ts && npm test` binds the
+# `bun` of one command to the `test` of another, reporting a bun test run
+# where none exists.
+_FLAG_GAP = r"(?:\s+[^\s;&|]+){0,5}?"
 # Reject characters that would extend `test` into a different identifier.
 # Includes `.` (file extensions: `bun build test.ts` shouldn't match `test`),
 # `-` (kebab tool names: `pnpm exec test-fixture-builder`), and word chars
@@ -43,9 +47,100 @@ _NX_RES = (
     r"\bnx\s+\S+\s+--targets?=test(?:[,\s]|$)",
 )
 _BUN_SCRIPT_RE = r"\bbun" + _FLAG_GAP + r"\s+(?:run\s+)?" + _TEST_SCRIPT_TAIL
+# bun is a hybrid: `bun run <script>` / `bun <script>:<suffix>` are package-
+# script aliases (no CLI path, like the npm/pnpm/yarn forms above); bare
+# `bun test [<spec>...]` is a direct runner naming spec files as positionals.
+# Used by verify_paths.classify_path_strategy to split the two, the same way
+# a literal `jest` token disambiguates jest's alias vs. direct forms.
+_BUN_ALIAS_RE = r"\bbun" + _FLAG_GAP + r"\s+(?:run\s+\S+|test:[\w:-]+)"
+# Shell chain separators. Both bun regexes scan the whole command string, so a
+# chained command is judged segment by segment — otherwise a `run <script>`
+# token in a LATER segment (`bun test a.test.ts && npm run build`) reads the
+# whole chain as an alias and the spec path is lost to the whole-tree sentinel.
+_CHAIN_SPLIT_RE = r"&&|\|\||;|\|"
+# Anything that ends the run bun's positionals belong to. Redirects join the
+# chain separators here because `bun test 2>&1 | tee out.log` puts a
+# path-shaped artifact in the scanned region just as surely as `&&` does.
+_SHELL_BREAK_RE = r"&&|\|\||;|\||>|<"
+# Flags naming the directory the specs are relative to. Their value is
+# discarded by the pre-binary skip, so the specs lose the only context that
+# made them resolvable.
+_CWD_FLAGS = ("--cwd", "-C")
+_CWD_FLAG_PREFIXES = ("--cwd=", "-C=")
+_GLOB_CHARS = ("*", "?", "[")
+# Extensions bun can actually load as a spec file. A positional carrying one
+# (or a directory separator) is a path; one carrying neither is a filter.
+_SPEC_SUFFIXES = (
+    ".ts",
+    ".tsx",
+    ".mts",
+    ".cts",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+)
 _NPM_SCRIPT_RE = (
     r"\b(?:npm|pnpm|yarn|lerna)" + _FLAG_GAP + r"\s+(?:run\s+)?" + _TEST_SCRIPT_TAIL
 )
+
+
+def is_bun_script_alias(command: str) -> bool:
+    """True for bun's package-script alias forms, false for its direct form.
+
+    `bun ... run <script>` and `bun ... <script>:<suffix>` (`bun test:unit`,
+    `bun test:e2e-live`) name a package.json script, not a CLI path — alias.
+    Bare `bun test [<spec>...]` runs bun's own test binary, naming spec files
+    (if any) as positionals — direct, not an alias. Only called once
+    `is_test_run` has already returned "bun", so the caller is disambiguating
+    a known bun-test command, not detecting one.
+
+    A chain mixing the two forms is NOT an alias: one direct segment means a
+    spec path is on the command line, and losing it to the whole-tree
+    sentinel is the fail-open this split exists to close (the caller's jest
+    branch is biased the same way — any literal `jest` token wins).
+    """
+    for segment in re.split(_CHAIN_SPLIT_RE, command):
+        if re.search(_BUN_SCRIPT_RE, segment) and not re.search(_BUN_ALIAS_RE, segment):
+            return False
+    return bool(re.search(_BUN_ALIAS_RE, command))
+
+
+def bun_names_extractable_specs(command: str) -> bool:
+    """True when a bun command's positionals are real, comparable spec paths.
+
+    bun's positionals are substring FILTER PATTERNS — `bun test math.test`
+    runs `src/math.test.ts` — so a path-shaped token is only sometimes a file.
+    Extracting one that isn't demands a proof path no commit can ever touch,
+    and an unsatisfiable required path is strictly worse than no path at all:
+    the whole-tree sentinel fails OPEN, while a false positive can never go
+    green. So this answers conservatively, and every False retreats the caller
+    to the sentinel — exactly the behaviour bun commands had before they were
+    extracted at all, which is why no retreat here can block a merge.
+
+    Each disqualifier below was an observed false positive. Two are not
+    self-evident from the check: a chain retreats WHOLE rather than being
+    judged per segment, because segmenting would have to re-home the leading
+    `cd <dir> &&` peel that belongs to the caller; and a working-directory
+    flag disqualifies because the pre-binary skip drops its value, leaving
+    specs relative to a directory nothing downstream knows about.
+
+    The last check is the load-bearing one: a positional must carry a
+    directory separator or a source extension. That is the only lexical
+    signal separating a dotted filter (`math.test`) from a real spec, short
+    of touching the filesystem, which extraction never does.
+    """
+    if is_bun_script_alias(command):
+        return False
+    if re.search(_SHELL_BREAK_RE, command):
+        return False
+    tokens = command.split()
+    if any(t in _CWD_FLAGS or t.startswith(_CWD_FLAG_PREFIXES) for t in tokens):
+        return False
+    positionals = [t for t in tokens if not t.startswith("-")]
+    if any(g in t for t in positionals for g in _GLOB_CHARS):
+        return False
+    return any("/" in t or t.endswith(_SPEC_SUFFIXES) for t in positionals)
 
 
 def is_test_run(command: str) -> str | None:

@@ -19,7 +19,11 @@ ground the split just won.
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 BAND_CEILINGS = {
-    # shipped
+    # shipped — deliberately uncounted, following main. A hand-maintained
+    # count is drift-prone in exactly the way this table warns about: it read
+    # 57 while carrying 58 before anyone noticed, and a back-merge combining a
+    # branch that ADDS an entry with a main that RETIRES several leaves neither
+    # side's number right. Count the entries if you need the number.
     # RETIRED (story-015): hook_liveness.py 469->371, by taking the extraction
     # its own ceiling note named — the per-session sibling scan moved to
     # scripts/hook_heartbeat_scan.py, which a second reader (coordination's
@@ -27,6 +31,15 @@ BAND_CEILINGS = {
     # RETIRED (sprint-001): seed_smm.py 499->250, detection split to
     # smm/seed_detect.py. Below the 450 floor, so the entry is gone rather
     # than dormant — a kept entry hands back the ground the split won.
+    #
+    # The first NON-Python entry. The band ratchet discovered only .py until
+    # story-002, so every shipped shell file was ungoverned by a gate whose
+    # docstring called itself tree-wide. Nothing about the ratchet itself is
+    # language-specific -- `_line_count` is splitlines() -- only its discovery
+    # was. Recorded at 492 on the story branch; re-measured at 468 here because
+    # main shrank the file in parallel (story-016's once-per-session gate).
+    # Carrying 492 across the merge would have handed back all 24 lines.
+    "plugins/xp-agents/skills/_preload_base.sh": 468,
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     "plugins/xp-agents/scripts/close_common.py": 470,  # ratcheted from 496 (split)
     "plugins/xp-agents/smm/sprint_cli_mutate.py": 496,
@@ -53,8 +66,15 @@ BAND_CEILINGS = {
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
-    # tests (56)
+    # tests (57)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
+    # Entered the band with the shell surface's own red proofs. Its own
+    # self-coverage test caught the crossing, which is the design working. The
+    # cohesive group to extract next is the synthetic red-proof classes
+    # (TestCapOffenderDetection, TestBandRatchetRedProof, TestShellScanRedProofs,
+    # TestShippedRootFloorRedProof) — they share a temp-tree idiom and touch no
+    # real-tree state, unlike everything else in the file.
+    "plugins/xp-agents/tests/test_file_size_pin.py": 474,
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
     "plugins/xp-agents/tests/hooks/test_branch_lifecycle.py": 494,
