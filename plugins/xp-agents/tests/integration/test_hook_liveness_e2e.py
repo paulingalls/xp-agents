@@ -104,10 +104,11 @@ class _LivenessE2ECase(_IntegrationTestCase):
     def _assert_only_our_marker(self, when: str) -> None:
         """The SMM under test holds this session's heartbeat and no other.
 
-        `check_liveness` has sibling logic — `hook_heartbeat_scan.freshest_sibling`,
-        `_live_on_freshness_alone`, `_no_heartbeat_of_our_own` — so ANOTHER
-        session's fresh heartbeat can produce a live verdict while our own
-        marker is stale. Without this guard a future concurrent-story seed
+        `check_liveness` still consults siblings — `_no_heartbeat_of_our_own`
+        calls `hook_heartbeat_scan.freshest_sibling` — so ANOTHER session's
+        fresh heartbeat steers which refusal is reached, and until the borrow
+        was closed it could produce a LIVE verdict outright while our own
+        marker was stale. Without this guard a future concurrent-story seed
         would turn the whole suite green for the wrong reason. This repo has
         shipped vacuous pins twice; assert the premise instead of assuming it.
         """

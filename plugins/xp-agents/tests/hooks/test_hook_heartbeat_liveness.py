@@ -89,9 +89,12 @@ class TestConcurrentSessionsShareOneSmm(_HookTestCase):
     def test_a_far_future_sibling_is_reaped_and_vouches_for_nobody(self):
         """A sibling dated far ahead is not evidence of a live runtime.
 
-        Both sibling scans share one bounds helper for this: unreaped it would
-        accumulate forever, and worse, a session with no discoverable id would
-        borrow it as "live on freshness alone" permanently.
+        Both sibling scans share one bounds helper for this: unreaped, a
+        heartbeat dated years out never expires, so it would sit in the
+        SESSION_GLOB forever and answer every "is the runtime alive anywhere"
+        scan in the affirmative. No verdict can be reached through a sibling
+        any more, but the reap and the bound still have to hold — the
+        remaining sibling scan feeds the session-mismatch diagnosis.
         """
         self._write_as("clock-ahead", self.NOW + 10 * hook_liveness.STALE_AFTER_SECONDS)
         with patch.dict(os.environ, _env()):
@@ -135,7 +138,8 @@ class TestConcurrentSessionsShareOneSmm(_HookTestCase):
         self.assertIn("no session id", result.reason)
 
     def test_no_discoverable_id_still_refuses_when_every_heartbeat_is_stale(self):
-        """The fail-closed half of that degradation."""
+        """With nothing fresh anywhere, the older diagnosis is the true one:
+        no heartbeat exists to address, and none was left behind either."""
         self._write_as("some-other-session", self.NOW)
         with patch.dict(os.environ, _env()):
             result = hook_liveness.check_liveness(

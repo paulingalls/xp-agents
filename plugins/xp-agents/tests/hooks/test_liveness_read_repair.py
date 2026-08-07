@@ -112,5 +112,38 @@ class TestAForeignHeartbeatIsNotOurLiveness(_ReadRepairCase):
         self.assertIn("not loaded", result.reason)
 
 
+class TestAStaleMarkerOfOurOwnIsTheLastWord(_ReadRepairCase):
+    """The stale-path copy of the same borrow.
+
+    An id-less host DOES own a heartbeat — the unsuffixed shared marker it
+    writes and reads itself. When that one ages out, the runtime stopped
+    partway through the session, and a fresh sibling from a session we are
+    not was accepted as a reason to keep reporting live.
+    """
+
+    STALE = hook_liveness.STALE_AFTER_SECONDS
+
+    def _our_shared_heartbeat(self, at: float) -> None:
+        """The heartbeat an id-less host writes for itself: no suffix."""
+        with patch.dict(os.environ, _env()):
+            hook_liveness.write_heartbeat(self.smm_dir, now=at)
+
+    def test_a_fresh_foreign_heartbeat_does_not_revive_our_stale_one(self):
+        self._our_shared_heartbeat(self.NOW)
+        self._foreign_heartbeat(self.NOW + self.STALE)
+        result = self._read_without_an_id(self.NOW + self.STALE + 60)
+        self.assertFalse(result.live, result.reason)
+
+    def test_the_verdict_keeps_the_staleness_diagnosis(self):
+        """Refusing is half of it. "Our runtime stopped partway through" is a
+        different fix from "no heartbeat we can name exists", and the stale
+        marker on disk is what distinguishes them."""
+        self._our_shared_heartbeat(self.NOW)
+        self._foreign_heartbeat(self.NOW + self.STALE)
+        result = self._read_without_an_id(self.NOW + self.STALE + 60)
+        self.assertEqual(result.code, hook_liveness.CODE_STALE)
+        self.assertIn("stopped", result.reason)
+
+
 if __name__ == "__main__":
     unittest.main()

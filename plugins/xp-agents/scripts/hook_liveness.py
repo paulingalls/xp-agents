@@ -233,15 +233,6 @@ def _describe(seconds: float) -> str:
     return f"{seconds / 3600:.1f}h"
 
 
-def _live_on_freshness_alone(age: float) -> Liveness:
-    return Liveness(
-        True,
-        f"Hook runtime is live (last heartbeat {_describe(age)} ago; no "
-        "session id available here, so freshness is the only signal).",
-        CODE_LIVE,
-    )
-
-
 def _no_addressable_heartbeat_reason(freshest: float) -> str:
     """Refusal prose for a reader that cannot name its own heartbeat.
 
@@ -311,12 +302,15 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
     now = time.time() if now is None else now
     conflict = session_scope.conflicting_session_ids()
     if conflict:
-        # Must precede every path below, because all of them treat a None id as
-        # "degrade to time-only, any fresh heartbeat counts". Under a conflict
-        # the launcher's heartbeat IS fresh, so degrading would report live for
-        # a session whose own hooks never ran — inverting this check rather than
-        # weakening it. Unresolvable identity refuses, like the rest of the
-        # gates here.
+        # Must precede every path below. `resolve_session_id` answers None for
+        # a conflict too, and every path below reads that as "no id is
+        # discoverable here": they fall back to the SHARED marker, and a fresh
+        # one — left by any id-less process against this shared SMM — would
+        # report live for a session whose own hooks never ran. Even where the
+        # verdict would land right, it lands for the wrong reason: none set and
+        # two disagreeing are different claims, wearing different prose and a
+        # different exit code. Unresolvable identity refuses, like the rest of
+        # the gates here.
         return Liveness(False, _conflict_reason(conflict), CODE_ID_CONFLICT)
     session_id = resolve_session_id()
     marker = heartbeat_marker(session_id)
@@ -336,19 +330,6 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
         # is the same claim as a corrupt one: present, unreadable, no verdict.
         # Left alone it would read as fresh forever (see the constant).
         return Liveness(False, _UNREADABLE_REASON, CODE_UNREADABLE)
-    if age >= STALE_AFTER_SECONDS and session_id is None:
-        # A stale SHARED marker is not the last word when we cannot name our
-        # own heartbeat: a hook handed a payload id writes a per-session file
-        # this reader can never address, so the shared one goes stale while
-        # hooks are demonstrably running. Same argument the absent path makes;
-        # it applied to both branches, and only one of them had it.
-        #
-        # Only the LIVE half is borrowed. Falling through to the absent-path
-        # verdict would report "no heartbeat has been recorded" about a
-        # heartbeat that plainly was — staleness keeps its own diagnosis.
-        fresh = hook_heartbeat_scan.freshest_sibling(smm_dir, now)
-        if fresh is not None:
-            return _live_on_freshness_alone(fresh)
     if age >= STALE_AFTER_SECONDS:
         return Liveness(
             False,
