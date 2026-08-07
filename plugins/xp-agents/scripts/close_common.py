@@ -40,16 +40,16 @@ from merge_commit_event import append_merge_commit_event
 
 
 def _run_or_relay(argv: list[str], cwd: str, success_msg: str | None = None) -> int:
-    """Run argv via subprocess; relay stderr + return code on failure.
+    """Run argv via subprocess; relay combined output + return code on failure.
 
     On success, print success_msg if provided. Single source of truth for
-    the success/relay-stderr pattern shared by cmd_push and cmd_merge's
+    the success/relay-output pattern shared by cmd_push and cmd_merge's
     inner push. cmd_create_pr does its own dispatch because it needs the
     raw stdout (PR URL).
     """
     r = subprocess.run(argv, cwd=cwd, capture_output=True, text=True)
     if r.returncode != 0:
-        sys.stderr.write(r.stderr)
+        sys.stderr.write(branch_lifecycle.combined_output(r))
         return r.returncode
     if success_msg:
         print(success_msg)
