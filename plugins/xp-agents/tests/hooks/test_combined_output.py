@@ -11,6 +11,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -35,6 +36,22 @@ class TestCombinedOutput(unittest.TestCase):
     def test_result_is_unstripped(self):
         r = subprocess.CompletedProcess([], 1, stdout="out\n", stderr="")
         self.assertEqual(branch_lifecycle.combined_output(r), "out\n")
+
+
+class TestPushSourceNoVerifyRelaysBothStreams(unittest.TestCase):
+    """push_source_no_verify must warn with BOTH streams, not stderr alone —
+    a stdout-only hook cause must reach the warning."""
+
+    def test_stdout_only_cause_reaches_the_warning(self):
+        def fake_run(*a, **k):
+            return subprocess.CompletedProcess(a[0], 1, "hook said: cause", "")
+
+        with patch.object(branch_lifecycle.subprocess, "run", fake_run):
+            buf = []
+            with patch.object(sys.stderr, "write", lambda s: buf.append(s)):
+                branch_lifecycle.push_source_no_verify("/repo", "story-src")
+
+        self.assertIn("cause", "".join(buf))
 
 
 if __name__ == "__main__":

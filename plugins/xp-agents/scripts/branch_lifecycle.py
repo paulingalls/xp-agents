@@ -230,7 +230,7 @@ def push_source_no_verify(cwd: str, source: str) -> None:
         sys.stderr.write(
             f"warn: failed to re-push {source} before merge; the PR record may "
             f"be stale relative to what merged (the merge is the truth and "
-            f"proceeds). git said: {r.stderr.strip()}\n"
+            f"proceeds). git said: {combined_output(r).strip()}\n"
         )
 
 
