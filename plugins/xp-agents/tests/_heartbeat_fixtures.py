@@ -41,12 +41,14 @@ def env(**overrides: str) -> dict[str, str]:
 def as_session(session_id: str) -> Iterator[None]:
     """Run the block as a process that belongs to *session_id*.
 
-    The id goes on the TOP-preference candidate with the rest blanked, which
-    is the one shape the resolution chain answers with a value: it refuses
-    outright when two candidates disagree, so setting a lower one under the
-    suite's pinned top would resolve to None and the block would run as
-    nobody. Read off the chain rather than named, so a new host variable
-    cannot leave this fixture pinning a candidate that no longer wins.
+    Blanking the rest is the load-bearing half, not which candidate carries
+    the id: the chain REFUSES when two hold different values, so setting one
+    on top of the suite-wide pin without `env`'s blanks would resolve to None
+    and the block would run as nobody. With the blanks in place any single
+    candidate resolves; the top one is used because that is where this suite
+    pins containment (see `_env_hygiene`), and it is read off the chain rather
+    than named so a new host variable cannot leave the fixture setting a
+    candidate that no longer wins.
     """
     with patch.dict(
         os.environ, env(**{hook_liveness.SESSION_ID_ENV_CANDIDATES[0]: session_id})
@@ -54,7 +56,9 @@ def as_session(session_id: str) -> Iterator[None]:
         yield
 
 
-def coordinate(smm_dir: Path, *agent_ids: str, working_on: list[str] | None = None):
+def coordinate(
+    smm_dir: Path, *agent_ids: str, working_on: list[str] | None = None
+) -> None:
     """Plant one coordination entry per agent id, each written as ITS OWN process.
 
     The session stamp is provenance, and `has_active_teammates` reads it: an

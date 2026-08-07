@@ -30,7 +30,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import coordination
+import session_scope
 import sprint_stop_gate
+from _heartbeat_fixtures import as_session, coordinate
 from _heartbeat_fixtures import env as _env
 from _tdd_gate_fixtures import _GateTestCase, filler, session_anchor
 from conftest import SPRINT_IN_PROGRESS, _make_stop_input, failing_tests_concern
@@ -63,8 +66,13 @@ class _OwnSessionTestCase(_LivenessTestCase):
         self._beat(self.OURS, age=self.FRESH)
 
     def _as_us(self, call):
-        """Run *call* with the lead's session id exposed to the resolver."""
-        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.OURS)):
+        """Run *call* with the lead's session id exposed to the resolver.
+
+        The same helper the sibling-planting fixture writes through, so a day
+        when it stops resolving to an id reddens these rows too rather than
+        letting them pass on the undetermined fallback.
+        """
+        with as_session(self.OURS):
             return call()
 
 
@@ -190,6 +198,42 @@ class TestWhatTheVerdictDoesNotReach(_OwnSessionTestCase):
         self._entry(self.OUR_SUBAGENT, age=self.AGED, session_id=None)
         with patch.dict(os.environ, _env()):
             self.assertFalse(self._active())
+
+    def test_disagreeing_candidates_are_the_same_residual(self):
+        """The OTHER shape that resolves to no id, and the measured one.
+
+        A session launched from another harness carries that harness's
+        variable too, and the chain refuses rather than picking between them.
+        Our subagent writes through the same refusal, so its entry records
+        None and the reader cannot name its own session either — the skip
+        cannot fire and the TTL decides here as well. Written through the real
+        writer, so the stamp is the one production would leave.
+        """
+        conflicted = _env(XP_SESSION_ID="ours", CLAUDE_CODE_SESSION_ID="inherited")
+        with patch.dict(os.environ, conflicted):
+            self.assertEqual(session_scope.resolve_session_id(), None)
+            coordination.update_coordination(self.smm_dir, self.OUR_SUBAGENT, [])
+            self.assertTrue(self._active())
+
+
+class TestThePlantedSiblingCarriesItsOwnProvenance(_OwnSessionTestCase):
+    """The shared fixture five suites plant "a sibling" with, pinned.
+
+    Those suites assert that a sibling RELEASES the lead, and the verdict they
+    run against reads the session stamp — so a fixture that stamped the
+    reader's own id (calling the writer bare) or no id at all (blanking every
+    candidate) would keep them green off the undetermined fallback while
+    planting an entity the spawn cannot produce. Both mistakes are silent
+    without this row.
+    """
+
+    def test_the_fixture_stamps_a_session_that_is_neither_ours_nor_nobody(self):
+        coordinate(self.smm_dir, self.TEAMMATE)
+        stamp = coordination.read_coordination(self.smm_dir)[self.TEAMMATE][
+            "session_id"
+        ]
+        self.assertIsNotNone(stamp)
+        self.assertNotEqual(stamp, session_scope.resolve_session_id())
 
 
 if __name__ == "__main__":

@@ -221,13 +221,13 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
     falls back to the TTL, which is exactly today's behaviour.
 
     An entry this session wrote is not a sibling's at any age, so it is skipped
-    rather than aged; see the loop. Say plainly what that leaves: the skip can
-    only fire where the host names its session. Where it does not, our own
-    subagent's entry and a real teammate's both record None, nothing
-    distinguishes them, and both keep the TTL fallback — so on such a host one
-    file write by a subagent of ours still releases this gate for the length of
-    the TTL. Telling them apart there needs provenance the entry does not carry
-    today; it is not a threshold that could be tuned into a fix.
+    rather than aged; see the loop. The skip can only fire where the host names
+    its session, and where it names none our own subagent's entry and a real
+    teammate's both record None with nothing to separate them — so both keep
+    the TTL fallback there, and one file write by a subagent of ours still
+    releases this gate for the length of it. That residual is measured in
+    test_own_session_entry_release.py rather than only asserted here; closing
+    it needs provenance the entry does not carry, not a different threshold.
 
     The liveness leg stops here. `read_coordination` keeps its filter for
     every other caller: making the write-conflict detector liveness-aware
@@ -243,14 +243,9 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
         # Agent id and session are different keys, and one session holds
         # several agent ids: a non-xp subagent writes its own entry under its
         # own id inside OUR session. That entry is not a sibling's at any age,
-        # so it is skipped outright rather than read through a clock. Calling
-        # it merely undetermined bounded the damage at the TTL without ending
-        # it — undetermined falls back to the timestamp, so one file write by
-        # one subagent of ours still released this gate for the next 30
-        # minutes on work no sibling owns.
-        #
-        # This changes which entries are ELIGIBLE, not what any threshold is;
-        # neither constant at the top of this module moves.
+        # so it is skipped outright rather than read through a clock: reading
+        # it through one can only bound the damage at whatever the clock says,
+        # and no threshold makes an entry of ours into a teammate's.
         #
         # No real teammate is hidden by it: the spawn builds ONE child
         # environment with every session-id candidate popped, and uses that
