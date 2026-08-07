@@ -21,7 +21,6 @@ import execution_plan_store
 import hook_liveness
 import identity
 import markers
-import migration_lock
 import plugin_loader
 import session_markers
 import smm_cli
@@ -30,6 +29,11 @@ import smm_store
 import sprint_state
 import system_context_store
 from event_schema import METADATA_KEY_RESOLVES
+from session_start_banner import (
+    _disabled_message,
+    _is_fresh_start,
+    _system_message,
+)
 from system_context_renderer import render_markdown as render_system_context
 
 # ---------------------------------------------------------------------------
@@ -45,18 +49,6 @@ GUPP_RESUME = (
 GUPP_STARTUP = (
     "\n\n---\nRun /xp-kickoff before doing anything else, and start immediately."
 )
-
-
-def _is_fresh_start(source: str) -> bool:
-    """True when the SessionStart source represents a fresh start.
-
-    ``startup`` is a brand-new session (kickoff_gate hard-blocks until
-    /xp-kickoff runs); ``clear`` is a mid-session reset (nudge only).
-    Both arm the KICKOFF marker. ``resume`` and ``compact`` are
-    continuations of an in-flight session — re-running kickoff would
-    redo work just done.
-    """
-    return source in ("startup", "clear")
 
 
 def _resolve_prior_goals(events: list[dict], resolutions: dict) -> list[str]:
@@ -320,108 +312,6 @@ def run(
 # ---------------------------------------------------------------------------
 
 
-_AT_RISK_PREFIX = (
-    "NOTE: the shared mental model still lives under the host-managed plugin "
-    "data root, which 'claude plugin uninstall' deletes by default."
-)
-
-# One per migration_lock.LockState arm, named for its REMEDY.
-#
-# "in-progress" (holder proved RUNNING) is the one state that must not name
-# --confirm: guessing at a live holder is the automatic-breaker mistake this
-# story exists to avoid. "stalled" (holder proved dead) is the one state that
-# names --confirm directly. "blocked" covers both shapes that never
-# self-release on their own (an unverifiable holder, and non-symlink residue)
-# and points at the read-only report first, since liveness there was never
-# established.
-_FREE_ADVISORY = _AT_RISK_PREFIX + (
-    " It relocates itself automatically, but only once no teammate worktree "
-    "and no in-place teammate remain — check for a stale one whose branch "
-    "never merged. Run 'python3 {tool}' to see what is holding it."
-)
-
-_STALLED_ADVISORY = _AT_RISK_PREFIX + (
-    " A prior relocation is stalled — its lock's holder is no longer "
-    "running. Run 'python3 {tool} --confirm' to clear it."
-)
-
-_IN_PROGRESS_ADVISORY = _AT_RISK_PREFIX + (
-    " A relocation looks to be in progress — its lock's holder is running. "
-    "Run 'python3 {tool}' to see who holds it before doing anything else."
-)
-
-_BLOCKED_ADVISORY = _AT_RISK_PREFIX + (
-    " Its relocation lock is blocked and not automatically verifiable. Run "
-    "'python3 {tool}' to see what is holding it, then rerun with --confirm "
-    "to clear it."
-)
-
-# "unprobeable" must NOT borrow the free wording: relocation does not resolve
-# itself here, and the reason it cannot be read is usually also the reason it
-# cannot proceed (a root-owned destination from one sudo'd run).
-_UNPROBEABLE_ADVISORY = _AT_RISK_PREFIX + (
-    " Whether a relocation lock is present could not be determined — its "
-    "destination is unreadable, which one 'sudo' run is enough to cause. "
-    "Relocation stays blocked until that is fixed: check ownership of the "
-    "destination, then run 'python3 {tool}' to inspect."
-)
-
-
-def _tool_path() -> Path:
-    """Copy-pasteable path to the manual tool, resolved at message time.
-
-    Not hardcoded: the plugin cache is versioned, so a literal path would
-    name whichever release wrote it.
-    """
-    return plugin_loader.resolve_plugin_root() / "scripts" / "migrate_smm_root.py"
-
-
-def _lock_advisory(state: migration_lock.LockState) -> str:
-    """The at-risk-root advisory template for ``state``, named for its remedy.
-
-    A ``match`` over the ``Literal`` ``LockState`` rather than a dict lookup
-    with a ``None`` fallback: pyright's exhaustiveness check then catches a
-    missed arm if a fifth state is ever added, instead of silently falling
-    back to the "free" message.
-    """
-    match state:
-        case "free":
-            return _FREE_ADVISORY
-        case "stalled":
-            return _STALLED_ADVISORY
-        case "in-progress":
-            return _IN_PROGRESS_ADVISORY
-        case "blocked":
-            return _BLOCKED_ADVISORY
-        case "unprobeable":
-            return _UNPROBEABLE_ADVISORY
-
-
-def _system_message(source: str, version: str, smm_dir: Path | None = None) -> str:
-    """SessionStart systemMessage; kickoff nudge only on fresh starts.
-
-    The at-risk-root advisory rides here rather than in additionalContext for
-    two reasons. The USER is the one who has to act on it — the blocker is a
-    directory only they can retire. And relocation can stay declined
-    indefinitely: the liveness gate keys on a worktree directory existing, and
-    nothing removes one whose branch never merged, so a release note is not a
-    substitute. A line buried in a context blob is the silent-enforcement
-    pattern this change exists to end.
-
-    Known limit, not a bug: this only runs on the lead path (see ``main``) —
-    a teammate's SMM_DIR is pinned at spawn and it cannot relocate anything,
-    and relocation declines while any teammate is live, so only the lead
-    session can act on what this says.
-    """
-    base = f"XP agents (v{version}) active."
-    if _is_fresh_start(source):
-        base = f"{base} Run /xp-kickoff."
-    if smm_dir is not None and smm_dir_resolve.is_under_plugin_managed_root(smm_dir):
-        template = _lock_advisory(migration_lock.lock_state(smm_dir))
-        return f"{base} {template.format(tool=_tool_path())}"
-    return base
-
-
 def main() -> None:
     """SessionStart entry point: resolve once, run, emit.
 
@@ -446,15 +336,27 @@ def main() -> None:
         _common.is_xp_agent(input_data) or identity.is_worktree_teammate(input_data)
     )
     smm_dir = _resolve_via_init_sh() if resolves else None
+    # ONE validation, shared by the context and the banner beside it. `run`
+    # re-checks the same dir, which is pure and idempotent; what must not exist
+    # is a SECOND INDEPENDENT validation that can answer differently — the two
+    # channels have different audiences, so a disagreement is invisible to both.
+    #
+    # Lead path only. `smm_dir` is None for every teammate and nested agent by
+    # design (handing a teammate one injects the whole SMM render), so a verdict
+    # read from that absence would report the gates off where they are on.
+    enforcing = True
+    if resolves:
+        enforcing = _common.try_validate_smm_dir(smm_dir) is not None
     context = run(input_data, smm_dir, already_resolved=resolves)
     if context is not None:
         version = plugin_loader.plugin_version()
         source = input_data.get("source", "")
-        _common.hook_output(
-            "SessionStart",
-            context,
-            _system_message(source, version, smm_dir),
+        message = (
+            _system_message(source, version, smm_dir)
+            if enforcing
+            else _disabled_message(version)
         )
+        _common.hook_output("SessionStart", context, message)
 
 
 if __name__ == "__main__":
