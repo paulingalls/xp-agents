@@ -8,6 +8,7 @@ that reached them through `seed_smm` would break on a tidy-up that changed how
 reach `generate_smm` at all while appearing to stub it.
 """
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,6 +17,48 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import seed_detect
+
+
+class TestContentSniffLooksWhereDevelopersWrite(unittest.TestCase):
+    """The forgot-to-chmod fallback reads `.git/hooks`, not the override.
+
+    A `core.hooksPath` override is where git looks; it is NOT where a
+    developer who hand-wrote a hook put it. Routing this sniff through the
+    resolved dir made a global dotfiles override (`~/.githooks`, common)
+    hide a real project hook that simply lacks +x — flipping the answer
+    False and seeding a "no commit hooks" Risk that contradicts what is
+    plainly on disk. The exec-bit leg still follows the override, because
+    that leg is asking git's question.
+    """
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+        subprocess.run(
+            ["git", "init", "-b", "main", str(self.tmpdir)],
+            capture_output=True,
+            check=True,
+        )
+        override = self.tmpdir / "team-hooks"
+        override.mkdir()
+        subprocess.run(
+            ["git", "config", "core.hooksPath", str(override)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_unexecutable_local_hook_survives_an_override(self):
+        hook = self.tmpdir / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nmake test\n")  # deliberately not chmod +x
+        self.assertTrue(seed_detect.has_git_hooks(self.tmpdir))
+
+    def test_no_local_hook_under_override_is_still_false(self):
+        self.assertFalse(seed_detect.has_git_hooks(self.tmpdir))
 
 
 class TestDetection(unittest.TestCase):

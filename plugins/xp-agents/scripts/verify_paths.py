@@ -73,13 +73,13 @@ _POSITIONAL_FRAMEWORKS = frozenset(
         "phpunit",
         "dart",
         "elixir",
+        "bun",
     }
 )
 _WHOLE_TREE_FRAMEWORKS = frozenset(
     {
         "turbo",
         "nx",
-        "bun",
         "cargo",
         "maven",
         "gradle",
@@ -121,12 +121,21 @@ def classify_path_strategy(command: str) -> str:
     so `test:e2e` is never read as a path). (Direct `python`/`bash <path>`
     and pytest/unittest are handled by the shape branches in
     `_extract_paths_from_command` before this is consulted.)
+
+    "bun" needs more than an alias check: its positionals are substring
+    filter patterns, so several direct forms name nothing extractable.
+    `test_parsing.bun_names_extractable_specs` owns that judgment; every
+    shape it rejects retreats to the sentinel, which fails open.
     """
     framework = test_parsing.is_test_run(command)
     if framework is None:
         return "none"
     if framework == "jest":
         return "positional" if re.search(r"\bjest\b", command) else "whole_tree"
+    if framework == "bun":
+        if test_parsing.bun_names_extractable_specs(command):
+            return "positional"
+        return "whole_tree"
     if framework in _POSITIONAL_FRAMEWORKS:
         return "positional"
     if framework in _WHOLE_TREE_FRAMEWORKS:
@@ -152,7 +161,7 @@ def _extract_paths_from_command(command: str) -> set[str]:
     Python shapes have dedicated branches: pytest / `python -m pytest <path>`
     (positional paths, `::selector` stripped), `python -m unittest discover -s
     <startdir> [-t <topdir>]`, and direct `python <path>` / `bash <path>`.
-    Every other command is routed by `test_parsing.classify_path_strategy`:
+    Every other command is routed by this module's `classify_path_strategy`:
     positional runners (playwright/jest/vitest/...) extract their CLI path
     tokens (a whole-suite run with no path → whole-tree sentinel); whole-tree
     runners (script aliases / package-or-scheme runners) → sentinel.
@@ -262,23 +271,29 @@ def _extract_direct_script(tokens: list[str]) -> set[str]:
 
 def _extract_positional_paths(tokens: list[str]) -> set[str]:
     """Path tokens of a positional-path runner (playwright/jest/vitest/mocha/
-    node-test/deno/rspec/phpunit/mix/dart...).
+    node-test/deno/rspec/phpunit/mix/dart/bun...).
 
-    Skips package-manager wrappers, the runner binary, and a leading
-    `test`/`run` subcommand, then keeps only **path-shaped** positional tokens
-    (containing `/` or `.`, with a `::selector` stripped). The token after a
-    space-form bare flag (starts with `-`, no `=`) is dropped as that flag's
-    value — so a path-shaped value like `--config jest.config.js` or
-    `--reporter ./r.js` is never mistaken for a proof file. (A spurious gate
-    firing is worse than under-extraction, which fails open; conservatively
-    skipping a boolean flag's following token only ever under-extracts.) An
-    attached `--flag=value` carries its own value, so the next token survives.
-    No path tokens (a whole-suite run) yields an empty set; the caller maps
-    that to the whole-tree sentinel.
+    Skips package-manager wrappers, EVERY leading flag, the runner binary, a
+    leading `test`/`run` subcommand, then keeps path-shaped positionals
+    (containing `/` or `.`, `::selector` stripped), normalized so they compare
+    against git's repo-relative output in one form.
+
+    Every skip above is biased the same way, and the bias is the point: a
+    false path demands a file that can never be touched, so the gate can never
+    go green — strictly worse than the whole-tree sentinel, which fails open.
+    Hence EVERY leading flag rather than one (a second flag left in the binary
+    slot lets its value through as a path), and hence dropping the token after
+    a space-form bare flag (`--config jest.config.js`) even though that also
+    drops the occasional real path. Under-extraction fails open; over-
+    extraction cannot. An attached `--flag=value` carries its own value, so
+    the next token survives. No path tokens yields an empty set, which the
+    caller maps to the sentinel.
     """
     i = 0
     n = len(tokens)
     while i < n and tokens[i] in _WRAPPER_TOKENS:
+        i += 1
+    while i < n and tokens[i].startswith("-"):
         i += 1
     if i < n:  # the runner binary itself
         i += 1
@@ -295,7 +310,7 @@ def _extract_positional_paths(tokens: list[str]) -> set[str]:
             continue
         candidate = tok.split("::", 1)[0]
         if "/" in candidate or "." in candidate:
-            paths.add(candidate)
+            paths.add(posixpath.normpath(candidate))
     return paths
 
 
@@ -372,8 +387,8 @@ def _is_touched(declared: str, changed: set[str]) -> bool:
     """
     if declared == _WHOLE_TREE_SENTINEL:
         return bool(changed)
-    prefix = declared if declared.endswith("/") else declared + "/"
-    return any(f == declared or f.startswith(prefix) for f in changed)
+    declared = posixpath.normpath(declared)
+    return any(f == declared or f.startswith(declared + "/") for f in changed)
 
 
 def untouched_verify_paths(
