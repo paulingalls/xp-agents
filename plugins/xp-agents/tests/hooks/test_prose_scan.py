@@ -64,6 +64,48 @@ class TestScanFileCounts(unittest.TestCase):
 
         self.assertEqual(result.comment_lines, 0)
 
+    def test_a_comment_block_counts_one_per_physical_line(self):
+        src = "# one\n# two\n# three\nx = 1\n"
+        with tempfile.TemporaryDirectory() as td:
+            result = scan_file(self._write(td, src))
+
+        self.assertEqual(result.comment_lines, 3)
+
+    def test_a_docstring_counts_its_physical_lines_not_its_content_lines(self):
+        """A closing `\"\"\"` on its own line is a line of the file, so it must
+        be in the numerator of a ratio whose denominator counts it too. A
+        `len(doc.splitlines())` count drops it."""
+        src = '"""\nText.\n"""\nx = 1\n'
+        with tempfile.TemporaryDirectory() as td:
+            result = scan_file(self._write(td, src))
+
+        self.assertEqual(result.total_lines, 4)
+        self.assertEqual(result.docstring_lines, 3)
+
+    def test_a_triple_quoted_string_that_is_not_a_docstring_is_not_counted(self):
+        src = 'def f():\n    x = 1\n    """Not a docstring."""\n    return x\n'
+        with tempfile.TemporaryDirectory() as td:
+            result = scan_file(self._write(td, src))
+
+        self.assertEqual(result.docstring_lines, 0)
+
+    def test_a_file_with_no_trailing_newline_scans_without_raising(self):
+        src = '"""Doc."""\nx = 1  # c'
+        with tempfile.TemporaryDirectory() as td:
+            result = scan_file(self._write(td, src))
+
+        self.assertEqual(result.total_lines, 2)
+        self.assertEqual(result.docstring_lines, 1)
+        self.assertEqual(result.comment_lines, 1)
+
+    def test_an_empty_file_scans_to_zeros(self):
+        with tempfile.TemporaryDirectory() as td:
+            result = scan_file(self._write(td, ""))
+
+        self.assertEqual(result.total_lines, 0)
+        self.assertEqual(result.docstring_lines, 0)
+        self.assertEqual(result.comment_lines, 0)
+
     def _docstring_module(self, n: int) -> str:
         body = "\n".join(f"line{i}" for i in range(n))
         return f'"""{body}"""\n'
@@ -139,6 +181,20 @@ class TestShippedFilesByRootAgreesWithTheFileSizePin(unittest.TestCase):
             for path in paths:
                 self.assertEqual(_root_of(rel(path, _REPO_ROOT)), expected)
 
+    def test_the_skills_group_holds_only_real_skill_script_paths(self):
+        """`_root_of` returns `skills/*/scripts` for anything that is not
+        under `scripts/` or `smm/`, so the agreement test above cannot fail on
+        the skills leg however wrong that group's contents are. Assert the
+        location directly."""
+        skills = shipped_files_by_root(_PLUGIN_ROOT)["skills"]
+
+        self.assertGreater(len(skills), 0)
+        for path in skills:
+            relpath = rel(path, _REPO_ROOT)
+            self.assertRegex(
+                relpath, r"^plugins/xp-agents/skills/[^/]+/scripts/.+\.py$"
+            )
+
 
 class TestCLI(unittest.TestCase):
     """The CLI is invoked with `--root` and prints without asserting
@@ -149,6 +205,13 @@ class TestCLI(unittest.TestCase):
         report = format_report({"smm": roots["smm"]})
 
         self.assertIn("root=smm", report)
+
+    def test_an_empty_root_reports_a_zero_ratio_rather_than_dividing_by_zero(self):
+        with tempfile.TemporaryDirectory() as td:
+            roots = scan_roots(Path(td))
+            report = format_report(roots)
+
+        self.assertIn("root=scripts files=0 lines=0 prose=0 ratio=0.0%", report)
 
     def test_real_subprocess_invocation_prints_the_frozen_root_line(self):
         """Must actually spawn a subprocess -- an in-process `main([...])`
@@ -168,6 +231,26 @@ class TestCLI(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("root=scripts", result.stdout)
+
+    def test_reported_paths_are_repo_relative_not_worktree_absolute(self):
+        """An absolute path names the worktree it was scanned in, so two
+        teammates' before/after reports would differ on every line."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(_PLUGIN_ROOT / "tests" / "_prose_scan.py"),
+                "--root",
+                "skills",
+                "--per-file",
+            ],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("plugins/xp-agents/skills/", result.stdout)
+        self.assertNotIn(str(_REPO_ROOT), result.stdout)
 
 
 if __name__ == "__main__":

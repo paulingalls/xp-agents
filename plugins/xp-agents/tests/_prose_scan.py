@@ -1,42 +1,17 @@
 #!/usr/bin/env python3
 """Prose measurement scan over the shipped roots (`scripts`, `smm`, `skills`).
 
-Nothing measures prose today. Every ratio quoted in the sprint so far came
-from a throwaway script, and three recorded baselines disagree with each
-other. This module is the one tool: it counts docstring lines (via `ast`) and
-comment lines (via `tokenize`) per file, rolls them up per shipped root, and
-prints a report the delete-only sweep stories (Bucket A/B) grep for a
-before/after number. It builds no ceiling and asserts nothing -- the ratchet
-is a later milestone's deliverable, scheduled after the sweep so its ceilings
-are the post-sweep numbers rather than today's.
+A report a human runs ad hoc, not a test a runner discovers: it builds no
+ceiling and asserts nothing. The ratchet is a later milestone's deliverable,
+scheduled after the sweep so its ceilings are post-sweep numbers.
 
-LIMITS -- READ THIS BEFORE TRUSTING A NUMBER FROM THIS SCAN.
-
-It counts LINES, not information. A docstring with ten blank lines counts as
-ten lines of prose; a comment that says nothing (`# fix`) counts the same as
-one that explains a real invariant. Nothing here judges whether a comment is
-TRUE, current, or worth keeping -- staleness detection is out of scope, and
-that omission is deliberate: a scan that claimed to catch stale comments
-without actually reading them for meaning would be a green check certifying
-something untrue, which is the exact failure this milestone exists to kill.
-
-A comment is counted by `tokenize.COMMENT` token, one per physical line --
-a multi-line comment block is N separate comments, not one prose unit. The
-first-line shebang (`#!...`) is excluded by convention (every shipped module
-has one; counting it as prose would inflate every file by a constant that
-carries no information), but every other `#!` mid-file, if one ever appeared,
-would count.
-
-Docstrings are read via `ast.get_docstring(node, clean=False)` on `Module`,
-`ClassDef`, `FunctionDef` and `AsyncFunctionDef` nodes -- the four shapes a
-docstring can attach to. A raw triple-quoted string elsewhere in a function
-body (not the first statement) is an ordinary expression, not a docstring,
-and is invisible to this scan, exactly as it is invisible to `ast.get_docstring`.
-
-This is the first argparse entry point under `tests/` -- every other
-`__main__` block there is `unittest.main()`. That is deliberate here: this is
-a reporting scan a human runs ad hoc (`--root scripts`, `--per-file`), not a
-test a runner discovers.
+LIMITS -- READ THIS BEFORE TRUSTING A NUMBER FROM THIS SCAN. It counts LINES,
+not information: a comment that says nothing (`# fix`) counts the same as one
+that explains a real invariant, and nothing here judges whether a comment is
+TRUE, current, or worth keeping. Staleness detection is deliberately out of
+scope -- a scan that claimed to catch stale comments without reading them for
+meaning would be a green check certifying something untrue, the exact failure
+this milestone exists to kill.
 """
 
 import argparse
@@ -47,7 +22,7 @@ from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
 
-from _pin_helpers import parse_files, shipped_files_by_root
+from _pin_helpers import parse_files, rel, shipped_files_by_root
 
 _DOCSTRING_NODE_TYPES = (
     ast.Module,
@@ -60,9 +35,8 @@ _LONG_DOCSTRING_THRESHOLD = 25
 
 @dataclass(frozen=True)
 class FileProse:
-    """One file's prose counts. `long_docstring_locations` is `(lineno,
-    length)` for every docstring at or above `_LONG_DOCSTRING_THRESHOLD` --
-    the Bucket C/D triage list the design doc asks for starts here."""
+    """One file's prose counts. Each `long_docstring_locations` entry is
+    `(lineno, line_count)`."""
 
     path: Path
     total_lines: int
@@ -75,9 +49,7 @@ class FileProse:
 
 @dataclass(frozen=True)
 class RootProse:
-    """One shipped root's rolled-up counts. `max_docstring_lines` is the max
-    across `files`, not a sum -- everything else here is a sum (or, for
-    `long_docstrings`, a count) over `files`."""
+    """One shipped root's counts, rolled up over `files`."""
 
     root: str
     files: tuple[FileProse, ...]
@@ -90,25 +62,29 @@ class RootProse:
 
 
 def _docstring_entries(tree: ast.AST) -> list[tuple[int, int]]:
-    """`(lineno, line_count)` for every docstring node in *tree*."""
+    """`(lineno, line_count)` for every docstring node in *tree*.
+
+    Counted as PHYSICAL source lines, quotes included, rather than
+    `len(doc.splitlines())`: the ratio's denominator is physical lines, so a
+    content-line numerator would mix units and drop the closing-quote line of
+    every docstring that has one.
+    """
     entries: list[tuple[int, int]] = []
     for node in ast.walk(tree):
         if not isinstance(node, _DOCSTRING_NODE_TYPES):
             continue
-        doc = ast.get_docstring(node, clean=False)
-        if doc is None:
+        if ast.get_docstring(node, clean=False) is None:
             continue
-        body = getattr(node, "body", None)
-        lineno = body[0].lineno if body else getattr(node, "lineno", 1)
-        entries.append((lineno, len(doc.splitlines())))
+        doc_node = node.body[0]
+        end_lineno = doc_node.end_lineno or doc_node.lineno
+        entries.append((doc_node.lineno, end_lineno - doc_node.lineno + 1))
     return entries
 
 
 def _count_comments(text: str) -> int:
     """Comment lines in *text*, via `tokenize.COMMENT` -- never a raw
     `line.startswith("#")` scan, which would miscount a `#` inside a string
-    literal and would see comments `ast` never does. The first-line shebang
-    is excluded; every other comment counts."""
+    literal."""
     count = 0
     for tok in tokenize.generate_tokens(StringIO(text).readline):
         if tok.type != tokenize.COMMENT:
@@ -167,7 +143,21 @@ def _ratio(prose: int, total: int) -> float:
     return (prose / total * 100) if total else 0.0
 
 
-def format_report(roots: dict[str, RootProse], per_file: bool = False) -> str:
+def _render(path: Path, base: Path | None) -> str:
+    """*path* rendered repo-relative against *base*, absolute when it has no
+    base or falls outside one. Absolute paths embed the worktree they were
+    scanned in, so a before/after diff taken in two worktrees would be noise."""
+    if base is None:
+        return str(path)
+    try:
+        return rel(path, base)
+    except ValueError:
+        return str(path)
+
+
+def format_report(
+    roots: dict[str, RootProse], per_file: bool = False, base: Path | None = None
+) -> str:
     """Render *roots* as the frozen `root=...` line per root, optional
     per-file detail, then the Bucket C/D triage list of long docstrings.
 
@@ -186,17 +176,22 @@ def format_report(roots: dict[str, RootProse], per_file: bool = False) -> str:
             f"long_docstrings={root.long_docstrings}"
         )
         for failure_path, message in root.parse_failures:
-            lines.append(f"root={name} PARSE FAILURE: {failure_path} ({message})")
+            lines.append(
+                f"root={name} PARSE FAILURE: {_render(failure_path, base)} ({message})"
+            )
         if per_file:
             for f in root.files:
                 f_prose = f.docstring_lines + f.comment_lines
                 lines.append(
-                    f"  {f.path} lines={f.total_lines} prose={f_prose} "
+                    f"  {_render(f.path, base)} lines={f.total_lines} "
+                    f"prose={f_prose} "
                     f"ratio={_ratio(f_prose, f.total_lines):.1f}%"
                 )
         for f in root.files:
             for lineno, n in f.long_docstring_locations:
-                long_docstring_lines.append(f"{f.path}:{lineno} docstring {n} lines")
+                long_docstring_lines.append(
+                    f"{_render(f.path, base)}:{lineno} docstring {n} lines"
+                )
     if long_docstring_lines:
         lines.append("")
         lines.append("Docstrings >= 25 lines:")
@@ -223,7 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     roots = scan_roots(plugin_root)
     if args.root != "all":
         roots = {args.root: roots[args.root]}
-    print(format_report(roots, per_file=args.per_file))
+    print(format_report(roots, per_file=args.per_file, base=plugin_root.parent.parent))
     return 0
 
 
