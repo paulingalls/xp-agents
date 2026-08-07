@@ -2,6 +2,72 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.8.0 — Three gates reported on input they never looked at
+
+### A gate that answers for input it cannot see is worse than no gate
+
+Each of these had been green for months, and each was green because it never
+examined the thing it claimed to check.
+
+**`bun test <spec>` was never gated.** bun was classified as a whole-tree
+runner, so every bun command collapsed to the `.` sentinel and a bun story's
+authored proof file was never demanded. bun is a hybrid — `bun run test` is a
+package-script alias, `bun test a.test.ts` names a spec — and only the alias
+half was modelled.
+
+**The file-size ratchet discovered Python only.** It called itself tree-wide
+while `_line_count` was `splitlines()` and the cap is a project convention, not
+a language rule. Every shipped shell file was ungoverned: `_preload_base.sh`
+sat at 492 lines, inside the 450 band and 8 from the hard cap, seen by nothing.
+Discovery now selects by suffix at any depth, so a future `hooks/*.sh` cannot
+be invisible in the worst way — invisible to a floor that never existed.
+
+**The commit-hook predicate answered a different question than it asked.**
+`will_fire_hook` promised "will git actually fire a hook?" and returned true if
+a runner *config file* merely existed. A clone that ships `lefthook.yml` without
+running its installer reported its commit gate present while git fired nothing.
+Not hypothetical: this repo did exactly that mid-sprint, suppressing the block
+whose whole job is to say the merge runs no project tests. The declared-intent
+question moved to the consumer that wants it — seeding, where a
+declared-but-uninstalled runner legitimately counts as hook-aware.
+
+### The bun fix was inverted before it shipped, and review caught it
+
+Reclassifying bun assumed its positionals are repo-relative paths. They are
+substring *filter patterns*: `bun test math.test` runs `src/math.test.ts`. So
+five ordinary commands began demanding proof paths no commit can touch —
+including `src/*.test.ts`, a piped `| tee out.log` tail, and a `--cwd`-relative
+spec compared against repo-relative git output. An unsatisfiable required path
+is strictly worse than none: the sentinel fails open, a false positive can
+never go green. The gate the release exists to fix was inverted, not closed.
+
+bun is now positional only for a single-segment, glob-free, cwd-flag-free
+command whose positionals carry a directory separator or a source extension.
+Every rejection lands on the sentinel — the behaviour these commands had
+before bun was extracted at all — so no retreat can block a merge. Chained bun
+commands retreat too, a real coverage cost stated plainly in the tests rather
+than papered over.
+
+Narrowing the hook predicate also removed the leg that had been masking a
+second defect: `resolved_hooks_dir` joined `.git/hooks`, which names a path
+that never exists in a linked worktree, where `.git` is a file. Since teammate
+closes run in worktrees, shipping the narrowing alone would have told every
+teammate the merge fires no tests while lefthook was running them. It now asks
+git, guarded on the repo existing — `rev-parse` answers about the repo it
+*finds*, so an unguarded call describes an ancestor repository instead.
+
+### Also
+
+- Declared verify paths are compared in one normal form, so `pytest
+  ./tests/a.py` is satisfiable. It previously declared a path git never
+  reports — the same can-never-go-green failure, on the runner this project
+  itself uses.
+- The framework flag-gap no longer spans `;&|`, so no detector binds one
+  command's runner to another command's `test`.
+- A hang guard on the hook-dir lookup sits far above spawn latency. Measured at
+  5s it tripped under parallel load and silently turned `present` into
+  `absent`, which is the failure class this release is about.
+
 ## v5.7.0 — Shipped guidance had no reverse gear for its own prose
 
 ### Five lines told readers to put things in comments, and offered no way back
