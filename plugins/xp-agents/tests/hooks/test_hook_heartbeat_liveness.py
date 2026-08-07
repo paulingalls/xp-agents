@@ -250,11 +250,13 @@ class TestDisagreeingSessionIdsRefuse(_HookTestCase):
     def test_a_launchers_fresh_heartbeat_does_not_read_as_live(self):
         """The regression this class exists for.
 
-        Every not-live path treats an unresolvable id as "degrade to time-only,
-        any fresh heartbeat counts" — correct when NO id is discoverable, and a
-        fail-open here: under a conflict the launcher's heartbeat is fresh by
-        definition, so degrading would vouch for a session whose own hooks never
-        loaded. The conflict verdict must therefore precede that degradation.
+        `resolve_session_id` answers None for a conflict exactly as it does for
+        no candidate at all, and every path below reads that as "address the
+        SHARED marker" — which the launcher, or any id-less process against this
+        same SMM, may have left sitting fresh. That would vouch for a session
+        whose own hooks never loaded. The conflict verdict must therefore
+        precede the fallback, and carry its own code: no candidate set and two
+        candidates disagreeing are different claims with different fixes.
         """
         with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="the-launcher")):
             hook_liveness.write_heartbeat(self.smm_dir, now=self.NOW)

@@ -132,10 +132,17 @@ def resolve_session_id() -> str | None:
     before acting. `check_liveness` does, and refuses on the conflict.
 
     With no candidate set at all, the check falls back to the shared,
-    unsuffixed marker and ages THAT — an unfamiliar host writes and reads its
-    own heartbeat, so it is never bricked for want of a variable name. It does
-    not fall back to time alone: another session's fresh heartbeat is evidence
-    about that session, and accepting it let an unenforced session report live.
+    unsuffixed marker and ages THAT — a host whose hooks are handed no id write
+    and read that same one marker, so it is never bricked for want of a
+    variable name. It does not fall back to time alone: another session's
+    fresh heartbeat is evidence about that session, and accepting it let an
+    unenforced session report live.
+
+    That no-brick guarantee needs writer and reader to see the SAME absence. A
+    host that hands its hooks a payload id while exposing none to a shell writes
+    suffixed markers no shell reader can address, so every one of its preloads
+    refuses — fixed by teaching this chain that host's variable, or by handing
+    the reader a payload of its own, never by restoring the borrow.
 
     Delegates to `session_scope`, which owns the chain: the same resolution
     picks the filename of every session-scoped marker, and one of those is
@@ -249,17 +256,19 @@ def _no_addressable_heartbeat_reason(freshest: float) -> str:
     """Refusal prose for a reader that cannot name its own heartbeat.
 
     Distinct from `_NOT_LOADED` because that text would be a lie here: other
-    sessions' markers are sitting on disk. This path newly refuses sessions
-    that used to pass, so the message is the whole support surface, and it has
-    to name both candidate causes — from here they cannot be told apart.
+    sessions' markers are sitting on disk. A reader in this position gets no
+    other signal — a preload cannot block, so this sentence is the whole
+    support surface — and it has to name both candidate causes, because from
+    here they cannot be told apart.
     """
     return (
         "No hook-liveness heartbeat addressable from here exists. This process "
         "can discover no session id, so the only heartbeat it can name is the "
-        "shared one, and that is absent; the heartbeat another session "
-        f"recorded {_describe(freshest)} ago is evidence about that session, "
-        "not this one. Either the hook runtime did not load here, or it loaded "
-        "and recorded itself under a session id this process cannot see."
+        "shared one, and that is absent; a heartbeat keyed on another session "
+        f"id, written {_describe(freshest)} ago, is evidence about whoever owns "
+        "that id, not about a process that cannot name it. Either the hook "
+        "runtime did not load here, or it loaded and recorded itself under a "
+        "session id this process cannot see."
     )
 
 

@@ -82,9 +82,9 @@ class TestAForeignHeartbeatIsNotOurLiveness(_ReadRepairCase):
         self.assertNotIn(result.code, hook_liveness.UNDETERMINED_CODES)
 
     def test_the_refusal_does_not_claim_nothing_was_ever_recorded(self):
-        """This path newly refuses sessions that used to pass, so its message
-        is the entire support surface — and the absent-path text is FALSE
-        here, with foreign markers sitting right there on disk."""
+        """A refusing preload cannot block, so its message is the entire
+        support surface — and the absent-path text is FALSE here, with foreign
+        markers sitting right there on disk."""
         self._foreign_heartbeat(self.NOW)
         borrowed = self._read_without_an_id(self.NOW + 60)
         with patch.dict(os.environ, _env()):
