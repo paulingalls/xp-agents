@@ -233,19 +233,23 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
         written_by = entry.get("session_id")
         # Agent id and session are different keys, and one session holds
         # several agent ids: a non-xp subagent writes its own entry under its
-        # own id inside OUR session. Our heartbeat says nothing about whether
-        # THAT agent still exists, so an entry we wrote ourselves is
-        # undetermined, not live — otherwise a subagent that never reached its
-        # completion handler would hold the gate released for the whole
-        # session, where the TTL dropped it at 30 minutes. No real teammate is
-        # caught by this: `spawn_teammate` strips every session-id candidate
-        # from the child's environment, so a teammate resolves its own id or
-        # records None.
-        live = (
-            None
-            if own_session is not None and written_by == own_session
-            else _session_is_live(smm_dir, written_by)
-        )
+        # own id inside OUR session. That entry is not a sibling's at any age,
+        # so it is skipped outright rather than read through a clock. Calling
+        # it merely undetermined bounded the damage at the TTL without ending
+        # it — undetermined falls back to the timestamp, so one file write by
+        # one subagent of ours still released this gate for the next 30
+        # minutes on work no sibling owns.
+        #
+        # This changes which entries are ELIGIBLE, not what any threshold is;
+        # neither number below moves.
+        #
+        # No real teammate is hidden by it: the spawn builds ONE child
+        # environment with every session-id candidate popped, and uses that
+        # same environment for the separate-checkout shape and the in-place
+        # shape alike, so a teammate records its own id or None — never ours.
+        if own_session is not None and written_by == own_session:
+            continue
+        live = _session_is_live(smm_dir, written_by)
         if live is True or (live is None and aid in within_ttl):
             return True
     return False
