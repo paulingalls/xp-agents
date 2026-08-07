@@ -32,9 +32,16 @@ Docstrings are read via `ast.get_docstring(node, clean=False)` on `Module`,
 docstring can attach to. A raw triple-quoted string elsewhere in a function
 body (not the first statement) is an ordinary expression, not a docstring,
 and is invisible to this scan, exactly as it is invisible to `ast.get_docstring`.
+
+This is the first argparse entry point under `tests/` -- every other
+`__main__` block there is `unittest.main()`. That is deliberate here: this is
+a reporting scan a human runs ad hoc (`--root scripts`, `--per-file`), not a
+test a runner discovers.
 """
 
+import argparse
 import ast
+import sys
 import tokenize
 from dataclasses import dataclass
 from io import StringIO
@@ -195,3 +202,30 @@ def format_report(roots: dict[str, RootProse], per_file: bool = False) -> str:
         lines.append("Docstrings >= 25 lines:")
         lines.extend(long_docstring_lines)
     return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Prose measurement scan")
+    parser.add_argument(
+        "--root",
+        choices=("scripts", "smm", "skills", "all"),
+        default="all",
+        help="Shipped root to report on (default: all)",
+    )
+    parser.add_argument(
+        "--per-file",
+        action="store_true",
+        help="Also print each file's own prose ratio",
+    )
+    args = parser.parse_args(argv)
+
+    plugin_root = Path(__file__).resolve().parent.parent
+    roots = scan_roots(plugin_root)
+    if args.root != "all":
+        roots = {args.root: roots[args.root]}
+    print(format_report(roots, per_file=args.per_file))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

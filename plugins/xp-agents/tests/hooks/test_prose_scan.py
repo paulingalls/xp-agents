@@ -7,6 +7,7 @@ in-memory AST node would bypass file I/O and hide a regression in either
 layer.
 """
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -15,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from _pin_helpers import rel, shipped_files_by_root
-from _prose_scan import scan_file, scan_roots
+from _prose_scan import format_report, scan_file, scan_roots
 from test_file_size_pin import _line_count, _root_of
 
 _REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
@@ -137,6 +138,36 @@ class TestShippedFilesByRootAgreesWithTheFileSizePin(unittest.TestCase):
             expected = "skills/*/scripts" if group == "skills" else group
             for path in paths:
                 self.assertEqual(_root_of(rel(path, _REPO_ROOT)), expected)
+
+
+class TestCLI(unittest.TestCase):
+    """The CLI is invoked with `--root` and prints without asserting
+    anything -- reporting only, per this milestone's constraint."""
+
+    def test_a_single_root_report_prints_that_roots_line_and_exits_cleanly(self):
+        roots = scan_roots(_PLUGIN_ROOT)
+        report = format_report({"smm": roots["smm"]})
+
+        self.assertIn("root=smm", report)
+
+    def test_real_subprocess_invocation_prints_the_frozen_root_line(self):
+        """Must actually spawn a subprocess -- an in-process `main([...])`
+        call passes even when the standalone import path is broken, which is
+        the precise failure this test exists to catch."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(_PLUGIN_ROOT / "tests" / "_prose_scan.py"),
+                "--root",
+                "scripts",
+            ],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("root=scripts", result.stdout)
 
 
 if __name__ == "__main__":
