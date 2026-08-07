@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import hook_heartbeat_scan
 import hook_liveness
 from _heartbeat_fixtures import env as _env
 from conftest import _HookTestCase
@@ -143,6 +144,44 @@ class TestAStaleMarkerOfOurOwnIsTheLastWord(_ReadRepairCase):
         result = self._read_without_an_id(self.NOW + self.STALE + 60)
         self.assertEqual(result.code, hook_liveness.CODE_STALE)
         self.assertIn("stopped", result.reason)
+
+
+class TestTheWindowOutlastsANestedSubagentRun(_ReadRepairCase):
+    """The window must stay wide enough to sit through a nested review.
+
+    No writer refreshes the heartbeat while a subagent runs (adopted debt
+    47df59a09933): every refresh site is a hook on the PARENT's tool use, and
+    the parent is blocked for the whole duration of the nested run. A
+    session's own marker therefore freezes for tens of minutes at a stretch,
+    while its runtime is demonstrably alive.
+
+    This pin belongs beside the repair rather than beside the boundary tests,
+    because the repair is what makes it load-bearing: with both sibling
+    borrows gone, the width of this window is now the ONLY thing keeping a
+    mid-review session live. Tightening it turns the fail-open that was just
+    closed into a check that refuses working sessions — the failure that gets
+    a liveness check switched off for good.
+    """
+
+    HALF_HOUR = 30 * 60
+    SESSION = "a-session-waiting-on-a-subagent"
+
+    def test_a_half_hour_old_heartbeat_still_reads_live(self):
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.SESSION)):
+            hook_liveness.write_heartbeat(self.smm_dir, now=self.NOW)
+            result = hook_liveness.check_liveness(
+                self.smm_dir, now=self.NOW + self.HALF_HOUR
+            )
+        self.assertTrue(result.live, result.reason)
+
+    def test_the_threshold_is_not_tightened(self):
+        """Asserted against the module that OWNS the constant, and as an
+        equality rather than a floor: the existing `>= 4h` pin reads as "loose
+        enough for a user who stepped away", which a later story could satisfy
+        while still shortening the window. This one says the number itself is
+        a decision, and changing it means re-reading the debt above first.
+        """
+        self.assertEqual(hook_heartbeat_scan.STALE_AFTER_SECONDS, 4 * 60 * 60)
 
 
 if __name__ == "__main__":

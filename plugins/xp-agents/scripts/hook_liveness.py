@@ -36,8 +36,9 @@ import session_scope
 # must not be mistaken for the guarantee: only an id comparison can tell a
 # session where hooks ran from one where they silently did not.
 #
-# Ordered candidates, first non-empty wins. A second host is a new entry, not a
-# redesign — but the entry goes in `smm/session_scope.py`, which is where the
+# Ordered candidates, but order only breaks ties between values that AGREE —
+# disagreement refuses (see `resolve_session_id`). A second host is a new entry,
+# not a redesign — but the entry goes in `smm/session_scope.py`, which is where the
 # chain now lives: session-scoped marker filenames resolve the same chain from
 # the appender's pre-write path, and that path cannot import `scripts/`. Two
 # copies would let a new host be taught to the heartbeat while every scoped
@@ -119,11 +120,22 @@ def _conflict_reason(names: tuple[str, ...]) -> str:
 
 
 def resolve_session_id() -> str | None:
-    """First non-empty session id in the candidate chain, else None.
+    """The one session id the candidate chain agrees on, else None.
 
-    None means "no id is discoverable here", not "no session" — the
-    predicate degrades to a time-only check rather than refusing, so an
-    unfamiliar host is never bricked for want of a variable name.
+    NOT "the first non-empty candidate": candidates that DISAGREE resolve to
+    None as well, because which one a host owns depends on which process
+    launched which — runtime state the environment does not record. Order
+    only picks among values that already agree.
+
+    None therefore covers two different claims, and a caller whose verdict can
+    be positive must split them with `session_scope.conflicting_session_ids`
+    before acting. `check_liveness` does, and refuses on the conflict.
+
+    With no candidate set at all, the check falls back to the shared,
+    unsuffixed marker and ages THAT — an unfamiliar host writes and reads its
+    own heartbeat, so it is never bricked for want of a variable name. It does
+    not fall back to time alone: another session's fresh heartbeat is evidence
+    about that session, and accepting it let an unenforced session report live.
 
     Delegates to `session_scope`, which owns the chain: the same resolution
     picks the filename of every session-scoped marker, and one of those is
@@ -263,8 +275,8 @@ def _no_heartbeat_of_our_own(
     fresh anywhere means nothing has run at all. Same refusal, different fix,
     so they get different messages.
 
-    WITHOUT an id the two cannot be told apart, and every one of them still
-    refuses. This path once accepted any fresh sibling, reasoning that a hook
+    WITHOUT an id the two cannot be told apart, and both still refuse. This
+    path once accepted any fresh sibling, reasoning that a hook
     handed a payload id writes a per-session file such a reader can never
     address — true, but it argues from a session whose hooks are running. The
     session whose runtime never loaded is in the identical position and read

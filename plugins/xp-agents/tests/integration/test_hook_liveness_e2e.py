@@ -25,9 +25,11 @@ cited rather than repeated. This file adds the two things no story owns:
 the cross-turn composition proof, and the completion-hook write site.
 """
 
+import os
 import sys
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -210,6 +212,75 @@ class TestTheWriterCadenceClearsTheThreshold(_LivenessE2ECase):
                 self.assertNotIn(REFUSAL_HEADER, out, f"{script}: preload refused")
                 self.assertTrue(out.strip(), f"{script}: preload emitted nothing")
                 self._assert_only_our_marker(f"after {script}")
+
+
+class TestAForeignHeartbeatReachesNoSkill(_LivenessE2ECase):
+    """A neighbour's heartbeat buys a skill nothing, end to end.
+
+    The reader that matters is exactly this one: a shell subprocess with no
+    payload, on a SHARED SMM, whose environment exposes no session id — the
+    position the whole borrow existed to accommodate. The unit suite
+    (`tests/hooks/test_liveness_read_repair.py`) pins the verdict; what is
+    only observable here is what a skill actually RECEIVES when that verdict
+    is reached, since the preload cannot block and starvation is the entire
+    enforcement.
+    """
+
+    NEIGHBOUR = "a-session-that-is-not-ours"
+
+    # Old enough to render identically in the two runs that compare reason
+    # text — `_describe` reports whole minutes above 90s, so the seconds that
+    # elapse between the in-process verdict and the subprocess one cannot move
+    # it. Fresh enough to be well inside the window: a stale neighbour would
+    # make the refusal pass for the wrong reason.
+    NEIGHBOUR_AGE = 600.0
+
+    def _id_less_env(self, *, bypass: bool) -> dict:
+        """The shell reader's real position, plus a control that bypasses.
+
+        Every candidate is blanked, not popped: `_env_hygiene` pins the top
+        one for the whole suite, so popping from this copy would leave the pin
+        standing and the reader would resolve an id after all.
+        """
+        env = self._env()
+        env.update(dict.fromkeys(hook_liveness.SESSION_ID_ENV_CANDIDATES, ""))
+        env[_env_hygiene.SKIP_LIVENESS_ENV] = "1" if bypass else ""
+        return env
+
+    def _verdict_from_the_readers_position(self) -> hook_liveness.Liveness:
+        with patch.dict(
+            os.environ, dict.fromkeys(hook_liveness.SESSION_ID_ENV_CANDIDATES, "")
+        ):
+            return hook_liveness.check_liveness(self.smm_dir)
+
+    def test_the_skill_is_starved_and_told_why(self):
+        hook_liveness.write_heartbeat(
+            self.smm_dir,
+            session_id=self.NEIGHBOUR,
+            now=time.time() - self.NEIGHBOUR_AGE,
+        )
+        verdict = self._verdict_from_the_readers_position()
+        self.assertFalse(verdict.live, verdict.reason)
+
+        normal = self._run_preload(
+            _preload_script_path(_PRELOAD_SKILL), self._id_less_env(bypass=True)
+        ).stdout
+        refused = self._run_preload(
+            _preload_script_path(_PRELOAD_SKILL), self._id_less_env(bypass=False)
+        ).stdout
+
+        # The banner, the starvation, and the reason — one claim each. The
+        # bypassed run is the control: without it, "the normal output is gone"
+        # would pass against a preload that emits nothing under either.
+        self.assertTrue(refused.startswith(REFUSAL_HEADER), refused[:200])
+        self.assertTrue(normal.strip(), "the control run emitted nothing to withhold")
+        survivors = [
+            line
+            for line in normal.splitlines()
+            if len(line.strip()) > 5 and line in refused
+        ]
+        self.assertEqual(survivors, [], "the skill's own context must be withheld")
+        self.assertIn(verdict.reason, refused)
 
 
 class TestTheCompletionHookRefreshesTheHeartbeat(_LivenessE2ECase):
