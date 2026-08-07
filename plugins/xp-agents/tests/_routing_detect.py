@@ -3,10 +3,11 @@
 
 Two pins assert this rule over the shipped tree: `test_prose_rule_completeness.py`
 holds every routing line to all three destinations, and
-`test_prose_routing_pin.py` guards the two properties that verdict cannot see —
-that each known surface still states the rule at all, and that no shipped prose
-names one language's comment construct. Both read the same matchers from here,
-with public names, so no module holds a second copy.
+`test_prose_routing_pin.py` guards the properties that verdict cannot see — that
+each known surface still states the rule at all, that no shipped prose names one
+language's comment construct, and that every section-scoped vocabulary member
+still has a use to protect. Both read the same matchers from here, with public
+names, so no module holds a second copy.
 
 No assertion lives here: the pins own the tree-wide verdicts,
 `test_prose_routing_pin_matchers.py` owns the synthetic proofs for the selector
@@ -107,6 +108,11 @@ def find_single_language_tokens(text: str, surface: str) -> list[tuple[str, str]
     caller can exercise.
     """
     return [(surface, token) for token in CORPUS_WIDE_FORBIDDEN if token in text]
+
+
+def zero_use_members(members: tuple[str, ...], texts: list[str]) -> list[str]:
+    """Members of *members* occurring in none of *texts*."""
+    return [member for member in members if not any(member in text for text in texts)]
 
 
 def find_incomplete_rule_lines(text: str, surface: str) -> list[tuple[str, int, str]]:

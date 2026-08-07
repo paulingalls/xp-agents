@@ -20,11 +20,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from _md_helpers import CORPUS_WIDE_FORBIDDEN, PROJECT_AGNOSTIC_FORBIDDEN_VOCAB
+from _md_helpers import (
+    CORPUS_WIDE_FORBIDDEN,
+    OCCUPANCY_EXEMPT,
+    PROJECT_AGNOSTIC_FORBIDDEN_VOCAB,
+    SECTION_SCOPED_FORBIDDEN,
+)
 from _routing_detect import (
     find_comment_routing_lines,
     find_incomplete_rule_lines,
     find_single_language_tokens,
+    zero_use_members,
 )
 
 # The five ORIGINAL unqualified strings this story amends, verbatim (see
@@ -241,6 +247,31 @@ class TestLanguageTokenMatcher(unittest.TestCase):
         """
         hits = find_single_language_tokens("a Docstring here", surface="x")
         self.assertEqual(hits, [("x", "Docstring")])
+
+
+class TestZeroUseMembersReddens(unittest.TestCase):
+    """`zero_use_members` is the arithmetic the reverse leg's assertion runs.
+    A finder proof alone says nothing about whether the leg would ever fire —
+    this is the piece that proves it can."""
+
+    def test_a_member_absent_from_every_text_is_returned(self) -> None:
+        result = zero_use_members(
+            ("present", "absent"), ["text carrying present", "another text"]
+        )
+        self.assertEqual(result, ["absent"])
+
+    def test_a_member_present_in_any_text_is_not_returned(self) -> None:
+        result = zero_use_members(("present",), ["text carrying present"])
+        self.assertEqual(result, [])
+
+
+class TestSectionScopedOccupancyLegIsNotVacuous(unittest.TestCase):
+    """The reverse leg cannot pass by having nothing left to check: at least
+    one SECTION_SCOPED_FORBIDDEN member must fall outside OCCUPANCY_EXEMPT."""
+
+    def test_non_exempt_members_remain(self) -> None:
+        checked = [t for t in SECTION_SCOPED_FORBIDDEN if t not in OCCUPANCY_EXEMPT]
+        self.assertTrue(checked)
 
 
 class TestTheCorpusWideCategoryJoinsTheUnion(unittest.TestCase):

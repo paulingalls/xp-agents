@@ -8,9 +8,13 @@ and stays isolated rather than cross-import.
 import re
 import unittest
 
-# Language-specific tokens and plugin-internal surface names that must not
-# appear in shipped agent/skill prose — the plugin ships to projects in any
-# language, and this repo is a test fixture for it, not its vocabulary.
+# Three kinds of token that must not appear in shipped agent/skill prose:
+# language-specific tokens, plugin-internal surface names, and size metrics
+# whose unit is language-bound (` LOC`, `lines of code` — a line means a
+# different amount of work per language, so a threshold stated in them is a
+# language assumption in the same way a `.py` suffix is). The plugin ships to
+# projects in any language, and this repo is a test fixture for it, not its
+# vocabulary.
 #
 # USAGE CONTRACT — scan the RAW text, never a `.lower()` copy. Both tuples are
 # deliberately mixed-case (`Docstring`, `ACCEPT_IN_FLIGHT`, ` LOC`), so a scanner
@@ -24,16 +28,29 @@ import unittest
 # `assert_project_agnostic` runs on a selected SECTION and can ban more. A
 # content-kind split would also misfile ` LOC` and `lines of code`, which are
 # neither paths nor keywords.
+#
+# Both directions of that split are checked, not just one: a legitimately-used
+# token filed into CORPUS_WIDE_FORBIDDEN reddens the routing pin's forward leg;
+# a never-used token filed into SECTION_SCOPED_FORBIDDEN reddens its reverse
+# leg. `OCCUPANCY_EXEMPT` carves out the members neither leg can safely judge.
 
 # Bannable across every shipped prose file — no member has a legitimate use in
-# one. `test_prose_routing_pin.py`'s vocabulary leg IS that ban, and the only
-# check of this category's scope: mis-filing a legitimately-used token here
-# reddens that leg, whose failure message names both readings (leaked prose, or
-# a token filed in the wrong category).
+# one. `test_prose_routing_pin.py` checks this category's scope in BOTH
+# directions: its vocabulary leg IS the ban (mis-filing a legitimately-used
+# token here reddens that leg), and its reverse leg holds SECTION_SCOPED_FORBIDDEN
+# to the same "no legitimate use anywhere" standard from the other side —
+# a section-scoped member that turns out to have zero shipped-prose uses
+# belongs promoted here instead.
 CORPUS_WIDE_FORBIDDEN: tuple[str, ...] = (
     "docstring",
     "Docstring",
     '"""',
+    " LOC",
+    "lines of code",
+    "accept_in_flight",
+    "close_cycle_stop_gate",
+    "quality_review_done",
+    "review_cycle_done",
 )
 
 # Legitimate SOMEWHERE in shipped prose, so these may only be applied to a
@@ -45,6 +62,11 @@ CORPUS_WIDE_FORBIDDEN: tuple[str, ...] = (
 # of those three may be a FALSE POSITIVE — reword the prose (a comma or a
 # possessive is usually enough), do not delete the member: removing it is what
 # lets a real language leak back in.
+#
+# The reverse leg in `test_prose_routing_pin.py` holds every member here to
+# the same "must occur somewhere in shipped prose" bar CORPUS_WIDE_FORBIDDEN's
+# forward leg holds ITS members to — except `OCCUPANCY_EXEMPT`, below, whose
+# members duck that bar for reasons that have nothing to do with mis-filing.
 SECTION_SCOPED_FORBIDDEN: tuple[str, ...] = (
     ".py",
     ".ts",
@@ -54,16 +76,21 @@ SECTION_SCOPED_FORBIDDEN: tuple[str, ...] = (
     "def ",
     "class ",
     "function ",
-    " LOC",
-    "lines of code",
     "ACCEPT_IN_FLIGHT",
-    "accept_in_flight",
-    "close_cycle_stop_gate",
     "simplify_done",
-    "quality_review_done",
     "assign-pending",
-    "review_cycle_done",
 )
+
+# Exempt from the section-scoped category's occupancy rule (the reverse leg in
+# test_prose_routing_pin.py), for two distinct reasons:
+#
+#   ordinary English — "a class of errors", "its enclosing function". Zero
+#   current prose uses does NOT make these bannable tree-wide.
+#
+#   substring-shadowed — `.rs` matches inside `.rspec`, so its occupancy count
+#   is an artifact. It has no genuine use, but promoting it would redden the
+#   corpus-wide leg on that same `.rspec`. Neither provably used nor promotable.
+OCCUPANCY_EXEMPT: tuple[str, ...] = ("def ", "class ", "function ", ".rs")
 
 # The section-scoped guard applies BOTH categories: a token safe to ban
 # tree-wide is a fortiori safe to ban inside one section.
@@ -111,8 +138,8 @@ def assert_project_agnostic(
         testcase.assertNotIn(
             token,
             section,
-            f"{label} must not contain language-specific or plugin-internal "
-            f"token: {token!r}",
+            f"{label} must not contain a language-specific, plugin-internal, "
+            f"or language-bound-metric token: {token!r}",
         )
 
 
