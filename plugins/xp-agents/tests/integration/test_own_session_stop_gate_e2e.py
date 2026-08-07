@@ -11,8 +11,8 @@ reader agreeing across that boundary is the same asymmetry discovery
 `d49c2d1fb85b` is about, one layer up from the heartbeat.
 
 So this drives both consumers of `coordination.has_active_teammates` —
-`tdd_stop_gate.py:77` and `sprint_stop_gate.py:81` — the way the platform drives
-them: own process, JSON on stdin, session id in the environment.
+`tdd_stop_gate.py` and `sprint_stop_gate.py` — the way the platform drives them:
+own process, JSON on stdin, session id in the environment.
 
 Each gate gets an over-arming control: a REAL sibling's entry, identical
 staging, must still release. Without it, a gate that blocked unconditionally
@@ -84,21 +84,18 @@ class _OwnSessionGateE2ECase(_IntegrationTestCase):
     def _our_env(self) -> dict:
         """A process environment that belongs to `OURS`, and to nothing else.
 
-        Every other candidate is blanked: the chain REFUSES when two hold
-        different values, and `_env_hygiene` pins one suite-wide, so setting a
-        second on top of that pin would resolve to None and the gate would run
-        as nobody — reaching the undetermined TTL fallback instead of the
-        own-session skip, and passing for the wrong reason.
+        The blanks are load-bearing for the same reason `as_session` blanks —
+        an id that disagrees with the suite-wide pin resolves to None, and the
+        gate would then run as nobody, reaching the TTL fallback rather than the
+        own-session skip.
         """
         return _no_id_env(**{hook_liveness.SESSION_ID_ENV_CANDIDATES[0]: self.OURS})
 
     def _stop(self, script: str) -> dict | None:
         """Run a Stop gate as its own process; return its decision, or None.
 
-        `agent_id` is removed rather than set. The harness sends that field only
-        when a hook fires inside a subagent call, and Stop fires on the main
-        thread — so a real Stop payload has no such key, and supplying one would
-        model a firing that does not happen.
+        `agent_id` is dropped rather than set, for the reason spelled out in
+        `_tdd_gate_fixtures._run_gate`: a real Stop payload has no such key.
         """
         payload = _make_stop_input(session_id=self.OURS)
         payload.pop("agent_id", None)

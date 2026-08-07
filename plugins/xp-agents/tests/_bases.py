@@ -366,7 +366,7 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
     def _run_script(
         self, script_name: str, input_data: dict, *, cwd: Path | str | None = None
     ) -> subprocess.CompletedProcess:
-        """Run a hook script with JSON on stdin. Delegates to the method below."""
+        """Run a hook script with JSON on stdin, under the setUp env."""
         return self._run_script_with_env(script_name, input_data, {}, cwd=cwd)
 
     def _read_events(self) -> list[dict]:
@@ -394,9 +394,9 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
     ) -> subprocess.CompletedProcess:
         """Run a hook script (name + payload dict) with a custom env.
 
-        `cwd` is keyword-only, defaulting to the sandbox repo, so no existing
-        caller changes meaning. Hooks only — discovery a2afebf947ba classifies
-        the remaining hand-rolled sites and why each stays.
+        Hooks only: a script taking argv, or one fed deliberately malformed
+        stdin, cannot be expressed here. Discovery a2afebf947ba classifies the
+        hand-rolled sites that stay hand-rolled for those reasons.
         """
         env = self._test_env.copy()
         env.update(env_overrides)

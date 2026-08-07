@@ -44,10 +44,9 @@ class TestHeartbeatPipeline(_IntegrationTestCase):
     def _run_hook(self, script: str, payload: dict) -> subprocess.CompletedProcess:
         """Run one hook as its own process, through the shared driver.
 
-        The whole `_hook_env()` dict is passed as overrides rather than picking
-        out the session blanks: overrides merge ONTO `_test_env`, and that dict
-        is itself `_test_env` plus its own keys, so the merged result is the
-        environment this test had before — the same env, not an equivalent one.
+        `_hook_env()` is passed whole rather than just the session blanks: it is
+        already `_test_env` plus its own keys, so merging it as overrides is the
+        same env, not a near one.
         """
         result = self._run_script_with_env(script, payload, self._hook_env())
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -145,43 +144,17 @@ class TestHeartbeatPipeline(_IntegrationTestCase):
         """The disagreement arm: a heartbeat a reader cannot address is not
         evidence about that reader.
 
-        The agreement arm is the test above plus
-        `test_session_start_then_user_prompt_leaves_a_live_verdict` — payload id
-        and env id equal, verdict live. Discovery `d49c2d1fb85b` measured that
-        those two values ARE equal on this host; that is a fact about the host,
-        not about this code, and no test can re-derive it. What is testable is
-        the other direction, and it is the direction story-001's repair created:
-        the reader used to accept any fresh sibling here and report LIVE for a
-        session whose own hooks had never run.
+        The mismatch verdict is pinned in-process elsewhere, but only from
+        writers handed an explicit id. What is observable only here is the
+        COMPOSITION discovery `d49c2d1fb85b` is about: a real hook process
+        keying the marker off its PAYLOAD id while a separate reader process
+        resolves from its ENVIRONMENT.
 
-        BE PRECISE ABOUT WHAT THIS ADDS. The mismatch VERDICT is not a coverage
-        gap — measured by neutering this branch, five in-process rows already
-        redden on it (`test_hook_heartbeat_marker.py`,
-        `test_hook_heartbeat_liveness.py` x3, `test_preload_liveness.py`). All
-        of them call `write_heartbeat` with an explicit id, so all of them
-        bypass `payload_session_id`. What is only observable here is the
-        COMPOSITION: a real hook process keying the marker off its payload, and
-        a separate reader process resolving from the environment, disagreeing
-        across the boundary. That boundary is the whole subject of
-        `d49c2d1fb85b`, and it is what no in-process row can reach.
-
-        The reason is asserted, not just the verdict, and that is the whole
-        point of the row. Three different paths refuse here and two of them
-        would make this pass for the wrong reason:
-
-        - a candidate CONFLICT refuses via `CODE_ID_CONFLICT`, which exits 3
-          rather than 1 — excluded by the exit code below;
-        - `_no_addressable_heartbeat_reason` refuses via `CODE_NO_MARKER`, which
-          ALSO exits 1, and is reached when no id resolves at all. If the env
-          overlay ever stopped exposing an id, this row would still be green
-          while testing nothing about a MISMATCH.
-
-        So the negative assertion carries the load: reaching the
-        session-mismatch prose proves an id resolved and simply did not name
-        our heartbeat. `_status` sets exactly one candidate on top of
-        `_heartbeat_fixtures.env()`, which blanks them all, so no conflict is
-        possible by construction — the assertion pins that rather than trusting
-        it.
+        The reason is asserted, not just the verdict, because two other refusals
+        also land on exit 1 — a stale own marker, and `CODE_NO_MARKER` for a
+        reader that resolves no id at all. The negative assertion excludes the
+        second: reaching the session-mismatch prose proves an id resolved and
+        simply did not name our heartbeat.
         """
         self._run_hook(
             "session_start.py", {"session_id": self.SESSION, "source": "startup"}
