@@ -29,6 +29,16 @@ _FRAMEWORK_MARKERS = (
 
 _HOOK_NAMES = ("pre-commit", "pre-push")
 
+# Guards a genuine hang (index.lock contention, a repo on a stalled network
+# mount), NOT slowness. Deliberately far above any real spawn latency: every
+# failure of this call degrades to the plain join, and for a repo using
+# `core.hooksPath` that join answers "no hook" for a repo that has one. A
+# tight bound therefore buys nothing and silently flips the answer under load
+# — measured at 5s, where 16-way parallel test runs tripped it and turned
+# `present` into `absent` with no signal. That the fallback cannot say "I do
+# not know" is the real limitation; this value only keeps it out of reach.
+_GIT_TIMEOUT_S = 30
+
 
 def has_framework_marker(repo_root: str) -> bool:
     """Project declares hooks via a runner config (lefthook, husky, pre-commit)."""
@@ -63,7 +73,7 @@ def resolved_hooks_dir(repo_root: str) -> Path:
             cwd=repo_root,
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=_GIT_TIMEOUT_S,
         )
         hooks_path = result.stdout.strip() if result.returncode == 0 else ""
     except (subprocess.SubprocessError, OSError):

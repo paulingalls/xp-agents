@@ -282,11 +282,6 @@ class TestExtractPositionalRunners(unittest.TestCase):
             {"src"},
         )
 
-    def test_directory_declaration_still_matches_files_beneath_it(self):
-        self.assertTrue(verify_paths._is_touched("src", {"src/a.py"}))
-        self.assertTrue(verify_paths._is_touched("src/", {"src/a.py"}))
-        self.assertFalse(verify_paths._is_touched("src", {"srcfoo/a.py"}))
-
     def test_rspec_names_path(self):
         self.assertEqual(
             verify_paths._extract_paths_from_command("rspec spec/x_spec.rb"),

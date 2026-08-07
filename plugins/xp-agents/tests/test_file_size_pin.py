@@ -62,8 +62,8 @@ _SHIPPED_ROOT_FLOORS = {
     "skills/*/scripts": 5,
 }
 
-# Non-vacuity floor for the shell surface (24 files today). Set well below the
-# current count for the same reason as the per-root floors above: ordinary
+# Non-vacuity floor for the shell surface. No hand-written count: the one that
+# was here had already drifted. Set well below the current count: ordinary
 # growth or shrink must never trip it, while a scan that collapses to nothing
 # -- a broken suffix, an inverted exclusion -- must. One floor, not several,
 # because `shipped_shell_to_scan` selects by suffix at any depth: there is no

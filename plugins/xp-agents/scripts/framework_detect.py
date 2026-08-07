@@ -118,22 +118,17 @@ def bun_names_extractable_specs(command: str) -> bool:
     to the sentinel — exactly the behaviour bun commands had before they were
     extracted at all, which is why no retreat here can block a merge.
 
-    Four disqualifiers, each an observed false positive:
+    Each disqualifier below was an observed false positive. Two are not
+    self-evident from the check: a chain retreats WHOLE rather than being
+    judged per segment, because segmenting would have to re-home the leading
+    `cd <dir> &&` peel that belongs to the caller; and a working-directory
+    flag disqualifies because the pre-binary skip drops its value, leaving
+    specs relative to a directory nothing downstream knows about.
 
-    - an alias form (delegated to `is_bun_script_alias`) — no CLI path exists
-    - a shell separator or redirect: the scan runs to end of string, so a
-      later segment's `| tee out.log` or `&& node build.js` is harvested as a
-      spec. Judging bun per-segment instead would have to re-home the leading
-      `cd <dir> &&` peel, which is the caller's, so the chain retreats whole
-    - a working-directory flag (`--cwd`, `-C`): its value is dropped, leaving
-      directory-relative specs compared against repo-relative git output
-    - a glob: `src/*.test.ts` is matched by the shell or by bun, never by
-      literal string comparison against a changed-file list
-
-    Then at least one positional must LOOK like a file — carry a directory
-    separator, or a source-file extension. A bare `math.test` carries neither,
-    which is the only lexical signal separating a dotted filter from a real
-    spec without touching the filesystem (which extraction never does).
+    The last check is the load-bearing one: a positional must carry a
+    directory separator or a source extension. That is the only lexical
+    signal separating a dotted filter (`math.test`) from a real spec, short
+    of touching the filesystem, which extraction never does.
     """
     if is_bun_script_alias(command):
         return False

@@ -273,27 +273,21 @@ def _extract_positional_paths(tokens: list[str]) -> set[str]:
     """Path tokens of a positional-path runner (playwright/jest/vitest/mocha/
     node-test/deno/rspec/phpunit/mix/dart/bun...).
 
-    Skips package-manager wrappers, then EVERY leading flag (a bun workspace
-    token like `--filter <pkg>` — flags are skipped so the next token, "the
-    runner binary", is never a flag itself; stopping after one would leave a
-    second flag in the binary slot and let its path-shaped value through as a
-    false path), then the runner binary, then a leading `test`/`run`
-    subcommand, then keeps only **path-shaped** positional tokens (containing
-    `/` or `.`, with a `::selector` stripped). For bun specifically, `bun` IS
-    the binary and `test` is its subcommand — the pre-binary flag-skip keeps
-    a workspace flag's value (e.g. `@legacy/db` in `bun --filter @legacy/db
-    test`) from being misread as "the binary" and, from there, as a path;
-    that would be a false positive, which is strictly worse than the
-    whole-tree sentinel it yields instead (a false positive demands a file
-    that can never be touched). The token after a space-form bare flag
-    (starts with `-`, no `=`) is dropped as that flag's value — so a
-    path-shaped value like `--config jest.config.js` or `--reporter ./r.js`
-    is never mistaken for a proof file. (A spurious gate firing is worse than
-    under-extraction, which fails open; conservatively skipping a boolean
-    flag's following token only ever under-extracts.) An attached
-    `--flag=value` carries its own value, so the next token survives. No path
-    tokens (a whole-suite run) yields an empty set; the caller maps that to
-    the whole-tree sentinel.
+    Skips package-manager wrappers, EVERY leading flag, the runner binary, a
+    leading `test`/`run` subcommand, then keeps path-shaped positionals
+    (containing `/` or `.`, `::selector` stripped), normalized so they compare
+    against git's repo-relative output in one form.
+
+    Every skip above is biased the same way, and the bias is the point: a
+    false path demands a file that can never be touched, so the gate can never
+    go green — strictly worse than the whole-tree sentinel, which fails open.
+    Hence EVERY leading flag rather than one (a second flag left in the binary
+    slot lets its value through as a path), and hence dropping the token after
+    a space-form bare flag (`--config jest.config.js`) even though that also
+    drops the occasional real path. Under-extraction fails open; over-
+    extraction cannot. An attached `--flag=value` carries its own value, so
+    the next token survives. No path tokens yields an empty set, which the
+    caller maps to the sentinel.
     """
     i = 0
     n = len(tokens)
@@ -393,8 +387,8 @@ def _is_touched(declared: str, changed: set[str]) -> bool:
     """
     if declared == _WHOLE_TREE_SENTINEL:
         return bool(changed)
-    prefix = declared if declared.endswith("/") else declared + "/"
-    return any(f == declared or f.startswith(prefix) for f in changed)
+    declared = posixpath.normpath(declared)
+    return any(f == declared or f.startswith(declared + "/") for f in changed)
 
 
 def untouched_verify_paths(

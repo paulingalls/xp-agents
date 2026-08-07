@@ -253,6 +253,58 @@ class TestWillFireHook(unittest.TestCase):
         self.assertTrue(git_hooks.will_fire_hook(str(self.tmpdir)))
 
 
+class TestAFailedGitCallDegradesToTheJoin(unittest.TestCase):
+    """When git cannot be consulted, the answer silently becomes the join.
+
+    Pinned because it is a real limitation, not a nicety: for a repo using
+    `core.hooksPath` the plain join names a dir with no hook, so a failed
+    call turns `present` into `absent` with no signal to anyone. That is
+    fail-open for the close preloads (they emit extra guidance rather than
+    block), which is why it degrades rather than raises — a hook that dies
+    gates nothing at all.
+
+    The trigger is what must stay out of reach: a 5s timeout was tripped by
+    16-way parallel test runs, making a load spike look like a missing hook.
+    `_GIT_TIMEOUT_S` guards a genuine hang, so it sits far above spawn
+    latency. This test pins the DEGRADATION, so if the fallback ever grows a
+    real "unknown" answer, it fails and asks to be reconsidered.
+    """
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+        _init_repo(self.tmpdir)
+        self.override = self.tmpdir / "team-hooks"
+        self.override.mkdir()
+        _make_executable(self.override / "pre-commit")
+        subprocess.run(
+            ["git", "config", "core.hooksPath", str(self.override)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_the_override_is_found_when_git_answers(self):
+        self.assertTrue(git_hooks.will_fire_hook(str(self.tmpdir)))
+
+    def test_a_timeout_degrades_to_the_plain_join(self):
+        from unittest.mock import patch
+
+        with patch(
+            "git_hooks.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="git", timeout=1),
+        ):
+            self.assertEqual(
+                git_hooks.resolved_hooks_dir(str(self.tmpdir)),
+                self.tmpdir / ".git" / "hooks",
+            )
+
+    def test_the_timeout_is_a_hang_guard_not_a_latency_bound(self):
+        self.assertGreaterEqual(git_hooks._GIT_TIMEOUT_S, 30)
+
+
 class TestNonRepoRootNeverBorrowsAncestorHooks(unittest.TestCase):
     """A directory that is not itself a repo has no hooks of its own.
 
