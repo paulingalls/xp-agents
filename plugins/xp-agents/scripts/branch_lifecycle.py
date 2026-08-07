@@ -4,6 +4,8 @@
 Closed call island extracted from branching.py to keep that module
 under the 500-line target. branching.py re-exports every symbol here
 for backwards compat — callers should keep importing from branching.
+Also owns the git-subprocess combined-output convention (`combined_output`),
+shared with close_common.py's push relay.
 
 Cross-call graph (no outbound calls beyond this module):
 - _fast_forward_if_safe -> is_merged_into
@@ -49,6 +51,16 @@ _PUSH_TIMEOUT_S = 30
 
 def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
+
+
+def combined_output(r: subprocess.CompletedProcess[str]) -> str:
+    """Both captured streams, stderr first.
+
+    A failed `git push` reports its own error on stderr while the pre-push hook's
+    output — usually the actual cause — goes to stdout. Relaying one stream discards
+    half the diagnosis.
+    """
+    return (r.stderr or "") + (r.stdout or "")
 
 
 def _git_retry_on_lock(
@@ -156,7 +168,7 @@ def _merge_into_target(cwd: str, source_branch: str, target: str) -> None:
         cwd,
     )
     if r.returncode != 0:
-        details = (r.stderr or "") + (r.stdout or "")
+        details = combined_output(r)
         print(
             f"Merge of {source_branch} into {target} failed: {details.strip()}",
             file=sys.stderr,
