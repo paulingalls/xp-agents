@@ -115,19 +115,23 @@ class TestConcurrentSessionsShareOneSmm(_HookTestCase):
         self._write_as("someone", self.NOW + hook_liveness.STALE_AFTER_SECONDS + 60)
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.HOOK_HEARTBEAT))
 
-    def test_no_discoverable_id_accepts_another_session_s_fresh_heartbeat(self):
-        """The documented degradation, pinned rather than left to prose.
+    def test_no_discoverable_id_refuses_another_session_s_fresh_heartbeat(self):
+        """REVERSED. This pin used to assert the opposite, calling it "the
+        documented degradation": a host that cannot name its own heartbeat
+        counted ANY fresh sibling, on the argument that demanding the shared
+        marker would refuse a session whose hooks were demonstrably running.
 
-        A host exposing no session id cannot name its own heartbeat, and a
-        hook handed an id in its payload writes a per-session file such a
-        reader can never address. Time-only therefore means ANY fresh
-        heartbeat counts — demanding the shared marker would refuse a session
-        whose hooks are demonstrably running.
+        That argument is about a session whose hooks ARE running. The
+        measured failure is the other one: a session where the runtime never
+        loaded reads LIVE off a neighbour's heartbeat, so the check built to
+        make silent unenforcement loud reports normal instead. A borrowed
+        heartbeat is evidence about the borrower, never about us — and it is
+        the fail-open half only, so nothing is lost by dropping it.
         """
         self._write_as("some-other-session", self.NOW)
         with patch.dict(os.environ, _env()):
             result = hook_liveness.check_liveness(self.smm_dir, now=self.NOW + 60)
-        self.assertTrue(result.live, result.reason)
+        self.assertFalse(result.live, result.reason)
         self.assertIn("no session id", result.reason)
 
     def test_no_discoverable_id_still_refuses_when_every_heartbeat_is_stale(self):

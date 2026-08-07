@@ -242,6 +242,24 @@ def _live_on_freshness_alone(age: float) -> Liveness:
     )
 
 
+def _no_addressable_heartbeat_reason(freshest: float) -> str:
+    """Refusal prose for a reader that cannot name its own heartbeat.
+
+    Distinct from `_NOT_LOADED` because that text would be a lie here: other
+    sessions' markers are sitting on disk. This path newly refuses sessions
+    that used to pass, so the message is the whole support surface, and it has
+    to name both candidate causes — from here they cannot be told apart.
+    """
+    return (
+        "No hook-liveness heartbeat addressable from here exists. This process "
+        "can discover no session id, so the only heartbeat it can name is the "
+        "shared one, and that is absent; the heartbeat another session "
+        f"recorded {_describe(freshest)} ago is evidence about that session, "
+        "not this one. Either the hook runtime did not load here, or it loaded "
+        "and recorded itself under a session id this process cannot see."
+    )
+
+
 def _no_heartbeat_of_our_own(
     smm_dir: Path, session_id: str | None, now: float
 ) -> Liveness:
@@ -254,12 +272,14 @@ def _no_heartbeat_of_our_own(
     fresh anywhere means nothing has run at all. Same refusal, different fix,
     so they get different messages.
 
-    WITHOUT an id the two cannot be told apart, and guessing would be the
-    wrong way round: a hook that was handed a session id in its payload
-    writes a per-session file even when the reader's environment exposes no
-    id, so demanding the shared marker would refuse a session whose hooks are
-    demonstrably running. Degrading to time-only means exactly this — any
-    fresh heartbeat counts.
+    WITHOUT an id the two cannot be told apart, and every one of them still
+    refuses. This path once accepted any fresh sibling, reasoning that a hook
+    handed a payload id writes a per-session file such a reader can never
+    address — true, but it argues from a session whose hooks are running. The
+    session whose runtime never loaded is in the identical position and read
+    LIVE off a neighbour, which is the silent unenforcement this module exists
+    to make loud. Evidence about another session is not evidence about this
+    one, so all it earns is a message of its own.
     """
     freshest = hook_heartbeat_scan.freshest_sibling(smm_dir, now)
     if freshest is None:
@@ -269,7 +289,9 @@ def _no_heartbeat_of_our_own(
             CODE_NO_MARKER,
         )
     if session_id is None:
-        return _live_on_freshness_alone(freshest)
+        return Liveness(
+            False, _no_addressable_heartbeat_reason(freshest), CODE_NO_MARKER
+        )
     return Liveness(
         False,
         "No hook has run in this session, though another session's hooks ran "
