@@ -2,11 +2,14 @@
 """Tests for smm/git_hooks.py — shared git-hook detection primitives.
 
 Two consumers compose these primitives differently:
-- `seed_detect.has_git_hooks`: will_fire_hook OR content-sniff (intent-aware)
-- `close_review_support.pre_commit_hook_present`: will_fire_hook (strict)
+- `seed_detect.has_git_hooks`: declared marker OR will_fire_hook OR
+  content-sniff (intent-aware — "is this project hook-aware?")
+- `close_review_support.pre_commit_hook_present`: will_fire_hook alone
+  (strict — "will git actually run something on this commit?")
 
 This file tests the primitives at their own level so coverage isn't only
-exercised through one consumer's path.
+exercised through one consumer's path, and pins the case that distinguishes
+the two: a repo declaring a runner it never installed.
 """
 
 import os
@@ -20,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import git_hooks
+import seed_detect
 
 
 def _init_repo(td: Path) -> None:
@@ -161,6 +165,46 @@ class TestHasExecutableHook(unittest.TestCase):
         # Don't chmod.
         self.assertFalse(git_hooks.has_executable_hook(str(self.tmpdir)))
 
+    def test_executable_hook_in_a_linked_worktree(self):
+        """A linked worktree's `.git` is a FILE, so `<root>/.git/hooks` names a
+        path that never exists — yet the shared hooks fire on every commit made
+        there. This is where the close skills actually run (teammate
+        worktrees), so answering False here tells every teammate close that the
+        merge runs no tests while lefthook is running them.
+        """
+        commit = subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=t@example.invalid",
+                "-c",
+                "user.name=t",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "init",
+            ],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(commit.returncode, 0, commit.stderr)
+        _make_executable(self.tmpdir / ".git" / "hooks" / "pre-commit")
+        worktree = self.tmpdir.parent / f"{self.tmpdir.name}-wt"
+        result = subprocess.run(
+            ["git", "worktree", "add", "-b", "wt", str(worktree)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        try:
+            self.assertTrue((worktree / ".git").is_file())
+            self.assertTrue(git_hooks.has_executable_hook(str(worktree)))
+            self.assertTrue(git_hooks.will_fire_hook(str(worktree)))
+        finally:
+            shutil.rmtree(worktree, ignore_errors=True)
+
     def test_executable_in_core_hookspath_override(self):
         custom = self.tmpdir / "custom-hooks"
         custom.mkdir()
@@ -175,7 +219,13 @@ class TestHasExecutableHook(unittest.TestCase):
 
 
 class TestWillFireHook(unittest.TestCase):
-    """Composition: framework marker OR executable hook → True."""
+    """Strict: an executable hook in the resolved hooks dir → True.
+
+    A framework marker does NOT count. A config file on disk declares that a
+    runner would install a hook; it is not evidence git will fire one. The
+    declared-intent question belongs to the consumer that wants it — see
+    `seed_detect.has_git_hooks`.
+    """
 
     def setUp(self):
         self.tmpdir = Path(tempfile.mkdtemp())
@@ -187,9 +237,10 @@ class TestWillFireHook(unittest.TestCase):
     def test_neither_returns_false(self):
         self.assertFalse(git_hooks.will_fire_hook(str(self.tmpdir)))
 
-    def test_marker_alone_returns_true(self):
+    def test_marker_alone_does_not_fire(self):
+        """The whole defect: an uninstalled runner config fires nothing."""
         (self.tmpdir / "lefthook.yml").touch()
-        self.assertTrue(git_hooks.will_fire_hook(str(self.tmpdir)))
+        self.assertFalse(git_hooks.will_fire_hook(str(self.tmpdir)))
 
     def test_executable_hook_alone_returns_true(self):
         _make_executable(self.tmpdir / ".git" / "hooks" / "pre-commit")
@@ -200,6 +251,35 @@ class TestWillFireHook(unittest.TestCase):
         # preload semantics ("project will run something on commit OR push").
         _make_executable(self.tmpdir / ".git" / "hooks" / "pre-push")
         self.assertTrue(git_hooks.will_fire_hook(str(self.tmpdir)))
+
+
+class TestTheTwoConsumersDisagree(unittest.TestCase):
+    """The declared-but-not-installed repo is the case the split exists for.
+
+    On a repo carrying a runner config it never installed, the two answers must
+    differ: nothing will fire, AND the project is still hook-aware.
+    """
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+        _init_repo(self.tmpdir)
+        (self.tmpdir / "lefthook.yml").write_text("pre-commit:\n  commands: {}\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_strict_says_nothing_fires(self):
+        self.assertFalse(git_hooks.will_fire_hook(str(self.tmpdir)))
+
+    def test_intent_aware_still_says_hook_aware(self):
+        self.assertTrue(seed_detect.has_git_hooks(self.tmpdir))
+
+    def test_installing_the_hook_makes_them_agree(self):
+        """The split is about the DECLARATION, not a blanket downgrade: once a
+        hook is really wired up, both consumers say yes."""
+        _make_executable(self.tmpdir / ".git" / "hooks" / "pre-commit")
+        self.assertTrue(git_hooks.will_fire_hook(str(self.tmpdir)))
+        self.assertTrue(seed_detect.has_git_hooks(self.tmpdir))
 
 
 if __name__ == "__main__":

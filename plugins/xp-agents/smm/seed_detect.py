@@ -240,6 +240,9 @@ def _has_non_sample_pre_commit_content(root: Path) -> bool:
 
     Intent-aware fallback: catches scripts a developer wrote but forgot to
     chmod +x. ``git_hooks.will_fire_hook`` is strict and would say False here.
+    Resolves the dir through ``git_hooks.resolved_hooks_dir`` rather than
+    joining ``.git/hooks``, so a ``core.hooksPath`` override or a linked
+    worktree (where ``.git`` is a file) looks where git looks.
 
     Two rejections, because a hook that runs nothing gates nothing, and reading
     one as intent suppresses the very risk the seed exists to raise: git's own
@@ -247,7 +250,7 @@ def _has_non_sample_pre_commit_content(root: Path) -> bool:
     body is a single comment is out of reach — telling one from a real one-line
     hook needs the comment syntax of whatever language the shebang names.
     """
-    hook = root / ".git" / "hooks" / "pre-commit"
+    hook = git_hooks.resolved_hooks_dir(str(root)) / "pre-commit"
     if not hook.exists():
         return False
     try:
@@ -265,13 +268,18 @@ def _has_non_sample_pre_commit_content(root: Path) -> bool:
 def has_git_hooks(root: Path) -> bool:
     """Check if git commit hooks are configured (intent-aware).
 
-    True when git would actually fire a hook (framework markers, executable
-    pre-commit/pre-push, or a ``core.hooksPath`` override pointing at one),
-    OR when a non-executable pre-commit script exists with real content
-    (developer intent, even if it won't fire as-is).
+    Deliberately broader than "will git fire something": seeding asks whether
+    the project is hook-aware, so a declared-but-uninstalled runner counts yes.
+
+    The marker leg is composed HERE rather than inside ``will_fire_hook``,
+    which must answer the strict question for the close preloads ("does this
+    merge run anything?") — and the marker is exactly what makes the two
+    answers differ. It reads as duplicated against the strict path; it is not.
     """
-    return git_hooks.will_fire_hook(str(root)) or _has_non_sample_pre_commit_content(
-        root
+    return (
+        git_hooks.has_framework_marker(str(root))
+        or git_hooks.will_fire_hook(str(root))
+        or _has_non_sample_pre_commit_content(root)
     )
 
 
