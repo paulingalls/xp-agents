@@ -13,7 +13,6 @@ the marker. A file on disk is not the claim; the claim is that a fresh
 process asking "are hooks running" gets yes.
 """
 
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -43,14 +42,14 @@ class TestHeartbeatPipeline(_IntegrationTestCase):
         return {**self._env_with_plugin_root(), **_env()}
 
     def _run_hook(self, script: str, payload: dict) -> subprocess.CompletedProcess:
-        result = subprocess.run(
-            ["python3", str(self.scripts_dir / script)],
-            input=json.dumps(payload),
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=self._hook_env(),
-        )
+        """Run one hook as its own process, through the shared driver.
+
+        The whole `_hook_env()` dict is passed as overrides rather than picking
+        out the session blanks: overrides merge ONTO `_test_env`, and that dict
+        is itself `_test_env` plus its own keys, so the merged result is the
+        environment this test had before — the same env, not an equivalent one.
+        """
+        result = self._run_script_with_env(script, payload, self._hook_env())
         self.assertEqual(result.returncode, 0, result.stderr)
         return result
 

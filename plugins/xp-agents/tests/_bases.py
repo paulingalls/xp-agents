@@ -364,21 +364,10 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
         )
 
     def _run_script(
-        self, script_name: str, input_data: dict
+        self, script_name: str, input_data: dict, *, cwd: Path | str | None = None
     ) -> subprocess.CompletedProcess:
-        """Run a hook script as a subprocess with JSON on stdin.
-
-        Uses the same XP_AGENTS_DATA as setUp so scripts resolve
-        the same SMM path.
-        """
-        return subprocess.run(
-            ["python3", str(self.scripts_dir / script_name)],
-            input=json.dumps(input_data),
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=self._test_env,
-        )
+        """Run a hook script with JSON on stdin. Delegates to the method below."""
+        return self._run_script_with_env(script_name, input_data, {}, cwd=cwd)
 
     def _read_events(self) -> list[dict]:
         """Read events from the SMM events.jsonl."""
@@ -396,9 +385,19 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
         return events
 
     def _run_script_with_env(
-        self, script_name: str, input_data: dict, env_overrides: dict
+        self,
+        script_name: str,
+        input_data: dict,
+        env_overrides: dict,
+        *,
+        cwd: Path | str | None = None,
     ) -> subprocess.CompletedProcess:
-        """Run a hook script with custom environment variables."""
+        """Run a hook script (name + payload dict) with a custom env.
+
+        `cwd` is keyword-only, defaulting to the sandbox repo, so no existing
+        caller changes meaning. Hooks only — discovery a2afebf947ba classifies
+        the remaining hand-rolled sites and why each stays.
+        """
         env = self._test_env.copy()
         env.update(env_overrides)
         return subprocess.run(
@@ -406,7 +405,7 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
             input=json.dumps(input_data),
             capture_output=True,
             text=True,
-            cwd=self.tmpdir,
+            cwd=self.tmpdir if cwd is None else cwd,
             env=env,
         )
 

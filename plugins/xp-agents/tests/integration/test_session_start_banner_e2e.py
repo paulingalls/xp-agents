@@ -18,7 +18,6 @@ in the field.
 """
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -46,13 +45,8 @@ class TestTheEmittedBannerAgreesWithTheContext(_IntegrationTestCase):
         """
         env = self._env_with_plugin_root()
         env["SMM_DIR"] = smm_dir_value
-        result = subprocess.run(
-            ["python3", str(self.scripts_dir / "session_start.py")],
-            input=json.dumps({"session_id": "e2e", "source": "startup"}),
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=env,
+        result = self._run_script_with_env(
+            "session_start.py", {"session_id": "e2e", "source": "startup"}, env
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
