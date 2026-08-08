@@ -469,8 +469,13 @@ def run_linter_stdin(
     if proc.returncode == 0:
         return LintRun("clean", "")
 
-    raw = proc.stdout or proc.stderr or b""
-    output = raw.decode("utf-8", errors="replace").strip()
+    # Bytes, not str — branch_lifecycle.combined_output takes CompletedProcess[str]
+    # only. Same stderr-first join it defines, duplicated deliberately: this
+    # is the one binary-mode call site, and decoding must happen per-stream.
+    output = (
+        (proc.stderr or b"").decode("utf-8", errors="replace")
+        + (proc.stdout or b"").decode("utf-8", errors="replace")
+    ).strip()
     if not output:
         return LintRun(
             "unverified", f"{linter_name}: exited {proc.returncode} without saying why"

@@ -126,5 +126,91 @@ class TestRunLinterBatchRelaysBothStreams(unittest.TestCase):
         self.assertIn("real diagnosis", run.output)
 
 
+class TestRunLinterStdinRelaysBothStreams(unittest.TestCase):
+    """run_linter_stdin (the divergent-index path, binary mode) used to report
+    `stdout or stderr` in bytes — same discard, one decode step later."""
+
+    def test_discarded_stderr_reaches_the_report(self):
+        with (
+            patch("lint_runners.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_runners.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = type(
+                "R",
+                (),
+                {
+                    "returncode": 1,
+                    "stdout": b"noise-on-stdout",
+                    "stderr": b"diagnosis-on-stderr",
+                },
+            )()
+            run = lint_runners.run_linter_stdin(
+                "ruff", "app.py", b"x = 1\n", cwd="/tmp"
+            )
+
+        self.assertEqual(run.status, "findings")
+        self.assertIn("diagnosis-on-stderr", run.output)
+        self.assertIn("noise-on-stdout", run.output)
+
+    def test_stderr_comes_first(self):
+        with (
+            patch("lint_runners.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_runners.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = type(
+                "R",
+                (),
+                {"returncode": 1, "stdout": b"on-stdout", "stderr": b"on-stderr"},
+            )()
+            run = lint_runners.run_linter_stdin(
+                "ruff", "app.py", b"x = 1\n", cwd="/tmp"
+            )
+
+        self.assertLess(run.output.index("on-stderr"), run.output.index("on-stdout"))
+
+    def test_whitespace_only_stdout_no_longer_masks_stderr_as_unverified(self):
+        """The bytes-typed twin of the batch-path classification pin above."""
+        with (
+            patch("lint_runners.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_runners.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = type(
+                "R",
+                (),
+                {"returncode": 1, "stdout": b"   \n", "stderr": b"real diagnosis"},
+            )()
+            run = lint_runners.run_linter_stdin(
+                "ruff", "app.py", b"x = 1\n", cwd="/tmp"
+            )
+
+        self.assertEqual(run.status, "findings")
+        self.assertIn("real diagnosis", run.output)
+
+    def test_both_streams_survive_the_decode_leniently(self):
+        """A bad byte on either stream must not raise — the linter's own
+        output echoes the source line it flagged, so it is no more guaranteed
+        to be UTF-8 than the staged blob is."""
+        with (
+            patch("lint_runners.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_runners.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = type(
+                "R",
+                (),
+                {
+                    "returncode": 1,
+                    "stdout": b"stdout \xff oops\n",
+                    "stderr": b"stderr \xff oops\n",
+                },
+            )()
+            run = lint_runners.run_linter_stdin(
+                "ruff", "app.py", b"x = 1\n", cwd="/tmp"
+            )
+
+        self.assertEqual(run.status, "findings")
+        self.assertIn("stdout", run.output)
+        self.assertIn("stderr", run.output)
+
+
 if __name__ == "__main__":
     unittest.main()

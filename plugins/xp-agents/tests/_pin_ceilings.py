@@ -47,11 +47,11 @@ BAND_CEILINGS = {
     "plugins/xp-agents/scripts/retro_metrics.py": 490,
     "plugins/xp-agents/scripts/linter_tables.py": 482,
     "plugins/xp-agents/smm/event_schema.py": 480,
-    # Ratcheted 477->478 (story-011, commit 1 of 2): run_linter and
-    # run_linter_batch now route through `branch_lifecycle.combined_output`
-    # so a discarded stream can't drop half a linter's diagnosis. Rises again
-    # to 483 in the next commit, when run_linter_stdin's bytes-typed twin lands.
-    "plugins/xp-agents/scripts/lint_runners.py": 478,
+    # Ratcheted 477->483 (story-011): the three single-stream sites now route
+    # through `branch_lifecycle.combined_output` (or its bytes-typed
+    # duplicate at the stdin site) so a discarded stream can't drop half a
+    # linter's diagnosis.
+    "plugins/xp-agents/scripts/lint_runners.py": 483,
     "plugins/xp-agents/smm/_append_impl.py": 469,
     # Entered the band at sprint close: the start-time file_domain gate needed
     # an ABSOLUTE sister-expanded report alongside the this-write-only one.
