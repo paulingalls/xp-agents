@@ -25,6 +25,7 @@ Named for routing rather than prose to stay distinct from milestone 2's planned
 import re
 
 from _md_helpers import CORPUS_WIDE_FORBIDDEN
+from _vocab_detect import token_occurs
 
 # The surfaces that state the rule today. A path-segment-anchored suffix match
 # on the repo-relative path, so it is immune to which glob group (root guides vs
@@ -99,7 +100,8 @@ def find_comment_routing_lines(text: str, surface: str) -> list[tuple[str, int]]
 
 
 def find_single_language_tokens(text: str, surface: str) -> list[tuple[str, str]]:
-    """(surface, token) for every single-language token present in *text*.
+    """(surface, token) for every single-language token genuinely occurring in
+    *text*.
 
     The token list is NOT a parameter, deliberately. An injectable one lets a
     test pass a synthetic tuple, which bypasses the registry and would pass just
@@ -107,12 +109,18 @@ def find_single_language_tokens(text: str, surface: str) -> list[tuple[str, str]
     Reading `CORPUS_WIDE_FORBIDDEN` here makes the derivation the only thing a
     caller can exercise.
     """
-    return [(surface, token) for token in CORPUS_WIDE_FORBIDDEN if token in text]
+    return [
+        (surface, token) for token in CORPUS_WIDE_FORBIDDEN if token_occurs(token, text)
+    ]
 
 
 def zero_use_members(members: tuple[str, ...], texts: list[str]) -> list[str]:
-    """Members of *members* occurring in none of *texts*."""
-    return [member for member in members if not any(member in text for text in texts)]
+    """Members of *members* with no genuine occurrence in any of *texts*."""
+    return [
+        member
+        for member in members
+        if not any(token_occurs(member, text) for text in texts)
+    ]
 
 
 def find_incomplete_rule_lines(text: str, surface: str) -> list[tuple[str, int, str]]:

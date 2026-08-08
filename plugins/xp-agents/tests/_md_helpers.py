@@ -8,16 +8,18 @@ and stays isolated rather than cross-import.
 import re
 import unittest
 
+from _vocab_detect import token_occurs
+
 # Three kinds of token that must not appear in shipped agent/skill prose:
 # language-specific tokens, plugin-internal surface names, and size metrics
-# whose unit is language-bound (` LOC`, `lines of code` — a line means a
+# whose unit is language-bound (`LOC`, `lines of code` — a line means a
 # different amount of work per language, so a threshold stated in them is a
 # language assumption in the same way a `.py` suffix is). The plugin ships to
 # projects in any language, and this repo is a test fixture for it, not its
 # vocabulary.
 #
 # USAGE CONTRACT — scan the RAW text, never a `.lower()` copy. Both tuples are
-# deliberately mixed-case (`Docstring`, `ACCEPT_IN_FLIGHT`, ` LOC`), so a scanner
+# deliberately mixed-case (`Docstring`, `ACCEPT_IN_FLIGHT`, `LOC`), so a scanner
 # that lowercases its input first can never match those members and the guard
 # silently degrades to an inert check that passes on a real leak. Both casings of
 # a mixed-case name are listed explicitly for the same reason.
@@ -26,7 +28,7 @@ import unittest
 # copy of this vocabulary grow in the routing pin: that pin scans EVERY shipped
 # prose file, so it can only ban tokens with no legitimate use anywhere, while
 # `assert_project_agnostic` runs on a selected SECTION and can ban more. A
-# content-kind split would also misfile ` LOC` and `lines of code`, which are
+# content-kind split would also misfile `LOC` and `lines of code`, which are
 # neither paths nor keywords.
 #
 # Both directions of that split are checked, not just one: a legitimately-used
@@ -45,12 +47,21 @@ CORPUS_WIDE_FORBIDDEN: tuple[str, ...] = (
     "docstring",
     "Docstring",
     '"""',
-    " LOC",
+    "LOC",
     "lines of code",
     "accept_in_flight",
     "close_cycle_stop_gate",
     "quality_review_done",
     "review_cycle_done",
+    ".rs",
+    # Boundary matching stops the singular forms above from covering their
+    # plurals (`docstring` does not match `docstrings`), so each needs its
+    # own entry. It also supplies the left edge `LOC` used to hand-roll with a
+    # leading space, so the space is gone: it only ever blocked the ban on a
+    # punctuation-adjacent use (`**LOC**`, `(LOC)`, a line-initial `LOC`).
+    "docstrings",
+    "Docstrings",
+    "LOCs",
 )
 
 # Legitimate SOMEWHERE in shipped prose, so these may only be applied to a
@@ -72,7 +83,6 @@ SECTION_SCOPED_FORBIDDEN: tuple[str, ...] = (
     ".ts",
     ".js",
     ".go",
-    ".rs",
     "def ",
     "class ",
     "function ",
@@ -82,15 +92,10 @@ SECTION_SCOPED_FORBIDDEN: tuple[str, ...] = (
 )
 
 # Exempt from the section-scoped category's occupancy rule (the reverse leg in
-# test_prose_routing_pin.py), for two distinct reasons:
-#
-#   ordinary English — "a class of errors", "its enclosing function". Zero
-#   current prose uses does NOT make these bannable tree-wide.
-#
-#   substring-shadowed — `.rs` matches inside `.rspec`, so its occupancy count
-#   is an artifact. It has no genuine use, but promoting it would redden the
-#   corpus-wide leg on that same `.rspec`. Neither provably used nor promotable.
-OCCUPANCY_EXEMPT: tuple[str, ...] = ("def ", "class ", "function ", ".rs")
+# test_prose_routing_pin.py): ordinary English — "a class of errors", "its
+# enclosing function". Zero current prose uses does NOT make these bannable
+# tree-wide.
+OCCUPANCY_EXEMPT: tuple[str, ...] = ("def ", "class ", "function ")
 
 # The section-scoped guard applies BOTH categories: a token safe to ban
 # tree-wide is a fortiori safe to ban inside one section.
@@ -105,7 +110,7 @@ PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
 # Members whose casing is load-bearing. Lives beside the vocabulary it
 # describes because two suites need it: the helper's own contract pin
 # (test_md_helpers.py) and the §1 mutation proof in the agent-prose suites.
-MIXED_CASE_VOCAB_MEMBERS: tuple[str, ...] = ("ACCEPT_IN_FLIGHT", " LOC")
+MIXED_CASE_VOCAB_MEMBERS: tuple[str, ...] = ("ACCEPT_IN_FLIGHT", "LOC")
 
 
 def assert_project_agnostic(
@@ -135,12 +140,11 @@ def assert_project_agnostic(
     other two.
     """
     for token in PROJECT_AGNOSTIC_FORBIDDEN_VOCAB:
-        testcase.assertNotIn(
-            token,
-            section,
-            f"{label} must not contain a language-specific, plugin-internal, "
-            f"or language-bound-metric token: {token!r}",
-        )
+        if token_occurs(token, section):
+            testcase.fail(
+                f"{label} must not contain a language-specific, plugin-internal, "
+                f"or language-bound-metric token: {token!r}"
+            )
 
 
 def _split_frontmatter_body(text: str) -> tuple[str, str]:

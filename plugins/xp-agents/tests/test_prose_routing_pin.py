@@ -52,8 +52,7 @@ THREE LEGS.
    this leg as nonsense. `OCCUPANCY_EXEMPT` carves out the members this leg
    cannot safely judge either way: `def `/`class `/`function ` read as used or
    unused depending on whether the hit is the declaration keyword or ordinary
-   English, and `.rs` only reads as "used" because it is a substring of
-   `.rspec`, an artifact rather than a genuine use.
+   English.
 
 LIMITS — READ THIS BEFORE TRUSTING THE GREEN CHECK.
 
@@ -68,23 +67,15 @@ LIMITS — READ THIS BEFORE TRUSTING THE GREEN CHECK.
   only routing line takes either form reads as empty and fails leg 1 as a
   false positive. Neither shape is in the tree today; both misses are pinned
   as cases in the sibling completeness pin.
-* Leg 2 reads literal substrings only. A single-language instruction that
-  spells none of `CORPUS_WIDE_FORBIDDEN`'s members (e.g. "put it in the
-  module's opening string") is out of reach entirely — the same limit
-  `find_prose_tool_names` in the sibling pin states for tool names.
+* Leg 2 matches on genuine occurrence (`_vocab_detect.token_occurs`), anchored
+  to a member's own alphanumeric edges — not a bare substring. A single-
+  language instruction that spells none of `CORPUS_WIDE_FORBIDDEN`'s members
+  (e.g. "put it in the module's opening string") is still out of reach
+  entirely — the same limit `find_prose_tool_names` in the sibling pin states
+  for tool names.
 * Leg 2 is only as wide as that category. A token with even one legitimate use
   in shipped prose belongs in `SECTION_SCOPED_FORBIDDEN` instead and so is NOT
   checked here; `.py` and `assign-pending` are two the tree relies on.
-* Leg 3 reads literal substrings only, same as leg 2 — so it has a
-  FALSE-NEGATIVE class leg 2 does not: a token that is a proper prefix of a
-  longer, genuinely-used token reads as "used" when it is not. Occupancy is
-  therefore a CEILING on legitimate use, not a floor — a substring artifact can
-  carry a member's entire count with nobody noticing. The rule for exempting
-  follows from that, and it is the ONLY rule: exempt a token when EVERY hit is
-  an artifact. `.rs` qualifies, its sole hit sitting inside `.rspec`. `.js`
-  does not, and is deliberately NOT exempt, even though most of its hits come
-  from `.json` — some are genuine `.js` mentions, so the floor leg 3 asserts is
-  met by real use.
 * Leg 3 checks several members whose only remaining shipped-prose use is a
   single occurrence: `.go`, `ACCEPT_IN_FLIGHT`, `simplify_done`,
   `assign-pending`. One prose edit that removes that one use reddens this leg
