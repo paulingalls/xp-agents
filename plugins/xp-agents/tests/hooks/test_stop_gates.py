@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _heartbeat_fixtures import coordinate
 from conftest import _HookTestCase, _make_stop_input, make_event
 from event_schema import (
     EVENT_TYPE_CONCERN,
@@ -203,10 +204,8 @@ class TestTddStopGate(_HookTestCase):
                 ),
             ]
         )
-        import coordination
-
-        coordination.update_coordination(self.smm_dir, "main", [])
-        coordination.update_coordination(self.smm_dir, "teammate-1", ["src/foo.py"])
+        coordinate(self.smm_dir, "main")
+        coordinate(self.smm_dir, "teammate-1", working_on=["src/foo.py"])
         inp = _make_stop_input(agent_id="main")
         result = self.mod.run(inp, smm_dir=self.smm_dir)
         self.assertIsNone(result)

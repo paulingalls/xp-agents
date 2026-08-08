@@ -307,8 +307,8 @@ def main(argv: list[str] | None = None) -> None:
     # that runs unsupervised), or, once we have been idle past the threshold,
     # every one of its skill preloads refuses and withholds all context while its
     # hooks are demonstrably running. Dropping them leaves the child's own
-    # harness free to export its real id; if it exports none, the documented
-    # time-only fallback applies, which is a weaker check rather than a wrong one.
+    # harness free to export its real id, which this host does for its shell
+    # subprocesses; nothing degrades to time alone behind that (resolve_session_id).
     for session_var in hook_liveness.SESSION_ID_ENV_CANDIDATES:
         env.pop(session_var, None)
 

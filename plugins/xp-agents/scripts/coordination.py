@@ -220,6 +220,19 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
     recorded, a host that exposes none, a heartbeat that cannot be read —
     falls back to the TTL, which is exactly today's behaviour.
 
+    An entry this session wrote is one of those undetermined shapes: our own
+    heartbeat cannot vouch for another agent id, so the entry's own age decides.
+    One file write by a subagent of ours therefore releases this gate for the
+    length of the TTL, and closing that needs provenance the entry does not
+    carry — not a different threshold. Measured in
+    test_own_session_entry_release.py rather than only asserted here.
+
+    Bounded further than it looks, and worth stating: `post_tool_use` refreshes
+    the entry only on a tool call that names a FILE, so a subagent of ours that
+    reads, greps or shells for longer than the TTL ages out and stops counting.
+    A teammate has the heartbeat as a second leg; an own-session entry does not,
+    because the whole point is that our heartbeat cannot vouch for it.
+
     The liveness leg stops here. `read_coordination` keeps its filter for
     every other caller: making the write-conflict detector liveness-aware
     would pin a live-but-quiet teammate's last-written file as a rival
@@ -233,14 +246,17 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
         written_by = entry.get("session_id")
         # Agent id and session are different keys, and one session holds
         # several agent ids: a non-xp subagent writes its own entry under its
-        # own id inside OUR session. Our heartbeat says nothing about whether
-        # THAT agent still exists, so an entry we wrote ourselves is
-        # undetermined, not live — otherwise a subagent that never reached its
-        # completion handler would hold the gate released for the whole
-        # session, where the TTL dropped it at 30 minutes. No real teammate is
-        # caught by this: `spawn_teammate` strips every session-id candidate
-        # from the child's environment, so a teammate resolves its own id or
-        # records None.
+        # own id inside OUR session. Our heartbeat must not VOUCH for that
+        # entry — it says nothing about whether that agent id still exists — so
+        # it reads as UNDETERMINED and the entry's own age decides.
+        #
+        # NOT skipped outright, which sprint-005 briefly shipped and reverted: a
+        # BACKGROUNDED non-xp subagent is not skipped by `post_tool_use`'s
+        # is_xp_agent guard and really does edit files while the lead sits at
+        # Stop, so discarding its entry nudged the lead to close a sprint
+        # mid-write and held it on a red suite that agent may have caused. The
+        # gates ask whether someone else may be writing, not whether the writer
+        # is a teammate.
         live = (
             None
             if own_session is not None and written_by == own_session

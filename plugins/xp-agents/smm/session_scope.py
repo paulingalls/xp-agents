@@ -72,9 +72,12 @@ def resolve_session_id() -> str | None:
     they must NOT be collapsed by a caller whose verdict can be positive: no
     candidate set, and candidates that DISAGREE.
 
-    No candidate set is a degradation. Nothing is being hidden, so a liveness
-    caller may fall back to time alone rather than refuse, and an unfamiliar
-    host is never bricked for want of a variable name.
+    No candidate set is a degradation. Nothing is being hidden, so a caller may
+    fall back to the shared, unsuffixed marker rather than refuse, and an
+    unfamiliar host is never bricked for want of a variable name. It does NOT
+    license falling back to time alone: another session's fresh heartbeat is
+    evidence about that session, and a liveness caller accepting it let a
+    session enforcing nothing report live.
 
     Disagreement is a refusal, and returns None rather than a preference
     because picking wrong is worse than picking nothing. Hooks key their

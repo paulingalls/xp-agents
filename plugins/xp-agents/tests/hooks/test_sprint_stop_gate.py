@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _heartbeat_fixtures import coordinate
 from conftest import (
     SPRINT_CLOSING_ONLY,
     SPRINT_COMPLETE_WITH_ID,
@@ -84,12 +85,11 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
 
     def test_teammates_active_allows_stop(self):
         """Defer when teammates are running."""
-        import coordination
         import sprint_stop_gate
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
-        coordination.update_coordination(self.smm_dir, "worker-1", [])
+        coordinate(self.smm_dir, "worker-1")
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 

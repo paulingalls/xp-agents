@@ -89,9 +89,12 @@ class TestConcurrentSessionsShareOneSmm(_HookTestCase):
     def test_a_far_future_sibling_is_reaped_and_vouches_for_nobody(self):
         """A sibling dated far ahead is not evidence of a live runtime.
 
-        Both sibling scans share one bounds helper for this: unreaped it would
-        accumulate forever, and worse, a session with no discoverable id would
-        borrow it as "live on freshness alone" permanently.
+        Both sibling scans share one bounds helper for this: unreaped, a
+        heartbeat dated years out never expires, so it would sit in the
+        SESSION_GLOB forever and answer every "is the runtime alive anywhere"
+        scan in the affirmative. No verdict can be reached through a sibling
+        any more, but the reap and the bound still have to hold — the
+        remaining sibling scan feeds the session-mismatch diagnosis.
         """
         self._write_as("clock-ahead", self.NOW + 10 * hook_liveness.STALE_AFTER_SECONDS)
         with patch.dict(os.environ, _env()):
@@ -115,23 +118,28 @@ class TestConcurrentSessionsShareOneSmm(_HookTestCase):
         self._write_as("someone", self.NOW + hook_liveness.STALE_AFTER_SECONDS + 60)
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.HOOK_HEARTBEAT))
 
-    def test_no_discoverable_id_accepts_another_session_s_fresh_heartbeat(self):
-        """The documented degradation, pinned rather than left to prose.
+    def test_no_discoverable_id_refuses_another_session_s_fresh_heartbeat(self):
+        """REVERSED. This pin used to assert the opposite, calling it "the
+        documented degradation": a host that cannot name its own heartbeat
+        counted ANY fresh sibling, on the argument that demanding the shared
+        marker would refuse a session whose hooks were demonstrably running.
 
-        A host exposing no session id cannot name its own heartbeat, and a
-        hook handed an id in its payload writes a per-session file such a
-        reader can never address. Time-only therefore means ANY fresh
-        heartbeat counts — demanding the shared marker would refuse a session
-        whose hooks are demonstrably running.
+        That argument is about a session whose hooks ARE running. The
+        measured failure is the other one: a session where the runtime never
+        loaded reads LIVE off a neighbour's heartbeat, so the check built to
+        make silent unenforcement loud reports normal instead. A borrowed
+        heartbeat is evidence about the borrower, never about us — and it is
+        the fail-open half only, so nothing is lost by dropping it.
         """
         self._write_as("some-other-session", self.NOW)
         with patch.dict(os.environ, _env()):
             result = hook_liveness.check_liveness(self.smm_dir, now=self.NOW + 60)
-        self.assertTrue(result.live, result.reason)
+        self.assertFalse(result.live, result.reason)
         self.assertIn("no session id", result.reason)
 
     def test_no_discoverable_id_still_refuses_when_every_heartbeat_is_stale(self):
-        """The fail-closed half of that degradation."""
+        """With nothing fresh anywhere, the older diagnosis is the true one:
+        no heartbeat exists to address, and none was left behind either."""
         self._write_as("some-other-session", self.NOW)
         with patch.dict(os.environ, _env()):
             result = hook_liveness.check_liveness(
@@ -242,11 +250,13 @@ class TestDisagreeingSessionIdsRefuse(_HookTestCase):
     def test_a_launchers_fresh_heartbeat_does_not_read_as_live(self):
         """The regression this class exists for.
 
-        Every not-live path treats an unresolvable id as "degrade to time-only,
-        any fresh heartbeat counts" — correct when NO id is discoverable, and a
-        fail-open here: under a conflict the launcher's heartbeat is fresh by
-        definition, so degrading would vouch for a session whose own hooks never
-        loaded. The conflict verdict must therefore precede that degradation.
+        `resolve_session_id` answers None for a conflict exactly as it does for
+        no candidate at all, and every path below reads that as "address the
+        SHARED marker" — which the launcher, or any id-less process against this
+        same SMM, may have left sitting fresh. That would vouch for a session
+        whose own hooks never loaded. The conflict verdict must therefore
+        precede the fallback, and carry its own code: no candidate set and two
+        candidates disagreeing are different claims with different fixes.
         """
         with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="the-launcher")):
             hook_liveness.write_heartbeat(self.smm_dir, now=self.NOW)

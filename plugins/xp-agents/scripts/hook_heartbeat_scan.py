@@ -123,10 +123,15 @@ def reap_stale_siblings(smm_dir: Path, keep: Path, now: float) -> None:
 def freshest_sibling(smm_dir: Path, now: float) -> float | None:
     """Age of the youngest per-session heartbeat still inside the threshold.
 
-    None means no other session's hooks have run recently. Shared by the two
-    callers that need "is the runtime alive anywhere", which must reach the
-    same answer without sharing a verdict — absence and staleness are
-    different diagnoses even when the scan result is identical.
+    None means no other session's hooks have run recently. Two callers in
+    `hook_liveness` need "is the runtime alive anywhere" — the absent-marker
+    path and the stale path — and they must reach the same answer without
+    sharing a verdict, because absence and staleness are different diagnoses
+    even when the scan result is identical.
+
+    What this no longer feeds is a LIVE verdict. A neighbour's heartbeat is
+    evidence about that neighbour; both callers use this only to say so in
+    their refusal.
     """
     freshest: float | None = None
     for path in smm_dir.glob(SESSION_GLOB):
