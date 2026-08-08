@@ -275,6 +275,22 @@ METADATA_KEY_SUPERSEDES = "supersedes"
 METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_RESOLVED_BY_COMMITS = "resolved_by_commits"
 
+# Run-identifying attribution on a test-failure concern (story-001). Producer:
+# bash_post_tool's parsed-failure branch, and story-002's degraded bash_failure
+# path, which stamps the same keys so a scoped run and a full-suite run don't
+# render identically. Consumer: triage_preload's attribution suffix.
+#
+# METADATA_KEY_CWD's value is the HOOK PAYLOAD's working directory, not
+# necessarily where the tests actually executed — `docker compose exec ...
+# pytest` records the host cwd (the container's is not delivered to the hook
+# at all), and `cd sub && pytest` records the parent. Treat it as "which
+# checkout/session this ran from", not as run-location fidelity.
+METADATA_KEY_CWD = "cwd"
+# Reuses the STATUS event's own spelling ("test_failed" is new; "test_count"
+# and "test_errors" are shared verbatim) so producer and consumer cannot drift
+# on two names for the same count.
+METADATA_KEY_TEST_FAILED = "test_failed"
+
 # Concern metadata.kind discriminator vocabulary. Centralized so producer
 # (scripts/close_cycle_abandonment, the sole owner of this record — the
 # aged-Stop gate, the SessionStart sweep and the close preloads all route
