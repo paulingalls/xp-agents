@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import _subprocess_env
+import branch_lifecycle
 import sprint_store
 from _acceptance_execution import extract_commands
 from _append_impl import resolve_smm_dir
@@ -72,6 +73,14 @@ _EXIT_TIMEOUT = 3
 # Tail of a failing command's output carried in the event so the close gate
 # can explain WHY a rerun went red without re-running it.
 _OUTPUT_TAIL_CHARS = 500
+
+
+def _tail_streams(combined: str, stderr_len: int) -> str:
+    """Tail a `branch_lifecycle.combined_output` join per-stream, else a long
+    stdout evicts the stderr diagnosis. `stderr_len`=0 tails the whole string."""
+    stderr_part, stdout_part = combined[:stderr_len], combined[stderr_len:]
+    return stderr_part[-_OUTPUT_TAIL_CHARS:] + stdout_part[-_OUTPUT_TAIL_CHARS:]
+
 
 # Cap the failing items stored in the event. The whole serialized event —
 # metadata included — is checked against MAX_EVENT_BYTES in append_event, and
@@ -281,12 +290,14 @@ def _run_sprint(smm_dir: Path) -> int:
         # killed would otherwise evict its own "timed out" marker, and the row
         # would read as an ordinary non-zero exit.
         marker = ""
+        stderr_len = 0
         try:
             proc = _subprocess_env.run_in_new_process_group(
                 cmd, cwd=cwd, timeout=timeout, env=env
             )
             rc = proc.returncode
-            output = proc.stderr or proc.stdout or ""
+            output = branch_lifecycle.combined_output(proc)
+            stderr_len = len(proc.stderr or "")
         except subprocess.TimeoutExpired as exc:
             rc = -1
             marker = f"timed out after {timeout}s"
@@ -306,7 +317,7 @@ def _run_sprint(smm_dir: Path) -> int:
         if rc != 0:
             # Carry a tail of the failure so the close gate can explain the red.
             row["output"] = ": ".join(
-                p for p in (marker, output[-_OUTPUT_TAIL_CHARS:]) if p
+                p for p in (marker, _tail_streams(output, stderr_len)) if p
             )
         rows.append(row)
 

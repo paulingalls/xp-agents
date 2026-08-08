@@ -49,6 +49,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _subprocess_env
+import branch_lifecycle
 import shell_exit_structure
 import worktree
 
@@ -172,6 +173,16 @@ def _tail(text: str) -> str:
     if len(text) <= _OUTPUT_TAIL_CHARS:
         return text
     return "..." + text[-_OUTPUT_TAIL_CHARS:]
+
+
+def _tail_streams(r: subprocess.CompletedProcess) -> str:
+    """Both streams, each tailed independently before the join — else a long
+    stdout evicts the stderr diagnosis once combined (stderr first, per
+    `branch_lifecycle.combined_output`)."""
+    tailed = subprocess.CompletedProcess(
+        r.args, r.returncode, stdout=_tail(r.stdout or ""), stderr=_tail(r.stderr or "")
+    )
+    return branch_lifecycle.combined_output(tailed)
 
 
 def _remove_throwaway(name: str, cwd: str, smm_dir: Path | None = None) -> bool:
@@ -378,8 +389,8 @@ def differential(
         command,
         primary_exit=primary.returncode,
         worktree_exit=throwaway.returncode,
-        worktree_output=_tail(throwaway.stderr or throwaway.stdout or ""),
-        primary_output=_tail(primary.stderr or primary.stdout or ""),
+        worktree_output=_tail_streams(throwaway),
+        primary_output=_tail_streams(primary),
         extra_caveats=degraded,
     )
 

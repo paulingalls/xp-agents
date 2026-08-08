@@ -151,6 +151,38 @@ class TestTeardownDegradesQuiet(_TeardownTestCase):
         mock_stderr.write.assert_not_called()
 
 
+class TestTeardownRelaysBothStreams(_TeardownTestCase):
+    """A failing teardown used to report `stderr or stdout` — whichever
+    stream carried the command's diagnosis, if it wasn't the one the
+    `or` happened to pick, was silently dropped from the report."""
+
+    def _run_and_get_output(self, command: str) -> str:
+        """The RELAYED OUTPUT only, not the echoed command — the message
+        prints the declared command verbatim first, and it happens to name
+        both `echo` arguments too, so asserting against the whole message
+        would pass even when the relay itself drops one of them."""
+        self.declare_teardown(command)
+
+        with patch("sys.stderr") as mock_stderr:
+            worktree_teardown.run_teardown(str(self.wt_dir), self.smm_dir)
+
+        written = "".join(c.args[0] for c in mock_stderr.write.call_args_list)
+        return written.split(f"{command}\n", 1)[1]
+
+    def test_stdout_diagnosis_survives_alongside_stderr_noise(self):
+        output = self._run_and_get_output(
+            "echo diagnosis-on-stdout; echo noise-on-stderr >&2; exit 1"
+        )
+
+        self.assertIn("diagnosis-on-stdout", output)
+        self.assertIn("noise-on-stderr", output)
+
+    def test_stderr_comes_first(self):
+        output = self._run_and_get_output("echo on-stdout; echo on-stderr >&2; exit 1")
+
+        self.assertLess(output.index("on-stderr"), output.index("on-stdout"))
+
+
 class TestTeardownKillsProcessGroup(_TeardownTestCase):
     """AC4: a backgrounded, hanging child is killed as a group; run_teardown
     still returns rather than blocking on its pipe.

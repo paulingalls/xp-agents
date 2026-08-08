@@ -315,5 +315,46 @@ class TestDeclaredCommandCwd(_HardeningTestCase):
         )
 
 
+class TestSprintRowRelaysBothStreams(_HardeningTestCase):
+    """The --sprint row used to report `stderr or stdout` — whichever stream
+    the `or` happened to pick, the other was silently dropped from the
+    stored failing-item output."""
+
+    def _failing_output(self, command: str) -> str:
+        self._seed({"type": "bash", "commands": [command]})
+        result = self._run_from(self._workdir(), "--sprint")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        failing = self._verify_events()[0]["metadata"]["failing"]
+        self.assertEqual(len(failing), 1, failing)
+        return failing[0]["output"]
+
+    def test_stdout_diagnosis_survives_alongside_stderr_noise(self):
+        output = self._failing_output(
+            "echo diagnosis-on-stdout; echo noise-on-stderr >&2; exit 1"
+        )
+        self.assertIn("diagnosis-on-stdout", output)
+        self.assertIn("noise-on-stderr", output)
+
+    def test_stderr_comes_first(self):
+        output = self._failing_output("echo on-stdout; echo on-stderr >&2; exit 1")
+        self.assertLess(output.index("on-stderr"), output.index("on-stdout"))
+
+
+class TestSprintRowTailDoesNotEvictTheOtherStream(_HardeningTestCase):
+    """`_OUTPUT_TAIL_CHARS` must tail each stream independently — a chatty
+    stdout must not evict a short stderr diagnosis from the kept slice once
+    the two are combined (`combined_output` puts stderr first)."""
+
+    def test_stderr_diagnosis_survives_a_chatty_stdout(self):
+        chatty = "x" * (verify_acceptance._OUTPUT_TAIL_CHARS + 200)
+        cmd = f"printf %s {chatty}; echo diagnosis-on-stderr >&2; exit 1"
+        self._seed({"type": "bash", "commands": [cmd]})
+        result = self._run_from(self._workdir(), "--sprint")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        failing = self._verify_events()[0]["metadata"]["failing"]
+        self.assertEqual(len(failing), 1, failing)
+        self.assertIn("diagnosis-on-stderr", failing[0]["output"])
+
+
 if __name__ == "__main__":
     unittest.main()

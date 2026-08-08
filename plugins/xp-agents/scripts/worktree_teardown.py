@@ -26,6 +26,7 @@ import system_context_store
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _subprocess_env
+import branch_lifecycle
 
 # Stopping things is bounded work, unlike bootstrap's cold-install case — a
 # hung teardown must not stall a worktree removal for minutes.
@@ -133,7 +134,7 @@ def run_teardown(wt_path: str, smm_dir: Path) -> None:
         return
 
     if proc.returncode != 0:
-        output = (proc.stderr or proc.stdout or "").strip()
+        output = branch_lifecycle.combined_output(proc).strip()
         print(
             f"worktree teardown failed (exit {proc.returncode}): {command}\n{output}",
             file=sys.stderr,
