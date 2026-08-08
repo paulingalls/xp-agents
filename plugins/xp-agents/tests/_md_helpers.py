@@ -8,6 +8,8 @@ and stays isolated rather than cross-import.
 import re
 import unittest
 
+from _vocab_detect import token_occurs
+
 # Three kinds of token that must not appear in shipped agent/skill prose:
 # language-specific tokens, plugin-internal surface names, and size metrics
 # whose unit is language-bound (` LOC`, `lines of code` — a line means a
@@ -51,6 +53,13 @@ CORPUS_WIDE_FORBIDDEN: tuple[str, ...] = (
     "close_cycle_stop_gate",
     "quality_review_done",
     "review_cycle_done",
+    ".rs",
+    # Boundary matching stops the singular forms above from covering their
+    # plurals (`docstring` does not match `docstrings`), so each needs its
+    # own entry.
+    "docstrings",
+    "Docstrings",
+    " LOCs",
 )
 
 # Legitimate SOMEWHERE in shipped prose, so these may only be applied to a
@@ -72,7 +81,6 @@ SECTION_SCOPED_FORBIDDEN: tuple[str, ...] = (
     ".ts",
     ".js",
     ".go",
-    ".rs",
     "def ",
     "class ",
     "function ",
@@ -82,15 +90,10 @@ SECTION_SCOPED_FORBIDDEN: tuple[str, ...] = (
 )
 
 # Exempt from the section-scoped category's occupancy rule (the reverse leg in
-# test_prose_routing_pin.py), for two distinct reasons:
-#
-#   ordinary English — "a class of errors", "its enclosing function". Zero
-#   current prose uses does NOT make these bannable tree-wide.
-#
-#   substring-shadowed — `.rs` matches inside `.rspec`, so its occupancy count
-#   is an artifact. It has no genuine use, but promoting it would redden the
-#   corpus-wide leg on that same `.rspec`. Neither provably used nor promotable.
-OCCUPANCY_EXEMPT: tuple[str, ...] = ("def ", "class ", "function ", ".rs")
+# test_prose_routing_pin.py): ordinary English — "a class of errors", "its
+# enclosing function". Zero current prose uses does NOT make these bannable
+# tree-wide.
+OCCUPANCY_EXEMPT: tuple[str, ...] = ("def ", "class ", "function ")
 
 # The section-scoped guard applies BOTH categories: a token safe to ban
 # tree-wide is a fortiori safe to ban inside one section.
@@ -135,12 +138,11 @@ def assert_project_agnostic(
     other two.
     """
     for token in PROJECT_AGNOSTIC_FORBIDDEN_VOCAB:
-        testcase.assertNotIn(
-            token,
-            section,
-            f"{label} must not contain a language-specific, plugin-internal, "
-            f"or language-bound-metric token: {token!r}",
-        )
+        if token_occurs(token, section):
+            testcase.fail(
+                f"{label} must not contain a language-specific, plugin-internal, "
+                f"or language-bound-metric token: {token!r}"
+            )
 
 
 def _split_frontmatter_body(text: str) -> tuple[str, str]:
