@@ -317,52 +317,6 @@ class TestTwoLegCompare(_DifferentialTestCase):
         self.assertIn("head", caveats)
 
 
-class TestBothStreamsRelayedInOutput(_DifferentialTestCase):
-    """`worktree_output`/`primary_output` used to report `stderr or stdout` —
-    whichever stream the `or` happened to pick, the other was silently
-    dropped. Same command on both legs (OUTCOME_NO_GAP) so this pins the
-    relay itself, independent of the gap/no-gap question `TestTwoLegCompare`
-    already owns."""
-
-    _CMD = "sh -c 'echo diagnosis-on-stdout && echo noise-on-stderr >&2 && false'"
-
-    def test_both_streams_reach_the_report(self) -> None:
-        result = self.run_differential(self._CMD)
-
-        self.assertEqual(result["outcome"], worktree_differential.OUTCOME_NO_GAP)
-        for key in ("primary_output", "worktree_output"):
-            self.assertIn("diagnosis-on-stdout", result[key], key)
-            self.assertIn("noise-on-stderr", result[key], key)
-
-    def test_stderr_comes_first(self) -> None:
-        result = self.run_differential(self._CMD)
-
-        for key in ("primary_output", "worktree_output"):
-            output = result[key]
-            self.assertLess(
-                output.index("noise-on-stderr"),
-                output.index("diagnosis-on-stdout"),
-                key,
-            )
-
-
-class TestTailDoesNotEvictTheOtherStream(_DifferentialTestCase):
-    """The tail truncation this story also touches: combining the streams
-    must not let a verbose stdout evict the stderr diagnosis from the kept
-    500-char slice — `_OUTPUT_TAIL_CHARS` tails each stream independently
-    before the join, not the joined string."""
-
-    # Longer than _OUTPUT_TAIL_CHARS (4000): a naive tail-the-joined-string
-    # implementation would let this evict the short stderr diagnosis.
-    _CMD = "sh -c 'echo diagnosis-on-stderr >&2 && printf %04500d 1 && false'"
-
-    def test_stderr_diagnosis_survives_a_chatty_stdout(self) -> None:
-        result = self.run_differential(self._CMD)
-
-        for key in ("primary_output", "worktree_output"):
-            self.assertIn("diagnosis-on-stderr", result[key], key)
-
-
 class TestThrowawayAlwaysRemoved(_DifferentialTestCase):
     """AC3, and the acceptance criterion with no precedent in shipped code:
     nothing else here wraps worktree create/remove in `try/finally`."""

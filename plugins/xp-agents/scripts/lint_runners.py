@@ -469,12 +469,10 @@ def run_linter_stdin(
     if proc.returncode == 0:
         return LintRun("clean", "")
 
-    # Bytes, not str — branch_lifecycle.combined_output takes CompletedProcess[str]
-    # only. Same stderr-first join it defines, duplicated deliberately: this
-    # is the one binary-mode call site, and decoding must happen per-stream.
-    output = (
-        (proc.stderr or b"").decode("utf-8", errors="replace")
-        + (proc.stdout or b"").decode("utf-8", errors="replace")
+    # Decoded per-stream because this call site alone runs in binary mode.
+    output = branch_lifecycle.combine_streams(
+        (proc.stderr or b"").decode("utf-8", errors="replace"),
+        (proc.stdout or b"").decode("utf-8", errors="replace"),
     ).strip()
     if not output:
         return LintRun(

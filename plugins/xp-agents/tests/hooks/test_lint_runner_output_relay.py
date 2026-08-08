@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Two of the three lint_runners.py sites that used to pick ONE stream
-(stdout-first) must relay BOTH, stderr-first — the same convention
-`branch_lifecycle.combined_output` already enforces for the git-subprocess
+"""All three lint_runners.py sites that used to pick ONE stream (stdout-first)
+must relay BOTH, stderr-first — the same convention
+`branch_lifecycle.combine_streams` already enforces for the git-subprocess
 call sites (see test_combined_output.py). A linter that reports its real
 diagnosis on the stream these functions used to discard lost that diagnosis
-silently. The third (bytes-typed) site, run_linter_stdin, gets its own
-proofs added alongside its own fix.
+silently. The third site, run_linter_stdin, runs in binary mode, so its
+proofs below go through bytes.
 
 Split into its own module rather than folding these into
 test_lint_ruff_and_batch.py / test_lint_config_style_flags.py: those files

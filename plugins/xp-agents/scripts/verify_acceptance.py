@@ -75,21 +75,22 @@ _EXIT_TIMEOUT = 3
 _OUTPUT_TAIL_CHARS = 500
 
 
-def _tail_streams(combined: str, stderr_len: int) -> str:
-    """Tail a `branch_lifecycle.combined_output` join per-stream, else a long
-    stdout evicts the stderr diagnosis. `stderr_len`=0 tails the whole string."""
-    stderr_part, stdout_part = combined[:stderr_len], combined[stderr_len:]
-    return stderr_part[-_OUTPUT_TAIL_CHARS:] + stdout_part[-_OUTPUT_TAIL_CHARS:]
+def _tail_streams(stderr: str, stdout: str) -> str:
+    """Each stream tailed independently before the stderr-first join — else a
+    chatty stdout evicts the stderr diagnosis out of the kept slice."""
+    return branch_lifecycle.combine_streams(
+        stderr[-_OUTPUT_TAIL_CHARS:], stdout[-_OUTPUT_TAIL_CHARS:]
+    )
 
 
 # Cap the failing items stored in the event. The whole serialized event —
 # metadata included — is checked against MAX_EVENT_BYTES in append_event, and
 # append_safe swallows only LockTimeoutError, NOT the ValueError an oversized
-# event raises. Each failing item carries a ~500-char output tail (~700 bytes
-# total), so a heavily red sprint (>~140 failures) would breach the 100 KB
-# budget and crash _run_sprint with an uncaught ValueError — blocking close
-# instead of reporting the red. Capping the stored detail keeps the event well
-# under budget. 20 is plenty to diagnose a red close — failures usually cluster
+# event raises. Each failing item carries a tail of BOTH streams, so up to
+# ~1000 chars (~1200 bytes), and a heavily red sprint (>~80 failures) would
+# breach the 100 KB budget and crash _run_sprint with an uncaught ValueError —
+# blocking close instead of reporting the red. Capping the detail stored keeps
+# the event well under budget. 20 is plenty for a red close — failures cluster
 # to a few root causes. verify_status + the content's count still reflect the
 # TRUE total; only the stored detail is bounded.
 _MAX_FAILING_ITEMS = 20
@@ -290,23 +291,20 @@ def _run_sprint(smm_dir: Path) -> int:
         # killed would otherwise evict its own "timed out" marker, and the row
         # would read as an ordinary non-zero exit.
         marker = ""
-        stderr_len = 0
         try:
             proc = _subprocess_env.run_in_new_process_group(
                 cmd, cwd=cwd, timeout=timeout, env=env
             )
             rc = proc.returncode
-            output = branch_lifecycle.combined_output(proc)
-            stderr_len = len(proc.stderr or "")
+            err_text, out_text = proc.stderr or "", proc.stdout or ""
         except subprocess.TimeoutExpired as exc:
             rc = -1
             marker = f"timed out after {timeout}s"
             # Whatever the command managed to say before it was killed is
             # usually the only clue to WHY it hung; a bare "timed out after
             # Ns" sends the operator off to reproduce it by hand.
-            output = (
-                getattr(exc, "text_stderr", "") or getattr(exc, "text_stdout", "")
-            ).strip()
+            err_text = getattr(exc, "text_stderr", "").strip()
+            out_text = getattr(exc, "text_stdout", "").strip()
         row: dict = {
             "story": sid,
             "ac_idx": ac_idx,
@@ -317,7 +315,7 @@ def _run_sprint(smm_dir: Path) -> int:
         if rc != 0:
             # Carry a tail of the failure so the close gate can explain the red.
             row["output"] = ": ".join(
-                p for p in (marker, _tail_streams(output, stderr_len)) if p
+                p for p in (marker, _tail_streams(err_text, out_text)) if p
             )
         rows.append(row)
 

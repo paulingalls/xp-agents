@@ -156,14 +156,19 @@ class TestTeardownRelaysBothStreams(_TeardownTestCase):
     stream carried the command's diagnosis, if it wasn't the one the
     `or` happened to pick, was silently dropped from the report."""
 
-    def _run_and_get_output(self, command: str) -> str:
+    def _run_and_get_output(
+        self, command: str, env: dict[str, str] | None = None
+    ) -> str:
         """The RELAYED OUTPUT only, not the echoed command — the message
         prints the declared command verbatim first, and it happens to name
         both `echo` arguments too, so asserting against the whole message
         would pass even when the relay itself drops one of them."""
         self.declare_teardown(command)
 
-        with patch("sys.stderr") as mock_stderr:
+        with (
+            patch.dict(os.environ, env or {}),
+            patch("sys.stderr") as mock_stderr,
+        ):
             worktree_teardown.run_teardown(str(self.wt_dir), self.smm_dir)
 
         written = "".join(c.args[0] for c in mock_stderr.write.call_args_list)
@@ -181,6 +186,18 @@ class TestTeardownRelaysBothStreams(_TeardownTestCase):
         output = self._run_and_get_output("echo on-stdout; echo on-stderr >&2; exit 1")
 
         self.assertLess(output.index("on-stderr"), output.index("on-stdout"))
+
+    def test_the_timeout_report_relays_both_streams_too(self):
+        """The branch where the relay matters MOST: a hung teardown has no exit
+        code to reason from, so whatever it said before the kill is the whole
+        diagnosis — and that branch picked one stream as well."""
+        output = self._run_and_get_output(
+            "echo diagnosis-on-stdout; echo noise-on-stderr >&2; sleep 30",
+            env={"XP_TEARDOWN_TIMEOUT_S": "1"},
+        )
+
+        self.assertIn("diagnosis-on-stdout", output)
+        self.assertIn("noise-on-stderr", output)
 
 
 class TestTeardownKillsProcessGroup(_TeardownTestCase):

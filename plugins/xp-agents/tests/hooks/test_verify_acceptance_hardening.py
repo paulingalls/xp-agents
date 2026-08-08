@@ -320,9 +320,9 @@ class TestSprintRowRelaysBothStreams(_HardeningTestCase):
     the `or` happened to pick, the other was silently dropped from the
     stored failing-item output."""
 
-    def _failing_output(self, command: str) -> str:
+    def _failing_output(self, command: str, **kwargs) -> str:
         self._seed({"type": "bash", "commands": [command]})
-        result = self._run_from(self._workdir(), "--sprint")
+        result = self._run_from(self._workdir(), "--sprint", **kwargs)
         self.assertEqual(result.returncode, 0, result.stderr)
         failing = self._verify_events()[0]["metadata"]["failing"]
         self.assertEqual(len(failing), 1, failing)
@@ -338,6 +338,18 @@ class TestSprintRowRelaysBothStreams(_HardeningTestCase):
     def test_stderr_comes_first(self):
         output = self._failing_output("echo on-stdout; echo on-stderr >&2; exit 1")
         self.assertLess(output.index("on-stderr"), output.index("on-stdout"))
+
+    def test_the_timed_out_row_relays_both_streams_too(self):
+        """The branch where the relay matters MOST: a hung command has no exit
+        code to reason from, so what it said before the kill is the whole
+        diagnosis — and that branch picked one stream as well."""
+        output = self._failing_output(
+            "echo diagnosis-on-stdout; echo noise-on-stderr >&2; sleep 30",
+            extra_env={"VERIFY_CMD_TIMEOUT_S": "1"},
+        )
+        self.assertIn("timed out", output)
+        self.assertIn("diagnosis-on-stdout", output)
+        self.assertIn("noise-on-stderr", output)
 
 
 class TestSprintRowTailDoesNotEvictTheOtherStream(_HardeningTestCase):

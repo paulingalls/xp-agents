@@ -120,8 +120,8 @@ def run_teardown(wt_path: str, smm_dir: Path) -> None:
         # drains the pipes after killing the group and re-raises carrying the
         # decoded text; getattr keeps this working if a plain TimeoutExpired
         # ever reaches here from another path.
-        tail = (
-            getattr(exc, "text_stderr", "") or getattr(exc, "text_stdout", "")
+        tail = branch_lifecycle.combine_streams(
+            getattr(exc, "text_stderr", ""), getattr(exc, "text_stdout", "")
         ).strip()
         print(
             f"worktree teardown timed out after {timeout}s: {command}"

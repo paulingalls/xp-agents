@@ -175,14 +175,10 @@ def _tail(text: str) -> str:
     return "..." + text[-_OUTPUT_TAIL_CHARS:]
 
 
-def _tail_streams(r: subprocess.CompletedProcess) -> str:
-    """Both streams, each tailed independently before the join — else a long
-    stdout evicts the stderr diagnosis once combined (stderr first, per
-    `branch_lifecycle.combined_output`)."""
-    tailed = subprocess.CompletedProcess(
-        r.args, r.returncode, stdout=_tail(r.stdout or ""), stderr=_tail(r.stderr or "")
-    )
-    return branch_lifecycle.combined_output(tailed)
+def _tail_streams(stderr: str, stdout: str) -> str:
+    """Each stream tailed independently before the join — else a long stdout
+    evicts the stderr diagnosis once combined."""
+    return branch_lifecycle.combine_streams(_tail(stderr), _tail(stdout))
 
 
 def _remove_throwaway(name: str, cwd: str, smm_dir: Path | None = None) -> bool:
@@ -363,7 +359,9 @@ def differential(
     except subprocess.TimeoutExpired as exc:
         # Name the leg. Reporting a hung PRIMARY's output under `worktree_output`
         # points the operator at the wrong checkout.
-        tail = _tail(getattr(exc, "text_stdout", "") or getattr(exc, "text_stderr", ""))
+        tail = _tail_streams(
+            getattr(exc, "text_stderr", ""), getattr(exc, "text_stdout", "")
+        )
         return _result(
             OUTCOME_ERROR,
             command,
@@ -389,8 +387,8 @@ def differential(
         command,
         primary_exit=primary.returncode,
         worktree_exit=throwaway.returncode,
-        worktree_output=_tail_streams(throwaway),
-        primary_output=_tail_streams(primary),
+        worktree_output=_tail_streams(throwaway.stderr or "", throwaway.stdout or ""),
+        primary_output=_tail_streams(primary.stderr or "", primary.stdout or ""),
         extra_caveats=degraded,
     )
 

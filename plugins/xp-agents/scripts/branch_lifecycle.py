@@ -6,13 +6,16 @@ under the 500-line target. branching.py re-exports the merge/delete
 symbols (is_merged_into, merge_branch, delete_branch and friends) for
 backwards compat; `push_source_no_verify` and `combined_output` are not
 among them and are imported from here directly.
-Also owns the git-subprocess combined-output convention (`combined_output`),
-shared with close_common.py's push relay.
+Also owns the stderr-first combined-output convention
+(`combine_streams`/`combined_output`), shared with close_common.py's push
+relay and with the subprocess relays in verify_acceptance, lint_runners,
+worktree_bootstrap/teardown/differential.
 
 Cross-call graph (no outbound calls beyond this module):
 - _fast_forward_if_safe -> is_merged_into
 - delete_branch         -> survives_delete_of, is_merged_into
 - merge_branch          -> _merge_into_target
+- combined_output       -> combine_streams
 """
 
 import re
@@ -55,14 +58,25 @@ def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
 
 
-def combined_output(r: subprocess.CompletedProcess[str]) -> str:
-    """Both captured streams, stderr first.
+def combine_streams(stderr: str, stdout: str) -> str:
+    """Both streams, stderr first, newline-separated.
 
     A failed `git push` reports its own error on stderr while the pre-push hook's
     output — usually the actual cause — goes to stdout. Relaying one stream discards
     half the diagnosis.
+
+    Takes the PAIR, not a `CompletedProcess`, so that the relays holding neither —
+    bytes decoded per-stream, streams tailed before joining, a killed child's
+    `TimeoutExpired` — spell the order here rather than each for itself.
     """
-    return (r.stderr or "") + (r.stdout or "")
+    if stderr and stdout and not stderr.endswith("\n"):
+        stderr += "\n"
+    return stderr + stdout
+
+
+def combined_output(r: subprocess.CompletedProcess[str]) -> str:
+    """Both captured streams of a completed process — see `combine_streams`."""
+    return combine_streams(r.stderr or "", r.stdout or "")
 
 
 def _git_retry_on_lock(
