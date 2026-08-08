@@ -107,5 +107,32 @@ class TestProseHygieneParity(unittest.TestCase):
         )
 
 
+class TestVerifyClaimIsTrueRule(unittest.TestCase):
+    """The lens must ask whether a claim is TRUE, not just checkable (story-010)."""
+
+    def test_new_rule_present_in_both_agents(self):
+        code_reviewer_text = _CODE_REVIEWER_MD.read_text(encoding="utf-8")
+        close_reviewer_text = _CLOSE_REVIEWER_MD.read_text(encoding="utf-8")
+        _, code_reviewer_body = _split_frontmatter_body(code_reviewer_text)
+        _, close_reviewer_body = _split_frontmatter_body(close_reviewer_text)
+
+        code_reviewer_section = _prose_hygiene_section(
+            code_reviewer_body, _CODE_REVIEWER_HEADING, "## Recording Findings"
+        )
+        close_reviewer_section = _prose_hygiene_section(
+            close_reviewer_body, _CLOSE_REVIEWER_HEADING, "## Mode-Specific Focus"
+        )
+        for section in (code_reviewer_section, close_reviewer_section):
+            lower = section.lower()
+            self.assertIn("contradicts the code", lower)
+            self.assertIn("counts", lower)
+            self.assertIn("entry points", lower)
+            self.assertIn("call sites", lower)
+            self.assertIn("where it sends a reader", lower)
+            self.assertIn("narrow it to what is true", lower)
+            self.assertIn("rather than delete it", lower)
+            self.assertNotIn("reword", lower)
+
+
 if __name__ == "__main__":
     unittest.main()
