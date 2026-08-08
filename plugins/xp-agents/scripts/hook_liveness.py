@@ -95,6 +95,11 @@ _NOT_LOADED = (
     "not loaded, disabled, or registered under a path that no longer exists."
 )
 
+# The clause BOTH id-less refusals end on, and the substring two suites assert.
+# One literal: spelled twice, one copy could be reworded and the row asserting
+# the other would stay green while the pair drifted apart.
+_UNSEEABLE_ID = "recorded itself under a session id this process cannot see."
+
 _UNREADABLE_REASON = (
     "A hook-liveness heartbeat exists but cannot be read — it is corrupt, or "
     "it has been replaced by a link. Whether the hook runtime is running "
@@ -267,8 +272,7 @@ def _no_addressable_heartbeat_reason(freshest: float) -> str:
         "shared one, and that is absent; a heartbeat keyed on another session "
         f"id, written {_describe(freshest)} ago, is evidence about whoever owns "
         "that id, not about a process that cannot name it. Either the hook "
-        "runtime did not load here, or it loaded and recorded itself under a "
-        "session id this process cannot see."
+        f"runtime did not load here, or it loaded and {_UNSEEABLE_ID}"
     )
 
 
@@ -343,8 +347,7 @@ def _stale_verdict(
                 f"{stale}, and it is the only one this process can name. A "
                 f"heartbeat keyed on another session id was written "
                 f"{_describe(freshest)} ago, so either the runtime stopped "
-                "partway through this session, or it is running and recorded "
-                "itself under a session id this process cannot see.",
+                f"partway through this session, or it is running and {_UNSEEABLE_ID}",
                 CODE_STALE,
             )
     return Liveness(

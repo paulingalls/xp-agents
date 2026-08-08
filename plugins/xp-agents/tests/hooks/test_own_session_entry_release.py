@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
-"""An entry written inside OUR session never releases a Stop gate.
+"""Our own heartbeat cannot vouch for an entry; the entry's own age decides.
 
 One session holds several agent ids. A non-xp subagent — a general-purpose
 helper, or whatever the host calls its generic delegate — runs the same
 PostToolUse hook the lead does, resolves its own agent id, and writes its own
-coordination entry under our session id. The gates then read that entry as
-"a sibling may own this failure" and hand back a red suite nobody else owns.
+coordination entry under our session id. Our heartbeat is beating because WE are
+working, so letting it vouch for that entry held the gate released for the whole
+session. It reads as UNDETERMINED instead, and the TTL bounds it.
 
-Reading an own-session entry as UNDETERMINED bounded that window at the entry
-TTL but did not close it: undetermined falls back to the timestamp, so for the
-whole TTL one file write by one subagent still released the lead. The verdict
-here is structural, not another threshold — an own-session entry is a definite
-not-a-teammate, so no number decides it.
+A NUMBER decides it, and that is deliberate. This suite briefly asserted the
+opposite — that an own-session entry is skipped outright, "structural, not
+another threshold" — and that was too broad: a BACKGROUNDED non-xp subagent is
+not skipped by `post_tool_use`'s is_xp_agent guard and really does edit files
+while the lead sits at Stop, so discarding its entry nudged the lead to close a
+sprint mid-write. The gates ask whether someone else may be WRITING, not whether
+the writer is a teammate. Reverted; `has_active_teammates` is back to what
+story-015 shipped, and this sprint's contribution here is these rows.
 
-Why no real teammate is hidden by that: the spawn builds ONE child environment
+No real teammate is hidden either way: the spawn builds ONE child environment
 with every session-id candidate popped, and uses it for both the worktree and
-the in-place shape. A teammate therefore records its own id or None, never
-ours, so nothing reachable through this branch is a sibling.
+the in-place shape. A teammate records its own id or None, never ours.
 """
 
 import os
@@ -76,7 +79,7 @@ class _OwnSessionTestCase(_LivenessTestCase):
             return call()
 
 
-class TestOurOwnSubagentIsNotASibling(_OwnSessionTestCase):
+class TestOurOwnSubagentsEntryKeepsTheTtl(_OwnSessionTestCase):
     """AC-1 through AC-3 at the predicate."""
 
     def test_our_own_subagents_fresh_entry_still_counts(self):

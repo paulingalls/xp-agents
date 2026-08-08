@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""An own-session coordination entry releases neither Stop gate — as subprocesses.
+"""An AGED own-session entry releases neither Stop gate — as subprocesses.
+
+Aged, not any: a fresh entry of ours is a live backgrounded subagent and must
+still release. That arm lives in the in-process suite; what is only observable
+here is the process boundary.
 
 story-003 pinned this verdict in-process, at the predicate and at both gates
 (`tests/hooks/test_own_session_entry_release.py`). Those rows inject the

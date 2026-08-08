@@ -179,9 +179,16 @@ def _cadence_dir(smm_dir: Path | None) -> Path | None:
 
 
 def _run_teammate(smm_dir: Path | None) -> str | None:
-    """Teammate SessionStart: XP Values + Guide + cadence + SMM. No markers."""
+    """Teammate SessionStart: XP Values + Guide + cadence + SMM. No markers.
+
+    Leads with the not-enforcing sentinel when the pinned tree is unusable. The
+    banner alone was not enough: the USER reads that, the AGENT reads this, and a
+    teammate told nothing here proceeds as though its gates were running.
+    """
     smm_dir = _common.try_validate_smm_dir(smm_dir)
     parts: list[str] = []
+    if not _teammate_is_enforcing():
+        parts.append(_SMM_FAILED_CONTEXT)
     values = plugin_loader.load_xp_values()
     if values:
         parts.append(values)
@@ -233,7 +240,7 @@ def run(
 
     smm_dir = _common.try_validate_smm_dir(smm_dir)
     if smm_dir is None:
-        return "SMM init failed — xp-agents disabled."
+        return _SMM_FAILED_CONTEXT
 
     # Record that the hook runtime is running, before anything that could
     # return early. Deliberately NOT gated on _is_fresh_start: a resume or a
@@ -312,6 +319,36 @@ def run(
 # ---------------------------------------------------------------------------
 
 
+# The AGENT-facing sentinel for "the gates are not running", emitted by BOTH
+# paths. One literal, because `_context_says_enforcement_is_off` in the honesty
+# suite keys on it: a second spelling would let one channel go quiet while the
+# other spoke, which is the defect this hook was fixed for.
+_SMM_FAILED_CONTEXT = "SMM init failed — xp-agents disabled."
+
+
+def _teammate_is_enforcing() -> bool:
+    """Whether a teammate's gates can actually run, read from its pinned tree.
+
+    `main` passes no SMM dir for a teammate BY DESIGN — handing one over injects
+    the whole SMM render — so this path once claimed "active" unconditionally and
+    carried the contradiction the lead path was fixed for: every gate bails on
+    `smm_dir is None`, so a teammate whose pinned tree became unusable committed
+    with nothing enforcing and a banner saying otherwise.
+
+    The environment still names that tree. `_cadence_dir(None)` resolves exactly
+    it — strip, follow a relocation pointer, validate — and is reused rather than
+    re-spelled, because a second spelling of that normalization is what drifts.
+
+    An UNSET var answers True, not False: `spawn_teammate` exports it for every
+    real teammate, so absence is not a broken tree but a session whose gates
+    resolve some other way, and calling that not-enforcing would be a fresh false
+    claim. Pinned in test_session_start_honesty.
+    """
+    if not os.environ.get("SMM_DIR", "").strip():
+        return True
+    return _cadence_dir(None) is not None
+
+
 def main() -> None:
     """SessionStart entry point: resolve once, run, emit.
 
@@ -344,27 +381,11 @@ def main() -> None:
     # Lead path only. `smm_dir` is None for every teammate and nested agent by
     # design (handing a teammate one injects the whole SMM render), so a verdict
     # read from that absence would report the gates off where they are on.
-    enforcing = True
-    if resolves:
-        enforcing = _common.try_validate_smm_dir(smm_dir) is not None
-    elif os.environ.get("SMM_DIR", "").strip():
-        # The teammate path, which claimed "active" unconditionally and so
-        # carried the very contradiction this hook fixed for the lead: every
-        # gate bails on `smm_dir is None`, so a teammate whose pinned tree
-        # became unusable committed with nothing enforcing and a banner saying
-        # otherwise.
-        #
-        # `smm_dir` stays None here BY DESIGN — handing one over injects the
-        # whole SMM render — but the ENVIRONMENT still names the tree, and
-        # `_cadence_dir` already resolves exactly that: strip, follow a
-        # relocation pointer, validate. Reused rather than re-spelled, because a
-        # second spelling of that normalization is what would drift.
-        #
-        # Guarded on the var being set at all: `spawn_teammate` exports it for
-        # every real teammate, so absence is not a teammate whose tree is
-        # broken — it is a session whose gates resolve some other way, and
-        # calling that not-enforcing would be a fresh false claim.
-        enforcing = _cadence_dir(None) is not None
+    enforcing = (
+        _common.try_validate_smm_dir(smm_dir) is not None
+        if resolves
+        else _teammate_is_enforcing()
+    )
     context = run(input_data, smm_dir, already_resolved=resolves)
     if context is not None:
         version = plugin_loader.plugin_version()

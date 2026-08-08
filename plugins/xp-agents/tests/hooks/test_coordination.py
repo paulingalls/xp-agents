@@ -369,7 +369,7 @@ class TestUndeterminedLivenessKeepsTheTtl(_LivenessTestCase):
         self.assertFalse(self._active())
 
 
-class TestOurOwnSessionsEntryIsNotASibling(_LivenessTestCase):
+class TestOurOwnSessionsEntryKeepsTheTtl(_LivenessTestCase):
     """Our own beating heartbeat is not evidence that ANOTHER agent id lives.
 
     One session holds several agent ids. The verdict is scoped to VOUCHING, not

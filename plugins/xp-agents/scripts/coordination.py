@@ -220,14 +220,18 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
     recorded, a host that exposes none, a heartbeat that cannot be read —
     falls back to the TTL, which is exactly today's behaviour.
 
-    An entry this session wrote is not a sibling's at any age, so it is skipped
-    rather than aged; see the loop. The skip can only fire where the host names
-    its session, and where it names none our own subagent's entry and a real
-    teammate's both record None with nothing to separate them — so both keep
-    the TTL fallback there, and one file write by a subagent of ours still
-    releases this gate for the length of it. That residual is measured in
-    test_own_session_entry_release.py rather than only asserted here; closing
-    it needs provenance the entry does not carry, not a different threshold.
+    An entry this session wrote is one of those undetermined shapes: our own
+    heartbeat cannot vouch for another agent id, so the entry's own age decides.
+    One file write by a subagent of ours therefore releases this gate for the
+    length of the TTL, and closing that needs provenance the entry does not
+    carry — not a different threshold. Measured in
+    test_own_session_entry_release.py rather than only asserted here.
+
+    Bounded further than it looks, and worth stating: `post_tool_use` refreshes
+    the entry only on a tool call that names a FILE, so a subagent of ours that
+    reads, greps or shells for longer than the TTL ages out and stops counting.
+    A teammate has the heartbeat as a second leg; an own-session entry does not,
+    because the whole point is that our heartbeat cannot vouch for it.
 
     The liveness leg stops here. `read_coordination` keeps its filter for
     every other caller: making the write-conflict detector liveness-aware
@@ -242,29 +246,22 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
         written_by = entry.get("session_id")
         # Agent id and session are different keys, and one session holds
         # several agent ids: a non-xp subagent writes its own entry under its
-        # own id inside OUR session. That entry is not a sibling's at any age,
-        # so it is skipped outright rather than read through a clock: reading
-        # it through one can only bound the damage at whatever the clock says,
-        # and no threshold makes an entry of ours into a teammate's.
+        # own id inside OUR session. Our heartbeat must not VOUCH for that
+        # entry — it says nothing about whether that agent id still exists — so
+        # it reads as UNDETERMINED and the entry's own age decides.
         #
-        # No real teammate is hidden by it: the spawn builds ONE child
-        # environment with every session-id candidate popped, and uses that
-        # same environment for the separate-checkout shape and the in-place
-        # shape alike, so a teammate records its own id or None — never ours.
-        if own_session is not None and written_by == own_session:
-            # Our heartbeat must not VOUCH for this entry: it says nothing
-            # about whether that agent id still exists, and letting it vouch
-            # is what held the gate released for a whole session. But the
-            # entry is not worthless either. A backgrounded subagent of ours
-            # is not an `xp-` agent, so `post_tool_use` does not skip it, and
-            # it really does edit files while we sit at Stop. Its own age is
-            # the only signal left, so it gets the TTL and nothing more —
-            # bounded where our heartbeat was unbounded, present where an
-            # outright skip was absent.
-            if aid in within_ttl:
-                return True
-            continue
-        live = _session_is_live(smm_dir, written_by)
+        # NOT skipped outright, which sprint-005 briefly shipped and reverted: a
+        # BACKGROUNDED non-xp subagent is not skipped by `post_tool_use`'s
+        # is_xp_agent guard and really does edit files while the lead sits at
+        # Stop, so discarding its entry nudged the lead to close a sprint
+        # mid-write and held it on a red suite that agent may have caused. The
+        # gates ask whether someone else may be writing, not whether the writer
+        # is a teammate.
+        live = (
+            None
+            if own_session is not None and written_by == own_session
+            else _session_is_live(smm_dir, written_by)
+        )
         if live is True or (live is None and aid in within_ttl):
             return True
     return False

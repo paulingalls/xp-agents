@@ -169,6 +169,26 @@ class TestTheChannelsAgree(_BannerTestCase):
             f"channels disagree: context={context!r} message={message!r}",
         )
 
+    def test_they_agree_for_a_teammate_too(self):
+        """The leg this class never ran. `run` returns via `_run_teammate`, so
+        the agent-facing channel used to say nothing at all while the banner
+        made a claim — silence on one side is not agreement, it is just a
+        disagreement nobody can see."""
+        for smm, label in ((self.smm_dir, "usable"), (None, "unusable")):
+            with self.subTest(smm=label):
+                if smm is None:
+                    with patch.dict(
+                        os.environ, {"SMM_DIR": "/dev/null/not-a-directory"}
+                    ):
+                        context, message = self._emit(None, teammate=True)
+                else:
+                    context, message = self._emit(None, teammate=True)
+                self.assertEqual(
+                    _context_says_enforcement_is_off(context),
+                    not _says_enforcement_is_on(message),
+                    f"channels disagree ({label}): {context!r} / {message!r}",
+                )
+
     def test_the_working_banner_is_unchanged(self):
         """Over-arming control, pinned byte-for-byte. The active path keeps its
         claim AND its nudge; without this, suppressing the banner entirely would
@@ -217,6 +237,18 @@ class TestATeammateIsNotToldTheGatesAreOff(_BannerTestCase):
             _says_enforcement_is_on(message),
             f"teammate told the gates are on while nothing enforces: {message!r}",
         )
+
+    def test_an_unset_smm_dir_still_reads_as_enforcing(self):
+        """The guard's own claim, which was a comment and is now a row.
+
+        `spawn_teammate` exports SMM_DIR for every real teammate, so absence is
+        not a broken tree — it is a session whose gates resolve some other way,
+        and calling that not-enforcing would be a fresh false claim in the
+        opposite direction.
+        """
+        with patch.dict(os.environ, {"SMM_DIR": ""}):
+            _, message = self._emit(None, teammate=True)
+        self.assertTrue(_says_enforcement_is_on(message), message)
 
     def test_the_teammate_banner_is_byte_identical_to_today(self):
         """Unchanged means unchanged: the WHOLE line, not one substring.

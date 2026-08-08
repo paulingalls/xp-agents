@@ -6,10 +6,8 @@ enforcing banner, the kickoff nudge, the at-risk-root advisory and its remedies,
 and the not-enforcing line. Split out of session_start.py to keep both files well
 clear of the file-size cap rather than fitting one just under it.
 
-`_is_fresh_start` moved with them because the banner needs it and importing it
-back from session_start would make a cycle. session_start re-exports the names it
-still uses, so `session_start._system_message` keeps resolving for the call sites
-that reach it through that module.
+`_is_fresh_start` lives here because the banner needs it and importing it back
+would cycle; session_start re-exports it. A neutral home is still open.
 
 WHAT DOES NOT BELONG HERE: deciding whether enforcement is on. `main` performs
 that validation once and passes the answer in. A second validation in this
