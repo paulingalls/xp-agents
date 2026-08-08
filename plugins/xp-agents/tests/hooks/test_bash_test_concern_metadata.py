@@ -98,7 +98,16 @@ class TestConcernCwdAttribution(_ConcernMetadataTestCase):
         )
 
     def test_cwd_omitted_when_payload_carries_none(self):
-        concerns = self._run("pytest tests/", "3 passed, 2 failed in 1.2s", cwd=None)
+        # No cwd key on the payload also removes the `.` fallback the OTHER
+        # branch (_working_tree_is_test_only) relies on, which would then
+        # shell out against this real repo's actual working tree. Patched out
+        # here since it is irrelevant to what this test is pinning: metadata
+        # attribution, not tree-only detection.
+        with patch("bash_post_tool._working_tree_is_test_only", return_value=False):
+            concerns = self._run(
+                "pytest tests/", "3 passed, 2 failed in 1.2s", cwd=None
+            )
+        self.assertEqual(len(concerns), 1)
         self.assertNotIn(METADATA_KEY_CWD, concerns[0]["metadata"])
 
     def test_command_never_recorded(self):
