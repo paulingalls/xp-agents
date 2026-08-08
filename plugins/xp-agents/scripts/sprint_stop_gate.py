@@ -2,7 +2,9 @@
 """Stop command hook: unified sprint lifecycle gate.
 
 Replaces accept_gate.py. Handles the sprint cascade (accept → review):
-  1. reviewing stories OR (in-progress + ACCEPT marker) → block "run /xp-accept"
+  1. reviewing/closing stories block before stopping; in-progress +
+     ACCEPT marker + work blocks only until the story is complete (a
+     one-shot nudge — stop_hook_active latches it off after one fire)
   2. sprint complete, no sprint_end event → block "run /xp-sprint-review"
 
 Reviewing-state alone fires the gate (incremental teammate accept):
