@@ -145,6 +145,45 @@ class TestAStaleMarkerOfOurOwnIsTheLastWord(_ReadRepairCase):
         self.assertEqual(result.code, hook_liveness.CODE_STALE)
         self.assertIn("stopped", result.reason)
 
+    def test_it_also_names_the_cause_it_cannot_rule_out(self):
+        """Closing the borrow removed the sibling scan from this path entirely,
+        and with it the second half of the diagnosis.
+
+        An id-less reader aged the SHARED marker, so "our runtime stopped" is
+        one of TWO live possibilities: the other is that hooks are running fine
+        and recorded themselves under a session id this process cannot name —
+        the same pair the absent path names. Naming only the first sends the
+        operator after a load failure that did not happen. The scan supports the
+        diagnosis; it no longer supports a LIVE verdict, which is the part that
+        had to go.
+        """
+        self._our_shared_heartbeat(self.NOW)
+        self._foreign_heartbeat(self.NOW + self.STALE)
+        reason = self._read_without_an_id(self.NOW + self.STALE + 60).reason
+        self.assertIn("another session id", reason)
+        self.assertIn("cannot see", reason)
+
+    def test_a_reader_that_owns_its_id_keeps_the_single_cause(self):
+        """Over-arming control. With an id the aged marker IS ours, the second
+        cause is not a possibility, and offering it would be its own small
+        dishonesty.
+
+        NO foreign heartbeat here, and that is measured rather than overlooked:
+        a write REAPS stale suffixed siblings, so planting one deletes our own
+        aged marker and the verdict becomes session-mismatch instead of stale.
+        The unsuffixed shared marker the row above depends on sits outside that
+        glob by design, which is exactly why the id-less pairing is reachable
+        and this one is not.
+        """
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="ours")):
+            hook_liveness.write_heartbeat(self.smm_dir, session_id="ours", now=self.NOW)
+            result = hook_liveness.check_liveness(
+                self.smm_dir, now=self.NOW + self.STALE + 60
+            )
+        self.assertEqual(result.code, hook_liveness.CODE_STALE)
+        self.assertIn("stopped", result.reason)
+        self.assertNotIn("cannot see", result.reason)
+
 
 class TestTheWindowOutlastsANestedSubagentRun(_ReadRepairCase):
     """The window must stay wide enough to sit through a nested review.

@@ -347,6 +347,24 @@ def main() -> None:
     enforcing = True
     if resolves:
         enforcing = _common.try_validate_smm_dir(smm_dir) is not None
+    elif os.environ.get("SMM_DIR", "").strip():
+        # The teammate path, which claimed "active" unconditionally and so
+        # carried the very contradiction this hook fixed for the lead: every
+        # gate bails on `smm_dir is None`, so a teammate whose pinned tree
+        # became unusable committed with nothing enforcing and a banner saying
+        # otherwise.
+        #
+        # `smm_dir` stays None here BY DESIGN — handing one over injects the
+        # whole SMM render — but the ENVIRONMENT still names the tree, and
+        # `_cadence_dir` already resolves exactly that: strip, follow a
+        # relocation pointer, validate. Reused rather than re-spelled, because a
+        # second spelling of that normalization is what would drift.
+        #
+        # Guarded on the var being set at all: `spawn_teammate` exports it for
+        # every real teammate, so absence is not a teammate whose tree is
+        # broken — it is a session whose gates resolve some other way, and
+        # calling that not-enforcing would be a fresh false claim.
+        enforcing = _cadence_dir(None) is not None
     context = run(input_data, smm_dir, already_resolved=resolves)
     if context is not None:
         version = plugin_loader.plugin_version()

@@ -252,6 +252,17 @@ def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
         # same environment for the separate-checkout shape and the in-place
         # shape alike, so a teammate records its own id or None — never ours.
         if own_session is not None and written_by == own_session:
+            # Our heartbeat must not VOUCH for this entry: it says nothing
+            # about whether that agent id still exists, and letting it vouch
+            # is what held the gate released for a whole session. But the
+            # entry is not worthless either. A backgrounded subagent of ours
+            # is not an `xp-` agent, so `post_tool_use` does not skip it, and
+            # it really does edit files while we sit at Stop. Its own age is
+            # the only signal left, so it gets the TTL and nothing more —
+            # bounded where our heartbeat was unbounded, present where an
+            # outright skip was absent.
+            if aid in within_ttl:
+                return True
             continue
         live = _session_is_live(smm_dir, written_by)
         if live is True or (live is None and aid in within_ttl):

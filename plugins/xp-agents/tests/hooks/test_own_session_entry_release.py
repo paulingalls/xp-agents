@@ -79,11 +79,27 @@ class _OwnSessionTestCase(_LivenessTestCase):
 class TestOurOwnSubagentIsNotASibling(_OwnSessionTestCase):
     """AC-1 through AC-3 at the predicate."""
 
-    def test_our_own_subagents_fresh_entry_is_not_an_active_teammate(self):
-        """AC-1. Inside the TTL, which is the whole defect: the timestamp is
-        recent because the subagent really did write a file moments ago, and
-        that write is ours, not a sibling's."""
+    def test_our_own_subagents_fresh_entry_still_counts(self):
+        """AC-1, AMENDED. It read `assertFalse` and that was too broad.
+
+        The timestamp is recent because the subagent really did write a file
+        moments ago — and a BACKGROUNDED non-xp subagent is still writing.
+        `post_tool_use`'s `is_xp_agent` guard does not skip it, so discarding
+        this entry nudged the lead to close a sprint mid-write and blocked it on
+        a red suite that agent may own.
+
+        What the story correctly removed is in the aged row below: our own
+        heartbeat no longer VOUCHES for the entry, so it expires at the TTL
+        instead of holding the gate for the whole session.
+        """
         self._our_subagents_entry(age=self.FRESH)
+        self.assertTrue(self._as_us(self._active))
+
+    def test_our_own_subagents_aged_entry_is_not_an_active_teammate(self):
+        """The half that matters, and the one the story actually bought: with
+        our heartbeat beating, an aged entry of ours used to read live forever.
+        Now only its own age speaks, so it expires."""
+        self._our_subagents_entry(age=self.AGED)
         self.assertFalse(self._as_us(self._active))
 
     def test_a_teammate_recording_no_session_id_is_unchanged(self):
@@ -134,9 +150,18 @@ class TestTheTddGateHoldsARedSuiteOfItsOwn(_OwnSessionTestCase, _GateTestCase):
         events = [session_anchor(), *filler(3), failing_tests_concern()]
         return self._as_us(lambda: self._stop(events, dirty=False, agent_id=None))
 
-    def test_our_own_subagents_entry_does_not_release_the_gate(self):
-        self._our_subagents_entry(age=self.FRESH)
+    def test_our_own_subagents_aged_entry_does_not_release_the_gate(self):
+        """AC-4, AMENDED to the aged entry. A FRESH one is a live background
+        writer and must release; what must not release is one our heartbeat
+        would otherwise vouch for indefinitely."""
+        self._our_subagents_entry(age=self.AGED)
         self.assertIsNotNone(self._stop_on_red())
+
+    def test_a_fresh_entry_of_ours_does_release_it(self):
+        """The regression this amendment fixes: the lead was held on a red suite
+        a concurrent subagent of its own may have caused."""
+        self._our_subagents_entry(age=self.FRESH)
+        self.assertIsNone(self._stop_on_red())
 
     def test_a_real_sibling_still_releases_the_same_red_suite(self):
         """Over-arming control. Identical suite, identical staging, an entry
@@ -164,9 +189,16 @@ class TestTheSprintGateStopsDeferringOnIt(_OwnSessionTestCase):
             lambda: sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         )
 
-    def test_our_own_subagents_entry_no_longer_defers_the_nudge(self):
-        self._our_subagents_entry(age=self.FRESH)
+    def test_our_own_subagents_aged_entry_no_longer_defers_the_nudge(self):
+        """AC-5, AMENDED to the aged entry, for the same reason as AC-4."""
+        self._our_subagents_entry(age=self.AGED)
         self.assertIsNotNone(self._stop_with_a_story_to_accept())
+
+    def test_a_fresh_entry_of_ours_still_defers_it(self):
+        """The regression: the lead was nudged to accept and close a sprint
+        while a backgrounded subagent of its own was still editing the tree."""
+        self._our_subagents_entry(age=self.FRESH)
+        self.assertIsNone(self._stop_with_a_story_to_accept())
 
     def test_a_real_sibling_still_defers_it(self):
         """Over-arming control, and the behaviour the gate is meant to keep:

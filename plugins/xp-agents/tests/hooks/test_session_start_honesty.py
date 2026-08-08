@@ -18,6 +18,7 @@ Driven through `main`, never `_system_message` in isolation — the bug lived in
 how `main` composed the two, so a unit call on the helper cannot see it.
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -194,6 +195,27 @@ class TestATeammateIsNotToldTheGatesAreOff(_BannerTestCase):
             _ACTIVE_CLAIM,
             message,
             f"teammate told the gates are off while they are on: {message!r}",
+        )
+
+    def test_a_teammate_whose_pinned_smm_is_unusable_is_told(self):
+        """The gap this class used to lock in, now the other way round.
+
+        Every gate bails on `smm_dir is None` — `tdd_stop_gate`,
+        `sprint_stop_gate`, `post_tool_use` all return early — so a teammate
+        whose pinned tree became unusable enforces nothing at all. It read
+        "active" anyway, because `enforcing` was hardcoded True on every path
+        the lead's validation did not cover. That is this suite's own defect,
+        one path over, and the rows below asserted the wrong banner byte for
+        byte.
+
+        The rows below stay green because the suite pins a VALID `SMM_DIR`;
+        read the two together as a matched pair, not as one rule.
+        """
+        with patch.dict(os.environ, {"SMM_DIR": "/dev/null/not-a-directory"}):
+            _, message = self._emit(None, teammate=True)
+        self.assertFalse(
+            _says_enforcement_is_on(message),
+            f"teammate told the gates are on while nothing enforces: {message!r}",
         )
 
     def test_the_teammate_banner_is_byte_identical_to_today(self):

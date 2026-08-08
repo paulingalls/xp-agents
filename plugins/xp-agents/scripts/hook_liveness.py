@@ -314,6 +314,47 @@ def _no_heartbeat_of_our_own(
     )
 
 
+def _stale_verdict(
+    smm_dir: Path, session_id: str | None, age: float, now: float
+) -> Liveness:
+    """The stale verdict — which has TWO causes when no id is addressable.
+
+    With an id, the marker we just aged is ours and "stopped partway through
+    this session" is simply true. WITHOUT one we aged the SHARED marker, and a
+    fresh per-session heartbeat means the runtime is running fine under an id
+    this process cannot name. Naming only the first cause sends the operator
+    after a load failure that did not happen.
+
+    This is the same pair `_no_addressable_heartbeat_reason` names for the
+    ABSENT case, and it is the diagnosis the removed sibling BORROW used to
+    carry here. The borrow is gone for good — a neighbour's heartbeat is never
+    evidence about us — but the scan that fed it still supports a diagnosis, and
+    dropping both left this path naming the wrong one.
+    """
+    stale = (
+        f"The last hook-liveness heartbeat is {_describe(age)} old, past the "
+        f"{_describe(STALE_AFTER_SECONDS)} threshold"
+    )
+    if session_id is None:
+        freshest = hook_heartbeat_scan.freshest_sibling(smm_dir, now)
+        if freshest is not None:
+            return Liveness(
+                False,
+                f"{stale}, and it is the only one this process can name. A "
+                f"heartbeat keyed on another session id was written "
+                f"{_describe(freshest)} ago, so either the runtime stopped "
+                "partway through this session, or it is running and recorded "
+                "itself under a session id this process cannot see.",
+                CODE_STALE,
+            )
+    return Liveness(
+        False,
+        f"{stale}: the hook runtime appears to have stopped partway through "
+        "this session.",
+        CODE_STALE,
+    )
+
+
 def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
     """Report whether the hook runtime is live for the calling session.
 
@@ -352,13 +393,7 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
         # Left alone it would read as fresh forever (see the constant).
         return Liveness(False, _UNREADABLE_REASON, CODE_UNREADABLE)
     if age >= STALE_AFTER_SECONDS:
-        return Liveness(
-            False,
-            f"The last hook-liveness heartbeat is {_describe(age)} old, past "
-            f"the {_describe(STALE_AFTER_SECONDS)} threshold: the hook runtime "
-            f"appears to have stopped partway through this session.",
-            CODE_STALE,
-        )
+        return _stale_verdict(smm_dir, session_id, age, now)
     return Liveness(
         True,
         f"Hook runtime is live (last heartbeat {_describe(age)} ago).",

@@ -25,6 +25,7 @@ a session stamp, which `as_session` sets exactly as a real writer would.
 
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -54,26 +55,45 @@ class _OwnSessionGateE2ECase(_IntegrationTestCase):
     #: A genuine teammate: its own agent id AND its own session.
     SIBLING_AGENT = "worktree-story-999"
     SIBLING_SESSION = "the-session-of-a-real-teammate"
+    #: Past coordination's 30-minute entry TTL, read off the constant so a
+    #: retuned TTL cannot leave this suite asserting against a stale number.
+    AGED = coordination._COORDINATION_MAX_AGE + 60.0
 
-    def _entry(self, agent_id: str, session_id: str) -> None:
-        """Plant one coordination entry stamped with *session_id*.
+    def _entry(self, agent_id: str, session_id: str, *, age: float = 0.0) -> None:
+        """Plant one coordination entry stamped with *session_id*, aged by *age*.
 
         Not `_heartbeat_fixtures.coordinate`, which hardcodes the stamp to
         `the-session-of-<agent id>` — that shape cannot express the case under
         test, an entry carrying OUR id under someone else's agent id.
+
+        Written through the real writer and then backdated in place, rather than
+        hand-built: a hand-built entry could disagree with the shape
+        `update_coordination` actually produces, and the reader would never say
+        so — it would just stop matching.
         """
         with as_session(session_id):
             coordination.update_coordination(self.smm_dir, agent_id, [])
+        if age:
+            path = self.smm_dir / ".coordination.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            stamp = datetime.now(timezone.utc) - timedelta(seconds=age)
+            data[agent_id]["updated"] = stamp.isoformat()
+            path.write_text(json.dumps(data), encoding="utf-8")
 
-    def _our_subagents_entry(self) -> None:
-        """The defect's shape: our own subagent's entry, our heartbeat beating.
+    def _our_subagents_entry(self, *, age: float = 0.0) -> None:
+        """Our own subagent's entry, our heartbeat beating.
 
         Both halves matter. The entry carries our session id because the
         subagent inherited our environment; our heartbeat is fresh because we
         are the one still working — which is precisely why our own liveness says
         nothing about whether that agent id still exists.
+
+        AGED is the subject of the rows below. A FRESH entry of ours is a live
+        backgrounded subagent that really is editing the tree, so it must still
+        release; that arm is pinned in-process in
+        `tests/hooks/test_own_session_entry_release.py`.
         """
-        self._entry(self.OUR_SUBAGENT, self.OURS)
+        self._entry(self.OUR_SUBAGENT, self.OURS, age=age)
         hook_liveness.write_heartbeat(self.smm_dir, session_id=self.OURS)
 
     def _a_real_siblings_entry(self) -> None:
@@ -115,9 +135,9 @@ class TestTheTddGateHoldsARedSuiteOfItsOwn(_OwnSessionGateE2ECase):
         branch. Same event shape story-003 uses at the gate."""
         self._seed_events([session_anchor(), *filler(3), failing_tests_concern()])
 
-    def test_our_own_subagents_entry_does_not_release_the_gate(self):
+    def test_our_own_subagents_aged_entry_does_not_release_the_gate(self):
         self._seed_red()
-        self._our_subagents_entry()
+        self._our_subagents_entry(age=self.AGED)
         decision = self._stop("tdd_stop_gate.py")
         self.assertIsNotNone(decision, "the lead was released on an entry of its own")
         assert decision is not None
@@ -127,7 +147,7 @@ class TestTheTddGateHoldsARedSuiteOfItsOwn(_OwnSessionGateE2ECase):
         """AC#3's second half. A gate that blocked with a reason about teammates
         would be describing a state it just decided was not the case."""
         self._seed_red()
-        self._our_subagents_entry()
+        self._our_subagents_entry(age=self.AGED)
         decision = self._stop("tdd_stop_gate.py")
         assert decision is not None
         reason = decision["reason"]
@@ -158,9 +178,9 @@ class TestTheSprintGateStopsDeferringOnIt(_OwnSessionGateE2ECase):
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
 
-    def test_our_own_subagents_entry_no_longer_defers_the_nudge(self):
+    def test_our_own_subagents_aged_entry_no_longer_defers_the_nudge(self):
         self._seed_a_story_to_accept()
-        self._our_subagents_entry()
+        self._our_subagents_entry(age=self.AGED)
         decision = self._stop("sprint_stop_gate.py")
         self.assertIsNotNone(decision, "the nudge was deferred on an entry of ours")
         assert decision is not None

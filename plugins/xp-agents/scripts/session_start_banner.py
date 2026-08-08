@@ -122,15 +122,19 @@ def _lock_advisory(state: migration_lock.LockState) -> str:
 # suite reads the enforcement claim as the substring "active", so a word
 # containing it reddens those rows.
 #
-# The remedy names exactly what the resolution and validation actually check —
-# the directory resolves, exists, and is owned by this user — because a line that
-# tells the user to check something the code never looked at cannot be acted on.
-# The retry covers the remaining cause the code cannot distinguish here: the
-# resolution timing out mid-relocation.
+# The remedy names what the validation actually checks, and ALL of it.
+# `append_validation.validate_smm_dir` rejects on three conditions — missing,
+# not owned by this user, world-writable — and this line named the first two.
+# A data root that picked up mode 0777 (a chmod -R on a parent, a umask-0 sync,
+# a restore from an archive) therefore produced a refusal whose stated remedies
+# both PASS, leaving the user to reread a line that could not be acted on and a
+# session that stays ungated forever. The retry covers the one remaining cause
+# the code cannot distinguish here: the resolution timing out mid-relocation.
 _DISABLED_MESSAGE = (
     "XP agents (v{version}) NOT ENFORCING — the shared model could not be "
     "initialized, so none of its gates are running. Check that the data root "
-    "exists and is owned by you, then start a new session."
+    "exists, is owned by you, and is not world-writable, then start a new "
+    "session."
 )
 
 

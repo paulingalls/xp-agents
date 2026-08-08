@@ -372,12 +372,9 @@ class TestUndeterminedLivenessKeepsTheTtl(_LivenessTestCase):
 class TestOurOwnSessionsEntryIsNotASibling(_LivenessTestCase):
     """Our own beating heartbeat is not evidence that ANOTHER agent id lives.
 
-    One session holds several agent ids: a non-xp subagent writes its own entry
-    under its own id inside OUR session. Reading that as undetermined bounded
-    the damage at the TTL, but undetermined falls back to the timestamp, so a
-    fresh entry still released the gate. An own-session entry is now a definite
-    not-a-teammate at any age; test_own_session_entry_release.py carries that
-    property and these rows stop the verdict widening.
+    One session holds several agent ids. The verdict is scoped to VOUCHING, not
+    to discarding: our heartbeat says nothing about whether that agent id lives,
+    but the entry's own age does. Fresh counts, aged does not.
     """
 
     OURS = "the-leads-own-session"
@@ -391,17 +388,15 @@ class TestOurOwnSessionsEntryIsNotASibling(_LivenessTestCase):
         self._beat(self.OURS, age=self.FRESH)
         self.assertFalse(self._active_as())
 
-    def test_our_own_sessions_fresh_entry_is_not_a_sibling_either(self):
-        """REVERSED. This row read "still counts", guarding a sibling that
-        cannot exist: the spawn builds ONE child environment with every
-        session-id candidate popped and uses it for both teammate shapes, so a
-        teammate records its own id or None — never ours. What it pinned WAS
-        reachable: one file write by one non-xp subagent of ours released the
-        lead's Stop gates for the TTL. Its duty passes to the row below.
+    def test_our_own_sessions_fresh_entry_still_counts(self):
+        """RE-REVERSED. story-003 flipped this to "not a sibling" because no
+        teammate can be in this state — true, but the gates ask whether someone
+        else may be WRITING, and a backgrounded non-xp subagent does:
+        `is_xp_agent` never skips it. The aged row keeps what story-003 removed.
         """
         self._entry("subagent-42", age=self.FRESH, session_id=self.OURS)
         self._beat(self.OURS, age=self.FRESH)
-        self.assertFalse(self._active_as())
+        self.assertTrue(self._active_as())
 
     def test_another_sessions_aged_entry_still_reads_live(self):
         """Over-narrowing control: the liveness leg itself must survive."""
