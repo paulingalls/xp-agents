@@ -7,13 +7,18 @@ almost entirely text. This compares each file's code shape before and after:
 parse both, drop every docstring, and dump the trees. Equal shapes mean no
 expression, branch, constant or signature moved.
 
-WHAT THIS DOES NOT COVER, and nothing else covers it either. Comments are not
-in the AST at all, so this gives zero protection to machine-checked markers
-(`# noqa`, `# type: ignore`, `lang-ok:`, `# isort:`, `# fmt:`) -- deleting one
-is invisible here, and no census pins them. It also cannot see a docstring
-consumed at runtime: `close_gate_commands.py` and `review_flag_cli.py` each
-pass their WHOLE `__doc__` as an argparse description with no test on that help
-text, so narrowing either reads clean here.
+WHAT THIS DOES NOT COVER. Comments are not in the AST at all, so this gives
+zero protection to machine-checked markers (`# noqa`, `# type: ignore`,
+`lang-ok:`, `# isort:`, `# fmt:`) -- deleting one is invisible here, and no
+census pins them.
+
+It is equally blind to a docstring consumed at runtime, because it strips
+docstrings from both trees before comparing. THREE shipped modules pass
+`__doc__` to argparse: `close_gate_commands.py` and `review_flag_cli.py` pass
+the whole thing, and `worktree_differential.py` passes only its first line.
+That blindness is no longer uncovered: `hooks/test_runtime_docstring_consumers.py`
+pins all three against being emptied, deliberately without pinning their
+wording, since narrowing a claim to what is true is the fix this repo asks for.
 
 `include_attributes` stays False. At True the dump carries line numbers, so
 every deletion would report as a change in each node below it.
