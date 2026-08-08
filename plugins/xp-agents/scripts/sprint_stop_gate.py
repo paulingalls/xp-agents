@@ -2,7 +2,8 @@
 """Stop command hook: unified sprint lifecycle gate.
 
 Replaces accept_gate.py. Handles the sprint cascade (accept → review):
-  1. reviewing stories OR (in-progress + ACCEPT marker) → block "run /xp-accept"
+  1. reviewing/closing stories, or in-progress + ACCEPT marker + work
+     → block "run /xp-accept" — a one-shot nudge, like every block here
   2. sprint complete, no sprint_end event → block "run /xp-sprint-review"
 
 Reviewing-state alone fires the gate (incremental teammate accept):
@@ -46,6 +47,8 @@ _ACCEPT_MESSAGE = (
     "Stories need acceptance. Run /xp-accept to verify "
     "acceptance criteria before stopping."
 )
+
+_IN_PROGRESS_ACCEPT_MESSAGE = "Run /xp-accept once done, or just stop."
 
 _UNREADABLE_MESSAGE = (
     "sprint.json cannot be read ({exc}). Every sprint gate is blind until it is "
@@ -159,21 +162,23 @@ def _has_checkable_proof(story: dict) -> bool:
     return any(isinstance(step, str) and step.strip() for step in steps)
 
 
-def _accept_message(firing: list[dict]) -> str:
-    """The accept message, naming any firing story nothing can check.
+def _accept_message(firing: list[dict], base: str) -> str:
+    """The accept message for *base*, naming any firing story nothing can check.
 
     Scoped to the stories that actually FIRED the branch, never the whole
     sprint: a done story has left the accept window and is nobody's outstanding
-    proof. The base text is returned byte-for-byte when every firing story
-    declares proof, so the working direction is untouched.
+    proof. *base* is returned byte-for-byte when every firing story declares
+    proof, so the working direction is untouched. *base* is the branch's own
+    constant (``_ACCEPT_MESSAGE`` or ``_IN_PROGRESS_ACCEPT_MESSAGE``) — the
+    caller picks it, this function only appends the unprovable-story suffix.
     """
     unprovable = sorted(
         story.get("id", "") for story in firing if not _has_checkable_proof(story)
     )
     if not unprovable:
-        return _ACCEPT_MESSAGE
+        return base
     return (
-        f"{_ACCEPT_MESSAGE} No proof is declared for "
+        f"{base} No proof is declared for "
         f"{', '.join(unprovable)} — nothing there can be checked."
     )
 
@@ -193,14 +198,16 @@ def _compute_block_message(smm_dir: Path, sprint_data: dict, cwd: str) -> str | 
     stories = sprint_data["stories"]
     if has_under_acceptance_stories_data(sprint_data):
         return _accept_message(
-            [s for s in stories if s.get("status") in UNDER_ACCEPTANCE_STORY_STATUSES]
+            [s for s in stories if s.get("status") in UNDER_ACCEPTANCE_STORY_STATUSES],
+            _ACCEPT_MESSAGE,
         )
     if has_in_progress_stories_data(sprint_data):
         if markers.marker_exists(smm_dir, markers.ACCEPT) and _in_progress_has_work(
             smm_dir, cwd
         ):
             return _accept_message(
-                [s for s in stories if s.get("status") == "in-progress"]
+                [s for s in stories if s.get("status") == "in-progress"],
+                _IN_PROGRESS_ACCEPT_MESSAGE,
             )
         return None
 
