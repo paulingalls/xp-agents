@@ -196,6 +196,14 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> None:
 
     _emit_subagent_complete(smm_dir, input_data)
 
+    # Retire the record the Stop gate reads while the review runs — AFTER the
+    # sprint_end append, since the record bridges the window where no
+    # sprint_end exists yet and consuming first would briefly reopen it. A run
+    # that dies before here leaves the record to age out, which fails closed.
+    import sprint_review_flight
+
+    sprint_review_flight.consume(smm_dir, input_data)
+
     for stale in smm_dir.glob(f"{marker_names.SPRINT_REVIEW_INPUT_PREFIX}*"):
         stale.unlink(missing_ok=True)
 

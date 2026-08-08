@@ -135,14 +135,14 @@ def sweep_stale_session_markers(smm_dir: Path) -> None:
     be load-bearing for in-flight close-skills or pending /xp-accept.
 
     Every marker in the set above is unconditionally consumed because none of
-    them can belong to another LIVE session. Two records here can, and neither
-    is in that set. The housekeeping in-flight record is swept by
-    `housekeeping_flight.sweep_orphan_records`, which keeps one still inside
-    its freshness window; that module owns the record's field names and its
-    window, and imports this one — hence the lazy import, the same shape
-    `markers.warn_once` uses to reach `concerns`.
+    them can belong to another LIVE session. Three records here can, and none
+    is in that set. Two are in-flight records — the housekeeper's and the
+    sprint reviewer's — each swept by its own module's `sweep_orphan_records`,
+    which keeps a record still inside its own freshness window. Those modules
+    own the field names and the (different) windows, and import this one —
+    hence the lazy imports, the shape `markers.warn_once` uses for `concerns`.
 
-    The close-cycle marker is the other, and it is RECORDED rather than
+    The close-cycle marker is the third, and it is RECORDED rather than
     consumed. This sweep is one of the three components that can positively
     learn a close cycle died — the reviewer that releases the marker never ran
     — so deleting it silently threw away the only evidence anyone would ever
@@ -162,5 +162,7 @@ def sweep_stale_session_markers(smm_dir: Path) -> None:
         marker_consume(smm_dir, marker)
 
     import housekeeping_flight
+    import sprint_review_flight
 
     housekeeping_flight.sweep_orphan_records(smm_dir)
+    sprint_review_flight.sweep_orphan_records(smm_dir)

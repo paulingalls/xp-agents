@@ -39,6 +39,12 @@ HOUSEKEEPING_ARMED = ".housekeeping-armed"
 # backgrounds Agent-tool subagents, so without it the two look identical.
 # Session-suffixed in the HOOK_HEARTBEAT style; see housekeeping_flight.marker.
 HOUSEKEEPING_IN_FLIGHT = ".housekeeping-in-flight"
+# The same record for the sprint reviewer, and for the same reason: the gate
+# clears on the event the reviewer emits when it FINISHES, so while it runs
+# "in flight" and "never invoked" look identical. Session-suffixed in the
+# HOOK_HEARTBEAT style; see sprint_review_flight.marker. Distinct stem from
+# SPRINT_REVIEW_INPUT_PREFIX below, so neither one's glob sees the other's file.
+SPRINT_REVIEW_IN_FLIGHT = ".sprint-review-in-flight"
 CLOSE_CYCLE_ACTIVE = ".close-cycle-active"
 # The id of the close cycle running right now, written by every close preload
 # and read by the appender to tag concerns with the close they were raised
