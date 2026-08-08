@@ -154,7 +154,7 @@ class TestTheGateDoesNotClaimProofItLacks(_HookTestCase):
         )
         (self.smm_dir / ".accept").write_text("done")
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertEqual(result, sprint_stop_gate._ACCEPT_MESSAGE)
+        self.assertEqual(result, sprint_stop_gate._IN_PROGRESS_ACCEPT_MESSAGE)
 
     def test_a_done_story_is_not_named_by_the_in_progress_branch_either(self):
         """The scope pin for the SECOND branch. Its sibling above pins the
@@ -174,7 +174,55 @@ class TestTheGateDoesNotClaimProofItLacks(_HookTestCase):
         )
         (self.smm_dir / ".accept").write_text("done")
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertEqual(result, sprint_stop_gate._ACCEPT_MESSAGE)
+        self.assertEqual(result, sprint_stop_gate._IN_PROGRESS_ACCEPT_MESSAGE)
+
+
+class TestTheTwoBranchMessagesDiverge(_HookTestCase):
+    """The under-acceptance and in-progress branches must say different
+    things — a single shared constant would silently reunify them."""
+
+    def test_the_under_acceptance_text_is_pinned_as_a_literal(self):
+        """A literal, not a reference to the constant: comparing the result to
+        `sprint_stop_gate._ACCEPT_MESSAGE` is self-referential and would still
+        pass if the constant were renamed and reworded together."""
+        import sprint_stop_gate
+
+        story = _s("story-1", "t", "reviewing", acceptance_execution=_RUNNABLE)
+        (self.smm_dir / "sprint.json").write_text(_sprint_json([story]))
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertEqual(
+            result,
+            "Stories need acceptance. Run /xp-accept to verify "
+            "acceptance criteria before stopping.",
+        )
+
+    def test_the_two_base_constants_differ_and_the_in_progress_one_drops_the_claim(
+        self,
+    ):
+        import sprint_stop_gate
+
+        self.assertNotEqual(
+            sprint_stop_gate._ACCEPT_MESSAGE,
+            sprint_stop_gate._IN_PROGRESS_ACCEPT_MESSAGE,
+        )
+        self.assertNotIn(
+            "before stopping", sprint_stop_gate._IN_PROGRESS_ACCEPT_MESSAGE
+        )
+
+    def test_the_in_progress_suffix_appends_to_the_in_progress_base(self):
+        """The unprovable-story suffix logic is unchanged; prove it appends to
+        the in-progress base too, not only to the under-acceptance one."""
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json([_s("story-5", "t", "in-progress")])
+        )
+        (self.smm_dir / ".accept").write_text("done")
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        base = sprint_stop_gate._IN_PROGRESS_ACCEPT_MESSAGE
+        self.assertTrue(result.startswith(base))
+        self.assertIn("story-5", result)
 
 
 if __name__ == "__main__":
