@@ -266,7 +266,12 @@ class TestTokenOccursBoundaryMatching(unittest.TestCase):
         self.assertFalse(token_occurs("def ", "an undef  variable"))
 
     def test_loc_does_not_match_inside_local(self) -> None:
-        self.assertFalse(token_occurs(" LOC", "a LOCAL variable"))
+        self.assertFalse(token_occurs("LOC", "a LOCAL variable"))
+
+    def test_loc_matches_when_punctuation_adjacent(self) -> None:
+        """The registry drops the leading space it used to hand-roll a left
+        edge with, so a bolded or bracketed use no longer escapes the ban."""
+        self.assertTrue(token_occurs("LOC", "cap files at 500 **LOC** total"))
 
     def test_foo_dot_rs_still_matches(self) -> None:
         self.assertTrue(token_occurs(".rs", "see foo.rs for the impl"))

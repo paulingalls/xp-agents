@@ -12,14 +12,14 @@ from _vocab_detect import token_occurs
 
 # Three kinds of token that must not appear in shipped agent/skill prose:
 # language-specific tokens, plugin-internal surface names, and size metrics
-# whose unit is language-bound (` LOC`, `lines of code` — a line means a
+# whose unit is language-bound (`LOC`, `lines of code` — a line means a
 # different amount of work per language, so a threshold stated in them is a
 # language assumption in the same way a `.py` suffix is). The plugin ships to
 # projects in any language, and this repo is a test fixture for it, not its
 # vocabulary.
 #
 # USAGE CONTRACT — scan the RAW text, never a `.lower()` copy. Both tuples are
-# deliberately mixed-case (`Docstring`, `ACCEPT_IN_FLIGHT`, ` LOC`), so a scanner
+# deliberately mixed-case (`Docstring`, `ACCEPT_IN_FLIGHT`, `LOC`), so a scanner
 # that lowercases its input first can never match those members and the guard
 # silently degrades to an inert check that passes on a real leak. Both casings of
 # a mixed-case name are listed explicitly for the same reason.
@@ -28,7 +28,7 @@ from _vocab_detect import token_occurs
 # copy of this vocabulary grow in the routing pin: that pin scans EVERY shipped
 # prose file, so it can only ban tokens with no legitimate use anywhere, while
 # `assert_project_agnostic` runs on a selected SECTION and can ban more. A
-# content-kind split would also misfile ` LOC` and `lines of code`, which are
+# content-kind split would also misfile `LOC` and `lines of code`, which are
 # neither paths nor keywords.
 #
 # Both directions of that split are checked, not just one: a legitimately-used
@@ -47,7 +47,7 @@ CORPUS_WIDE_FORBIDDEN: tuple[str, ...] = (
     "docstring",
     "Docstring",
     '"""',
-    " LOC",
+    "LOC",
     "lines of code",
     "accept_in_flight",
     "close_cycle_stop_gate",
@@ -56,10 +56,12 @@ CORPUS_WIDE_FORBIDDEN: tuple[str, ...] = (
     ".rs",
     # Boundary matching stops the singular forms above from covering their
     # plurals (`docstring` does not match `docstrings`), so each needs its
-    # own entry.
+    # own entry. It also supplies the left edge `LOC` used to hand-roll with a
+    # leading space, so the space is gone: it only ever blocked the ban on a
+    # punctuation-adjacent use (`**LOC**`, `(LOC)`, a line-initial `LOC`).
     "docstrings",
     "Docstrings",
-    " LOCs",
+    "LOCs",
 )
 
 # Legitimate SOMEWHERE in shipped prose, so these may only be applied to a
@@ -108,7 +110,7 @@ PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
 # Members whose casing is load-bearing. Lives beside the vocabulary it
 # describes because two suites need it: the helper's own contract pin
 # (test_md_helpers.py) and the §1 mutation proof in the agent-prose suites.
-MIXED_CASE_VOCAB_MEMBERS: tuple[str, ...] = ("ACCEPT_IN_FLIGHT", " LOC")
+MIXED_CASE_VOCAB_MEMBERS: tuple[str, ...] = ("ACCEPT_IN_FLIGHT", "LOC")
 
 
 def assert_project_agnostic(
