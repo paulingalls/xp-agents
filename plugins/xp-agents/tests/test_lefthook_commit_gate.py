@@ -27,13 +27,16 @@ YAML, so a change to the parser cannot make one file's pins silently vacuous
 while the other's still bite.
 """
 
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from test_lefthook_perf_gate import _command_body, _hook
+from test_lefthook_perf_gate import REPO_ROOT, _command_body, _hook
 
 
 class TestRewritersRunBeforeReaders(unittest.TestCase):
@@ -168,12 +171,127 @@ class TestStagedTestsRunOnTheCommitGate(unittest.TestCase):
             "use **/test_*.py so top-level test files are collected too.",
         )
 
-    def test_does_not_run_the_whole_suite(self):
+    def test_never_a_bare_whole_tree_pytest(self):
+        """A literal tree path on the pytest line would restore the full run.
+
+        The invariant "a directory target must be parallel" is NOT pinned here
+        — it is behavioral, and the earlier text form pinned the wrong half of
+        it (it forbade `-n auto`, which is the CHEAP spelling; sequential is
+        the 432s one). See TestGateSelectsTheRightTargets, which executes the
+        body and asserts on the argv pytest actually receives.
+        """
         self.assertNotRegex(
             self.cmd,
-            r"pytest\s+-n\s+auto\s*$",
-            "staged-tests must not run the full suite — that is pre-push's job",
+            r"pytest\s+plugins/xp-agents/tests\b",
+            "staged-tests must never name the tree literally — targets are "
+            "derived from staged files",
         )
+
+
+def _execute_gate(cmd: str, staged: list[str], tmp: Path) -> list[str]:
+    """Run the gate's shell body for real; return the argv pytest received.
+
+    The rest of this file pins lefthook.yml as TEXT, which cannot distinguish
+    a filter that works from one that never fires — a wrong `case` pattern, a
+    mapping eaten by the `-f` guard, or a mistyped prefix all leave the same
+    string in the file. So this substitutes `{staged_files}`, puts a stub
+    `pytest` on PATH that records its arguments, and asserts on what the
+    command actually decided to run.
+    """
+    bin_dir = tmp / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    argv_log = tmp / "argv.txt"
+    stub = bin_dir / "pytest"
+    stub.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" >> "{argv_log}"\n')
+    stub.chmod(0o755)
+
+    env = dict(os.environ)
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    subprocess.run(
+        ["sh", "-c", cmd.replace("{staged_files}", " ".join(staged))],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if not argv_log.exists():
+        return []
+    return [line for line in argv_log.read_text().splitlines() if line]
+
+
+class TestGateSelectsTheRightTargets(unittest.TestCase):
+    """What the command DOES, not what lefthook.yml says."""
+
+    def setUp(self):
+        self.cmd = _command_body(_hook("pre-commit"), "staged-tests")
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_production_module_named_like_a_test_runs_nothing(self):
+        """scripts/test_parsing.py is SHIPPED code, not a test.
+
+        pytest collects nothing there and exits 5, which lefthook reads as
+        failure — so staging it alone refused the commit outright. Verified:
+        `pytest plugins/xp-agents/scripts/test_parsing.py -q` → no tests ran.
+        """
+        argv = _execute_gate(
+            self.cmd, ["plugins/xp-agents/scripts/test_parsing.py"], self.tmp
+        )
+        self.assertEqual(
+            argv, [], "a production module must not become a pytest target"
+        )
+
+    def test_real_test_file_still_runs(self):
+        argv = _execute_gate(
+            self.cmd, ["plugins/xp-agents/tests/test_dev_setup.py"], self.tmp
+        )
+        self.assertIn("plugins/xp-agents/tests/test_dev_setup.py", argv)
+
+    def test_shared_fixture_selects_its_directory_in_parallel(self):
+        """Editing conftest.py can break thousands of tests, and matched no
+        glob — so it ran ZERO of them and committed green."""
+        argv = _execute_gate(
+            self.cmd, ["plugins/xp-agents/tests/conftest.py"], self.tmp
+        )
+        self.assertIn("plugins/xp-agents/tests", argv)
+        self.assertIn("-n", argv)
+        self.assertIn("auto", argv)
+
+    def test_nested_fixture_selects_only_its_own_directory(self):
+        argv = _execute_gate(
+            self.cmd, ["plugins/xp-agents/tests/hooks/_commit_helpers.py"], self.tmp
+        )
+        self.assertIn("plugins/xp-agents/tests/hooks", argv)
+        self.assertNotIn("plugins/xp-agents/tests", argv)
+
+    def test_fixture_and_a_test_inside_it_do_not_both_become_targets(self):
+        """pytest handed both a directory and a file inside it double-collects."""
+        argv = _execute_gate(
+            self.cmd,
+            [
+                "plugins/xp-agents/tests/hooks/_commit_helpers.py",
+                "plugins/xp-agents/tests/hooks/test_bash.py",
+            ],
+            self.tmp,
+        )
+        self.assertIn("plugins/xp-agents/tests/hooks", argv)
+        self.assertNotIn("plugins/xp-agents/tests/hooks/test_bash.py", argv)
+
+    def test_file_only_selection_stays_sequential(self):
+        """-n auto is for directory targets. Spawning xdist workers to run one
+        file costs more than it saves, and the commit gate's whole point is
+        being cheap enough to pay on every increment."""
+        argv = _execute_gate(
+            self.cmd, ["plugins/xp-agents/tests/test_dev_setup.py"], self.tmp
+        )
+        self.assertNotIn("-n", argv)
+
+    def test_deleted_staged_file_still_bails(self):
+        argv = _execute_gate(
+            self.cmd, ["plugins/xp-agents/tests/test_gone_forever.py"], self.tmp
+        )
+        self.assertEqual(argv, [])
 
 
 if __name__ == "__main__":

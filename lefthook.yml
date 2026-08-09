@@ -62,17 +62,69 @@ pre-commit:
     # file sitting directly in tests/ — which is where the cross-cutting pins
     # live. Measured: it matched tests/skills/... and ran 11 tests while
     # tests/test_dev_setup.py, also staged, was never collected.
+    # The glob is DELIBERATELY wide and the body does the selecting. Two
+    # reasons, both learned the hard way:
+    #
+    #   * Shared fixtures must be covered. A broken conftest.py or _*.py
+    #     helper fails thousands of tests while matching no test_* name, so
+    #     it ran ZERO tests and committed green. They map to their containing
+    #     DIRECTORY in the body — a file target collects nothing — and a
+    #     directory target carries `-n auto`, because the tree sequentially
+    #     is the 432s run this gate exists to remove while the same tree
+    #     under xdist is seconds.
+    #   * A narrower pattern would have to encode `test_*`, `_*` and
+    #     `conftest` in glob syntax, and a form this engine does not support
+    #     matches NOTHING — the gate would stop firing silently, which no
+    #     test here can catch (they execute the body, bypassing the glob).
+    #     A wide glob fails the other way: the command runs and bails.
+    #
+    # The body's `plugins/xp-agents/tests/` prefix filter is what keeps this
+    # off shipped code — `smm/_common.py`, and `scripts/test_parsing.py`,
+    # production modules named like tests where pytest collects nothing and
+    # exits 5, which lefthook reads as a failed commit.
     staged-tests:
-      glob: "**/test_*.py"
+      glob: "**/*.py"
       run: |
         files=""
+        dirs=""
         for f in {staged_files}; do
-          [ -f "$f" ] && files="$files $f"
+          case "$f" in plugins/xp-agents/tests/*) ;; *) continue ;; esac
+          case "${f##*/}" in
+            conftest.py|_*.py)
+              d="${f%/*}"
+              [ -d "$d" ] || continue
+              case " $dirs " in *" $d "*) ;; *) dirs="$dirs $d" ;; esac
+              ;;
+            *)
+              [ -f "$f" ] && files="$files $f"
+              ;;
+          esac
         done
-        if [ -z "$files" ]; then
+        keep=""
+        for f in $files; do
+          covered=""
+          for d in $dirs; do
+            case "$f" in "$d"/*) covered=1 ;; esac
+          done
+          [ -n "$covered" ] || keep="$keep $f"
+        done
+        files="$keep"
+        keep=""
+        for d in $dirs; do
+          covered=""
+          for o in $dirs; do
+            [ "$d" = "$o" ] && continue
+            case "$d" in "$o"/*) covered=1 ;; esac
+          done
+          [ -n "$covered" ] || keep="$keep $d"
+        done
+        dirs="$keep"
+        if [ -z "$files$dirs" ]; then
           echo "no staged test files survive the filter — skipping"
         else
-          env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_PERF -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest $files -q
+          par=""
+          [ -n "$dirs" ] && par="-n auto"
+          env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_PERF -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest $dirs $files $par -q
         fi
 
 # piped (NOT parallel — lefthook rejects both) runs the commands sequentially,
