@@ -176,6 +176,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             response_text,
             is_xp_agent_leak=is_xp_agent_leak,
             scan_target=scan_target,
+            backgrounded=bool(tool_input.get("run_in_background")),
         )
         if not is_xp_agent_leak:
             nudge = _check_mid_chain_nudge(smm_dir, input_data)

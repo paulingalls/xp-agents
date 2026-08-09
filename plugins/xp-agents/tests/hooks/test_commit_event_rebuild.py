@@ -8,36 +8,41 @@ commit-success signals go blind at once: stdout truncated past the
 `[branch hash] msg` line by a large pre-commit run, AND an `-m`/`-F` argument
 the hook cannot expand. The recorded case resolved zero of 17 named ids.
 
+The second blindness has a second cause, and it is the dominant one: a
+`run_in_background: true` Bash returns the tool call at LAUNCH. git has written
+nothing yet, so there is no success line AND the message — perfectly readable —
+is compared against a HEAD the command has not moved. See
+`docs/completed/BUG_backgrounded_commit_no_event.md`.
+
 These tests run against a REAL temp git repo rather than patched `commits.*`
 lookups, because the discriminators the rebuild leans on — committer
 timestamp, parent count, reflog action — are properties of git's own history
-that a stub would let us assert into existence.
+that a stub would let us assert into existence. The fixture itself lives in
+`_commit_repo_case.py`.
 """
 
-import os
-import shutil
-import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
-import bash_post_tool
 import markers
-from conftest import _HookTestCase, _make_bash_input, compute_resolutions, make_event
-from event_helpers import events_of_type
+from _commit_repo_case import _RebuildTestCase
+from conftest import compute_resolutions, make_event
 from event_schema import EVENT_TYPE_COMMIT, EVENT_TYPE_CONCERN
 
 _SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 
 # Same sub-cap and reasoning as the markers split: 450, not 499, because
-# "comfortably under 500" is a judgement a green suite cannot make.
+# "comfortably under 500" is a judgement a green suite cannot make. The
+# extracted fixture is capped alongside its consumer, or moving code into it
+# would be a way to dodge the cap rather than to hold it.
 _LINE_SUB_CAP = 450
 _CAPPED_FILES = (
     _SCRIPTS_DIR / "commit_handling.py",
@@ -45,6 +50,7 @@ _CAPPED_FILES = (
     _SCRIPTS_DIR / "commit_emit.py",
     _SCRIPTS_DIR / "commits.py",
     Path(__file__).resolve(),
+    Path(__file__).resolve().parent / "_commit_repo_case.py",
 )
 
 # Two shapes of "the hook cannot expand this message". `-F <path>` yields no
@@ -53,100 +59,6 @@ _CAPPED_FILES = (
 # substitution, and `-F -` with a heredoc is the other common spelling.
 _UNREADABLE_F = "git commit -F {repo}/.git/MSG-ALREADY-GONE"
 _UNREADABLE_VAR = 'git commit -m "$MSG"'
-
-
-class _RebuildTestCase(_HookTestCase):
-    """A real git repo plus a temp SMM, fresh per test."""
-
-    def setUp(self):
-        super().setUp()
-        self.repo = Path(tempfile.mkdtemp())
-        self.git("init", "-q", "-b", "main", ".")
-        self.git("config", "user.email", "t@t.com")
-        self.git("config", "user.name", "T")
-        # An initial commit so `git diff HEAD~1` (get_committed_files) has a
-        # parent to diff against — a root commit reports no files at all.
-        self.commit("init", path="README.md", content="init")
-
-    def tearDown(self):
-        shutil.rmtree(self.repo, ignore_errors=True)
-        super().tearDown()
-
-    def git(self, *args: str, env_extra: dict | None = None) -> str:
-        env = os.environ.copy()
-        if env_extra:
-            env.update(env_extra)
-        result = subprocess.run(
-            ["git", *args],
-            cwd=self.repo,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        if result.returncode != 0:
-            raise AssertionError(f"git {args!r} failed: {result.stderr}")
-        return result.stdout.strip()
-
-    def commit(
-        self,
-        message: str,
-        *,
-        path: str = "src/foo.py",
-        content: str | None = None,
-        age_seconds: int = 0,
-    ) -> str:
-        """Write `path`, commit `message`, return the new HEAD hash.
-
-        `age_seconds` backdates BOTH dates: the freshness gate reads the
-        committer timestamp, and pinning only the author date would leave the
-        commit young by the measure that matters.
-        """
-        target = self.repo / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content if content is not None else message)
-        self.git("add", "-A")
-        env = None
-        if age_seconds:
-            stamp = f"{int(self.head_timestamp()) - age_seconds} +0000"
-            env = {"GIT_COMMITTER_DATE": stamp, "GIT_AUTHOR_DATE": stamp}
-        self.git("commit", "-q", "-m", message, env_extra=env)
-        return self.head()
-
-    def head(self) -> str:
-        return self.git("rev-parse", "HEAD")
-
-    def head_timestamp(self) -> str:
-        return self.git("show", "-s", "--format=%ct", "HEAD")
-
-    def erase_reflog(self) -> None:
-        """Leave `git reflog -1` with nothing to report.
-
-        The WHOLE `.git/logs` tree, not just `logs/HEAD`: with HEAD's own log
-        gone git resolves `HEAD` to the current branch and reads
-        `logs/refs/heads/<branch>` instead, so removing one file leaves the
-        action still readable (measured: a merge still reported `merge side`)
-        and the no-opinion arm never runs. `core.logAllRefUpdates` off then
-        keeps the next git call from recreating them.
-        """
-        self.git("config", "core.logAllRefUpdates", "false")
-        shutil.rmtree(self.repo / ".git" / "logs")
-
-    def run_hook(self, command: str, stdout: str = "", **overrides):
-        return bash_post_tool.run(
-            _make_bash_input(
-                command=command.format(repo=self.repo),
-                stdout=stdout,
-                cwd=str(self.repo),
-                **overrides,
-            ),
-            smm_dir=self.smm_dir,
-        )
-
-    def commit_events(self) -> list[dict]:
-        return events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
-
-    def concerns(self) -> list[dict]:
-        return events_of_type(self._read_events(), EVENT_TYPE_CONCERN)
 
 
 class TestRebuildFromGit(_RebuildTestCase):
@@ -189,22 +101,15 @@ class TestTrailerActuallyResolves(_RebuildTestCase):
     merely land in metadata. Resolution is what the open-concern backlog
     was silently missing."""
 
-    def _seed_concern(self) -> str:
-        event = make_event(
-            EVENT_TYPE_CONCERN, content="dangling work", files=["src/foo.py"]
-        )
-        _common.append_safe(self.smm_dir, event)
-        return event["id"]
-
     def test_rebuilt_trailer_closes_the_named_concern(self):
-        concern_id = self._seed_concern()
+        concern_id = self.seed_concern()
         self.commit(f"fix: close it\n\nResolves-Event: {concern_id}")
         self.run_hook(_UNREADABLE_F)
         resolutions = compute_resolutions(self._read_events())
         self.assertIn(concern_id, resolutions["resolved_concern_ids"])
 
     def test_trailer_is_stripped_from_the_recorded_body(self):
-        concern_id = self._seed_concern()
+        concern_id = self.seed_concern()
         self.commit(f"fix: close it\n\nResolves-Event: {concern_id}")
         self.run_hook(_UNREADABLE_F)
         self.assertNotIn("Resolves-Event", self.commit_events()[0]["content"])
@@ -360,6 +265,73 @@ class TestAmbiguousHeadIsNotClaimed(_RebuildTestCase):
         self.commit("feat: x", age_seconds=-7200)
         self.run_hook(_UNREADABLE_F)
         self.assertEqual(len(self.commit_events()), 0)
+
+
+class TestBackgroundedCommitIsNotEvidence(_RebuildTestCase):
+    """The dominant loss path: 79% of this sprint's plain commits, and 16 of
+    16 backgrounded ones, left no commit event at all.
+
+    `run_in_background: true` returns the tool call at LAUNCH. git has written
+    nothing, so stdout carries the harness notice instead of a success line —
+    and the readable `-m` message is compared against a HEAD this command has
+    not moved. That mismatch is the one thing the rebuild's message guard
+    reads as evidence, and here it is evidence of nothing: the command has not
+    run yet. HEAD is instead very often the PREVIOUS backgrounded commit,
+    unrecorded for exactly this reason, and recovering it is the rebuild's own
+    stated claim — "a commit exists at this hash with no event, here is its
+    message read back from git".
+    """
+
+    _LAUNCH_NOTICE = "Command running in background with ID: b1s2v6k3o"
+    _STILL_RUNNING = "git commit -m 'a subject git has not written yet'"
+
+    def test_previous_backgrounded_commit_is_recovered(self):
+        head = self.commit("feat: landed in the background, unobserved")
+        self.run_hook(self._STILL_RUNNING, stdout=self._LAUNCH_NOTICE, background=True)
+        events = self.commit_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["metadata"]["commit_hash"], head)
+        self.assertIn("landed in the background", events[0]["content"])
+
+    def test_recovered_commit_closes_its_trailer(self):
+        """AC-2: the trailer resolves at commit time, not only at the merge."""
+        concern_id = self.seed_concern()
+        self.commit(f"fix: close it\n\nResolves-Event: {concern_id}")
+        self.run_hook(self._STILL_RUNNING, stdout=self._LAUNCH_NOTICE, background=True)
+        resolutions = compute_resolutions(self._read_events())
+        self.assertIn(concern_id, resolutions["resolved_concern_ids"])
+
+    def test_recovery_replaces_the_false_trace(self):
+        """The two traces this bug left in the live log claimed a commit whose
+        message "did not parse" — of a message that parses fine. Recording the
+        commit is the honest observation; the trace must not also fire."""
+        self.commit("feat: landed in the background, unobserved")
+        self.run_hook(self._STILL_RUNNING, stdout=self._LAUNCH_NOTICE, background=True)
+        self.assertEqual(self.concerns(), [])
+
+    def test_a_backgrounded_launch_over_recorded_history_stays_quiet(self):
+        """The first backgrounded commit of a branch: HEAD is still the
+        recorded commit the branch was cut from, and there is nothing to
+        recover yet. Silence, not a fabricated second event for that hash."""
+        head = self.commit("feat: already accounted for")
+        _common.append_safe(
+            self.smm_dir,
+            make_event(
+                EVENT_TYPE_COMMIT,
+                content="feat: already accounted for",
+                metadata={"commit_hash": head, "action": "commit_success"},
+            ),
+        )
+        self.run_hook(self._STILL_RUNNING, stdout=self._LAUNCH_NOTICE, background=True)
+        self.assertEqual(len(self.commit_events()), 1)
+        self.assertEqual(self.concerns(), [])
+
+    def test_the_other_guards_still_stand_when_backgrounded(self):
+        """Only the message guard is bypassed. An old HEAD is still someone
+        else's history, backgrounded or not."""
+        self.commit("feat: yesterday's work", age_seconds=6 * 3600)
+        self.run_hook(self._STILL_RUNNING, stdout=self._LAUNCH_NOTICE, background=True)
+        self.assertEqual(self.commit_events(), [])
 
 
 class TestRebuildGateIsHashOnly(_RebuildTestCase):
