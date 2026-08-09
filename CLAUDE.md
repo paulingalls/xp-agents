@@ -80,12 +80,14 @@ See PROCESS_GUIDE.md for event types, required fields, and common patterns.
 
 ## Testing
 
-All tests run on every commit via lefthook — but only once `make setup` has installed the hook; a clone that skips it commits ungated, silently. Leaky env vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `SMM_DIR`, `XP_TEAMMATE_NAME`, `CLAUDE_CODE_SESSION_ID`, and more) stripped via `env -u` in lefthook.yml and at import time in `tests/_env_hygiene.py` — that module is the single registry of the strip list and the pins, and lefthook must mirror it. The teammate var matters because the SessionStart hook reads it to choose the teammate guide; without stripping, integration tests assert against the wrong guide and every teammate's pre-commit fails.
+All tests run on every **push** via lefthook; the commit gate is lint, format and types only (the suite measured 432s, too slow to pay per increment, and pushing happens at every story close). Both gates exist only once `make setup` has installed the hooks; a clone that skips it commits and pushes ungated, silently. Leaky env vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `SMM_DIR`, `XP_TEAMMATE_NAME`, `CLAUDE_CODE_SESSION_ID`, and more) stripped via `env -u` in lefthook.yml and at import time in `tests/_env_hygiene.py` — that module is the single registry of the strip list and the pins, and lefthook must mirror it. The teammate var matters because the SessionStart hook reads it to choose the teammate guide; without stripping, integration tests assert against the wrong guide and every teammate's gated run fails.
 
-**Setup** (one-time): `make setup` — verifies `pytest -n auto` works and installs the lefthook hook. See README "Development setup" for details and the manual equivalents.
+**Setup** (one-time): `make setup` — verifies `pytest -n auto` works and installs the lefthook hooks. See README "Development setup" for details and the manual equivalents.
 
 ```bash
-# Run everything in parallel (~13s on 16 cores):
+# Run everything in parallel (432s / 9188 tests measured 2026-08-08 on a
+# 16-core machine running endpoint AV that taxes every file access; a box
+# without it is much faster — treat this as an upper bound, not a spec):
 pytest -n auto
 # Run a single file:
 pytest plugins/xp-agents/tests/hooks/test_session_start_core.py

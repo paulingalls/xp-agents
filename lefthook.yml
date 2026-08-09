@@ -6,11 +6,18 @@
 # test_dev_setup.py::TestRuffFormatFixModeSequencedOutOfParallel for the pin.
 #
 # Two consequences of `piped` beyond the ordering, both deliberate:
-#  - It ABORTS the remaining commands at the first failure. A ruff-check error
-#    therefore costs 0.06s instead of the ~129s pytest run, but a red commit
+#  - It ABORTS the remaining commands at the first failure, so a red commit
 #    shows only the FIRST failing check, not every one at once as parallel did.
-#  - Everything is sequential now, pyright included: ~13s of type-checking that
-#    used to overlap the test run is added to the hook's wall clock.
+#  - Everything is sequential, pyright included.
+#
+# The commit gate is lint, format and types ONLY — the full suite moved to
+# pre-push. It was measured at 432s (9188 tests) on this machine, which is 36x
+# the ~12s the remaining commands cost and made every increment expensive enough
+# to push toward batching several changes into one commit. Nothing is ungated:
+# `git push` fires on every story close (xp-story-close Step 2) and again on the
+# post-merge target push, so the suite runs on the story tip AND on the merged
+# result — the latter is combination coverage a pre-commit hook never gave,
+# since git runs no pre-commit for a merge at all.
 #
 # Accepted residual of `stage_fixed` (see the SMM's precommit-piped-priority /
 # partial-stage decisions): on a PARTIALLY staged file, ruff formats the
@@ -35,25 +42,20 @@ pre-commit:
       glob: "plugins/xp-agents/**/*.py"
       root: "plugins/xp-agents/"
       run: pyright
-    # All tests in one pytest -n auto run (~13s on 16 cores). Replaces four
-    # separate unittest discover commands; pytest-xdist parallelism is finer-
-    # grained than lefthook's per-command parallelism. See README "Development
-    # setup" for pipx install + pytest-xdist injection.
-    # -u XP_PERF: an exported XP_PERF=1 must not re-arm the wall-clock scale
-    # timers on the commit gate. They are only meaningful when they run alone,
-    # which only pre-push's `piped` sequencing guarantees.
-    # -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID: the
-    # hook-liveness heartbeat is keyed on the session id, so an inherited real
-    # one aims the suite at the developer's own live marker.
-    # tests/_env_hygiene.py pins the same chain in process; both places are
-    # required and a test asserts they agree.
-    tests:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_PERF -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest -n auto -q
 
 # piped (NOT parallel — lefthook rejects both) runs the commands sequentially,
-# in alphabetical order by name: integration, then perf. The scale timers are
-# wall-clock bounds, so they mean nothing while integration's 16 xdist workers
-# are saturating the box; serializing is what makes the numbers real.
+# in alphabetical order by name: all-tests, then perf. The scale timers are
+# wall-clock bounds, so they mean nothing while all-tests' 16 xdist workers are
+# saturating the box; serializing is what makes the numbers real. The name
+# `all-tests` is load-bearing: `tests` would sort AFTER `perf` and silently
+# invert that ordering — test_lefthook_perf_gate.py holds it as a constant and
+# pins that `perf` sorts last.
+#
+# `all-tests` is the whole suite, which subsumes the former `integration`
+# command rather than sitting beside it — keeping both would run
+# tests/integration twice. It carries -u XP_PERF, which `integration` never did:
+# it runs -n auto, and an exported XP_PERF=1 would arm the wall-clock bounds
+# 16-wide, measuring xdist contention instead of anything real.
 # No glob/{push_files} on either command: pre-push also fires from a detached
 # HEAD (close_common._push_relocated), where a file-list filter can come back
 # empty and silently skip the command.
@@ -67,7 +69,12 @@ pre-commit:
 pre-push:
   piped: true
   commands:
-    integration:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest plugins/xp-agents/tests/integration -n auto -q
+    # -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID: the
+    # hook-liveness heartbeat is keyed on the session id, so an inherited real
+    # one aims the suite at the developer's own live marker.
+    # tests/_env_hygiene.py pins the same chain in process; both places are
+    # required and a test asserts they agree.
+    all-tests:
+      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_PERF -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest -n auto -q
     perf:
       run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID XP_PERF=1 pytest plugins/xp-agents/tests/engine/test_scale_invariants.py -k TestScaleBenchmarks -p no:xdist -q

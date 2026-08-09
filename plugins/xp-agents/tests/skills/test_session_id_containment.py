@@ -220,9 +220,12 @@ class TestLefthookMirrorsTheStrip(unittest.TestCase):
             if "pytest" in line and "env -u" in line
         ]
         # Without this the loop below is vacuous: reword the `run:` lines and
-        # the agreement check silently stops checking anything. Three today —
-        # pre-commit `tests`, pre-push `integration`, pre-push `perf`.
-        self.assertEqual(len(pytest_lines), 3, lefthook)
+        # the agreement check silently stops checking anything. Two today —
+        # pre-push `all-tests` and pre-push `perf`. Was three until the full
+        # suite moved off the commit gate; pre-commit no longer runs pytest at
+        # all, and pre-push `integration` was subsumed by `all-tests` rather
+        # than kept alongside it, which would have run tests/integration twice.
+        self.assertEqual(len(pytest_lines), 2, lefthook)
         for line in pytest_lines:
             for name in hook_liveness.SESSION_ID_ENV_CANDIDATES:
                 with self.subTest(var=name, line=line.strip()[:40]):
