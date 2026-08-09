@@ -1,9 +1,9 @@
-# piped (NOT parallel — lefthook rejects both): ruff-format rewrites staged
-# files in place, so nothing else may read them concurrently. `priority: 1`
-# pins it to run before the other commands regardless of name ordering
-# (verified against lefthook 2.1.10: priority orders piped and plain-sequential
-# runs, and is a no-op under parallel); see
-# test_dev_setup.py::TestRuffFormatFixModeSequencedOutOfParallel for the pin.
+# piped (NOT parallel — lefthook rejects both): ruff-check --fix and ruff-format
+# both rewrite staged files in place, so nothing else may read them
+# concurrently. `priority: 1` and `2` pin the two rewriters ahead of every
+# reader regardless of name ordering (verified against lefthook 2.1.10:
+# priority orders piped and plain-sequential runs, and is a no-op under
+# parallel); see test_lefthook_commit_gate.py::TestRewritersRunBeforeReaders.
 #
 # Two consequences of `piped` beyond the ordering, both deliberate:
 #  - It ABORTS the remaining commands at the first failure, so a red commit
