@@ -2,6 +2,60 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.12.0 — A name is not the thing it names
+
+Both fixes here are the same mistake in different clothes: something read a
+label where it should have read the thing, and reported the label's answer with
+full confidence.
+
+### Moved is not deleted
+
+`compact` and `repair` take events OUT of `events.jsonl` and put them under
+`backups/` — `archive.py` calls that file "the ONLY copy of what was removed".
+But `get-event` searched the live log alone, so an id that had been archived
+came back **not found**. Ids stay citable forever: later events point at them
+through `references` and `metadata.resolves`, so the answer turned relocation
+into apparent deletion.
+
+That is not a hypothetical cost. In this project's own log it produced an hour
+of wrong diagnosis and two events that had to be retracted — a high-severity
+claim that the adopt CLI silently dropped a write, and a follow-on claim that an
+adopted retro Try had been lost. The event was in `backups/` the whole time,
+carrying `disposition: adopted`, and the adoption ledger had it too. The tool
+that reported the absence is now the tool that disproves it.
+
+The scan lives in `archive.py`, which already owns the `backups/` naming
+convention. Ordered by mtime rather than filename — the directory mixes
+`archive-*`, `events-*` and `pre-repair-*` with collision suffixes, so a lexical
+sort is not chronological, and a pre-repair backup is a whole-file copy, so one
+id can genuinely live in several archives. Parsed tolerantly, because a repair
+archive holds malformed lines by construction. Only `get-event` falls back;
+`lookup_event`'s contract is shared with promote and question-close, which keep
+reading the live log.
+
+### Named like a test is not being a test
+
+The commit gate selected work by filename. `scripts/test_parsing.py` and
+`scripts/test_attribution.py` are shipped modules that happen to start with
+`test_`; pytest collects nothing in them and exits 5, which lefthook reads as a
+failed commit — so staging one alone refused the commit outright, with no way
+out short of disabling the hook.
+
+The same rule was blind in the other direction. `tests/conftest.py` and the
+`tests/_*.py` helpers carry no `test_` in their names, so a change that can fail
+thousands of tests matched nothing and ran **zero** of them, committing green.
+
+Targets now come from what was staged rather than from a naming convention:
+paths under the tests tree only, fixtures mapped to their containing directory,
+files dropped when a selected directory already covers them. A directory target
+runs with `-n auto` — the tree sequentially is the 432-second run the gate exists
+to avoid, while the same tree under xdist is seconds.
+
+The tests that were supposed to protect this asserted only that certain strings
+appeared in `lefthook.yml`, which cannot tell a filter that works from one that
+never fires. They now execute the gate's shell body against a stub runner and
+assert on the arguments it actually receives.
+
 ## v5.11.0 — A milestone that disproved itself
 
 The sprint set out to sweep stale prose out of three shipped roots. Its first
