@@ -218,14 +218,29 @@ def _run_attribution_suffix(item: dict) -> str:
     Checkout renders as `Path(cwd).name`, not the full value — the full
     value is one `get-event <id>` away, the same retrieval contract the
     digest block already relies on.
+
+    `cwd` is the SOLE gate, and the counts only pick the form (story-002).
+    Requiring all three made the degraded producer render nothing at all:
+    `bash_failure` records no total (its counts come from two independent
+    scans, so their sum is not a denominator anyone should trust) and often
+    no count either — and a run nobody could count is exactly the one a
+    reader most needs attributed to a checkout.
+
+    `total` without `failed` is a shape neither producer creates; it falls
+    to the checkout-only form rather than rendering a bare denominator that
+    would read like a result.
     """
     metadata = item.get("metadata") or {}
     failed = metadata.get(event_metadata.METADATA_KEY_TEST_FAILED)
     total = metadata.get(event_metadata.METADATA_KEY_TEST_COUNT)
     cwd = metadata.get(event_metadata.METADATA_KEY_CWD)
-    if failed is None or total is None or not cwd:
+    if not cwd:
         return ""
     checkout = Path(cwd).name
+    if failed is None:
+        return f" [in {checkout}]"
+    if total is None:
+        return f" [{failed} failed in {checkout}]"
     return f" [{failed}/{total} failed in {checkout}]"
 
 

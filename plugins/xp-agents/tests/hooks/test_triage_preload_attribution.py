@@ -77,6 +77,45 @@ class TestFullLineAttribution(unittest.TestCase):
         self.assertNotIn("failed in", result)
 
 
+class TestDegradedAttribution(unittest.TestCase):
+    """story-002: bash_failure knows less, and what it knows still renders.
+
+    Requiring all three keys made the degraded producer's concerns render
+    NOTHING — the run with no counts is exactly the one a reader most needs
+    attributed to a checkout. `cwd` is the single gate; the counts only
+    choose which form.
+    """
+
+    def _render(self, item: dict) -> str:
+        return triage_preload.format_triage_section(
+            "Open Concerns", [item], ["2026-02-01T00:00:00+00:00"]
+        )
+
+    def test_failed_without_total_renders_the_count_alone(self):
+        item = _concern_with_attribution()
+        del item["metadata"]["test_count"]
+        self.assertIn("[2 failed in worktree-story-001-x]", self._render(item))
+
+    def test_checkout_alone_still_renders(self):
+        item = _concern_with_attribution()
+        del item["metadata"]["test_count"]
+        del item["metadata"]["test_failed"]
+        self.assertIn("[in worktree-story-001-x]", self._render(item))
+
+    def test_full_counts_form_is_unchanged(self):
+        self.assertIn(
+            "[2/23 failed in worktree-story-001-x]",
+            self._render(_concern_with_attribution()),
+        )
+
+    def test_total_without_failed_does_not_invent_a_form(self):
+        # Neither producer creates this shape; it must not render a bare
+        # denominator that reads like a result.
+        item = _concern_with_attribution()
+        del item["metadata"]["test_failed"]
+        self.assertIn("[in worktree-story-001-x]", self._render(item))
+
+
 class TestDigestLineAttribution(unittest.TestCase):
     def test_renders_failed_total_and_checkout(self):
         # severity must NOT be high: _digests exempts high-severity items
