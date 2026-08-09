@@ -42,7 +42,7 @@ def session_marker(base_name: str, session_id: object) -> MarkerDef:
 
     This helper adds only the JSON content type, which is what every
     session-keyed record here needs: anything that is not a non-blank string
-    resolves to the unsuffixed shared marker — the time-only check such a host
+    resolves to the unsuffixed shared marker — the un-scoped check such a host
     was always going to get.
     """
     return MarkerDef(session_scope.scoped_name(base_name, session_id), "json")

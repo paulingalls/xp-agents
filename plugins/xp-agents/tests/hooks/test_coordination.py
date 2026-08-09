@@ -372,14 +372,9 @@ class TestUndeterminedLivenessKeepsTheTtl(_LivenessTestCase):
 class TestOurOwnSessionsEntryKeepsTheTtl(_LivenessTestCase):
     """Our own beating heartbeat is not evidence that ANOTHER agent id lives.
 
-    One session holds several agent ids: a non-xp subagent writes its own
-    entry under its own id inside OUR session, and one that never reaches
-    SubagentStop leaves it behind. Our heartbeat would then hold that entry
-    active for as long as we keep working, where the TTL dropped it at 30
-    minutes — this story's defect surviving with an unbounded window. So our
-    own session's entries fall back to the TTL, the answer "cannot tell"
-    already gets. No teammate is caught by it: `spawn_teammate` strips every
-    session-id candidate from the child, so a teammate has its own id or None.
+    One session holds several agent ids. The verdict is scoped to VOUCHING, not
+    to discarding: our heartbeat says nothing about whether that agent id lives,
+    but the entry's own age does. Fresh counts, aged does not.
     """
 
     OURS = "the-leads-own-session"
@@ -394,8 +389,11 @@ class TestOurOwnSessionsEntryKeepsTheTtl(_LivenessTestCase):
         self.assertFalse(self._active_as())
 
     def test_our_own_sessions_fresh_entry_still_counts(self):
-        """Control: inside the TTL, unchanged. Without it, "ignore our own
-        session" silently drops a sibling the gate is meant to wait on."""
+        """RE-REVERSED. story-003 flipped this to "not a sibling" because no
+        teammate can be in this state — true, but the gates ask whether someone
+        else may be WRITING, and a backgrounded non-xp subagent does:
+        `is_xp_agent` never skips it. The aged row keeps what story-003 removed.
+        """
         self._entry("subagent-42", age=self.FRESH, session_id=self.OURS)
         self._beat(self.OURS, age=self.FRESH)
         self.assertTrue(self._active_as())

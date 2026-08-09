@@ -95,7 +95,7 @@ class TestChildEnvDropsOurSessionId(_BootstrapTestCase):
     preload once the lead goes idle while its hooks are demonstrably running.
     """
 
-    def _child_env(self) -> dict[str, str]:
+    def _child_env(self, *extra_args: str) -> dict[str, str]:
         from unittest.mock import patch
 
         captured: dict[str, dict[str, str]] = {}
@@ -119,13 +119,14 @@ class TestChildEnvDropsOurSessionId(_BootstrapTestCase):
                         str(self.smm_dir),
                         "--prompt-file",
                         prompt_path,
+                        *extra_args,
                     ]
                 )
         finally:
             Path(prompt_path).unlink(missing_ok=True)
         return captured["env"]
 
-    def test_every_session_id_candidate_is_dropped(self):
+    def _dropped_candidates(self, *extra_args: str) -> None:
         import os as _os
 
         import hook_liveness
@@ -133,10 +134,25 @@ class TestChildEnvDropsOurSessionId(_BootstrapTestCase):
         candidates = hook_liveness.SESSION_ID_ENV_CANDIDATES
         leaked = dict.fromkeys(candidates, "the-leads-session")
         with patch.dict(_os.environ, leaked):
-            env = self._child_env()
-        for var in hook_liveness.SESSION_ID_ENV_CANDIDATES:
+            env = self._child_env(*extra_args)
+        for var in candidates:
             with self.subTest(var=var):
                 self.assertNotIn(var, env)
+
+    def test_every_session_id_candidate_is_dropped(self):
+        self._dropped_candidates()
+
+    def test_the_in_place_shape_is_launched_with_the_same_env(self):
+        """The other spawn shape, asserted rather than argued from one call site.
+
+        `coordination.has_active_teammates` skips an entry stamped with the
+        READER's session id outright, and what makes that safe is that NO
+        teammate can carry our id — which holds for the in-place shape only
+        because it is launched with this same stripped environment. Today one
+        `env` and one launch site make a divergence unexpressible; the day a
+        second launch path appears, this row is what says so.
+        """
+        self._dropped_candidates("--in-place")
 
     def test_the_teammate_name_and_smm_dir_still_reach_the_child(self):
         """The drop must not become a general env scrub."""

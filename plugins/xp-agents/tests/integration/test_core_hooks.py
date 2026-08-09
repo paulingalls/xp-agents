@@ -377,6 +377,7 @@ class TestUserPromptLogIntegration(_IntegrationTestCase):
         self.assertEqual(len(events), 0)
 
     def test_invalid_json_exits_zero(self):
+        # Hand-rolled: `_run_script` json.dumps a dict, so it cannot send junk.
         script = self.scripts_dir / "user_prompt_log.py"
         r = subprocess.run(
             ["python3", str(script)],
@@ -460,6 +461,7 @@ class TestSubagentStopIntegration(_IntegrationTestCase):
         self.assertEqual(len(statuses), 1)
 
     def test_invalid_json_exits_zero(self):
+        # Hand-rolled: `_run_script` json.dumps a dict, so it cannot send junk.
         script = self.scripts_dir / "subagent_stop.py"
         r = subprocess.run(
             ["python3", str(script)],

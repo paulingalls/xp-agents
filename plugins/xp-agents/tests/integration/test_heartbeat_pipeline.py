@@ -13,7 +13,6 @@ the marker. A file on disk is not the claim; the claim is that a fresh
 process asking "are hooks running" gets yes.
 """
 
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -43,14 +42,13 @@ class TestHeartbeatPipeline(_IntegrationTestCase):
         return {**self._env_with_plugin_root(), **_env()}
 
     def _run_hook(self, script: str, payload: dict) -> subprocess.CompletedProcess:
-        result = subprocess.run(
-            ["python3", str(self.scripts_dir / script)],
-            input=json.dumps(payload),
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=self._hook_env(),
-        )
+        """Run one hook as its own process, through the shared driver.
+
+        `_hook_env()` is passed whole rather than just the session blanks: it is
+        already `_test_env` plus its own keys, so merging it as overrides is the
+        same env, not a near one.
+        """
+        result = self._run_script_with_env(script, payload, self._hook_env())
         self.assertEqual(result.returncode, 0, result.stderr)
         return result
 
@@ -141,3 +139,33 @@ class TestHeartbeatPipeline(_IntegrationTestCase):
         )
         self.assertEqual(self._marker_payload(self.SESSION)["session_id"], self.SESSION)
         self.assertTrue(self._marker_payload(self.SESSION)["plugin_version"])
+
+    def test_a_reader_on_a_different_id_is_not_live_off_our_heartbeat(self):
+        """The disagreement arm: a heartbeat a reader cannot address is not
+        evidence about that reader.
+
+        The mismatch verdict is pinned in-process elsewhere, but only from
+        writers handed an explicit id. What is observable only here is the
+        COMPOSITION discovery `d49c2d1fb85b` is about: a real hook process
+        keying the marker off its PAYLOAD id while a separate reader process
+        resolves from its ENVIRONMENT.
+
+        The reason is asserted, not just the verdict, because two other refusals
+        also land on exit 1 — a stale own marker, and `CODE_NO_MARKER` for a
+        reader that resolves no id at all. The negative assertion excludes the
+        second: reaching the session-mismatch prose proves an id resolved and
+        simply did not name our heartbeat.
+        """
+        self._run_hook(
+            "session_start.py", {"session_id": self.SESSION, "source": "startup"}
+        )
+        foreign = self._status("a-reader-that-is-not-us")
+        self.assertEqual(
+            foreign.returncode, hook_liveness.EXIT_NOT_LIVE, foreign.stdout
+        )
+        self.assertIn("No hook has run in this session", foreign.stdout)
+        self.assertNotIn(
+            "addressable from here",
+            foreign.stdout,
+            "refused for want of ANY id, so this proves nothing about a mismatch",
+        )

@@ -2,6 +2,63 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.9.0 — Three checks that vouched for themselves
+
+### Evidence about a neighbour is not evidence about you
+
+Each of these reported a state it had not established, and each looked healthy
+because the thing it consulted was real — just not about the session asking.
+
+**The liveness read borrowed a stranger's heartbeat.** A process that could
+discover no session id addressed the shared marker, missed, and then accepted
+ANY fresh per-session heartbeat as proof that its own hook runtime was live. A
+session whose runtime never loaded read LIVE off a neighbour — the silent
+unenforcement the whole mechanism exists to make loud. Both copies of that
+borrow are gone, from the absent path and the stale path. The scan survives only
+to say what it saw in a refusal, never to grant one.
+
+**The status line contradicted the context beside it.** `hook_output` sends
+`additionalContext` to the agent and `systemMessage` to the user. On a
+validation failure the agent read `SMM init failed — xp-agents disabled` while
+the user read `XP agents (vN) active. Run /xp-kickoff.` — invited into the one
+session no gate could police. The cause was two notions of one directory in
+`main`: the unvalidated resolve handed to the banner, and the validated one
+`run` computed and never returned. One validation now picks both channels.
+
+**Our own heartbeat vouched for another agent's entry.** One session holds
+several agent ids: a non-xp subagent writes its own coordination entry under our
+session id, and because our heartbeat is beating — we are the one working — that
+entry read live for as long as the session lasted. It now reads UNDETERMINED and
+its own TTL decides. Not discarded: a backgrounded subagent really does edit
+files while the lead sits at Stop, and the gates ask whether someone may be
+WRITING, not whether the writer is a teammate.
+
+### The teammate path had the same defect, one door over
+
+Fixing the lead's banner left `enforcing` hardcoded true wherever the lead's
+validation did not run. A teammate whose pinned tree became unusable read
+"active" while every gate bailed on a missing directory — and a test asserted
+that banner byte for byte. The teammate's tree is now validated from the
+environment that names it, and both channels carry the verdict, because telling
+the user and not the agent is a disagreement nobody can see.
+
+### What this release does not claim
+
+**One story shipped no behaviour.** The own-session verdict ends this release
+byte-identical to what v5.8.0 already had. Its story changed the verdict to a
+flat skip, the close review found that discards live background writers, and it
+was reverted. That story's delivery is its tests and its prose.
+
+**A planned clause is not here.** The milestone's goal promised the recursion
+guard a harness-neutral leg. Measurement says it cannot be written yet: the
+second harness reports `agent_type` as `default` for every subagent, so a
+prefix test has nothing to discriminate on, and a manifest `agents` key is
+silently ignored there, so those subagents are not installed at all. Keying on
+the field's PRESENCE would work on both hosts, but it would also stop hooks
+firing inside the non-xp subagents that coordinate deliberately today — a
+harness-neutral-hooks decision, recorded and deferred to that milestone rather
+than made quietly here.
+
 ## v5.8.0 — Three gates reported on input they never looked at
 
 ### A gate that answers for input it cannot see is worse than no gate
