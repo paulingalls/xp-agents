@@ -100,21 +100,17 @@ VALID_VERIFY_STATUSES = frozenset(
 VALID_INTENT_STATUSES = frozenset({"open", "delivered", "superseded"})
 
 
-# ---------------------------------------------------------------------------
-# Event categories
-# ---------------------------------------------------------------------------
 # EVENT_CATEGORY / event_category_of live in event_categories.py (split-shim
 # per convention 91fcf9b8744d, same pattern as event_metadata below) and are
 # re-exported above by identity — see the import block near VALID_TYPES.
 
-
-# Re-exported from event_metadata (split-shim per convention 91fcf9b8744d
-# when this file crossed 500 lines). Definitions live in event_metadata.py;
-# callers keep using `event_schema.STATUS_ACTION_*` / `METADATA_KEY_*` /
-# `DISPOSITION_*` / `RETRO_ACTION_*` / `event_action(...)` / `is_closing(...)`
-# unchanged. EVERY public name in event_metadata belongs in this list — a
-# partial shim is how a caller discovers the split the hard way.
+# Re-exported from event_metadata (same split-shim convention, when this file
+# crossed 500 lines). Definitions live there; callers keep writing
+# `event_schema.<name>` unchanged. EVERY public name in event_metadata belongs
+# in the list below — a partial shim is how a caller discovers the split the
+# hard way, so tests/smm/test_event_schema.py sweeps every one of them.
 from event_metadata import (  # noqa: E402, F401
+    CONCERN_ACTION_TRANSIENT_TEST,
     CONCERN_KIND_CLOSE_CYCLE_BYPASS,
     DISPOSITION_ADOPTED,
     DISPOSITION_DEFERRED,
@@ -124,6 +120,7 @@ from event_metadata import (  # noqa: E402, F401
     METADATA_KEY_CLOSE_CYCLE_ID,
     METADATA_KEY_CLOSE_MODE,
     METADATA_KEY_COMMIT_HASH,
+    METADATA_KEY_CWD,
     METADATA_KEY_DEFER_UNTIL,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_FLAGGED_STALE,
@@ -133,6 +130,9 @@ from event_metadata import (  # noqa: E402, F401
     METADATA_KEY_STALE_SESSION_COUNT,
     METADATA_KEY_SUPERSEDES,
     METADATA_KEY_TDD_RED,
+    METADATA_KEY_TEST_COUNT,
+    METADATA_KEY_TEST_ERRORS,
+    METADATA_KEY_TEST_FAILED,
     RETRO_ACTION_SESSION_DONE,
     RETRO_ACTION_SPRINT_DONE,
     STATUS_ACTION_ASSIGN_COMPLETE,

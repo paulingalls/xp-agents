@@ -94,7 +94,7 @@ def _apply_two_counts(
     `result_counts`.
     """
     passed = failed = 0
-    matched = False
+    matched = anchored = False
     if summary_line is None:
         passed, failed, matched = result_counts.two_counts(
             tool_response, pass_re, fail_re
@@ -103,18 +103,27 @@ def _apply_two_counts(
         passed, failed, matched = result_counts.summary_line_counts(
             tool_response, summary_line, pass_re, fail_re
         )
+        anchored = matched
         if not matched and scan_fallback:
             passed, failed, matched = result_counts.two_counts(
                 tool_response, pass_re, fail_re
             )
-    _apply_counts(result, passed, failed, matched)
+    _apply_counts(result, passed, failed, matched, anchored=anchored)
 
 
-def _apply_counts(result: dict, passed: int, failed: int, matched: bool) -> None:
+def _apply_counts(
+    result: dict, passed: int, failed: int, matched: bool, *, anchored: bool = True
+) -> None:
     """Counts plus the status they imply. Shared with the pytest arm, which
-    selects its own summary lines and must not re-derive this."""
+    selects its own summary lines and must not re-derive this.
+
+    *anchored* says the pair came from ONE summary line, so a consumer may add
+    them; the whole-response scan matches each count independently and its sum
+    is not a total. Defaults True for the pytest arm, which anchors its own.
+    """
     result["passed"] = passed
     result["failed"] = failed
+    result["counts_anchored"] = anchored
     if matched:
         result["status"] = (
             PARSER_STATUS_ZERO if (passed + failed == 0) else PARSER_STATUS_PARSED
@@ -155,6 +164,7 @@ def parse_test_results(
         "status": PARSER_STATUS_FAILED,
         "passed": 0,
         "failed": 0,
+        "counts_anchored": False,  # no arm has proven an anchored pair yet
         "errors": 0,
     }
     # Once, before any arm reads the text. A colour code against the anchor

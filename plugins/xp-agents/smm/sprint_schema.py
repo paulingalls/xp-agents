@@ -168,9 +168,12 @@ def _validate_story(
 
     ae = story.get("acceptance_execution")
     if ae is not None:
-        enforce_manual_shape = (
-            grandfathered_story_ids is not None
-            and story.get("id") not in grandfathered_story_ids
+        # A non-str id never matches an exemption, and looking up an
+        # unhashable one would raise out of a function contracted to RETURN
+        # its errors.
+        story_id = story["id"]
+        enforce_manual_shape = grandfathered_story_ids is not None and (
+            not isinstance(story_id, str) or story_id not in grandfathered_story_ids
         )
         errors.extend(
             validate_acceptance_execution(
