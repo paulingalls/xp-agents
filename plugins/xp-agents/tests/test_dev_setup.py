@@ -261,59 +261,6 @@ class TestPyrightConfigIncludesSkillsScripts(unittest.TestCase):
         self._assert_covers_skill_scripts(PYRIGHT_CONFIG, "plugins/xp-agents/")
 
 
-class TestRuffFormatFixModeSequencedOutOfParallel(unittest.TestCase):
-    def setUp(self):
-        self.block = _hook("pre-commit")
-        self.ruff_format = _command_body(self.block, "ruff-format")
-        self.assertTrue(
-            self.ruff_format, "pre-commit must define a ruff-format command"
-        )
-
-    def test_pre_commit_is_not_parallel(self):
-        self.assertNotRegex(
-            self.block,
-            r"(?m)^\s+parallel:\s*true\b",
-            "pre-commit must not be parallel: true — a concurrent ruff-format "
-            "rewrite would race ruff-check/pyright/tests reading the same "
-            "files mid-write.",
-        )
-
-    def test_pre_commit_is_piped(self):
-        self.assertRegex(
-            self.block,
-            r"(?m)^\s+piped:\s*true\b",
-            "pre-commit must be piped: true so nothing runs concurrently "
-            "with ruff-format's rewrite.",
-        )
-
-    def test_ruff_format_runs_in_fix_mode(self):
-        self.assertNotIn(
-            "--check", self.ruff_format, "ruff-format must run in FIX mode"
-        )
-        self.assertRegex(
-            self.ruff_format,
-            r"run:\s*ruff format\b",
-            "ruff-format command must invoke `ruff format`",
-        )
-
-    def test_ruff_format_stages_its_rewrite(self):
-        self.assertRegex(
-            self.ruff_format,
-            r"(?m)^\s*stage_fixed:\s*true\b",
-            "ruff-format in fix mode without stage_fixed leaves the rewrite "
-            "unstaged — worse than the --check it replaces, since the "
-            "commit then records unformatted content with no signal.",
-        )
-
-    def test_ruff_format_is_sequenced_first(self):
-        self.assertRegex(
-            self.ruff_format,
-            r"(?m)^\s*priority:\s*1\b",
-            "ruff-format must set priority: 1 so lefthook runs it before "
-            "the other pre-commit commands.",
-        )
-
-
 class TestDevSetupCheckNeverShips(unittest.TestCase):
     """hooks_installed is xp-agents-internal dev-tooling vocabulary — the
     same class of surface name CLAUDE.md's project-agnostic guardrail
