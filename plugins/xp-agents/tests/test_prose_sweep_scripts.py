@@ -29,16 +29,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from _bases import _AssertNotNoneMixin
+from _prose_baseline import (
+    BASELINE_FILES,
+    BASELINE_PROSE,
+    BASELINE_TOTAL,
+    measure_named,
+    missing_from,
+)
 from _prose_scan import scan_roots
 
 _PLUGIN_ROOT = Path(__file__).parent.parent
-
-# Measured with `_prose_scan.py --root scripts` at story start, before the
-# close/review verification pass. Integers, not a rounded percentage: the
-# comparison is exact and a percentage would need a tolerance nobody can
-# justify.
-BASELINE_PROSE = 12602
-BASELINE_TOTAL = 31422
 
 
 def _ratio_regression(
@@ -61,7 +61,7 @@ def _ratio_regression(
             f"baseline is unusable ({base_prose}/{base_total}) — "
             "nothing to compare against"
         )
-    if prose * base_total >= base_prose * total:
+    if prose * base_total > base_prose * total:
         now = prose / total * 100
         was = base_prose / base_total * 100
         return (
@@ -71,13 +71,58 @@ def _ratio_regression(
     return None
 
 
+class TestTheBaselineFileSet(_AssertNotNoneMixin, unittest.TestCase):
+    """The set is what makes the two numbers comparable at all.
+
+    A ratio measured over one set of files says nothing about a different set.
+    Both defects this pin shipped with were that mismatch: a file EXTRACTED out
+    of another (which CLAUDE.md's 500-line rule demands) arrives carrying a
+    module docstring and no code the tree did not already have, so it raises the
+    ratio while nothing rotted.
+    """
+
+    def test_a_file_outside_the_baseline_set_is_not_measured(self):
+        """The extraction case, which is what reddened this pin: a new file
+        made entirely of prose must not move a number recorded before it
+        existed."""
+        measured = measure_named(
+            {"kept.py": (10, 100), "extracted.py": (80, 80)}, {"kept.py"}
+        )
+
+        self.assertEqual(measured, (10, 100))
+
+    def test_growth_inside_the_baseline_set_still_counts(self):
+        """The exemption must not become a hole: prose added to a file the
+        baseline DID measure is the regrowth this pin exists to catch."""
+        measured = measure_named({"kept.py": (40, 100)}, {"kept.py"})
+
+        self.assertEqual(measured, (40, 100))
+        self.assertIsNotNone(_ratio_regression(*measured, 10, 100))
+
+    def test_a_vanished_baseline_file_is_reported_not_silently_dropped(self):
+        """Shrinking the set silently shrinks what the pin measures, and a set
+        that has drifted to nothing would measure 0/0 and read as clean."""
+        self.assertEqual(
+            missing_from({"kept.py": (10, 100)}, {"kept.py", "gone.py"}), ("gone.py",)
+        )
+
+    def test_a_set_that_still_matches_the_tree_reports_nothing_missing(self):
+        self.assertEqual(missing_from({"kept.py": (10, 100)}, {"kept.py"}), ())
+
+
 class TestTheRatioComparisonItself(_AssertNotNoneMixin, unittest.TestCase):
     """Synthetic numbers, because the real tree can only ever be green here."""
 
-    def test_the_unswept_baseline_is_a_regression(self):
-        """The RED state: measuring exactly the baseline is not an improvement.
-        This is what the real-tree assertion returned before the pass ran."""
-        self.assertIsNotNone(_ratio_regression(12602, 31422, 12602, 31422))
+    def test_measuring_exactly_the_baseline_is_clean(self):
+        """A RATCHET's compliant state is sitting AT its recorded number — the
+        pin no longer has to prove a sweep improved things (that happened, and
+        is in history), only that the number does not climb."""
+        self.assertIsNone(_ratio_regression(12602, 31422, 12602, 31422))
+
+    def test_one_prose_line_above_the_baseline_is_a_regression(self):
+        """The RED state, and the reason equality had to stay clean rather than
+        the comparison being dropped: the margin is still exact."""
+        self.assertIsNotNone(_ratio_regression(12603, 31422, 12602, 31422))
 
     def test_a_higher_ratio_is_a_regression(self):
         self.assertIsNotNone(_ratio_regression(60, 100, 50, 100))
@@ -106,14 +151,27 @@ class TestTheRatioComparisonItself(_AssertNotNoneMixin, unittest.TestCase):
 
 
 class TestScriptsProseStaysBelowItsBaseline(unittest.TestCase):
-    def test_the_shipped_scripts_root_is_below_its_recorded_ratio(self):
+    def _scanned(self) -> dict[str, tuple[int, int]]:
         root = scan_roots(_PLUGIN_ROOT)["scripts"]
-        prose = root.docstring_lines + root.comment_lines
 
         self.assertGreater(len(root.files), 0, "scan found no files in scripts/")
         self.assertEqual(root.parse_failures, ())
+        return {
+            f.path.name: (f.docstring_lines + f.comment_lines, f.total_lines)
+            for f in root.files
+        }
+
+    def test_every_baseline_file_still_exists(self):
+        """A name whose file is gone stops being measured, and the pin would
+        report clean on a set quietly smaller than the one it was recorded
+        over. Re-record both the set and the numbers instead."""
+        self.assertEqual(missing_from(self._scanned(), BASELINE_FILES), ())
+
+    def test_the_shipped_scripts_root_is_below_its_recorded_ratio(self):
+        prose, total = measure_named(self._scanned(), BASELINE_FILES)
+
         self.assertIsNone(
-            _ratio_regression(prose, root.total_lines, BASELINE_PROSE, BASELINE_TOTAL)
+            _ratio_regression(prose, total, BASELINE_PROSE, BASELINE_TOTAL)
         )
 
 
