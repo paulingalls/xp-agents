@@ -4,7 +4,8 @@
 Replaces accept_gate.py. Handles the sprint cascade (accept → review):
   1. reviewing/closing stories, or in-progress + ACCEPT marker + work
      → block "run /xp-accept" — a one-shot nudge, like every block here
-  2. sprint complete, no sprint_end event → block "run /xp-sprint-review"
+  2. sprint complete, no sprint_end event, no reviewer in flight
+     → block "run /xp-sprint-review"
 
 Reviewing-state alone fires the gate (incremental teammate accept):
 teammates self-promote in-progress -> reviewing on clean exit without
@@ -31,6 +32,7 @@ import branching
 import coordination
 import identity
 import markers
+import sprint_review_flight
 import sprint_state
 import worktree
 from event_schema import EVENT_TYPE_SPRINT, SPRINT_ACTION_END
@@ -183,12 +185,15 @@ def _accept_message(firing: list[dict], base: str) -> str:
     )
 
 
-def _compute_block_message(smm_dir: Path, sprint_data: dict, cwd: str) -> str | None:
+def _compute_block_message(
+    smm_dir: Path, sprint_data: dict, input_data: dict, cwd: str
+) -> str | None:
     """Return the first triggered cascade block message, or None.
 
     Uses the ``_data`` predicate variants throughout so the sprint dict
     loaded by the caller is reused — no double-load on the disk for a
-    single Stop hook invocation.
+    single Stop hook invocation. ``cwd`` is passed alongside ``input_data``
+    for the same reason: the caller already derived it.
     """
     # Cascade step 1: accept gate. Any UNDER_ACCEPTANCE story (reviewing
     # or closing) fires (Option A): both are mid-accept-window states
@@ -217,6 +222,13 @@ def _compute_block_message(smm_dir: Path, sprint_data: dict, cwd: str) -> str | 
 
     sprint_id = sprint_data.get("sprint_id") or ""
     if not sprint_id:
+        return None
+
+    # A reviewer running right now has not emitted sprint_end yet, so without
+    # this the gate tells the agent to run what it is already inside. BEFORE the
+    # event read: a fresh record answers whatever the log holds, so no Stop
+    # during a review takes the lock the reviewer is appending under.
+    if sprint_review_flight.is_fresh(smm_dir, input_data):
         return None
 
     events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
@@ -257,7 +269,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     cwd = input_data.get("cwd", "") or ""
-    block_message = _compute_block_message(smm_dir, sprint_data, cwd)
+    block_message = _compute_block_message(smm_dir, sprint_data, input_data, cwd)
     if block_message is None:
         return None
 
