@@ -199,7 +199,7 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> None:
     # Retire the record the Stop gate reads while the review runs — AFTER the
     # sprint_end append, since the record bridges the window where no
     # sprint_end exists yet and consuming first would briefly reopen it. A run
-    # that dies before here leaves the record to age out, which fails closed.
+    # that dies before here leaves it to suppress the gate until it ages out.
     import sprint_review_flight
 
     sprint_review_flight.consume(smm_dir, input_data)

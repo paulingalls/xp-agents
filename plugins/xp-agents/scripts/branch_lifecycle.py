@@ -79,6 +79,29 @@ def combined_output(r: subprocess.CompletedProcess[str]) -> str:
     return combine_streams(r.stderr or "", r.stdout or "")
 
 
+# A failing `git push` now carries the whole suite's report on stdout, and
+# untailed that buries git's own one-line error in hundreds of KB.
+RELAY_TAIL_CHARS = 4000
+
+
+def _tail(text: str, limit: int) -> str:
+    text = (text or "").strip()
+    return text if len(text) <= limit else "..." + text[-limit:]
+
+
+def tail_streams(stderr: str, stdout: str, limit: int = RELAY_TAIL_CHARS) -> str:
+    """`combine_streams`, each stream capped at its last *limit* chars.
+
+    Per stream, never after the join, where a long stdout evicts the stderr.
+    """
+    return combine_streams(_tail(stderr, limit), _tail(stdout, limit))
+
+
+def tailed_output(r: subprocess.CompletedProcess[str]) -> str:
+    """`combined_output`, bounded — see `tail_streams`."""
+    return tail_streams(r.stderr or "", r.stdout or "")
+
+
 def _git_retry_on_lock(
     args: list[str],
     cwd: str,
@@ -246,7 +269,7 @@ def push_source_no_verify(cwd: str, source: str) -> None:
         sys.stderr.write(
             f"warn: failed to re-push {source} before merge; the PR record may "
             f"be stale relative to what merged (the merge is the truth and "
-            f"proceeds). git said: {combined_output(r).strip()}\n"
+            f"proceeds). git said: {tailed_output(r)}\n"
         )
 
 

@@ -168,17 +168,9 @@ def undifferentiable_reason(command: str) -> str | None:
     return None
 
 
-def _tail(text: str) -> str:
-    text = (text or "").strip()
-    if len(text) <= _OUTPUT_TAIL_CHARS:
-        return text
-    return "..." + text[-_OUTPUT_TAIL_CHARS:]
-
-
 def _tail_streams(stderr: str, stdout: str) -> str:
-    """Each stream tailed independently before the join — else a long stdout
-    evicts the stderr diagnosis once combined."""
-    return branch_lifecycle.combine_streams(_tail(stderr), _tail(stdout))
+    """This module's cap, on the shared per-stream tail."""
+    return branch_lifecycle.tail_streams(stderr, stdout, _OUTPUT_TAIL_CHARS)
 
 
 def _remove_throwaway(name: str, cwd: str, smm_dir: Path | None = None) -> bool:

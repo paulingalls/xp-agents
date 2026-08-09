@@ -40,7 +40,7 @@ from merge_commit_event import append_merge_commit_event
 
 
 def _run_or_relay(argv: list[str], cwd: str, success_msg: str | None = None) -> int:
-    """Run argv via subprocess; relay combined output + return code on failure.
+    """Run argv via subprocess; relay both streams, TAILED, on failure.
 
     On success, print success_msg if provided. Single source of truth for
     the success/relay-output pattern shared by cmd_push and cmd_merge's
@@ -49,7 +49,7 @@ def _run_or_relay(argv: list[str], cwd: str, success_msg: str | None = None) -> 
     """
     r = subprocess.run(argv, cwd=cwd, capture_output=True, text=True)
     if r.returncode != 0:
-        sys.stderr.write(branch_lifecycle.combined_output(r))
+        sys.stderr.write(branch_lifecycle.tailed_output(r))
         return r.returncode
     if success_msg:
         print(success_msg)

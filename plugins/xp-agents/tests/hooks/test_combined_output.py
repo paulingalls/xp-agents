@@ -60,6 +60,29 @@ class TestCombinedOutput(unittest.TestCase):
         self.assertEqual(branch_lifecycle.combined_output(r), "out\n")
 
 
+class TestTailStreams(unittest.TestCase):
+    """The bounded relay. A red pre-push hook now runs the whole suite, so an
+    unbounded relay hands the reader hundreds of KB and buries git's own line."""
+
+    def test_each_stream_is_tailed_independently(self):
+        """After the join, a long stdout would evict the stderr that goes
+        first — which is the half naming what actually failed."""
+        joined = branch_lifecycle.tail_streams("e" * 50, "o" * 50, 10)
+
+        self.assertTrue(joined.startswith("..." + "e" * 10))
+        self.assertTrue(joined.endswith("..." + "o" * 10))
+
+    def test_short_streams_are_untouched_and_unmarked(self):
+        self.assertEqual(branch_lifecycle.tail_streams("err", "out", 10), "err\nout")
+
+    def test_tailed_output_bounds_a_completed_process(self):
+        r = subprocess.CompletedProcess([], 1, stdout="o" * 99999, stderr="err")
+        tailed = branch_lifecycle.tailed_output(r)
+
+        self.assertIn("err", tailed)
+        self.assertLess(len(tailed), 99999)
+
+
 class TestPushSourceNoVerifyRelaysBothStreams(unittest.TestCase):
     """push_source_no_verify must warn with BOTH streams, not stderr alone —
     a stdout-only hook cause must reach the warning."""

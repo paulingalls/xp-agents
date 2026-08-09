@@ -20,6 +20,13 @@ all and is recorded as debt; this module is the interim, not the answer.
 A name here with no file in the tree is reported, never skipped — a set that
 drifts away from the tree silently shrinks what is measured, and one that
 drifted to nothing would measure 0/0 and read as clean.
+
+The other direction is deliberately NOT checked, and the cost is real: a file
+the tree gained after this set was recorded is exempt from the ratio for as
+long as the set stands, so its prose can double while the pin reads green.
+`session_start_banner.py` is one today. Reporting it instead would redden the
+pin on every extraction — the false red the set exists to remove — so what
+shrinks the hole is per-file absolute measurement, not a reverse leg.
 """
 
 # Measured over BASELINE_FILES at the merge of story-012, re-anchored once from

@@ -67,6 +67,22 @@ def _shipped_python_in(sha: str) -> list[str]:
     return [p for p in changed if p.endswith(".py") and p.startswith(_SHIPPED)]
 
 
+def _show(ref: str) -> str:
+    """The blob at `<sha>:<path>`, or "" when the path is not in that tree.
+
+    A commit that ADDS a shipped .py has no `<sha>^:<path>` and one that DELETES
+    it has no `<sha>:<path>`; `git show` exits non-zero for both, and a raised
+    CalledProcessError is a traceback in the push gate instead of a verdict. An
+    empty side is what `shape_violations` already reads as a shape change, so
+    either one reports as the violation it is. Any OTHER failure to read a blob
+    lands there too — loud, never silent.
+    """
+    try:
+        return _git("show", ref)
+    except subprocess.CalledProcessError:
+        return ""
+
+
 class TestTheMarkerScanner(unittest.TestCase):
     """Synthetic log output — the live leg cannot reach these states."""
 
@@ -99,6 +115,24 @@ class TestTheMarkerScanner(unittest.TestCase):
         self.assertEqual(_marked_commits(""), [])
 
 
+class TestReadingABlobThatIsNotThere(unittest.TestCase):
+    """An added file has no pre-image and a deleted one has no post-image."""
+
+    def test_an_absent_path_reads_as_empty_not_an_exception(self):
+        self.assertEqual(_show("HEAD:plugins/xp-agents/scripts/no_such_module.py"), "")
+
+    def test_a_present_path_still_reads_its_content(self):
+        self.assertIn(
+            "import ast", _show("HEAD:plugins/xp-agents/tests/_ast_identity.py")
+        )
+
+    def test_an_added_file_reports_as_a_shape_change(self):
+        """The verdict the crash was hiding: prose-only cannot add code."""
+        violations = shape_violations([("added.py", "", "x = 1\n")])
+
+        self.assertEqual(len(violations), 1)
+
+
 class TestProseOnlyCommitsOnThisBranch(unittest.TestCase):
     """The live leg. Skips when nothing claims prose-only — a skip is visible
     in the runner output where a silent pass would not be."""
@@ -121,8 +155,8 @@ class TestProseOnlyCommitsOnThisBranch(unittest.TestCase):
                 pairs.append(
                     (
                         f"{sha[:8]} {path}",
-                        _git("show", f"{sha}^:{path}"),
-                        _git("show", f"{sha}:{path}"),
+                        _show(f"{sha}^:{path}"),
+                        _show(f"{sha}:{path}"),
                     )
                 )
         if not pairs:
