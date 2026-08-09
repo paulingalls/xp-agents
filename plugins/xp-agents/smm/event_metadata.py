@@ -270,9 +270,12 @@ METADATA_KEY_SUPERSEDES = "supersedes"
 METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_RESOLVED_BY_COMMITS = "resolved_by_commits"
 
-# Run-identifying attribution on a test-failure concern (story-001). Producer:
-# bash_post_tool's parsed-failure branch. Consumer: triage_preload's
-# attribution suffix.
+# Run-identifying attribution on a test-failure concern. Producers:
+# bash_post_tool's parsed-failure branch and bash_failure's non-zero-exit
+# branch, both through scripts/run_attribution — which is where the
+# omit-don't-fabricate rules live, including why the degraded producer records
+# no METADATA_KEY_TEST_COUNT. Consumer: triage_preload's attribution suffix,
+# gated on METADATA_KEY_CWD alone.
 #
 # METADATA_KEY_CWD's value is the HOOK PAYLOAD's working directory, not
 # necessarily where the tests actually executed — `docker compose exec ...
