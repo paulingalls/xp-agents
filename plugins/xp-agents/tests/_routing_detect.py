@@ -81,6 +81,40 @@ RULE_LEGS = (
     ("why", WHY_DEST_RE),
 )
 
+# The surfaces stating the verify-the-claim rule: a claim the code contradicts
+# is NARROWED to what is true, not deleted. A separate table from
+# KNOWN_ROUTING_SURFACES because the two rules answer different questions —
+# routing says where content belongs, this says what to do with content already
+# in the wrong shape — and the surface lists differ.
+KNOWN_VERIFY_CLAIM_SURFACES = (
+    "PROCESS_GUIDE.md",
+    "agents/xp-close-reviewer.md",
+    "agents/xp-code-reviewer.md",
+)
+
+# Half one: the case being ruled on. Both shipped spellings, because the guide
+# is telegraphic where the agents are prose; the rule is the verdict, not its
+# wording.
+CONTRADICTED_CLAIM_RE = re.compile(r"\bfalse claims?\b|\bcontradicts the code\b", re.I)
+
+# Half two: the verdict. Narrowing AND a refusal to delete, on the same line —
+# "narrow" alone would pass a line that offered deletion as an alternative,
+# which is the failure the rule exists to prevent.
+NARROW_OVER_DELETE_RE = re.compile(r"\bnarrow\w*\b.*\bdelet\w+\b", re.I)
+
+
+def find_verify_claim_lines(text: str, surface: str) -> list[tuple[str, int]]:
+    """(surface, 1-based line) for every line stating the verify-the-claim rule.
+
+    Both halves must land on ONE line: split across two, a reader can drop
+    either and the survivor still reads as complete advice.
+    """
+    return [
+        (surface, lineno)
+        for lineno, line in enumerate(text.splitlines(), start=1)
+        if CONTRADICTED_CLAIM_RE.search(line) and NARROW_OVER_DELETE_RE.search(line)
+    ]
+
 
 def find_comment_routing_lines(text: str, surface: str) -> list[tuple[str, int]]:
     """(surface, 1-based line) for every line matching the comment-routing

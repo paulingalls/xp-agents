@@ -41,14 +41,17 @@ BAND_CEILINGS = {
     # Carrying 492 across the merge would have handed back all 24 lines.
     "plugins/xp-agents/skills/_preload_base.sh": 468,
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
-    "plugins/xp-agents/scripts/close_common.py": 470,  # ratcheted from 496 (split)
+    # Ratcheted 470->471: the stderr-first relay helpers moved to
+    # `_subprocess_env`, so this module imports both it and `branch_lifecycle`
+    # (still needed for `push_source_no_verify`) where one import used to do.
+    "plugins/xp-agents/scripts/close_common.py": 471,  # ratcheted from 496 (split)
     "plugins/xp-agents/smm/sprint_cli_mutate.py": 496,
     "plugins/xp-agents/scripts/in_place_marker.py": 490,
     "plugins/xp-agents/scripts/retro_metrics.py": 490,
     "plugins/xp-agents/scripts/linter_tables.py": 482,
     "plugins/xp-agents/smm/event_schema.py": 480,
     # Ratcheted 477->482 (story-011): the three single-stream sites now route
-    # through `branch_lifecycle.combine_streams`, the binary-mode one decoding
+    # through `_subprocess_env.combine_streams`, the binary-mode one decoding
     # per-stream first, so a discarded stream can't drop half a linter's
     # diagnosis.
     "plugins/xp-agents/scripts/lint_runners.py": 482,

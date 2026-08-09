@@ -35,7 +35,6 @@ import system_context_store
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _subprocess_env
-import branch_lifecycle
 
 # Bootstrap can be a cold dependency install, not the 6.4s warm-cache
 # re-run that was measured — generous by default, tunable per project.
@@ -140,7 +139,7 @@ def run_bootstrap(wt_path: str, smm_dir: Path) -> None:
         ) from exc
 
     if proc.returncode != 0:
-        output = branch_lifecycle.combined_output(proc).strip()
+        output = _subprocess_env.combined_output(proc).strip()
         raise SystemExit(
             f"worktree bootstrap failed (exit "
             f"{proc.returncode}): {command}\n{output}\n"

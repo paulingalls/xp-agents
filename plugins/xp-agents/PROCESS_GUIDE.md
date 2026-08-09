@@ -19,7 +19,7 @@ The harness batches independent tool calls in parallel; XP flows are step-gated.
 ## Pillars
 
 - **Intent** — what we're building. Cap 2-5.
-- **Constraints** — architectural/process bounds. Detail routes out: checkable claims→tests; history→git; comments→why code can't express. Cap 15-20.
+- **Constraints** — architectural/process bounds. Detail routes out: checkable claims→tests; history→git; comments→why code can't express; false claims→narrowed, not deleted. Cap 15-20.
 - **Risks** — what could go wrong. Cap 2-5.
 - **Wisdom** — durable lessons. Cap 5-10.
 
@@ -44,7 +44,7 @@ Three link types close events and risk pillar items:
 
 **Session close:** `/xp-end-session` — emits `session_summary`, appends to `session_history.json`, populates next kickoff's `### LAST_SESSION` block + the `recent_summaries` of retro + housekeeper inputs.
 
-**Multi-command AC:** `commands: list[str]` reports `commands[N] failed (exit RC): CMD`; single keeps `command failed`. Prefer `commands` over chained `&&` when mixing runners.
+**Multi-command AC:** `commands: list[str]` names the failing slot; single keeps `command`. Prefer `commands` over chained `&&` when mixing runners.
 
 **File domain:** Declare `file_domain` per planner intent; over-declaring defeats cascade_size.
 

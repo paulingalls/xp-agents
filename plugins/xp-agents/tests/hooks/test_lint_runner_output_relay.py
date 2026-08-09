@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """All three lint_runners.py sites that used to pick ONE stream (stdout-first)
 must relay BOTH, stderr-first — the same convention
-`branch_lifecycle.combine_streams` already enforces for the git-subprocess
+`_subprocess_env.combine_streams` already enforces for the git-subprocess
 call sites (see test_combined_output.py). A linter that reports its real
 diagnosis on the stream these functions used to discard lost that diagnosis
 silently. The third site, run_linter_stdin, runs in binary mode, so its

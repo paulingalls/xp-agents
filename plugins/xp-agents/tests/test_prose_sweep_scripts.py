@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""The `scripts/` prose ratio must not climb back above its pre-sweep number.
+"""The `scripts/` prose ratio must not climb past a measurement plus its slack.
 
-Milestone 2's sweep half needs a number that fails if the work is undone. This
-records the ratio measured before the verification pass and asserts the tree
-stays under it.
+Milestone 2's sweep half needs a number that fails if the work is undone. The
+measurement, the file set it was taken over, and the growth deliberately
+tolerated on top of it all live in `_prose_baseline`; this asserts the tree
+against them, and proves the tolerance is spendable in one direction and
+bounded in the other.
 
-WHAT THIS IS NOT. It is not the ratchet — that is a later milestone's
-deliverable, recorded at the achieved numbers across all three shipped roots.
-This pins one root against one moment.
+WHAT THIS IS NOT. It covers one shipped root, not all three, and pins a ratio
+rather than any per-file number.
 
 And it is a WEAK proxy for the pass that earned it. The pass's real output was
 claims corrected against the code; narrowing a false claim to a true one can
@@ -31,10 +32,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _bases import _AssertNotNoneMixin
 from _prose_baseline import (
     BASELINE_FILES,
-    BASELINE_PROSE,
-    BASELINE_TOTAL,
+    MEASURED_PROSE,
+    MEASURED_TOTAL,
+    SLACK_PROSE_LINES,
     measure_named,
     missing_from,
+    ratchet_ceiling,
 )
 from _prose_scan import scan_roots
 
@@ -170,9 +173,45 @@ class TestScriptsProseStaysBelowItsBaseline(unittest.TestCase):
     def test_the_shipped_scripts_root_is_below_its_recorded_ratio(self):
         prose, total = measure_named(self._scanned(), BASELINE_FILES)
 
-        self.assertIsNone(
-            _ratio_regression(prose, total, BASELINE_PROSE, BASELINE_TOTAL)
+        self.assertIsNone(_ratio_regression(prose, total, *ratchet_ceiling()))
+
+    def test_the_tree_plus_a_systematic_regrowth_is_red(self):
+        """A slack large enough never to fire is worse than no pin, so the RED
+        state is proved on the real tree at its real distance from the ceiling:
+        one comment line added to each of the measured files must still fail.
+
+        Comment lines add to BOTH sides of the ratio, so this is not the same
+        number as the slack — it is what the slack buys, in the unit prose is
+        actually written in."""
+        prose, total = measure_named(self._scanned(), BASELINE_FILES)
+        added = len(BASELINE_FILES)
+
+        self.assertIsNotNone(
+            _ratio_regression(prose + added, total + added, *ratchet_ceiling())
         )
+
+    def test_the_tree_has_room_for_a_rationale_comment(self):
+        """And the reason the slack exists: three comment lines with no added
+        code is the edit this milestone produces, and must not be a push-time
+        failure."""
+        prose, total = measure_named(self._scanned(), BASELINE_FILES)
+
+        self.assertIsNone(_ratio_regression(prose + 3, total + 3, *ratchet_ceiling()))
+
+
+class TestTheDeclaredSlack(unittest.TestCase):
+    def test_the_ceiling_is_the_measurement_plus_the_declared_slack(self):
+        """Both halves stay separately readable: a future reader can see what
+        was observed and what is being tolerated, not one fudged number."""
+        self.assertEqual(
+            ratchet_ceiling(), (MEASURED_PROSE + SLACK_PROSE_LINES, MEASURED_TOTAL)
+        )
+
+    def test_the_slack_is_an_allowance_not_an_amnesty(self):
+        """Under 1% of the measured prose. Past that the ratchet stops being a
+        ratchet, and `test_the_tree_plus_a_systematic_regrowth_is_red` is the
+        behavioural half of the same bound."""
+        self.assertLess(SLACK_PROSE_LINES, MEASURED_PROSE // 100)
 
 
 if __name__ == "__main__":

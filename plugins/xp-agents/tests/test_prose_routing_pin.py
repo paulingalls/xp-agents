@@ -99,8 +99,10 @@ from _pin_helpers import rel as _rel_impl
 from _pin_helpers import shipped_prose_to_scan
 from _routing_detect import (
     KNOWN_ROUTING_SURFACES,
+    KNOWN_VERIFY_CLAIM_SURFACES,
     find_comment_routing_lines,
     find_single_language_tokens,
+    find_verify_claim_lines,
     zero_use_members,
 )
 
@@ -155,6 +157,41 @@ class TestKnownRoutingFilesStillRoute(unittest.TestCase):
                     1,
                     f"{surface} no longer names a comment-routing line at "
                     "all — content removed rather than qualified",
+                )
+
+
+class TestKnownSurfacesStateTheVerifyClaimRule(unittest.TestCase):
+    """Leg 4: routing tells a reader where content belongs; it says nothing
+    about content already in the wrong shape. The rule for that — a claim the
+    code contradicts is narrowed to what is true, not deleted — shipped to the
+    two reviewer agents and nowhere else, so a reader of the guide met the
+    routing half of the doctrine and not this one. `tests/smm/test_seed.py`
+    holds the fourth surface, the seeded wisdom, which is generated rather than
+    a prose file."""
+
+    def test_each_surface_still_states_it(self) -> None:
+        by_rel = {_rel(p): p for p in _all_shipped_prose()}
+        for surface in KNOWN_VERIFY_CLAIM_SURFACES:
+            with self.subTest(surface=surface):
+                matches = [
+                    path
+                    for rel_path, path in by_rel.items()
+                    if rel_path.endswith(f"/{surface}")
+                ]
+                self.assertEqual(
+                    len(matches),
+                    1,
+                    f"{surface} not found in the shipped prose scan (renamed, "
+                    "deleted, or matched more than once)",
+                )
+                lines = find_verify_claim_lines(
+                    matches[0].read_text(encoding="utf-8"), surface=surface
+                )
+                self.assertGreaterEqual(
+                    len(lines),
+                    1,
+                    f"{surface} no longer names the contradicted-claim case "
+                    "with narrowing as its fix",
                 )
 
 

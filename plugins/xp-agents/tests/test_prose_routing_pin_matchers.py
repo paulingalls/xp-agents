@@ -30,6 +30,7 @@ from _routing_detect import (
     find_comment_routing_lines,
     find_incomplete_rule_lines,
     find_single_language_tokens,
+    find_verify_claim_lines,
     zero_use_members,
 )
 from _vocab_detect import token_occurs
@@ -321,6 +322,41 @@ class TestSectionScopedOccupancyLegIsNotVacuous(unittest.TestCase):
     def test_non_exempt_members_remain(self) -> None:
         checked = [t for t in SECTION_SCOPED_FORBIDDEN if t not in OCCUPANCY_EXEMPT]
         self.assertTrue(checked)
+
+
+class TestVerifyClaimMatcher(unittest.TestCase):
+    """The verify-the-claim selector, on synthetic text. Its pin can only ever
+    be green against a tree this story just fixed."""
+
+    _SHIPPED = (
+        "- Claim contradicts the code — counts, entry points, call sites, "
+        "where it sends a reader → Concern; narrow it to what is true rather "
+        "than delete it."
+    )
+    _TELEGRAPHIC = "history→git; false claims→narrowed, not deleted"
+
+    def test_both_shipped_wordings_are_selected(self):
+        for text in (self._SHIPPED, self._TELEGRAPHIC):
+            self.assertEqual(find_verify_claim_lines(text, "s"), [("s", 1)])
+
+    def test_naming_the_case_without_the_verdict_is_not_enough(self):
+        """The offending shape: a surface that says a claim may contradict the
+        code and leaves the reader to guess that deleting it is fine."""
+        text = "Flag a comment that contradicts the code."
+
+        self.assertEqual(find_verify_claim_lines(text, "s"), [])
+
+    def test_narrowing_without_refusing_deletion_is_not_enough(self):
+        text = "Narrow the claim."
+
+        self.assertEqual(find_verify_claim_lines(text, "s"), [])
+
+    def test_the_two_halves_must_share_a_line(self):
+        """Split across lines, either can be deleted and the survivor still
+        reads as complete advice."""
+        text = "A claim contradicts the code.\nNarrow it rather than delete it."
+
+        self.assertEqual(find_verify_claim_lines(text, "s"), [])
 
 
 class TestTheCorpusWideCategoryJoinsTheUnion(unittest.TestCase):

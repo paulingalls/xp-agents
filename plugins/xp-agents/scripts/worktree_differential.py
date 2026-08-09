@@ -49,7 +49,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _subprocess_env
-import branch_lifecycle
 import shell_exit_structure
 import worktree
 
@@ -170,7 +169,7 @@ def undifferentiable_reason(command: str) -> str | None:
 
 def _tail_streams(stderr: str, stdout: str) -> str:
     """This module's cap, on the shared per-stream tail."""
-    return branch_lifecycle.tail_streams(stderr, stdout, _OUTPUT_TAIL_CHARS)
+    return _subprocess_env.tail_streams(stderr, stdout, _OUTPUT_TAIL_CHARS)
 
 
 def _remove_throwaway(name: str, cwd: str, smm_dir: Path | None = None) -> bool:

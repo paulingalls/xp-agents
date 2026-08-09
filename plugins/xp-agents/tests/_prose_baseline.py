@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""What the `scripts/` prose ratchet was measured over, and the two numbers.
+"""What the `scripts/` prose ratchet was measured over, and what it compares to.
 
 A ratio compares a tree against a number recorded on ANOTHER tree, so the two
 are comparable only over the same set of files. Keeping that set implicit is
@@ -13,9 +13,11 @@ what let the pin fire twice on work that rotted nothing:
   replaces, so correcting prose RAISES this number — the ratio moves against
   exactly the work milestones 1 and 3 exist to produce.
 
-Naming the set fixes only the first: a file outside it is not measured, so an
+Naming the set answers the first: a file outside it is not measured, so an
 extraction cannot trip the pin. The second is inherent to measuring a ratio at
-all and is recorded as debt; this module is the interim, not the answer.
+all — no set can remove it — so it is bounded instead, by the dated slack
+below. Slack narrows the window in which correcting prose reads as regression;
+it does not close it, and the debt recording that gap stands.
 
 A name here with no file in the tree is reported, never skipped — a set that
 drifts away from the tree silently shrinks what is measured, and one that
@@ -29,14 +31,47 @@ pin on every extraction — the false red the set exists to remove — so what
 shrinks the hole is per-file absolute measurement, not a reverse leg.
 """
 
-# Measured over BASELINE_FILES at the merge of story-012, re-anchored once from
-# the pre-sweep 12602/31422. That number was recorded before a back-merge
-# brought in 131 prose lines from a branch where this pin does not exist: 83 an
-# extracted module, the rest claims narrowed to what the code actually does.
-# Re-anchoring keeps the ratchet biting on regrowth in files it has measured;
-# it does not forgive regrowth, which is why it happens once and is dated.
-BASELINE_PROSE = 12726
-BASELINE_TOTAL = 31647
+# What the tree measured over BASELINE_FILES on 2026-08-08, at the close of
+# sprint-002. Recorded separately from the allowance below so a reader can see
+# the observation and the tolerance as two numbers, not one fudged one.
+MEASURED_PROSE = 12734
+MEASURED_TOTAL = 31670
+
+# Growth this pin deliberately tolerates, in prose lines at MEASURED_TOTAL.
+#
+# WHY THERE IS ANY. Pinned at the measurement exactly, the ratchet held about
+# one line of headroom: three added comment lines anywhere in the 142 files
+# reddened it — and since the suite moved to pre-push, it reddened at `git
+# push`, after the commits existed. A gate that cheap to trip is cheapest to
+# satisfy by DELETING accurate rationale, the opposite of what this milestone
+# produces. That already happened once: a clause saying how long a gate stays
+# quiet was golfed out purely to get green.
+#
+# HOW 50 WAS CHOSEN, from the 40 commits before 2026-08-08 that touched
+# `scripts/`. Their ratio ranged 40.017%-40.251% while every one of them was
+# accepted work, and single commits moved it by up to 0.107 points. The
+# measurement sits at 40.208%, near the top of that band; 50 lines puts the
+# ceiling at 40.366%, clear of the observed peak by more than one ordinary
+# commit's move.
+#
+# WHAT IT BUYS, AND WHAT IT STILL CATCHES. Comment lines add to BOTH sides of
+# the ratio, so 50 lines of slack here absorbs about 84 added comment lines
+# with no added code: roughly 28 three-line rationale comments, or 0.6 lines
+# per measured file. One comment line added to EVERY measured file still
+# reddens, and `test_prose_sweep_scripts` holds that bound and the three-line
+# one together. The date is here because the allowance is spent, not renewed:
+# re-measuring is a deliberate, reviewable act.
+SLACK_PROSE_LINES = 50
+
+
+def ratchet_ceiling() -> tuple[int, int]:
+    """The `(prose, total)` the tree is compared against — measurement + slack.
+
+    Kept as a function rather than a third constant so no caller can compare
+    against the raw measurement and rediscover the one-line ceiling.
+    """
+    return MEASURED_PROSE + SLACK_PROSE_LINES, MEASURED_TOTAL
+
 
 # The 142 files the numbers above were measured over. A new file is NOT added
 # here by anyone who merely wants the pin green — adding one re-anchors the

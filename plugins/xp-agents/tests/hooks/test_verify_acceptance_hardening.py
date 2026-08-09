@@ -352,20 +352,46 @@ class TestSprintRowRelaysBothStreams(_HardeningTestCase):
         self.assertIn("noise-on-stderr", output)
 
 
-class TestSprintRowTailDoesNotEvictTheOtherStream(_HardeningTestCase):
-    """`_OUTPUT_TAIL_CHARS` must tail each stream independently — a chatty
-    stdout must not evict a short stderr diagnosis from the kept slice once
-    the two are combined (`combined_output` puts stderr first)."""
+class TestSprintRowTail(_HardeningTestCase):
+    """The row's tail is the shared `tail_streams`, at this module's cap.
 
-    def test_stderr_diagnosis_survives_a_chatty_stdout(self):
-        chatty = "x" * (verify_acceptance._OUTPUT_TAIL_CHARS + 200)
-        cmd = f"printf %s {chatty}; echo diagnosis-on-stderr >&2; exit 1"
-        self._seed({"type": "bash", "commands": [cmd]})
+    Two properties come with it: each stream is tailed independently, so a
+    chatty stdout cannot evict a short stderr diagnosis from the kept slice
+    once the two are joined stderr-first; and a slice that dropped a head says
+    so."""
+
+    def _sole_failing_output(self, command: str) -> str:
+        self._seed({"type": "bash", "commands": [command]})
         result = self._run_from(self._workdir(), "--sprint")
         self.assertEqual(result.returncode, 0, result.stderr)
         failing = self._verify_events()[0]["metadata"]["failing"]
         self.assertEqual(len(failing), 1, failing)
-        self.assertIn("diagnosis-on-stderr", failing[0]["output"])
+        return failing[0]["output"]
+
+    def test_stderr_diagnosis_survives_a_chatty_stdout(self):
+        chatty = "x" * (verify_acceptance._OUTPUT_TAIL_CHARS + 200)
+        output = self._sole_failing_output(
+            f"printf %s {chatty}; echo diagnosis-on-stderr >&2; exit 1"
+        )
+
+        self.assertIn("diagnosis-on-stderr", output)
+
+    def test_a_truncated_row_says_so(self):
+        """Without the marker an operator reading a red row cannot tell a tail
+        from a whole output, and reads a mid-sentence start as the command's
+        own first word."""
+        chatty = "x" * (verify_acceptance._OUTPUT_TAIL_CHARS + 200)
+
+        output = self._sole_failing_output(f"printf %s {chatty} >&2; exit 1")
+
+        self.assertTrue(output.startswith("..."), output[:40])
+
+    def test_a_row_that_fit_carries_no_truncation_marker(self):
+        """The marker has to mean something: an output kept whole must not
+        claim to have lost a head."""
+        output = self._sole_failing_output("echo short-and-complete >&2; exit 1")
+
+        self.assertEqual(output, "short-and-complete")
 
 
 if __name__ == "__main__":

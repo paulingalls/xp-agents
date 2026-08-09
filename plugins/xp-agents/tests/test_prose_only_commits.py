@@ -9,9 +9,10 @@ still be prose-only under this rule, because the claim is about what ships.
 `_ast_identity` proves a prose edit touched only prose, but it cannot be run
 over every commit: most commits change code shape on purpose, so a blanket
 check would redden every ordinary branch. It has to be opt-in, and the opt-in
-is a `[prose-only]` marker in the commit subject or body — the same shape as
-this tree's existing `[verify-deferred]` / `[sprint-direct]` / `[release]`
-markers.
+is a `[prose-only]` marker LEADING a line of the commit subject or body — the
+same shape as this tree's existing `[verify-deferred]` / `[sprint-direct]` /
+`[release]` markers. Leading, not anywhere: a message that merely names the
+marker is discussing it, not claiming it.
 
 So the claim this pins is narrow and the marker is what makes it falsifiable:
 say `[prose-only]` and the guard holds you to it.
@@ -22,6 +23,7 @@ passing silently, and `_marked_commits` is exercised on synthetic log output
 where the interesting states are reachable.
 """
 
+import re
 import subprocess
 import sys
 import unittest
@@ -31,9 +33,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from _ast_identity import shape_violations
 
-_MARKER = "[prose-only]"
 _REPO_ROOT = Path(__file__).parent.parent.parent.parent
 _SHIPPED = ("plugins/xp-agents/scripts/", "plugins/xp-agents/smm/")
+
+# The marker LEADING a line, behind any other bracketed tags the subject
+# already carries. A bare substring search cannot tell a claim from a mention,
+# and a commit whose body discusses this guard is the mention that ships most
+# often — it held the whole tree's shipped modules to a claim it never made.
+_MARKER_RE = re.compile(r"^[ \t]*(?:\[[^\]\n]+\][ \t]*)*\[prose-only\]", re.MULTILINE)
 
 
 def _marked_commits(log: str) -> list[str]:
@@ -48,7 +55,7 @@ def _marked_commits(log: str) -> list[str]:
         if not record.strip():
             continue
         sha, _, message = record.partition("\0")
-        if _MARKER in message:
+        if _MARKER_RE.search(message):
             shas.append(sha.strip())
     return shas
 
@@ -113,6 +120,21 @@ class TestTheMarkerScanner(unittest.TestCase):
 
     def test_empty_log_yields_nothing(self):
         self.assertEqual(_marked_commits(""), [])
+
+    def test_a_body_that_merely_mentions_the_marker_is_not_a_claim(self):
+        """A commit whose body DESCRIBES this guard — the message that fixes it,
+        for one — was read as claiming prose-only and reported every shipped
+        module it touched. A claim leads a line; a mention sits inside one."""
+        log = "abc123\0Fix it\n\nThe [prose-only] guard crashed on an added file.\n\0\0"
+
+        self.assertEqual(_marked_commits(log), [])
+
+    def test_the_marker_still_counts_behind_another_leading_tag(self):
+        """`[sprint-direct]`/`[release]` already prefix subjects here, so the
+        claim must survive sharing the front of its line with one."""
+        log = "abc123\0[sprint-direct] [prose-only] Reword a docstring\n\0\0"
+
+        self.assertEqual(_marked_commits(log), ["abc123"])
 
 
 class TestReadingABlobThatIsNotThere(unittest.TestCase):

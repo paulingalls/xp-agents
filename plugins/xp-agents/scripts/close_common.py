@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import _subprocess_env
 import acceptance_env
 import branch_lifecycle
 import branching
@@ -49,7 +50,7 @@ def _run_or_relay(argv: list[str], cwd: str, success_msg: str | None = None) -> 
     """
     r = subprocess.run(argv, cwd=cwd, capture_output=True, text=True)
     if r.returncode != 0:
-        sys.stderr.write(branch_lifecycle.tailed_output(r))
+        sys.stderr.write(_subprocess_env.tailed_output(r))
         return r.returncode
     if success_msg:
         print(success_msg)

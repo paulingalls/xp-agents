@@ -34,7 +34,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import _subprocess_env
-import branch_lifecycle
 import sprint_store
 from _acceptance_execution import extract_commands
 from _append_impl import resolve_smm_dir
@@ -71,16 +70,15 @@ _EXIT_TIMEOUT = 3
 
 
 # Tail of a failing command's output carried in the event so the close gate
-# can explain WHY a rerun went red without re-running it.
+# can explain WHY a rerun went red without re-running it. Tighter than the
+# relays' cap because these tails are stored, not printed: up to 20 of them
+# share one event's byte budget.
 _OUTPUT_TAIL_CHARS = 500
 
 
 def _tail_streams(stderr: str, stdout: str) -> str:
-    """Each stream tailed independently before the stderr-first join — else a
-    chatty stdout evicts the stderr diagnosis out of the kept slice."""
-    return branch_lifecycle.combine_streams(
-        stderr[-_OUTPUT_TAIL_CHARS:], stdout[-_OUTPUT_TAIL_CHARS:]
-    )
+    """The shared relay tail at this module's stored-event cap."""
+    return _subprocess_env.tail_streams(stderr, stdout, _OUTPUT_TAIL_CHARS)
 
 
 # Cap the failing items stored in the event. The whole serialized event —

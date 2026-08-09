@@ -4,18 +4,14 @@
 Closed call island extracted from branching.py to keep that module
 under the 500-line target. branching.py re-exports the merge/delete
 symbols (is_merged_into, merge_branch, delete_branch and friends) for
-backwards compat; `push_source_no_verify` and `combined_output` are not
-among them and are imported from here directly.
-Also owns the stderr-first combined-output convention
-(`combine_streams`/`combined_output`), shared with close_common.py's push
-relay and with the subprocess relays in verify_acceptance, lint_runners,
-worktree_bootstrap/teardown/differential.
+backwards compat; `push_source_no_verify` is not among them and is
+imported from here directly.
 
-Cross-call graph (no outbound calls beyond this module):
+Cross-call graph (outbound only to `_subprocess_env`, for the stderr-first
+relay helpers this module used to host):
 - _fast_forward_if_safe -> is_merged_into
 - delete_branch         -> survives_delete_of, is_merged_into
 - merge_branch          -> _merge_into_target
-- combined_output       -> combine_streams
 """
 
 import re
@@ -23,6 +19,8 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
+
+import _subprocess_env
 
 # git's own words when another process holds the repo's index. Matched on the
 # SIGNATURE rather than the exit code, because git returns the same 128 for plenty
@@ -56,50 +54,6 @@ _PUSH_TIMEOUT_S = 30
 
 def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
-
-
-def combine_streams(stderr: str, stdout: str) -> str:
-    """Both streams, stderr first, newline-separated.
-
-    A failed `git push` reports its own error on stderr while the pre-push hook's
-    output — usually the actual cause — goes to stdout. Relaying one stream discards
-    half the diagnosis.
-
-    Takes the PAIR, not a `CompletedProcess`, so that the relays holding neither —
-    bytes decoded per-stream, streams tailed before joining, a killed child's
-    `TimeoutExpired` — spell the order here rather than each for itself.
-    """
-    if stderr and stdout and not stderr.endswith("\n"):
-        stderr += "\n"
-    return stderr + stdout
-
-
-def combined_output(r: subprocess.CompletedProcess[str]) -> str:
-    """Both captured streams of a completed process — see `combine_streams`."""
-    return combine_streams(r.stderr or "", r.stdout or "")
-
-
-# A failing `git push` now carries the whole suite's report on stdout, and
-# untailed that buries git's own one-line error in hundreds of KB.
-RELAY_TAIL_CHARS = 4000
-
-
-def _tail(text: str, limit: int) -> str:
-    text = (text or "").strip()
-    return text if len(text) <= limit else "..." + text[-limit:]
-
-
-def tail_streams(stderr: str, stdout: str, limit: int = RELAY_TAIL_CHARS) -> str:
-    """`combine_streams`, each stream capped at its last *limit* chars.
-
-    Per stream, never after the join, where a long stdout evicts the stderr.
-    """
-    return combine_streams(_tail(stderr, limit), _tail(stdout, limit))
-
-
-def tailed_output(r: subprocess.CompletedProcess[str]) -> str:
-    """`combined_output`, bounded — see `tail_streams`."""
-    return tail_streams(r.stderr or "", r.stdout or "")
 
 
 def _git_retry_on_lock(
@@ -207,7 +161,7 @@ def _merge_into_target(cwd: str, source_branch: str, target: str) -> None:
         cwd,
     )
     if r.returncode != 0:
-        details = combined_output(r)
+        details = _subprocess_env.combined_output(r)
         print(
             f"Merge of {source_branch} into {target} failed: {details.strip()}",
             file=sys.stderr,
@@ -269,7 +223,7 @@ def push_source_no_verify(cwd: str, source: str) -> None:
         sys.stderr.write(
             f"warn: failed to re-push {source} before merge; the PR record may "
             f"be stale relative to what merged (the merge is the truth and "
-            f"proceeds). git said: {tailed_output(r)}\n"
+            f"proceeds). git said: {_subprocess_env.tailed_output(r)}\n"
         )
 
 

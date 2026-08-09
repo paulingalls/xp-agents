@@ -35,8 +35,10 @@ every story keeps its row.
 command is at launch — before git has moved HEAD. 79% of ordinary commits left
 no event, taking `Resolves-Event:` links and story attribution with them. The
 hook no longer reads a launch as evidence the commit did not land. Recovery
-happens at the next commit-shaped call, so the last backgrounded commit of a run
-still has no observer; that residual is recorded rather than implied.
+happens at the next commit-shaped call that itself fails confirmation, so two
+shapes keep no observer: the last backgrounded commit of a run, and one followed
+by a foreground commit, which confirms normally and never probes the prior HEAD.
+Both residuals are recorded rather than implied.
 
 ### Also
 
