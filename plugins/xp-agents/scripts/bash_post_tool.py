@@ -268,12 +268,21 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             # Shared with bash_failure's degraded producer so the two cannot
             # drift on the keys or the omit-don't-fabricate rules; this caller
             # is the one that always has parsed counts.
+            # A denominator only when the passes were actually SEEN.
+            # `result_counts.two_counts` returns `p or 0`, collapsing "0
+            # passed" into "passed not observed", so `passed + failed` can
+            # assert a proportion nothing measured: a 500-test playwright run
+            # whose pass line is absent from the captured output parses as
+            # passed=0/failed=2 and would render `[2/2 failed]` — the whole
+            # suite red. Omitting degrades to the count-alone render, which is
+            # the same rule bash_failure follows for the same reason.
+            trustworthy_total = passed + failed if passed > 0 else None
             concern_metadata: dict = {
                 "action": CONCERN_ACTION_TRANSIENT_TEST,
                 **run_attribution.run_attribution_metadata(
                     input_data.get("cwd"),
                     failed=failed,
-                    total=passed + failed,
+                    total=trustworthy_total,
                     errors=errors,
                 ),
             }

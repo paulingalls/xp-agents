@@ -87,6 +87,40 @@ class TestConcernCounts(_ConcernMetadataTestCase):
         self.assertEqual(concerns, [])
 
 
+class TestTotalOnlyWhenTrustworthy(_ConcernMetadataTestCase):
+    """A denominator is recorded only when the passes were actually seen.
+
+    `result_counts.two_counts` returns `p or 0`, which collapses "0 passed"
+    into "passed not observed". Summing that into a total asserts a
+    proportion the parser never had evidence for: a 500-test playwright run
+    whose pass line is absent from the captured output parses as
+    passed=0/failed=2 and would render `[2/2 failed]` — the whole suite red.
+
+    So when `passed` is 0 alongside real failures, the total is omitted and
+    the concern degrades to the count-alone render story-002 already ships.
+    Same rule bash_failure follows for the same reason; this producer had
+    been exempt from it by oversight.
+    """
+
+    def test_total_omitted_when_no_passes_were_observed(self):
+        concerns = self._run(
+            "npx playwright test",
+            "Running 500 tests using 10 workers\n\n  2 failed\n    a.spec.ts:3:1\n",
+        )
+        self.assertEqual(len(concerns), 1)
+        metadata = concerns[0]["metadata"]
+        self.assertEqual(metadata[METADATA_KEY_TEST_FAILED], 2)
+        self.assertNotIn(
+            "test_count",
+            metadata,
+            "a 500-test run must not claim 2/2 — the parser never saw the passes",
+        )
+
+    def test_total_recorded_when_passes_were_observed(self):
+        concerns = self._run("pytest tests/", "3 passed, 2 failed in 1.2s")
+        self.assertEqual(concerns[0]["metadata"]["test_count"], 5)
+
+
 class TestConcernCwdAttribution(_ConcernMetadataTestCase):
     def test_cwd_collapses_home_to_tilde(self):
         with patch.dict(os.environ, {"HOME": "/Users/dev"}):
