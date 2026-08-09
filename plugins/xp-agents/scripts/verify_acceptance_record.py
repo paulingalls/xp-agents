@@ -22,6 +22,7 @@ Imports DOWN only; ``verify_acceptance`` imports these names, never the reverse.
 """
 
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -91,6 +92,54 @@ def _gather_sprint_items(
                 # sentinel so it shows in the matrix without ever being shelled.
                 items.append((sid, None, ae.get("surface"), None, True))
     return items
+
+
+def distinct_commands(
+    items: Sequence[tuple[str, int | None, str | None, str | None, bool]],
+) -> tuple[str, ...]:
+    """The commands to actually SHELL, first-appearance order, no repeats.
+
+    Stories share commands — nearly every story declares the whole-suite E2E
+    check — and one unchanging tree cannot answer the same command differently
+    per story. Running it once per sharer only spends the batch budget, which
+    then SKIPS later items in sprint order, so the duplication can push
+    genuine, distinct checks out of the verified set.
+
+    Order is first appearance, not sorted: the budget stops the run partway, so
+    what runs before it is exhausted must stay what the sprint declared first.
+    N/A sentinels carry no command and never enter the set.
+    """
+    return tuple(dict.fromkeys(cmd for *_, cmd, na in items if not na and cmd))
+
+
+def rows_from_results(
+    items: Sequence[tuple[str, int | None, str | None, str | None, bool]],
+    results: dict[str, dict],
+) -> list[dict]:
+    """One matrix row per item, carrying its command's single result.
+
+    The counterpart to `distinct_commands`, and the half that must NOT collapse:
+    the matrix is how a reader sees which stories are covered, and the close
+    gate counts failing ITEMS. Two stories sharing one red command are both
+    unverified, so both rows carry that red.
+
+    A command absent from *results* never started — the batch budget ran out
+    before it — and reports `skipped`, which is neither pass nor fail. Every
+    sharer says so rather than dropping out and shortening the matrix silently.
+    """
+    rows: list[dict] = []
+    for sid, ac_idx, surface, cmd, na in items:
+        row: dict = {"story": sid, "ac_idx": ac_idx, "surface": surface}
+        if na:
+            rows.append({**row, "command": "(manual — not run)", "na": True})
+            continue
+        assert cmd is not None
+        result = results.get(cmd)
+        if result is None:
+            rows.append({**row, "command": cmd, "skipped": True})
+            continue
+        rows.append({**row, "command": cmd, **result})
+    return rows
 
 
 def _print_matrix(rows: list[dict]) -> None:

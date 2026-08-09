@@ -135,7 +135,14 @@ class _BatchRunTestCase(_HookTestCase):
     """
 
     def _seed(self, commands: list[str | None]) -> None:
-        """One story; each entry is a commanded AC, or None for a manual block."""
+        """One story; each entry is a commanded AC, or None for a manual block.
+
+        Callers that want N separate RUNS must pass N DISTINCT command
+        strings — the batch runs each distinct command once and fans the
+        result to every item that named it, so three identical commands are
+        one run and consume one command's budget. `true` ignores its
+        operands, so `true 1`/`true 2` differ as strings and not otherwise.
+        """
         acs: list[dict] = [
             {"description": f"c{i}", "surface": "cli", "command": cmd}
             for i, cmd in enumerate(commands)
@@ -189,7 +196,7 @@ class TestBatchStopsBeforeTheNextItemStarts(_BatchRunTestCase):
     """
 
     def test_later_items_are_skipped_and_named(self):
-        self._seed(["true", "true", "true"])
+        self._seed(["true 1", "true 2", "true 3"])
         # Deadline is 0 + 14400. The clock is inside budget for the first
         # item and past it for the rest.
         rc, out, _ = self._run(_clock(0, 0, 20000))
@@ -214,7 +221,7 @@ class TestBatchStopsBeforeTheNextItemStarts(_BatchRunTestCase):
     def test_skipped_items_are_not_reported_as_failures(self):
         """Skipped is a THIRD outcome. Folding it into `failing` would say the
         item ran and lost, which is the misattribution in a different place."""
-        self._seed(["true", "true", "true"])
+        self._seed(["true 1", "true 2", "true 3"])
         self._run(_clock(0, 0, 20000))
         meta = self._event()["metadata"]
         self.assertEqual(meta["failing"], [], meta)
@@ -225,7 +232,7 @@ class TestBatchStopsBeforeTheNextItemStarts(_BatchRunTestCase):
         """Five of eight green and three unknown is not a verified sprint. Red
         is also the only encoding available — the status set is enforced at
         append time, so an `incomplete` status would be rejected on write."""
-        self._seed(["true", "true", "true"])
+        self._seed(["true 1", "true 2", "true 3"])
         self._run(_clock(0, 0, 20000))
         self.assertEqual(
             self._event()["metadata"]["verify_status"],
@@ -235,7 +242,7 @@ class TestBatchStopsBeforeTheNextItemStarts(_BatchRunTestCase):
     def test_stderr_names_the_lever(self):
         """The re-run is deterministic — it stops at the same place — so a gate
         with no visible escape reads as a bug rather than a budget."""
-        self._seed(["true", "true", "true"])
+        self._seed(["true 1", "true 2", "true 3"])
         _, _, err = self._run(_clock(0, 0, 20000))
         self.assertIn("VERIFY_BATCH_TIMEOUT_S", err)
         self.assertIn("14400", err)
@@ -245,7 +252,7 @@ class TestTheBudgetIsABackstopNotAGate(_BatchRunTestCase):
     def test_under_budget_runs_everything_and_records_nothing(self):
         """AC3. A batch nowhere near the budget must be byte-for-byte what it
         was before this story — no skipped key, green, every item run."""
-        self._seed(["true", "true", "true"])
+        self._seed(["true 1", "true 2", "true 3"])
         rc, out, err = self._run(_clock(0))
         self.assertEqual(rc, verify_acceptance._EXIT_OK)
         self.assertEqual(out.count("[PASS]"), 3, out)
@@ -258,7 +265,7 @@ class TestTheBudgetIsABackstopNotAGate(_BatchRunTestCase):
     def test_disabling_the_budget_never_skips_however_long_it_runs(self):
         """AC4 end to end: the opt-out reaches the runner, not just the
         resolver. The clock is absurdly past any budget."""
-        self._seed(["true", "true", "true"])
+        self._seed(["true 1", "true 2", "true 3"])
         _, out, _ = self._run(_clock(0, 10**9), VERIFY_BATCH_TIMEOUT_S="0")
         self.assertEqual(out.count("[PASS]"), 3, out)
         self.assertNotIn("[SKIP]", out)
@@ -315,7 +322,7 @@ class TestBothReadersOfTheVerifyEvent(_BatchRunTestCase):
     """
 
     def _skipped_batch(self) -> None:
-        self._seed(["true", "true", "true"])
+        self._seed(["true 1", "true 2", "true 3"])
         self._run(_clock(0, 0, 20000))
 
     def test_last_verify_carries_the_skipped_items(self):
