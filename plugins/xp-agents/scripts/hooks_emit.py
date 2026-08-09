@@ -48,6 +48,23 @@ _UNRECOGNISED_EVENTS = frozenset(
     }
 )
 
+# Per-hook keys the variant does not carry. The two are dropped for OPPOSITE
+# reasons, and conflating them would lose the distinction that matters:
+#
+#   timeout — dropped because we cannot say what a number MEANS there. A
+#     SessionEnd timeout drew a clamp warning, and two readings fit: the
+#     harness caps SessionEnd at 3s regardless, or it reads the value as
+#     SECONDS (making every timeout off by 1000x). Those were the only two
+#     values exercised, so nothing separates them. Dropping is NOT the safe
+#     choice — it selects a default that is equally unmeasured. It is the
+#     honest one: shipping a number would encode a guess.
+#
+#   async — dropped because it buys nothing. Measured: `async: true` on
+#     SessionEnd is not skipped, it runs SYNCHRONOUSLY with a warning per
+#     fire. Nothing is forfeited by removing a flag whose behaviour is
+#     unavailable either way.
+_DROPPED_HOOK_KEYS = ("timeout", "async")
+
 
 def default_source() -> Path:
     """The checked-in source manifest, resolved from this file."""
@@ -75,6 +92,11 @@ def transform(source: dict) -> dict:
         for event, entries in derived["hooks"].items()
         if event not in _UNRECOGNISED_EVENTS
     }
+    for entries in derived["hooks"].values():
+        for entry in entries:
+            for hook in entry.get("hooks", []):
+                for key in _DROPPED_HOOK_KEYS:
+                    hook.pop(key, None)
     return derived
 
 

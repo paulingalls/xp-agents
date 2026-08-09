@@ -130,14 +130,117 @@ class TestUnrecognisedEventsDropped(unittest.TestCase):
     def test_dropped_events_are_exactly_the_unrecognised_ones(self):
         self.assertEqual(set(self.source) - set(self.codex), self.UNRECOGNISED)
 
-    def test_surviving_entries_are_unchanged_from_the_source(self):
-        """Event dropping is the ONLY edit this rule makes.
+    def test_surviving_entries_differ_only_by_the_declared_key_drops(self):
+        """Dropping events and the two declared keys is the ONLY editing done.
 
-        Without this, a transform that also rewrote a matcher or reordered
-        entries would still satisfy the three set assertions above.
+        Without this, a transform that also rewrote a matcher, reordered
+        entries or edited a command would still satisfy the three set
+        assertions above.
+
+        This began as a stricter claim — surviving entries byte-identical to
+        the source — which was correct when event-dropping was the only rule.
+        The timeout and async strips falsified it, and it failed loudly rather
+        than letting the new edits through, which is the pin working. Restated
+        against the current rule set: strip the SAME declared keys from the
+        source and the two must then match exactly. The guard is intact, since
+        a rewritten matcher or a reordered list still fails.
         """
         for event, entries in self.codex.items():
-            self.assertEqual(entries, self.source[event], f"{event} entry rewritten")
+            expected = json.loads(json.dumps(self.source[event]))
+            for entry in expected:
+                for hook in entry.get("hooks", []):
+                    hook.pop("timeout", None)
+                    hook.pop("async", None)
+            self.assertEqual(entries, expected, f"{event} entry rewritten")
+
+
+def _all_hook_objects(manifest: dict) -> list[tuple[str, dict]]:
+    """Every (event, hook-object) pair in a manifest, flattened."""
+    return [
+        (event, hook)
+        for event, entries in manifest["hooks"].items()
+        for entry in entries
+        for hook in entry.get("hooks", [])
+    ]
+
+
+class TestNoTimeoutInTheVariant(unittest.TestCase):
+    """The variant ships no `timeout` value at all.
+
+    NOT because absence is safe. Removing the key selects the harness's
+    DEFAULT, and that default is equally unmeasured — this is a choice between
+    two unknowns, not the removal of a risk. What was measured is only that a
+    SessionEnd timeout drew a clamp warning, and two readings fit it: the
+    harness caps SessionEnd at 3s regardless, or it reads the number as
+    SECONDS, in which case every timeout in a manifest is off by 1000x. Those
+    were the only two timeout values exercised, so nothing distinguishes them.
+
+    Shipping a number would encode a guess about which reading is right. The
+    milestone constraint therefore says ship none until one run tells them
+    apart. Harmless today because nothing executes on that harness yet — the
+    honesty matters when it does.
+    """
+
+    def setUp(self):
+        self.source = json.loads(_SOURCE.read_text(encoding="utf-8"))
+        self.codex = json.loads(_CODEX.read_text(encoding="utf-8"))
+
+    def test_source_still_carries_timeouts(self):
+        """Non-vacuity guard for the pin below.
+
+        If the source ever stops declaring timeouts, the strip assertion
+        becomes trivially true and would keep passing while the emitter's rule
+        was deleted. This fails first and says why.
+        """
+        with_timeout = [
+            f"{event}:{hook.get('command', '?')}"
+            for event, hook in _all_hook_objects(self.source)
+            if "timeout" in hook
+        ]
+        self.assertTrue(
+            with_timeout,
+            "hooks.json declares no timeout anywhere, so the strip pin below "
+            "proves nothing — re-point it or delete both.",
+        )
+
+    def test_variant_declares_no_timeout(self):
+        offenders = [
+            f"{event}:{hook.get('command', '?')} timeout={hook['timeout']}"
+            for event, hook in _all_hook_objects(self.codex)
+            if "timeout" in hook
+        ]
+        self.assertEqual(offenders, [], "; ".join(offenders))
+
+
+class TestNoAsyncInTheVariant(unittest.TestCase):
+    """The variant ships no `async` flag.
+
+    Measured, and it corrects the plan doc: `async: true` on SessionEnd is NOT
+    skipped there — the harness announces "running async SessionEnd hook
+    synchronously" and the handler's side effect landed in the same run. So the
+    flag is a no-op that buys nothing and emits a warning per fire. Stripping
+    it is tidying, and unlike the timeout rule it forfeits nothing, because the
+    behaviour it requests is not available either way.
+    """
+
+    def setUp(self):
+        self.source = json.loads(_SOURCE.read_text(encoding="utf-8"))
+        self.codex = json.loads(_CODEX.read_text(encoding="utf-8"))
+
+    def test_source_still_carries_async(self):
+        """Non-vacuity guard, same argument as the timeout pin's."""
+        with_async = [
+            event for event, hook in _all_hook_objects(self.source) if "async" in hook
+        ]
+        self.assertTrue(with_async, "hooks.json declares no async — pin proves nothing")
+
+    def test_variant_declares_no_async(self):
+        offenders = [
+            f"{event}:{hook.get('command', '?')}"
+            for event, hook in _all_hook_objects(self.codex)
+            if "async" in hook
+        ]
+        self.assertEqual(offenders, [], "; ".join(offenders))
 
 
 class TestVariantParsesStrict(unittest.TestCase):

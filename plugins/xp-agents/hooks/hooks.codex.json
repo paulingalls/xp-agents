@@ -65,16 +65,12 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_end.py",
-            "timeout": 2500,
-            "statusMessage": "Recording session end...",
-            "async": false
+            "statusMessage": "Recording session end..."
           },
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/smm/compact.py",
-            "timeout": 1500,
-            "statusMessage": "Compacting event log...",
-            "async": true
+            "statusMessage": "Compacting event log..."
           }
         ]
       }
@@ -117,7 +113,6 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/subagent_stop.py",
-            "timeout": 5000,
             "statusMessage": "Recording subagent results..."
           }
         ]
@@ -130,13 +125,11 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/post_tool_use.py",
-            "timeout": 5000,
             "statusMessage": "Recording file changes..."
           },
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/lint_check.py",
-            "timeout": 10000,
             "statusMessage": "Running lint check..."
           }
         ]
@@ -147,7 +140,6 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/bash_post_tool.py",
-            "timeout": 5000,
             "statusMessage": "Analyzing command output..."
           }
         ]
@@ -158,13 +150,11 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_cycle_done.py",
-            "timeout": 5000,
             "statusMessage": "Updating review cycle..."
           },
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/accept_terminal.py",
-            "timeout": 5000,
             "statusMessage": "Draining accept marker..."
           }
         ]
@@ -175,7 +165,6 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/post_tool_exit_plan.py",
-            "timeout": 5000,
             "statusMessage": "Preparing plan review..."
           }
         ]
@@ -186,7 +175,6 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/question_answered.py",
-            "timeout": 2500,
             "statusMessage": "Recording answer..."
           }
         ]
