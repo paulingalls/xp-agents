@@ -73,11 +73,19 @@ pre-commit:
     #     directory target carries `-n auto`, because the tree sequentially
     #     is the 432s run this gate exists to remove while the same tree
     #     under xdist is seconds.
-    #   * A narrower pattern would have to encode `test_*`, `_*` and
-    #     `conftest` in glob syntax, and a form this engine does not support
-    #     matches NOTHING — the gate would stop firing silently, which no
-    #     test here can catch (they execute the body, bypassing the glob).
-    #     A wide glob fails the other way: the command runs and bails.
+    #   * A narrower pattern would have to encode the shapes in glob syntax,
+    #     and a form this engine does not support matches NOTHING — the gate
+    #     would stop firing silently, which no test here can catch (they
+    #     execute the body, bypassing the glob). A wide glob is only safe
+    #     because the body classifies EVERY path it is handed.
+    #
+    # The classification is: `test_*.py` is a file target, and every OTHER
+    # .py under the tests tree is a helper, so it selects its DIRECTORY. Not
+    # just conftest.py and _*.py — a review caught tests/engine/
+    # sister_test_base.py falling through an earlier catch-all into a bare
+    # file target, where pytest collects nothing and exits 5 and lefthook
+    # refuses the commit. That is the same defect this command fixes for
+    # scripts/test_parsing.py, one directory over.
     #
     # The body's `plugins/xp-agents/tests/` prefix filter is what keeps this
     # off shipped code — `smm/_common.py`, and `scripts/test_parsing.py`,
@@ -91,14 +99,15 @@ pre-commit:
         for f in {staged_files}; do
           case "$f" in plugins/xp-agents/tests/*) ;; *) continue ;; esac
           case "${f##*/}" in
-            conftest.py|_*.py)
+            test_*.py)
+              [ -f "$f" ] && files="$files $f"
+              ;;
+            *.py)
               d="${f%/*}"
               [ -d "$d" ] || continue
               case " $dirs " in *" $d "*) ;; *) dirs="$dirs $d" ;; esac
               ;;
-            *)
-              [ -f "$f" ] && files="$files $f"
-              ;;
+            *) continue ;;
           esac
         done
         keep=""

@@ -118,6 +118,44 @@ class TestFindInArchives(_SMMTestCase):
         )
         self.assertEqual(found[1]["content"], "newest copy")
 
+    def test_undecodable_archive_does_not_abort_the_scan(self):
+        """pre_compact copies events.jsonl byte-for-byte, so live-log
+        corruption lands in backups/ verbatim. read_text raises
+        UnicodeDecodeError — a ValueError, NOT an OSError — so an OSError-only
+        guard would abort the scan and hide ids in the valid archives sorted
+        behind it."""
+        now = time.time()
+        bad = self.backups / "events-20260808T235557.jsonl"
+        bad.write_bytes(b"\xff\xfe not utf-8 at all\n")
+        os.utime(bad, (now, now))
+        self._write(
+            "archive-20260101T000000.jsonl",
+            [_event("2a4d54679a7f")],
+            mtime=now - 100,
+        )
+        found = self._assert_not_none(
+            archive.find_in_archives(self.backups, "2a4d54679a7f")
+        )
+        self.assertEqual(found[1]["id"], "2a4d54679a7f")
+
+    def test_prefix_resolves_like_the_live_lookup(self):
+        # get-event advertises "by ID or prefix" and its usage example shows
+        # one, so exact-only would still report a prefixed archived id absent.
+        self._write("archive-20260808T235557.jsonl", [_event("2a4d54679a7f")])
+        found = self._assert_not_none(
+            archive.find_in_archives(self.backups, "2a4d5467")
+        )
+        self.assertEqual(found[1]["id"], "2a4d54679a7f")
+
+    def test_ambiguous_prefix_refuses_rather_than_guessing(self):
+        self._write(
+            "archive-20260808T235557.jsonl",
+            [_event("2a4d54679a7f"), _event("2a4d0000ffff")],
+        )
+        with self.assertRaises(ValueError) as ctx:
+            archive.find_in_archives(self.backups, "2a4d")
+        self.assertIn("mbiguous", str(ctx.exception))
+
     def test_non_jsonl_files_are_ignored(self):
         (self.backups / "notes.txt").write_text("2a4d54679a7f\n")
         self.assertIsNone(archive.find_in_archives(self.backups, "2a4d54679a7f"))
