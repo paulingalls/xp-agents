@@ -26,6 +26,7 @@ import system_context_store
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _subprocess_env
+import branch_lifecycle
 
 # Stopping things is bounded work, unlike bootstrap's cold-install case — a
 # hung teardown must not stall a worktree removal for minutes.
@@ -119,8 +120,8 @@ def run_teardown(wt_path: str, smm_dir: Path) -> None:
         # drains the pipes after killing the group and re-raises carrying the
         # decoded text; getattr keeps this working if a plain TimeoutExpired
         # ever reaches here from another path.
-        tail = (
-            getattr(exc, "text_stderr", "") or getattr(exc, "text_stdout", "")
+        tail = branch_lifecycle.combine_streams(
+            getattr(exc, "text_stderr", ""), getattr(exc, "text_stdout", "")
         ).strip()
         print(
             f"worktree teardown timed out after {timeout}s: {command}"
@@ -133,7 +134,7 @@ def run_teardown(wt_path: str, smm_dir: Path) -> None:
         return
 
     if proc.returncode != 0:
-        output = (proc.stderr or proc.stdout or "").strip()
+        output = branch_lifecycle.combined_output(proc).strip()
         print(
             f"worktree teardown failed (exit {proc.returncode}): {command}\n{output}",
             file=sys.stderr,

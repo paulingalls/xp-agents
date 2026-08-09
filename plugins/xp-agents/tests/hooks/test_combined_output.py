@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Behavioral tests for branch_lifecycle.combined_output.
+"""Behavioral tests for branch_lifecycle.combine_streams/combined_output.
 
 A failed `git push` reports its own error on stderr while a pre-push hook's
-output — usually the actual cause — goes to stdout. `combined_output` is the
-one place in the repo that keeps both streams; these tests lock in that
-contract.
+output — usually the actual cause — goes to stdout. `combine_streams` is the
+one place in the repo that spells the stderr-first join; every subprocess relay
+routes through it, and `combined_output` is its `CompletedProcess` wrapper.
+These tests lock in that contract.
 """
 
 import subprocess
@@ -19,10 +20,31 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 import branch_lifecycle
 
 
+class TestCombineStreams(unittest.TestCase):
+    """The pair-taking primitive, for the relays that hold no CompletedProcess:
+    bytes decoded per-stream, streams tailed before the join, or the two streams
+    recovered off a killed child's TimeoutExpired."""
+
+    def test_stderr_comes_first(self):
+        joined = branch_lifecycle.combine_streams("err-part\n", "out-part")
+        self.assertEqual(joined, "err-part\nout-part")
+
+    def test_a_stderr_without_its_newline_does_not_run_into_stdout(self):
+        """Callers that strip or tail the streams first lose the newline that
+        made a raw concatenation readable, and `error: no such ref` would run
+        straight into stdout's first line."""
+        joined = branch_lifecycle.combine_streams("error: no such ref", "hook output")
+        self.assertEqual(joined, "error: no such ref\nhook output")
+
+    def test_no_separator_is_invented_when_one_stream_is_empty(self):
+        self.assertEqual(branch_lifecycle.combine_streams("err", ""), "err")
+        self.assertEqual(branch_lifecycle.combine_streams("", "out"), "out")
+
+
 class TestCombinedOutput(unittest.TestCase):
     def test_both_streams_present_stderr_first(self):
-        r = subprocess.CompletedProcess([], 1, stdout="out-part", stderr="err-part")
-        self.assertEqual(branch_lifecycle.combined_output(r), "err-partout-part")
+        r = subprocess.CompletedProcess([], 1, stdout="out-part", stderr="err-part\n")
+        self.assertEqual(branch_lifecycle.combined_output(r), "err-part\nout-part")
 
     def test_empty_stderr_populated_stdout_is_returned(self):
         # The bug this story exists to fix: a hook that writes only to stdout.

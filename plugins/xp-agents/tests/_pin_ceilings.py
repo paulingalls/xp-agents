@@ -47,7 +47,11 @@ BAND_CEILINGS = {
     "plugins/xp-agents/scripts/retro_metrics.py": 490,
     "plugins/xp-agents/scripts/linter_tables.py": 482,
     "plugins/xp-agents/smm/event_schema.py": 480,
-    "plugins/xp-agents/scripts/lint_runners.py": 477,
+    # Ratcheted 477->482 (story-011): the three single-stream sites now route
+    # through `branch_lifecycle.combine_streams`, the binary-mode one decoding
+    # per-stream first, so a discarded stream can't drop half a linter's
+    # diagnosis.
+    "plugins/xp-agents/scripts/lint_runners.py": 482,
     "plugins/xp-agents/smm/_append_impl.py": 469,
     # Entered the band at sprint close: the start-time file_domain gate needed
     # an ABSOLUTE sister-expanded report alongside the this-write-only one.
@@ -66,6 +70,11 @@ BAND_CEILINGS = {
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
+    # Entered the band with story-011's per-stream tail helper
+    # (`_tail_streams`): routing the sprint-verify row through
+    # `branch_lifecycle.combine_streams` needed a few lines to keep a chatty
+    # stdout from evicting the stderr diagnosis from the kept tail slice.
+    "plugins/xp-agents/scripts/verify_acceptance.py": 455,
     # tests (57)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
     # Entered the band with the shell surface's own red proofs. Its own
@@ -158,4 +167,12 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/smm/test_append_safety.py": 452,
     "plugins/xp-agents/tests/scaffold/test_scaffold_cli_detect.py": 452,
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_branch_delete.py": 451,
+    # Entered the band with story-011's stream-relay proofs (both-streams +
+    # tail-eviction) added to TestBootstrapFailure's sibling classes.
+    "plugins/xp-agents/tests/hooks/test_spawn_teammate_bootstrap.py": 461,
+    # RETIRED (story-011): test_worktree_differential.py 486->440. Its
+    # stream-relay proofs went to test_worktree_differential_output.py rather
+    # than taking a ceiling entry at 518, over the tree-wide cap. The
+    # measurement (refusal, gap/no-gap, throwaway removal) and what each leg
+    # RELAYS grow for unrelated reasons.
 }
