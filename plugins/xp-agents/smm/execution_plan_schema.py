@@ -330,9 +330,12 @@ def _validate_milestone(
 
     ae = milestone.get("acceptance_execution")
     if ae is not None:
-        enforce_manual_shape = (
-            grandfathered_milestone_numbers is not None
-            and milestone.get("number") not in grandfathered_milestone_numbers
+        # A non-int number never matches an exemption, and looking up an
+        # unhashable one would raise out of a function contracted to RETURN
+        # its errors.
+        number = milestone["number"]
+        enforce_manual_shape = grandfathered_milestone_numbers is not None and (
+            not isinstance(number, int) or number not in grandfathered_milestone_numbers
         )
         errors.extend(
             validate_acceptance_execution(

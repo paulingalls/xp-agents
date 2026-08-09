@@ -7,13 +7,9 @@ TestManualShapeGrandfathering) to milestones. New file rather than additions to
 test_execution_plan_schema.py or test_execution_plan_store.py — both already sit
 against the 500-line test-file-size floor (see test_file_size_pin.py).
 
-Cycle A (this file's first classes): the shared exemption helper,
-`grandfathered_milestone_numbers`, tested directly against disk state — the
-rule is not wired into validate_plan/save_plan yet.
-
-Cycle B: authoring-refusal and read-path tests once the rule is wired live —
-save_plan refuses an authored manual+command milestone, resaves a stored one
-unchanged, and plan_cli's add-milestone/edit-milestone refuse it end-to-end.
+Covers the exemption helper against disk state, save_plan's authoring refusal,
+the read path that must keep loading a stored manual+command block, and
+plan_cli's add-milestone/edit-milestone end-to-end.
 """
 
 import json
@@ -36,8 +32,8 @@ _PROSE_MANUAL = {"type": "manual", "command": "go read the logs and confirm X"}
 class TestGrandfatheredMilestoneNumbersExemption(_SMMTestCase):
     """`grandfathered_milestone_numbers` derives the exemption set from disk.
 
-    Mirrors TestManualShapeGrandfathering's scenarios but calls the helper
-    directly — the rule is not yet wired into validate_plan/save_plan.
+    Mirrors TestManualShapeGrandfathering's scenarios, calling the helper
+    directly so a failure names the derivation rather than the caller.
     """
 
     def _store(self, plan: dict) -> None:
@@ -178,6 +174,22 @@ class TestManualShapeAtMilestoneAuthoring(_SMMTestCase):
         m = _make_milestone(number=1, acceptance_execution=ae)
         plan = _make_plan(milestones=[m])
         store.save_plan(self.smm_dir, plan)
+
+    def test_unhashable_number_reports_an_error_instead_of_raising(self):
+        # validate_plan returns its errors; the exemption lookup must not
+        # turn garbage input into a TypeError escaping past every caller
+        # that only catches ValueError (plan_cli's `except ValueError`).
+        from execution_plan_schema import validate_plan
+
+        m = _make_milestone(number={}, acceptance_execution=dict(_PROSE_MANUAL))
+        errors = validate_plan(
+            _make_plan(milestones=[m]), grandfathered_milestone_numbers=frozenset()
+        )
+        self.assertIn("milestones[0].number must be an integer", errors)
+        self.assertTrue(
+            any("steps" in e for e in errors),
+            f"manual-shape rule must still fire for an unkeyable milestone: {errors}",
+        )
 
     def test_missing_plan_grants_no_exemption(self):
         import execution_plan_store as store

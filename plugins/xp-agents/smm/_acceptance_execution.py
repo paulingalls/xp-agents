@@ -24,13 +24,13 @@ never land in a field that gets shelled. This reverses an earlier rule that a
 manual block MAY carry a runnable confirmation: an operator declared
 observational prose in a manual ``command``, the runner shelled it, ``/bin/sh``
 exited 127, and the close gate reported a plain red the operator could not make
-green. Off by default — only the story-level write path asks for it, so read
-paths keep loading what is already stored.
+green. Off by default, so read paths keep loading what is already stored.
 
-The milestone-level caller (execution_plan_schema) asks for it too, with its
-own per-milestone grandfather (see _manual_shape_exemption) — validate_plan
-walks every milestone on the read path, so an ungrandfathered rule would make
-an existing plan unloadable.
+Both write paths ask for it — story-level (sprint_schema) and milestone-level
+(execution_plan_schema) — each behind its own per-item grandfather (see
+_manual_shape_exemption). validate_sprint/validate_plan walk every story/
+milestone on the read path too, so an ungrandfathered rule would make an
+already-stored document unloadable.
 
 RUN-TIME is UNCHANGED. Gate on command PRESENCE, not on ``type``: whatever runs
 a command runs it regardless of type, and a manual block with no command is N/A.

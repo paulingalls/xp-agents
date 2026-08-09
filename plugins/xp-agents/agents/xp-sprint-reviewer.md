@@ -21,12 +21,12 @@ Summarize: goal achieved? Stories delivered vs planned, velocity (`delivered/pla
 
 ## Step 2b: Milestone Acceptance Gate
 
-If `execution_plan_path` and `milestone` are set, find the matching milestone in `execution_plan_path` and check its `acceptance_execution`:
+If `execution_plan_path` and `milestone` are both non-empty, read that file, find the milestone it names, and check its `acceptance_execution`:
 
 **If `acceptance_execution` exists**, branch on `command`/`commands` presence:
 
 - **Command present:** run `setup` (if present) then `command`/`commands` via Bash: exit 0 green, non-zero red.
-- **No command** (manual, described by `steps`): nothing is shelled — use your own judgment against `steps` to decide green/red.
+- **No command** (manual): nothing is shelled — use your own judgment against `steps` to decide green/red.
 
 **Green (either branch):** proceed to Step 3, which marks delivered.
 **Red (either branch):** milestone stays open; report why; options:
