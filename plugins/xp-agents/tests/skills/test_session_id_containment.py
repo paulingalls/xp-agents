@@ -221,7 +221,12 @@ class TestLefthookMirrorsTheStrip(unittest.TestCase):
         ]
         # Without this the loop below is vacuous: reword the `run:` lines and
         # the agreement check silently stops checking anything. Three today —
-        # pre-commit `tests`, pre-push `integration`, pre-push `perf`.
+        # pre-commit `staged-tests`, pre-push `all-tests`, pre-push `perf`.
+        # The membership changed when the full suite moved off the commit gate
+        # (pre-push `integration` was subsumed by `all-tests` rather than kept
+        # beside it, which would have run tests/integration twice) but the
+        # COUNT did not: pre-commit still runs pytest, now over staged test
+        # files only, and it needs the strip for exactly the same reason.
         self.assertEqual(len(pytest_lines), 3, lefthook)
         for line in pytest_lines:
             for name in hook_liveness.SESSION_ID_ENV_CANDIDATES:

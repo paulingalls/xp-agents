@@ -31,6 +31,13 @@ REPO_ROOT = _PLUGIN_ROOT.parents[1]
 LEFTHOOK = REPO_ROOT / "lefthook.yml"
 TESTS_ROOT = _PLUGIN_ROOT / "tests"
 
+# The pre-push command that runs the whole suite under xdist. The name must sort
+# BEFORE "perf" — lefthook orders commands alphabetically and `perf` has to run
+# last, alone, for its wall-clock bounds to mean anything. Naming this `tests`
+# would sort it after `perf` and silently invert that guarantee, which is why
+# the name is a named constant rather than a literal spelled at three sites.
+_SUITE_COMMAND = "all-tests"
+
 # A class opted into the perf tier, i.e. skipped unless XP_PERF is set. Any file
 # holding one of these runs ONLY from lefthook's perf command; if that command
 # does not name the file, the timers inside it execute nowhere.
@@ -250,13 +257,41 @@ class TestPrePushSerializesThePerfTier(unittest.TestCase):
         )
 
 
-class TestPreCommitCannotArmTheTimers(unittest.TestCase):
-    def test_tests_command_strips_xp_perf(self):
-        """An exported XP_PERF=1 in the developer's shell must not re-arm the
-        wall-clock bounds on the commit gate, where they run 16-wide."""
-        tests = _command_body(_hook("pre-commit"), "tests")
-        self.assertTrue(tests, "pre-commit must define the `tests` command")
-        self.assertIn("-u XP_PERF", tests, "pre-commit tests must env -u XP_PERF")
+class TestTheSuiteRunCannotArmTheTimers(unittest.TestCase):
+    """An exported XP_PERF=1 must not re-arm the wall-clock bounds on the
+    xdist-parallel suite run, where they measure 16-wide contention rather than
+    anything real.
+
+    This guard used to sit on pre-commit's `tests` command. The full suite moved
+    to pre-push (the commit gate now runs lint, format, shellcheck and pyright
+    only), so the guard moved with it — the property is a property of the
+    PARALLEL SUITE RUN, not of the hook it happens to live in. Note pre-push's
+    prior `integration` command never carried `-u XP_PERF`; inheriting the
+    suite's full breadth without it would have armed the timers under xdist.
+    """
+
+    def test_parallel_suite_command_strips_xp_perf(self):
+        suite = _command_body(_hook("pre-push"), _SUITE_COMMAND)
+        self.assertTrue(suite, f"pre-push must define the `{_SUITE_COMMAND}` command")
+        self.assertIn(
+            "-u XP_PERF",
+            suite,
+            f"pre-push `{_SUITE_COMMAND}` must env -u XP_PERF — it runs -n auto",
+        )
+
+    def test_pre_commit_no_longer_runs_the_suite(self):
+        """The commit gate is lint-and-types only.
+
+        Pinned as an assertion rather than left implicit: a `tests` command
+        reappearing here silently restores a ~7-minute commit gate, which is
+        what pushed this project toward batching in the first place.
+        """
+        self.assertFalse(
+            _command_body(_hook("pre-commit"), "tests"),
+            "pre-commit must not define a `tests` command — the suite runs on "
+            "pre-push. See decision superseding the run-tests-on-every-commit "
+            "convention.",
+        )
 
 
 if __name__ == "__main__":
