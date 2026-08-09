@@ -25,6 +25,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import append_validation
+
 # Bound on same-second collisions before we refuse to guess. Reaching this means
 # something is very wrong (a thousand rewrites in one second); losing the archive
 # is worse than raising, so it raises.
@@ -139,8 +141,6 @@ def find_in_archives(backups_dir: Path, event_id: str) -> tuple[Path, dict] | No
     """
     if not backups_dir.is_dir():
         return None
-
-    import append_validation
 
     # stat() inside the sort key would escape the per-file guard below:
     # pre_compact rotates backups/ while other sessions read it, so a file

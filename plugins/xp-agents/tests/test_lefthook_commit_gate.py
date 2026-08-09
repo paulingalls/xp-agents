@@ -159,16 +159,37 @@ class TestStagedTestsRunOnTheCommitGate(unittest.TestCase):
     def test_glob_reaches_test_files_directly_under_tests(self):
         """`tests/**/test_*.py` would silently skip the top-level pins.
 
-        lefthook's `**` requires at least one directory, so the narrower glob
+        lefthook's `**` requires at least one directory, so that narrower glob
         matched tests/skills/... and ran 11 tests while a staged
-        tests/test_dev_setup.py was never collected. Measured, not reasoned —
-        and it matters because the cross-cutting pins live at that top level.
+        tests/test_dev_setup.py was never collected. Measured, not reasoned.
+
+        The current glob is wider still — `**/*.py`, with the BODY doing the
+        classifying — because shared fixtures carry no `test_` in their names.
+        Pinned positively as well as negatively: a regex that only forbade the
+        old form went vacuous the moment the glob widened, so narrowing it back
+        would have passed green while silently dropping fixture coverage.
         """
         self.assertNotRegex(
             self.cmd,
             r"glob:.*tests/\*\*/test_",
-            "staged-tests glob must not require a subdirectory under tests/ — "
-            "use **/test_*.py so top-level test files are collected too.",
+            "staged-tests glob must not require a subdirectory under tests/",
+        )
+        self.assertRegex(
+            self.cmd,
+            r'glob:\s*"\*\*/\*\.py"',
+            "staged-tests must glob every .py and classify in the body — a "
+            "test_*-only glob cannot see conftest.py or the _*.py helpers.",
+        )
+
+    def test_tolerates_an_empty_collection(self):
+        """pytest exits 5 on "no tests collected", which lefthook reads as a
+        failed commit. A directory target can legitimately contain none (a new
+        package, one emptied by a rename), so the exit must be tolerated or the
+        gate refuses commits for the very reason it was fixed."""
+        self.assertRegex(
+            self.cmd,
+            r"\|\|\s*\[\s*\$\?\s*-eq\s*5\s*\]",
+            "staged-tests must tolerate pytest's exit 5",
         )
 
     def test_strips_xp_perf(self):

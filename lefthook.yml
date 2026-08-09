@@ -53,16 +53,17 @@ pre-commit:
     # says nothing about the rest of the tree. Breaking the test you just wrote
     # is the one regression worth catching before the commit lands.
     #
-    # The `-f` filter and the empty guard are both load-bearing. A staged test
-    # file that was DELETED still reaches {staged_files}, so pytest would fail
+    # The `-f`/`-d` guards and the empty bail are load-bearing. A staged file
+    # that was DELETED still reaches {staged_files}, so pytest would fail
     # collection on a path that is gone; filtering fixes that but can leave the
     # list EMPTY, and `pytest` with no paths collects the WHOLE tree — silently
-    # restoring the 432s gate this file just removed. Hence: filter, then bail.
-    # glob is `**/test_*.py`, NOT `tests/**/test_*.py`: lefthook's `**` requires
-    # at least one directory, so the narrower form silently skips every test
-    # file sitting directly in tests/ — which is where the cross-cutting pins
-    # live. Measured: it matched tests/skills/... and ran 11 tests while
-    # tests/test_dev_setup.py, also staged, was never collected.
+    # restoring the 432s gate this file removed. Hence: filter, then bail.
+    #
+    # `|| [ $? -eq 5 ]` tolerates pytest's "no tests collected". A directory
+    # target that happens to contain none (a new package, or one emptied by a
+    # rename) would otherwise exit 5, which lefthook reads as a failed commit —
+    # the same refusal this command exists to stop.
+    #
     # The glob is DELIBERATELY wide and the body does the selecting. Two
     # reasons, both learned the hard way:
     #
@@ -134,7 +135,7 @@ pre-commit:
         else
           par=""
           [ -n "$dirs" ] && par="-n auto"
-          env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_PERF -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest $dirs $files $par -q
+          env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_PERF -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest $dirs $files $par -q || [ $? -eq 5 ]
         fi
 
 # piped (NOT parallel — lefthook rejects both) runs the commands sequentially,

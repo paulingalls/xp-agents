@@ -200,6 +200,47 @@ class TestGetEventCliFallback(_SMMTestCase):
         )
         self.assertIn("archive-20260808T235557.jsonl", result.stderr)
 
+    def test_ambiguous_live_prefix_refuses_instead_of_falling_back(self):
+        """A refusal must not become a confident answer.
+
+        lookup_event raises for BOTH "not found" and "ambiguous prefix". A
+        fallback keyed on plain ValueError treated the refusal as a miss and
+        searched backups/ — and because a pre-repair backup is a whole-file
+        copy, archives routinely hold ids that are still LIVE, so the archive
+        could resolve the prefix to one event and print it with rc 0.
+        """
+        live = [_event("abc111111111"), _event("abc222222222")]
+        (self.smm_dir / "events.jsonl").write_text(
+            "".join(json.dumps(e) + "\n" for e in live)
+        )
+        backups = self.smm_dir / "backups"
+        backups.mkdir(exist_ok=True)
+        # An archive that WOULD resolve the prefix to exactly one event.
+        (backups / "archive-20260808T235557.jsonl").write_text(
+            json.dumps(_event("abc111111111")) + "\n"
+        )
+        result = self._run("abc")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("mbiguous", result.stderr)
+        self.assertEqual(result.stdout.strip(), "", "must print no event")
+
+    def test_ambiguous_archive_prefix_errors_cleanly(self):
+        """find_in_archives raises from INSIDE the not-found handler, so an
+        unguarded raise would surface as a chained traceback."""
+        (self.smm_dir / "events.jsonl").write_text("")
+        backups = self.smm_dir / "backups"
+        backups.mkdir(exist_ok=True)
+        (backups / "archive-20260808T235557.jsonl").write_text(
+            json.dumps(_event("abc111111111"))
+            + "\n"
+            + json.dumps(_event("abc222222222"))
+            + "\n"
+        )
+        result = self._run("abc")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("mbiguous", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_genuinely_absent_id_still_errors(self):
         (self.smm_dir / "events.jsonl").write_text("")
         result = self._run("ffffffffffff")

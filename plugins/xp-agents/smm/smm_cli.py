@@ -254,13 +254,20 @@ def _cmd_remove_item(args: argparse.Namespace) -> int:
 def _cmd_get_event(args: argparse.Namespace) -> int:
     try:
         _, event = smm_store.lookup_event(args.smm_dir, args.event_id)
+    except smm_store.AmbiguousPrefix as exc:
+        # A refusal, not a miss — never resolved elsewhere. See lookup_event.
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     except ValueError as exc:
-        # Compaction MOVES events into backups/ rather than deleting them,
-        # while the id stays citable in later `references`/`metadata.resolves`
-        # — so a live-log miss is relocation more often than deletion. Only
-        # this command falls back: lookup_event's contract is shared with
-        # promote and question-close, which should keep reading the live log.
-        found = archive.find_in_archives(Path(args.smm_dir) / "backups", args.event_id)
+        # A miss may be relocation: compaction MOVES events to backups/. Only
+        # this command falls back — lookup_event's contract is shared.
+        try:
+            found = archive.find_in_archives(
+                Path(args.smm_dir) / "backups", args.event_id
+            )
+        except ValueError as archive_exc:  # ambiguous ACROSS archives
+            print(f"Error: {archive_exc}", file=sys.stderr)
+            return 1
         if found is None:
             print(f"Error: {exc}", file=sys.stderr)
             return 1

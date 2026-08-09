@@ -185,8 +185,25 @@ _EVENT_TYPE_TO_ENTRY_TYPE: dict[str, str] = {
 }
 
 
+class EventNotFound(ValueError):
+    """No event in the live log has this id or prefix."""
+
+
+class AmbiguousPrefix(ValueError):
+    """The prefix matches several live events — a refusal, not an absence."""
+
+
 def lookup_event(smm_dir: Path, event_id: str) -> tuple[str, dict]:
-    """Resolve an event by ID or prefix. Raises ValueError on failure."""
+    """Resolve an event by ID or prefix. Raises ValueError on failure.
+
+    The two failures are distinct SUBCLASSES because they mean opposite
+    things to a caller that wants to look further: an absence may be a
+    relocation worth chasing into `backups/`, while an ambiguous prefix is a
+    correct refusal that must not be resolved somewhere else — archives hold
+    ids that are still live (a pre-repair backup is a whole-file copy), so a
+    fallback keyed on "any ValueError" would turn a refusal into a confident
+    wrong answer. Both remain ValueError, so existing handlers are unchanged.
+    """
     events, _ = materialize.parse_events(smm_dir)
     by_id = {e["id"]: e for e in events}
 
@@ -194,10 +211,10 @@ def lookup_event(smm_dir: Path, event_id: str) -> tuple[str, dict]:
     if result is None:
         matches = [k for k in by_id if k.startswith(event_id)]
         if len(matches) > 1:
-            raise ValueError(
+            raise AmbiguousPrefix(
                 f"Ambiguous prefix {event_id!r}: matches {len(matches)} events"
             )
-        raise ValueError(f"Event not found: {event_id!r}")
+        raise EventNotFound(f"Event not found: {event_id!r}")
 
     return result
 
