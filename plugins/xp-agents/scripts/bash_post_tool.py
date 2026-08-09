@@ -6,7 +6,6 @@ pass/fail status. Nudges to commit and run /xp-quality-review when a
 green test run leaves code files uncommitted.
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -20,6 +19,7 @@ import git_commits
 import hook_liveness
 import identity
 import markers
+import run_attribution
 import test_attribution
 from commit_handling import (
     _handle_commit,
@@ -28,10 +28,8 @@ from commit_handling import (
 )
 from event_metadata import (
     CONCERN_ACTION_TRANSIENT_TEST,
-    METADATA_KEY_CWD,
     METADATA_KEY_TEST_COUNT,
     METADATA_KEY_TEST_ERRORS,
-    METADATA_KEY_TEST_FAILED,
 )
 from event_schema import (
     METADATA_KEY_TDD_RED,
@@ -57,22 +55,6 @@ MID_CHAIN_NUDGE = (
     "story's acceptance criteria, run /xp-accept to mark it done and "
     "switch to the next story branch."
 )
-
-
-def _collapse_home_cwd(cwd: str) -> str:
-    """Collapse a leading $HOME onto `~`; a path outside $HOME (container
-    mount, /tmp) has no home to strip and stays absolute.
-
-    The SMM log is durable and renders back into prompts, so an absolute path
-    under $HOME would carry the username for no gain — `~` keeps everything
-    that matters (worktree fragment, subdirectory, basename) without it.
-    """
-    home = os.path.expanduser("~")
-    if cwd == home:
-        return "~"
-    if cwd.startswith(home + os.sep):
-        return "~" + cwd[len(home) :]
-    return cwd
 
 
 def _check_mid_chain_nudge(smm_dir: Path, input_data: dict) -> str | None:
@@ -283,16 +265,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         _common.append_safe(smm_dir, status)
 
         if failed > 0 and not tree_test_only:
+            # Shared with bash_failure's degraded producer so the two cannot
+            # drift on the keys or the omit-don't-fabricate rules; this caller
+            # is the one that always has parsed counts.
             concern_metadata: dict = {
                 "action": CONCERN_ACTION_TRANSIENT_TEST,
-                METADATA_KEY_TEST_FAILED: failed,
-                METADATA_KEY_TEST_COUNT: passed + failed,
+                **run_attribution.run_attribution_metadata(
+                    input_data.get("cwd"),
+                    failed=failed,
+                    total=passed + failed,
+                    errors=errors,
+                ),
             }
-            if errors > 0:
-                concern_metadata[METADATA_KEY_TEST_ERRORS] = errors
-            payload_cwd = input_data.get("cwd")
-            if payload_cwd:
-                concern_metadata[METADATA_KEY_CWD] = _collapse_home_cwd(payload_cwd)
             concern = _common.make_event(
                 _common.CONCERN,
                 agent_id,
