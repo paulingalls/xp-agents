@@ -166,6 +166,28 @@ class TestSessionScoping(_FlightTestCase):
         )
 
 
+class TestRecordAndInputGlobsAreDisjoint(_FlightTestCase):
+    """The two sprint-review stems must not see each other's files.
+
+    `subagent_stop` globs the sprint-review INPUT prefix and unlinks every hit;
+    the session sweep globs the in-flight stem and unlinks what it can age.
+    Either stem becoming a prefix of the other makes one glob eat the other's
+    file, and nothing else in the tree would notice.
+    """
+
+    def test_the_input_glob_does_not_see_a_record(self):
+        self.write_record()
+        matched = self.smm_dir.glob(f"{marker_names.SPRINT_REVIEW_INPUT_PREFIX}*")
+        self.assertEqual([p.name for p in matched], [])
+
+    def test_the_record_glob_does_not_see_an_input_file(self):
+        (self.smm_dir / f"{marker_names.SPRINT_REVIEW_INPUT_PREFIX}json").write_text(
+            "{}", encoding="utf-8"
+        )
+        matched = self.smm_dir.glob(f"{marker_names.SPRINT_REVIEW_IN_FLIGHT}*")
+        self.assertEqual([p.name for p in matched], [])
+
+
 class TestRecordStart(_FlightTestCase):
     """The write half, driven through the module's own writer."""
 
