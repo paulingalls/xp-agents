@@ -41,13 +41,20 @@ BAND_CEILINGS = {
     # Carrying 492 across the merge would have handed back all 24 lines.
     "plugins/xp-agents/skills/_preload_base.sh": 468,
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
-    "plugins/xp-agents/scripts/close_common.py": 470,  # ratcheted from 496 (split)
+    # Ratcheted 470->471: the stderr-first relay helpers moved to
+    # `_subprocess_env`, so this module imports both it and `branch_lifecycle`
+    # (still needed for `push_source_no_verify`) where one import used to do.
+    "plugins/xp-agents/scripts/close_common.py": 471,  # ratcheted from 496 (split)
     "plugins/xp-agents/smm/sprint_cli_mutate.py": 496,
     "plugins/xp-agents/scripts/in_place_marker.py": 490,
     "plugins/xp-agents/scripts/retro_metrics.py": 490,
     "plugins/xp-agents/scripts/linter_tables.py": 482,
     "plugins/xp-agents/smm/event_schema.py": 480,
-    "plugins/xp-agents/scripts/lint_runners.py": 477,
+    # Ratcheted 477->482 (story-011): the three single-stream sites now route
+    # through `_subprocess_env.combine_streams`, the binary-mode one decoding
+    # per-stream first, so a discarded stream can't drop half a linter's
+    # diagnosis.
+    "plugins/xp-agents/scripts/lint_runners.py": 482,
     "plugins/xp-agents/smm/_append_impl.py": 469,
     # Entered the band at sprint close: the start-time file_domain gate needed
     # an ABSOLUTE sister-expanded report alongside the this-write-only one.
@@ -69,6 +76,11 @@ BAND_CEILINGS = {
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
+    # RETIRED: verify_acceptance.py 455->434, under the 450 floor so the entry
+    # is deleted rather than re-recorded. Deduping the sprint run to one
+    # subprocess per DISTINCT command replaced the inline row-building loop
+    # with `_run_one` plus two helpers in verify_acceptance_record.py, which
+    # took out more lines than the dedup added.
     # tests (57)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
     # Entered the band with the shell surface's own red proofs. Its own
@@ -161,4 +173,12 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/smm/test_append_safety.py": 452,
     "plugins/xp-agents/tests/scaffold/test_scaffold_cli_detect.py": 452,
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_branch_delete.py": 451,
+    # Entered the band with story-011's stream-relay proofs (both-streams +
+    # tail-eviction) added to TestBootstrapFailure's sibling classes.
+    "plugins/xp-agents/tests/hooks/test_spawn_teammate_bootstrap.py": 461,
+    # RETIRED (story-011): test_worktree_differential.py 486->440. Its
+    # stream-relay proofs went to test_worktree_differential_output.py rather
+    # than taking a ceiling entry at 518, over the tree-wide cap. The
+    # measurement (refusal, gap/no-gap, throwaway removal) and what each leg
+    # RELAYS grow for unrelated reasons.
 }

@@ -139,7 +139,7 @@ def run_bootstrap(wt_path: str, smm_dir: Path) -> None:
         ) from exc
 
     if proc.returncode != 0:
-        output = (proc.stderr or proc.stdout or "").strip()
+        output = _subprocess_env.combined_output(proc).strip()
         raise SystemExit(
             f"worktree bootstrap failed (exit "
             f"{proc.returncode}): {command}\n{output}\n"

@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """Prose Hygiene pins for xp-close-reviewer.md, plus cross-file parity.
 
-story-002 promotes prose hygiene (the four-bucket comment rule) to a named
-review dimension in BOTH reviewers. Only a module reading both agent files
-can prove the rule is worded identically, so the parity assertion lives
-here rather than being split across the two per-agent suites.
+Prose hygiene is a named review dimension in BOTH reviewers. Only a module
+reading both agent files can prove the rule is worded identically, so the
+parity assertion lives here rather than being split across the two per-agent
+suites.
 
 Each reviewer numbers the section in its OWN scheme — xp-code-reviewer.md
 runs 1..5, xp-close-reviewer.md runs Step 1..Step 4 — so the heading is
 per-file and parity covers the rule BODY, which is what must not drift.
 
-Four-bucket rule: A (restates code) and B (narrates removed history) ->
-delete, git holds history. C (checkable claim) -> convert to a test. D (a
-why the code cannot express) -> exempt, never flagged. Plus: a comment
-block >=25 lines is a simplification smell in the CODE, not prose to trim.
+Four lettered buckets: A (restates code) and B (narrates removed history) ->
+delete, git holds history. C (checkable claim) -> convert to a test. D (a why
+the code cannot express) -> exempt, never flagged. Two more carry no letter: a
+claim that contradicts the code -> narrow it to what is true; a comment block
+>=25 lines -> a simplification smell in the CODE, not prose to trim.
 """
 
 import sys
@@ -31,9 +32,25 @@ _CLOSE_REVIEWER_MD = _PLUGIN_ROOT / "agents" / "xp-close-reviewer.md"
 _CODE_REVIEWER_HEADING = "## 5. Prose Hygiene"
 _CLOSE_REVIEWER_HEADING = "## Step 3b: Prose Hygiene"
 
+# (file, heading, marker for the section that follows) — one table, so a
+# reviewer that renumbers its own headings is a single-site edit here.
+_SECTION_SPECS = (
+    (_CODE_REVIEWER_MD, _CODE_REVIEWER_HEADING, "## Recording Findings"),
+    (_CLOSE_REVIEWER_MD, _CLOSE_REVIEWER_HEADING, "## Mode-Specific Focus"),
+)
 
-def _prose_hygiene_section(body: str, heading: str, end_marker: str) -> str:
-    return _slice(body, heading, (end_marker,))
+
+def _prose_hygiene_sections() -> tuple[str, str]:
+    """The rule body from each reviewer, in `_SECTION_SPECS` order.
+
+    `_slice` excludes the heading, so each file keeps its own numbering.
+    """
+    sections = []
+    for path, heading, end_marker in _SECTION_SPECS:
+        _, body = _split_frontmatter_body(path.read_text(encoding="utf-8"))
+        sections.append(_slice(body, heading, (end_marker,)))
+    code_reviewer, close_reviewer = sections
+    return code_reviewer, close_reviewer
 
 
 class TestCloseReviewerProseHygiene(unittest.TestCase):
@@ -43,9 +60,7 @@ class TestCloseReviewerProseHygiene(unittest.TestCase):
     def setUpClass(cls):
         text = _CLOSE_REVIEWER_MD.read_text(encoding="utf-8")
         _, cls.body = _split_frontmatter_body(text)
-        cls.section = _prose_hygiene_section(
-            cls.body, _CLOSE_REVIEWER_HEADING, "## Mode-Specific Focus"
-        )
+        cls.section = _prose_hygiene_sections()[1]
         cls.lower = cls.section.lower()
 
     def test_heading_is_named_not_buried(self):
@@ -86,17 +101,7 @@ class TestProseHygieneParity(unittest.TestCase):
     """The rule body must be byte-identical across both reviewer agents."""
 
     def test_section_is_identical_in_both_agents(self):
-        code_reviewer_text = _CODE_REVIEWER_MD.read_text(encoding="utf-8")
-        close_reviewer_text = _CLOSE_REVIEWER_MD.read_text(encoding="utf-8")
-        _, code_reviewer_body = _split_frontmatter_body(code_reviewer_text)
-        _, close_reviewer_body = _split_frontmatter_body(close_reviewer_text)
-
-        code_reviewer_section = _prose_hygiene_section(
-            code_reviewer_body, _CODE_REVIEWER_HEADING, "## Recording Findings"
-        )
-        close_reviewer_section = _prose_hygiene_section(
-            close_reviewer_body, _CLOSE_REVIEWER_HEADING, "## Mode-Specific Focus"
-        )
+        code_reviewer_section, close_reviewer_section = _prose_hygiene_sections()
         self.assertEqual(
             code_reviewer_section,
             close_reviewer_section,
@@ -105,6 +110,23 @@ class TestProseHygieneParity(unittest.TestCase):
             "`_slice` excludes the heading, so each file keeps its own "
             "section numbering; everything below the heading must match",
         )
+
+
+class TestVerifyClaimIsTrueRule(unittest.TestCase):
+    """The lens must ask whether a claim is TRUE, not just checkable."""
+
+    def test_contradicted_claim_rule_present_in_both_agents(self):
+        """Asserted per file, not via parity: parity alone goes green when the
+        bullet is deleted from BOTH, and this must fail when it leaves one."""
+        for section in _prose_hygiene_sections():
+            lower = section.lower()
+            self.assertIn("contradicts the code", lower)
+            self.assertIn("counts", lower)
+            self.assertIn("entry points", lower)
+            self.assertIn("call sites", lower)
+            self.assertIn("where it sends a reader", lower)
+            self.assertIn("narrow it to what is true", lower)
+            self.assertIn("rather than delete it", lower)
 
 
 if __name__ == "__main__":

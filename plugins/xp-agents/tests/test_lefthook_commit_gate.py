@@ -171,14 +171,27 @@ class TestStagedTestsRunOnTheCommitGate(unittest.TestCase):
             "use **/test_*.py so top-level test files are collected too.",
         )
 
+    def test_strips_xp_perf(self):
+        """A developer with XP_PERF=1 exported who stages a scale test would
+        otherwise arm wall-clock benchmarks inside the commit gate, where they
+        fail on timing noise. The pre-push side of the same property lives in
+        `test_lefthook_perf_gate.py`; this leg is what keeps the commit gate's
+        own run covered after the suite moved off it."""
+        self.assertIn(
+            "-u XP_PERF",
+            self.cmd,
+            "staged-tests must env -u XP_PERF",
+        )
+
     def test_never_a_bare_whole_tree_pytest(self):
         """A literal tree path on the pytest line would restore the full run.
 
-        The invariant "a directory target must be parallel" is NOT pinned here
-        — it is behavioral, and the earlier text form pinned the wrong half of
-        it (it forbade `-n auto`, which is the CHEAP spelling; sequential is
-        the 432s one). See TestGateSelectsTheRightTargets, which executes the
-        body and asserts on the argv pytest actually receives.
+        Renamed from `test_does_not_run_the_whole_suite`, whose regex forbade
+        `pytest -n auto` — the CHEAP spelling. Once a directory target exists
+        the sequential run is the dangerous one (the recorded 432s), so that
+        form pinned the wrong half. The real invariant is behavioral and lives
+        in TestGateSelectsTheRightTargets, which executes the body and asserts
+        on the argv pytest receives.
         """
         self.assertNotRegex(
             self.cmd,

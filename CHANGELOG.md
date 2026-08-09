@@ -2,6 +2,53 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.11.0 — A milestone that disproved itself
+
+The sprint set out to sweep stale prose out of three shipped roots. Its first
+story measured the roots and found almost nothing to sweep: in the 2005-line
+close/review subsystem, the "restates the code" bucket was empirically zero and
+the next bucket yielded ~1.4%. Two of the four planned sweeps were cancelled on
+that evidence and replaced with a rule for diff reviewers, because stale prose
+is caught where prose is written, not by re-reading code nobody touched.
+
+### Checks that fired on the work they were meant to protect
+
+**The prose ratchet punished extraction and claim-narrowing.** It compared the
+tree against a number recorded on a different tree without recording WHICH files
+the number covered, so any change to the file set read as prose growth. Splitting
+a file past the 500-line rule adds a module docstring and no code, and a claim
+narrowed to what is true is longer than the false short one it replaced — so the
+ratchet moved against both. It now names the 142 files it was measured over, and
+a name whose file vanished fails loud instead of quietly shrinking the measure.
+
+**Sprint verify ran the same suite nine times.** `--sprint` shelled one
+subprocess per (story, command), and nearly every story declares the whole-suite
+E2E check. One sprint enumerated 21 items that were 13 commands and spent ~35
+minutes. Worse than slow: the batch budget skips items in sprint order once
+exhausted and skipped items gate the close as red, so duplication could push
+genuine checks out of the verified set. Execution is deduped; reporting is not —
+every story keeps its row.
+
+### Backgrounded commits outran their own hook
+
+`PostToolUse:Bash` fires when the tool call returns, which for a backgrounded
+command is at launch — before git has moved HEAD. 79% of ordinary commits left
+no event, taking `Resolves-Event:` links and story attribution with them. The
+hook no longer reads a launch as evidence the commit did not land. Recovery
+happens at the next commit-shaped call that itself fails confirmation, so two
+shapes keep no observer: the last backgrounded commit of a run, and one followed
+by a foreground commit, which confirms normally and never probes the prior HEAD.
+Both residuals are recorded rather than implied.
+
+### Also
+
+- Vocabulary bans match on genuine use, not substrings — `.rs` no longer fires
+  inside `.rspec`, while `snake_case` internal names stay banned behind suffixes.
+- Both reviewer definitions gained a verify-the-claim lens.
+- Diagnostics relay both streams at eight sites that reported one and dropped
+  the other.
+- The stop gate tells an agent what actually clears it, per branch state.
+- A sprint review already running no longer reads as one never started.
 ## v5.10.0 — A number you could not check, and a field that got shelled
 
 ### Every red looked the same

@@ -3,10 +3,11 @@
 
 Two pins assert this rule over the shipped tree: `test_prose_rule_completeness.py`
 holds every routing line to all three destinations, and
-`test_prose_routing_pin.py` guards the two properties that verdict cannot see —
-that each known surface still states the rule at all, and that no shipped prose
-names one language's comment construct. Both read the same matchers from here,
-with public names, so no module holds a second copy.
+`test_prose_routing_pin.py` guards the properties that verdict cannot see — that
+each known surface still states the rule at all, that no shipped prose names one
+language's comment construct, and that every section-scoped vocabulary member
+still has a use to protect. Both read the same matchers from here, with public
+names, so no module holds a second copy.
 
 No assertion lives here: the pins own the tree-wide verdicts,
 `test_prose_routing_pin_matchers.py` owns the synthetic proofs for the selector
@@ -24,6 +25,7 @@ Named for routing rather than prose to stay distinct from milestone 2's planned
 import re
 
 from _md_helpers import CORPUS_WIDE_FORBIDDEN
+from _vocab_detect import token_occurs
 
 # The surfaces that state the rule today. A path-segment-anchored suffix match
 # on the repo-relative path, so it is immune to which glob group (root guides vs
@@ -79,6 +81,40 @@ RULE_LEGS = (
     ("why", WHY_DEST_RE),
 )
 
+# The surfaces stating the verify-the-claim rule: a claim the code contradicts
+# is NARROWED to what is true, not deleted. A separate table from
+# KNOWN_ROUTING_SURFACES because the two rules answer different questions —
+# routing says where content belongs, this says what to do with content already
+# in the wrong shape — and the surface lists differ.
+KNOWN_VERIFY_CLAIM_SURFACES = (
+    "PROCESS_GUIDE.md",
+    "agents/xp-close-reviewer.md",
+    "agents/xp-code-reviewer.md",
+)
+
+# Half one: the case being ruled on. Both shipped spellings, because the guide
+# is telegraphic where the agents are prose; the rule is the verdict, not its
+# wording.
+CONTRADICTED_CLAIM_RE = re.compile(r"\bfalse claims?\b|\bcontradicts the code\b", re.I)
+
+# Half two: the verdict. Narrowing AND a refusal to delete, on the same line —
+# "narrow" alone would pass a line that offered deletion as an alternative,
+# which is the failure the rule exists to prevent.
+NARROW_OVER_DELETE_RE = re.compile(r"\bnarrow\w*\b.*\bdelet\w+\b", re.I)
+
+
+def find_verify_claim_lines(text: str, surface: str) -> list[tuple[str, int]]:
+    """(surface, 1-based line) for every line stating the verify-the-claim rule.
+
+    Both halves must land on ONE line: split across two, a reader can drop
+    either and the survivor still reads as complete advice.
+    """
+    return [
+        (surface, lineno)
+        for lineno, line in enumerate(text.splitlines(), start=1)
+        if CONTRADICTED_CLAIM_RE.search(line) and NARROW_OVER_DELETE_RE.search(line)
+    ]
+
 
 def find_comment_routing_lines(text: str, surface: str) -> list[tuple[str, int]]:
     """(surface, 1-based line) for every line matching the comment-routing
@@ -98,7 +134,8 @@ def find_comment_routing_lines(text: str, surface: str) -> list[tuple[str, int]]
 
 
 def find_single_language_tokens(text: str, surface: str) -> list[tuple[str, str]]:
-    """(surface, token) for every single-language token present in *text*.
+    """(surface, token) for every single-language token genuinely occurring in
+    *text*.
 
     The token list is NOT a parameter, deliberately. An injectable one lets a
     test pass a synthetic tuple, which bypasses the registry and would pass just
@@ -106,7 +143,18 @@ def find_single_language_tokens(text: str, surface: str) -> list[tuple[str, str]
     Reading `CORPUS_WIDE_FORBIDDEN` here makes the derivation the only thing a
     caller can exercise.
     """
-    return [(surface, token) for token in CORPUS_WIDE_FORBIDDEN if token in text]
+    return [
+        (surface, token) for token in CORPUS_WIDE_FORBIDDEN if token_occurs(token, text)
+    ]
+
+
+def zero_use_members(members: tuple[str, ...], texts: list[str]) -> list[str]:
+    """Members of *members* with no genuine occurrence in any of *texts*."""
+    return [
+        member
+        for member in members
+        if not any(token_occurs(member, text) for text in texts)
+    ]
 
 
 def find_incomplete_rule_lines(text: str, surface: str) -> list[tuple[str, int, str]]:

@@ -13,12 +13,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import commit_handling
+from _commit_repo_case import _RebuildTestCase
 from conftest import _HookTestCase, make_event
 from event_schema import EVENT_TYPE_COMMIT
 
@@ -128,6 +130,35 @@ class TestIsTddRedStepPrecomputedTree(_HookTestCase):
                     self.smm_dir, _CWD, tree_test_only=False
                 )
             )
+
+
+class TestRecoveredCommitFeedsThisSignal(_RebuildTestCase):
+    """A recovered backgrounded commit is read here like any other.
+
+    `_prior_commit_was_test_only` takes the MOST RECENT commit event, so
+    recovering the commits a backgrounded launch used to lose changes which
+    event that is — the reason the recovery has a blast radius at all. Pinned
+    at the reader, on a real repo, because the rebuild suite's own green never
+    exercises the density it creates.
+    """
+
+    _LAUNCH_NOTICE = "Command running in background with ID: b1s2v6k3o"
+    _STILL_RUNNING = "git commit -m 'a subject git has not written yet'"
+
+    def _recover_a_commit_of(self, path: str) -> None:
+        self.commit(f"wip: {path}", path=path)
+        self.run_hook(self._STILL_RUNNING, stdout=self._LAUNCH_NOTICE, background=True)
+
+    def test_recovered_test_only_commit_reads_as_a_red_step(self):
+        self._recover_a_commit_of("tests/test_x.py")
+        self.assertTrue(commit_handling._prior_commit_was_test_only(self.smm_dir))
+
+    def test_recovered_production_commit_does_not(self):
+        """The recovery must not blanket-tag: an event whose files are
+        production code still says 'a failure here is a regression'."""
+        self._recover_a_commit_of("src/x.py")
+        self.assertEqual(len(self.commit_events()), 1)
+        self.assertFalse(commit_handling._prior_commit_was_test_only(self.smm_dir))
 
 
 if __name__ == "__main__":

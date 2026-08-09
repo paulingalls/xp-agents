@@ -138,6 +138,38 @@ class TestBootstrapFailure(_BootstrapTestCase):
         )
 
 
+class TestBootstrapRelaysBothStreams(_BootstrapTestCase):
+    """A failing bootstrap used to report `stderr or stdout` — whichever
+    stream carried the command's diagnosis, if it wasn't the one the `or`
+    happened to pick, was silently dropped from the raised message."""
+
+    def _output_only(self, command: str) -> str:
+        """The RELAYED OUTPUT only, not the echoed command or the trailing
+        forensics line — the raised message prints the declared command
+        verbatim, and it happens to name both `echo` arguments too, so
+        asserting against the whole message would pass even when the relay
+        itself drops one of them."""
+        self.declare_bootstrap(command)
+
+        with self.assertRaises(SystemExit) as ctx:
+            self.spawn()
+
+        message = str(ctx.exception)
+        after_command = message.split(f"{command}\n", 1)[1]
+        return after_command.split("\nWorktree left at", 1)[0]
+
+    def test_stdout_diagnosis_survives_alongside_stderr_noise(self):
+        output = self._output_only(
+            "echo diagnosis-on-stdout; echo noise-on-stderr >&2; exit 1"
+        )
+        self.assertIn("diagnosis-on-stdout", output)
+        self.assertIn("noise-on-stderr", output)
+
+    def test_stderr_comes_first(self):
+        output = self._output_only("echo on-stdout; echo on-stderr >&2; exit 1")
+        self.assertLess(output.index("on-stderr"), output.index("on-stdout"))
+
+
 class TestBootstrapKillsProcessGroup(_BootstrapTestCase):
     """A backgrounded, hanging child dies with the process group.
 

@@ -71,6 +71,7 @@ Judged per comment in the changed code — a documentation or narrative file is 
 
 - Restates the code, or narrates removed history → Concern; fix is delete — git holds history.
 - States a checkable claim → Concern; fix is convert to a test, where it rots loudly.
+- Claim contradicts the code — counts, entry points, call sites, where it sends a reader → Concern; narrow it to what is true rather than delete it.
 - Comment block ≥25 lines → simplification smell in the CODE.
 - Exempt: a comment carrying only a why the code cannot express — rejected-design rationale, external constraints, machine-checked markers.
 

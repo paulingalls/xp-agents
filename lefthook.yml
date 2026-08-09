@@ -10,10 +10,11 @@
 #    shows only the FIRST failing check, not every one at once as parallel did.
 #  - Everything is sequential, pyright included.
 #
-# The commit gate is lint, format and types ONLY — the full suite moved to
-# pre-push. It was measured at 432s (9188 tests) on this machine, which is 36x
-# the ~12s the remaining commands cost and made every increment expensive enough
-# to push toward batching several changes into one commit. Nothing is ungated:
+# The commit gate is lint, format, types, and the test files you staged — the
+# full suite moved to pre-push. It was measured at 432s (9188 tests) on this
+# machine, which is 36x the ~12s the remaining commands cost and made every
+# increment expensive enough to push toward batching several changes into one
+# commit. Nothing is ungated:
 # `git push` fires on every story close (xp-story-close Step 2) and again on the
 # post-merge target push, so the suite runs on the story tip AND on the merged
 # result — the latter is combination coverage a pre-commit hook never gave,
