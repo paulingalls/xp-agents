@@ -305,12 +305,87 @@ class TestRuffFormatFixModeSequencedOutOfParallel(unittest.TestCase):
             "commit then records unformatted content with no signal.",
         )
 
-    def test_ruff_format_is_sequenced_first(self):
+    def test_rewriters_are_sequenced_before_readers(self):
+        """Both fix-mode commands run before anything that READS the files.
+
+        `ruff-check --fix` and `ruff format` each rewrite staged files, so both
+        must precede pyright and the staged-test run. Order between them is not
+        arbitrary: ruff's own guidance is check --fix FIRST, because a fix can
+        leave code the formatter still has to tidy. Reverse them and a commit
+        records unformatted output from an autofix.
+        """
+        ruff_check = _command_body(self.block, "ruff-check")
+        self.assertRegex(
+            ruff_check,
+            r"(?m)^\s*priority:\s*1\b",
+            "ruff-check must set priority: 1 — it rewrites in --fix mode and "
+            "its output still has to pass through the formatter.",
+        )
         self.assertRegex(
             self.ruff_format,
-            r"(?m)^\s*priority:\s*1\b",
-            "ruff-format must set priority: 1 so lefthook runs it before "
-            "the other pre-commit commands.",
+            r"(?m)^\s*priority:\s*2\b",
+            "ruff-format must set priority: 2 — after ruff-check --fix, "
+            "before every command that reads the files.",
+        )
+
+    def test_ruff_check_fixes_and_stages(self):
+        """A lint error a machine can fix should not cost a failed commit.
+
+        Without stage_fixed the fix lands in the working tree and the commit
+        records the unfixed content — the same trap ruff-format's own
+        stage_fixed pin exists to close.
+        """
+        ruff_check = _command_body(self.block, "ruff-check")
+        self.assertRegex(
+            ruff_check, r"run:\s*ruff check --fix\b", "ruff-check must pass --fix"
+        )
+        self.assertRegex(
+            ruff_check,
+            r"(?m)^\s*stage_fixed:\s*true\b",
+            "ruff-check --fix without stage_fixed leaves the fix unstaged",
+        )
+
+
+class TestStagedTestsRunOnTheCommitGate(unittest.TestCase):
+    """The commit gate runs the tests you actually touched, never the suite.
+
+    The full suite lives on pre-push (432s). This command is the cheap half:
+    if you staged a test file, it runs, so breaking the test you just wrote is
+    caught now rather than at story close. It proves nothing about the rest of
+    the tree — that is push's job, and this pin must not be read as coverage.
+    """
+
+    def setUp(self):
+        self.block = _hook("pre-commit")
+        self.cmd = _command_body(self.block, "staged-tests")
+        self.assertTrue(self.cmd, "pre-commit must define a staged-tests command")
+
+    def test_bails_when_no_test_file_survives_the_filter(self):
+        """The trap this guards: a DELETED staged test file.
+
+        Filtering to existing paths can yield an EMPTY list, and `pytest` with
+        no arguments collects the WHOLE tree — turning the cheap gate back into
+        the 432s run this change just removed. The command must test for empty
+        and skip, never fall through to a bare `pytest`.
+        """
+        self.assertRegex(
+            self.cmd,
+            r'-z\s*"?\$\{?files',
+            "staged-tests must bail on an empty file list — a bare `pytest` "
+            "with no paths runs the entire suite.",
+        )
+        self.assertIn(
+            "-f",
+            self.cmd,
+            "staged-tests must filter to files that still exist, so a deleted "
+            "test file cannot fail the commit with a collection error.",
+        )
+
+    def test_does_not_run_the_whole_suite(self):
+        self.assertNotRegex(
+            self.cmd,
+            r"pytest\s+-n\s+auto\s*$",
+            "staged-tests must not run the full suite — that is pre-push's job",
         )
 
 
