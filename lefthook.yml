@@ -27,14 +27,20 @@
 pre-commit:
   piped: true
   commands:
-    ruff-format:
-      glob: "*.py"
-      priority: 1
-      run: ruff format {staged_files}
-      stage_fixed: true
+    # Both rewriters run before anything that READS the files, and --fix comes
+    # before format: ruff's own guidance, because a fix can leave code the
+    # formatter still has to tidy. Reversed, a commit records unformatted
+    # autofix output.
     ruff-check:
       glob: "*.py"
-      run: ruff check {staged_files}
+      priority: 1
+      run: ruff check --fix {staged_files}
+      stage_fixed: true
+    ruff-format:
+      glob: "*.py"
+      priority: 2
+      run: ruff format {staged_files}
+      stage_fixed: true
     shellcheck:
       glob: "*.sh"
       run: shellcheck -x -e SC1091 {staged_files}
@@ -42,6 +48,32 @@ pre-commit:
       glob: "plugins/xp-agents/**/*.py"
       root: "plugins/xp-agents/"
       run: pyright
+    # The tests you TOUCHED, never the suite — that is pre-push's job, and this
+    # says nothing about the rest of the tree. Breaking the test you just wrote
+    # is the one regression worth catching before the commit lands.
+    #
+    # The `-f` filter and the empty guard are both load-bearing. A staged test
+    # file that was DELETED still reaches {staged_files}, so pytest would fail
+    # collection on a path that is gone; filtering fixes that but can leave the
+    # list EMPTY, and `pytest` with no paths collects the WHOLE tree — silently
+    # restoring the 432s gate this file just removed. Hence: filter, then bail.
+    # glob is `**/test_*.py`, NOT `tests/**/test_*.py`: lefthook's `**` requires
+    # at least one directory, so the narrower form silently skips every test
+    # file sitting directly in tests/ — which is where the cross-cutting pins
+    # live. Measured: it matched tests/skills/... and ran 11 tests while
+    # tests/test_dev_setup.py, also staged, was never collected.
+    staged-tests:
+      glob: "**/test_*.py"
+      run: |
+        files=""
+        for f in {staged_files}; do
+          [ -f "$f" ] && files="$files $f"
+        done
+        if [ -z "$files" ]; then
+          echo "no staged test files survive the filter — skipping"
+        else
+          env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_PERF -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest $files -q
+        fi
 
 # piped (NOT parallel — lefthook rejects both) runs the commands sequentially,
 # in alphabetical order by name: all-tests, then perf. The scale timers are
