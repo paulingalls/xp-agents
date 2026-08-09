@@ -28,9 +28,12 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import ClassVar
 
+import tomllib
+
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+import hooks_emit
 from _paths import _PLUGIN_ROOT, _SCRIPTS_DIR
 
 _HOOKS_DIR = _PLUGIN_ROOT / "hooks"
@@ -48,8 +51,6 @@ class TestCodexVariantRegenerationClean(unittest.TestCase):
     """
 
     def test_emitter_reproduces_the_checked_in_variant(self):
-        import hooks_emit
-
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp)
             hooks_emit.emit(source=_SOURCE, out_dir=out_dir)
@@ -73,13 +74,9 @@ class TestEmitterDefaultTarget(unittest.TestCase):
     """
 
     def test_default_out_dir_is_the_shipped_hooks_dir(self):
-        import hooks_emit
-
         self.assertEqual(hooks_emit.default_out_dir(), _HOOKS_DIR)
 
     def test_default_source_is_the_checked_in_hooks_json(self):
-        import hooks_emit
-
         self.assertEqual(hooks_emit.default_source(), _SOURCE)
 
 
@@ -140,13 +137,8 @@ class TestUnrecognisedEventsDropped(unittest.TestCase):
         entries or edited a command would still satisfy the three set
         assertions above.
 
-        This began as a stricter claim — surviving entries byte-identical to
-        the source — which was correct when event-dropping was the only rule.
-        The timeout and async strips falsified it, and it failed loudly rather
-        than letting the new edits through, which is the pin working. Restated
-        against the current rule set: strip the SAME declared keys from the
-        source and the two must then match exactly. The guard is intact, since
-        a rewritten matcher or a reordered list still fails.
+        Stated as: strip the SAME declared keys from the source and the two
+        must match exactly. A rewritten matcher or a reordered list fails.
         """
         for event, entries in self.codex.items():
             expected = json.loads(json.dumps(self.source[event]))
@@ -194,16 +186,20 @@ class TestNoTimeoutInTheVariant(unittest.TestCase):
         If the source ever stops declaring timeouts, the strip assertion
         becomes trivially true and would keep passing while the emitter's rule
         was deleted. This fails first and says why.
+
+        Counted over SURVIVING events only: a timeout declared solely on an
+        event the variant drops cannot reach the variant either way, so it
+        would satisfy a source-wide count while leaving the strip rule unpinned.
         """
         with_timeout = [
             f"{event}:{hook.get('command', '?')}"
             for event, hook in _all_hook_objects(self.source)
-            if "timeout" in hook
+            if "timeout" in hook and event in self.codex["hooks"]
         ]
         self.assertTrue(
             with_timeout,
-            "hooks.json declares no timeout anywhere, so the strip pin below "
-            "proves nothing — re-point it or delete both.",
+            "no surviving event in hooks.json declares a timeout, so the strip "
+            "pin below proves nothing — re-point it or delete both.",
         )
 
     def test_variant_declares_no_timeout(self):
@@ -231,11 +227,22 @@ class TestNoAsyncInTheVariant(unittest.TestCase):
         self.codex = json.loads(_CODEX.read_text(encoding="utf-8"))
 
     def test_source_still_carries_async(self):
-        """Non-vacuity guard, same argument as the timeout pin's."""
+        """Non-vacuity guard, same argument as the timeout pin's.
+
+        Surviving events only, and for `async` that is not hypothetical: the
+        source declares it on SessionEnd and on PostToolUseFailure, and the
+        latter is dropped whole. A source-wide count would stay green on
+        PostToolUseFailure alone while the strip rule went unpinned.
+        """
         with_async = [
-            event for event, hook in _all_hook_objects(self.source) if "async" in hook
+            event
+            for event, hook in _all_hook_objects(self.source)
+            if "async" in hook and event in self.codex["hooks"]
         ]
-        self.assertTrue(with_async, "hooks.json declares no async — pin proves nothing")
+        self.assertTrue(
+            with_async,
+            "no surviving event in hooks.json declares async — pin proves nothing",
+        )
 
     def test_variant_declares_no_async(self):
         offenders = [
@@ -258,12 +265,17 @@ class TestSourceIsNeverWritten(unittest.TestCase):
     """
 
     def test_emitting_leaves_the_source_byte_identical(self):
-        import hooks_emit
+        # Re-indented on purpose. The shipped hooks.json is byte-for-byte the
+        # emitter's own `json.dumps(..., indent=2) + "\n"`, so a write-back
+        # using that call would produce identical bytes and this pin would pass
+        # while the property it names was broken. Feeding a copy the emitter
+        # would NOT reproduce makes any write-back visible.
+        payload = json.loads(_SOURCE.read_text(encoding="utf-8"))
+        original = (json.dumps(payload, indent=4) + "\n").encode("utf-8")
 
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             source = work / "hooks.json"
-            original = _SOURCE.read_bytes()
             source.write_bytes(original)
 
             hooks_emit.emit(source=source, out_dir=work)
@@ -271,13 +283,21 @@ class TestSourceIsNeverWritten(unittest.TestCase):
             self.assertEqual(source.read_bytes(), original, "emitter wrote its source")
 
     def test_emitting_creates_only_the_variant(self):
-        import hooks_emit
-
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
-            hooks_emit.emit(source=_SOURCE, out_dir=work)
+            # A copy, not the live manifest: every other caller here hands the
+            # emitter the checked-in file, so a regression that wrote its source
+            # would corrupt the repo from inside the suite that exists to catch it.
+            source = work / "source" / "hooks.json"
+            source.parent.mkdir()
+            source.write_bytes(_SOURCE.read_bytes())
+            out_dir = work / "out"
+            out_dir.mkdir()
+
+            hooks_emit.emit(source=source, out_dir=out_dir)
+
             self.assertEqual(
-                sorted(p.name for p in work.iterdir()),
+                sorted(p.name for p in out_dir.iterdir()),
                 ["hooks.codex.json"],
                 "emitter produced files beyond the variant",
             )
@@ -377,22 +397,13 @@ class TestFormatterExclusionCoversEveryManifest(unittest.TestCase):
 
     `ruff.toml` carries `extend-exclude` plus `force-exclude = true` so that an
     ad-hoc `ruff format .` — or a path passed explicitly — cannot rewrite a hook
-    manifest and introduce a trailing comma the host then rejects. That guard
-    was written when `hooks.json` was the only manifest, and its glob names that
-    one file. Generating a sibling silently left the new file outside it.
+    manifest and introduce a trailing comma the host then rejects.
 
-    This pin is stated over the DIRECTORY rather than over today's two
-    filenames, so a third manifest is covered the day it appears instead of
-    inheriting the same gap.
+    Stated over the DIRECTORY rather than over today's two filenames, so a
+    third manifest is covered the day it appears rather than silently omitted.
     """
 
     def setUp(self):
-        # Local import: ruff.toml targets py310, where tomllib is not stdlib, so a
-        # top-level import gets sorted into the third-party block. Same pattern
-        # this file already uses for hooks_emit. See debt on the target-version
-        # drift — CLAUDE.md requires 3.11+.
-        import tomllib
-
         self.config = tomllib.loads(_RUFF_TOML.read_text(encoding="utf-8"))
         self.patterns = self.config.get("extend-exclude", [])
         self.assertTrue(self.patterns, "ruff.toml declares no extend-exclude")
