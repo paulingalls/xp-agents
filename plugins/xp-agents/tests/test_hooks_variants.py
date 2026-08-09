@@ -20,6 +20,7 @@ packaging pin to a handler-test helper for a two-line `setUp`.
 """
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -330,6 +331,45 @@ class TestVariantParsesStrict(unittest.TestCase):
         data = json.loads(_CODEX.read_text(encoding="utf-8"))
         self.assertIsInstance(data, dict)
         self.assertIn("hooks", data)
+
+
+class TestEmitterRunsAsASubprocess(unittest.TestCase):
+    """E2E: the emitter works when INVOKED, not just when imported.
+
+    Every other pin calls `emit()` in-process, which never exercises the CLI
+    entry point, the argument parsing, or the shebang — the form a human or a
+    CI step actually uses. An import-only suite would stay green with `main()`
+    broken.
+    """
+
+    def test_cli_emits_a_valid_manifest_into_a_target_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(_SCRIPTS_DIR / "hooks_emit.py"),
+                    "--out-dir",
+                    str(out_dir),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            produced = json.loads(
+                (out_dir / "hooks.codex.json").read_text(encoding="utf-8")
+            )
+
+        self.assertIn("hooks", produced)
+        source = json.loads(_SOURCE.read_text(encoding="utf-8"))
+        source_commands = {hook["command"] for _, hook in _all_hook_objects(source)}
+
+        for event, hook in _all_hook_objects(produced):
+            with self.subTest(event=event):
+                self.assertIn(hook["command"], source_commands)
+                self.assertIn("${CLAUDE_PLUGIN_ROOT}", hook["command"])
 
 
 class TestFormatterExclusionCoversEveryManifest(unittest.TestCase):
