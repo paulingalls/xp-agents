@@ -79,17 +79,6 @@
         ]
       }
     ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_compact.py",
-            "statusMessage": "Backing up event log..."
-          }
-        ]
-      }
-    ],
     "SubagentStart": [
       {
         "hooks": [
@@ -130,31 +119,6 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/subagent_stop.py",
             "timeout": 5000,
             "statusMessage": "Recording subagent results..."
-          }
-        ]
-      }
-    ],
-    "PostToolUseFailure": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/bash_failure.py",
-            "timeout": 5000,
-            "statusMessage": "Checking test results...",
-            "async": true
-          }
-        ]
-      },
-      {
-        "matcher": "AskUserQuestion",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/question_answered.py",
-            "timeout": 2500,
-            "statusMessage": "Recording clarification..."
           }
         ]
       }
@@ -228,18 +192,6 @@
         ]
       }
     ],
-    "PostCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/smm/compact.py",
-            "timeout": 5000,
-            "statusMessage": "Compacting event log..."
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [
@@ -272,39 +224,6 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_stop_gate.py",
             "statusMessage": "Checking teammate review cycle..."
-          }
-        ]
-      }
-    ],
-    "TeammateIdle": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_idle.py",
-            "statusMessage": "Checking TDD status..."
-          }
-        ]
-      }
-    ],
-    "TaskCompleted": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/task_completed.py",
-            "statusMessage": "Checking TDD status..."
-          }
-        ]
-      }
-    ],
-    "WorktreeCreate": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/worktree_create.py",
-            "statusMessage": "Setting up worktree branch base..."
           }
         ]
       }

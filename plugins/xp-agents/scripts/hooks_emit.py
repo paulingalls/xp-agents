@@ -24,6 +24,30 @@ from pathlib import Path
 _VARIANT_NAME = "hooks.codex.json"
 _SOURCE_NAME = "hooks.json"
 
+# Event names the second harness does not recognise. Measured in the dual-target
+# spike: each was registered deliberately and never fired in any run.
+#
+# Unknown event names are ignored SILENTLY there, so leaving these in would cost
+# nothing at runtime — dropping them is what makes the variant say only what is
+# true of the harness it targets. The cost is carried elsewhere and recorded, not
+# hidden: dropping PostToolUseFailure removes the test-failure gate outright, and
+# no milestone yet owns replacing it.
+#
+# One run, one harness version. A later version that recognises one of these
+# keeps being stripped until someone re-measures; the pin in
+# tests/test_hooks_variants.py spells this set out independently so an edit here
+# has to be argued for rather than absorbed.
+_UNRECOGNISED_EVENTS = frozenset(
+    {
+        "PreCompact",
+        "PostCompact",
+        "PostToolUseFailure",
+        "TeammateIdle",
+        "TaskCompleted",
+        "WorktreeCreate",
+    }
+)
+
 
 def default_source() -> Path:
     """The checked-in source manifest, resolved from this file."""
@@ -36,8 +60,22 @@ def default_out_dir() -> Path:
 
 
 def transform(source: dict) -> dict:
-    """Return the second harness's manifest derived from the first's."""
-    return json.loads(json.dumps(source))
+    """Return the second harness's manifest derived from the first's.
+
+    Subtraction only. Every surviving entry is carried across untouched — no
+    matcher is rewritten and no entry reordered. Matchers naming tools that do
+    not exist on the second harness are left alone deliberately: making them
+    fire needs the payload normalization and the explicit marker legs that later
+    milestones own, and a matcher that fires into a handler reading a field the
+    harness never sends is worse than one that never fires.
+    """
+    derived = json.loads(json.dumps(source))
+    derived["hooks"] = {
+        event: entries
+        for event, entries in derived["hooks"].items()
+        if event not in _UNRECOGNISED_EVENTS
+    }
+    return derived
 
 
 def emit(source: Path | None = None, out_dir: Path | None = None) -> Path:

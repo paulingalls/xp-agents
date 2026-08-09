@@ -24,6 +24,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
@@ -77,6 +78,66 @@ class TestEmitterDefaultTarget(unittest.TestCase):
         import hooks_emit
 
         self.assertEqual(hooks_emit.default_source(), _SOURCE)
+
+
+class TestUnrecognisedEventsDropped(unittest.TestCase):
+    """The variant registers only events the second harness recognises.
+
+    Both sets are spelled out HERE rather than imported from `hooks_emit`. A pin
+    that reads the emitter's own table would assert only that the emitter agrees
+    with itself; spelled literally, editing the table fails this pin and the
+    edit has to be argued for.
+
+    Provenance of the split: measured in the dual-target spike, one run, one
+    harness version. Six registered events never fired and are recorded as
+    unrecognised; unknown names are ignored SILENTLY there, so nothing in the
+    host would report the mistake if this list were wrong. That is exactly why
+    it is pinned rather than left implicit — see assumption 1b57219c9598, which
+    records that a harness later recognising one of these keeps being stripped.
+    """
+
+    RECOGNISED: ClassVar[set[str]] = {
+        "PreToolUse",
+        "PostToolUse",
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "SubagentStart",
+        "SubagentStop",
+        "Stop",
+    }
+    UNRECOGNISED: ClassVar[set[str]] = {
+        "PreCompact",
+        "PostCompact",
+        "PostToolUseFailure",
+        "TeammateIdle",
+        "TaskCompleted",
+        "WorktreeCreate",
+    }
+
+    def setUp(self):
+        self.source = json.loads(_SOURCE.read_text(encoding="utf-8"))["hooks"]
+        self.codex = json.loads(_CODEX.read_text(encoding="utf-8"))["hooks"]
+
+    def test_variant_registers_only_recognised_events(self):
+        self.assertEqual(set(self.codex), self.RECOGNISED)
+
+    def test_every_recognised_source_event_survives(self):
+        """Guards the opposite failure: dropping too much, not too little."""
+        expected = set(self.source) & self.RECOGNISED
+        self.assertEqual(set(self.codex), expected)
+
+    def test_dropped_events_are_exactly_the_unrecognised_ones(self):
+        self.assertEqual(set(self.source) - set(self.codex), self.UNRECOGNISED)
+
+    def test_surviving_entries_are_unchanged_from_the_source(self):
+        """Event dropping is the ONLY edit this rule makes.
+
+        Without this, a transform that also rewrote a matcher or reordered
+        entries would still satisfy the three set assertions above.
+        """
+        for event, entries in self.codex.items():
+            self.assertEqual(entries, self.source[event], f"{event} entry rewritten")
 
 
 class TestVariantParsesStrict(unittest.TestCase):
