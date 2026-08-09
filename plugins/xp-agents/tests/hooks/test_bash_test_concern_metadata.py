@@ -25,7 +25,11 @@ from _commit_helpers import patch_commits
 from concerns import TEST_FAILURES_PREFIX
 from conftest import _HookTestCase, _make_bash_input
 from event_helpers import events_of_type
-from event_metadata import METADATA_KEY_CWD, METADATA_KEY_TEST_FAILED
+from event_metadata import (
+    CONCERN_ACTION_TRANSIENT_TEST,
+    METADATA_KEY_CWD,
+    METADATA_KEY_TEST_FAILED,
+)
 from event_schema import EVENT_TYPE_CONCERN
 
 _WATERMARK_ID = "test-bash-test-concern-metadata"
@@ -67,6 +71,16 @@ class TestConcernCounts(_ConcernMetadataTestCase):
     def test_content_prefix_unchanged(self):
         concerns = self._run("pytest tests/", "3 passed, 2 failed in 1.2s")
         self.assertTrue(concerns[0]["content"].startswith(TEST_FAILURES_PREFIX))
+
+    def test_action_discriminator_survives_the_attribution_block(self):
+        # The attribution keys are SPREAD in after "action", so a key named
+        # "action" leaking out of the builder would silently replace the
+        # discriminator every consumer of this concern routes on. bash_failure
+        # has the same pin (test_bash_failure.py); this is the parsed leg.
+        concerns = self._run("pytest tests/", "3 passed, 2 failed in 1.2s")
+        self.assertEqual(
+            concerns[0]["metadata"]["action"], CONCERN_ACTION_TRANSIENT_TEST
+        )
 
     def test_unparseable_run_writes_no_concern(self):
         concerns = self._run("python3 probe.py --arm jest", _LABEL_WITH_A_COUNT)

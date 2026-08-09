@@ -210,7 +210,7 @@ def _digests(item: dict, intents: dict[str, dict] | None) -> bool:
 def _run_attribution_suffix(item: dict) -> str:
     """The run-identifying suffix on a test-failure concern (story-001).
 
-    Gated on the PRESENCE of the attribution keys, not on
+    Gated on the PRESENCE of an attribution key, not on
     `action == transient_test_failure` — simpler, avoids importing
     smm_count's private discriminator, and any other producer that stamps
     the same keys gets the render for free.
