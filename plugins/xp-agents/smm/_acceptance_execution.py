@@ -27,12 +27,10 @@ exited 127, and the close gate reported a plain red the operator could not make
 green. Off by default — only the story-level write path asks for it, so read
 paths keep loading what is already stored.
 
-The milestone-level caller (execution_plan_schema) does NOT yet ask for it, and
-that is an open gap rather than a proven-safe scope: xp-sprint-reviewer's
-milestone acceptance gate runs a milestone block's ``setup``/``command`` via
-Bash, so prose declared there reaches a shell exactly the way the story-level
-defect did. Closing it needs the same per-item grandfather this story built for
-stories (validate_plan walks every milestone on the read path too).
+The milestone-level caller (execution_plan_schema) asks for it too, with its
+own per-milestone grandfather (see _manual_shape_exemption) — validate_plan
+walks every milestone on the read path, so an ungrandfathered rule would make
+an existing plan unloadable.
 
 RUN-TIME is UNCHANGED. Gate on command PRESENCE, not on ``type``: whatever runs
 a command runs it regardless of type, and a manual block with no command is N/A.
@@ -101,10 +99,10 @@ def validate_acceptance_execution(
 
     ``enforce_manual_shape`` turns on the authoring-time rule that a manual
     block may not carry ``command``/``commands`` (see the module docstring).
-    It defaults to False so read paths keep loading stored blocks. The
-    milestone-level caller leaves it off as a KNOWN GAP, not a safe scope —
-    a milestone block does get shelled (xp-sprint-reviewer's milestone
-    acceptance gate) and closing the gap needs its own grandfather.
+    It defaults to False so read paths keep loading stored blocks. Both the
+    story-level caller (sprint_schema.py) and the milestone-level caller
+    (execution_plan_schema.py) turn it on at their write path, each behind
+    its own per-item grandfather.
 
     ``allow_pins`` gates the optional ``pins`` field. It defaults to True
     for the story-level caller (sprint_schema.py), the only scope

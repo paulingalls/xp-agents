@@ -21,14 +21,17 @@ Summarize: goal achieved? Stories delivered vs planned, velocity (`delivered/pla
 
 ## Step 2b: Milestone Acceptance Gate
 
-If `execution_plan_path` and `milestone` are both non-empty, read the file at `execution_plan_path` and find the milestone matching the sprint's `milestone` field. Check for `acceptance_execution` on that milestone:
+If `execution_plan_path` and `milestone` are set, find the matching milestone in `execution_plan_path` and check its `acceptance_execution`:
 
-**If `acceptance_execution` exists:**
-- Run `setup` (if present) then `command` via Bash
-- **Exit 0 (green):** Gate passes — proceed to Step 3 which marks delivered
-- **Non-zero (red):** Milestone stays open. Report failure output. Present options:
-  1. **Fix and re-run** — debug, fix, run again
-  2. **Override with concern** — mark delivered anyway; record a `concern` event describing the failure
+**If `acceptance_execution` exists**, branch on `command`/`commands` presence:
+
+- **Command present:** run `setup` (if present) then `command`/`commands` via Bash: exit 0 green, non-zero red.
+- **No command** (manual, described by `steps`): nothing is shelled — use your own judgment against `steps` to decide green/red.
+
+**Green (either branch):** proceed to Step 3, which marks delivered.
+**Red (either branch):** milestone stays open; report why; options:
+  1. **Fix and re-run**
+  2. **Override with concern** — mark delivered anyway; record a `concern` event
   3. **Defer** — milestone stays `in-progress` for next sprint
 
 **If no `acceptance_execution`:** Skip — current behavior (all stories done = delivered).
