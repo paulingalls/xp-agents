@@ -23,6 +23,7 @@ import json
 import sys
 import tempfile
 import unittest
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import ClassVar
 
@@ -34,6 +35,7 @@ from _paths import _PLUGIN_ROOT, _SCRIPTS_DIR
 _HOOKS_DIR = _PLUGIN_ROOT / "hooks"
 _SOURCE = _HOOKS_DIR / "hooks.json"
 _CODEX = _HOOKS_DIR / "hooks.codex.json"
+_RUFF_TOML = _PLUGIN_ROOT.parents[1] / "ruff.toml"
 
 
 class TestCodexVariantRegenerationClean(unittest.TestCase):
@@ -328,6 +330,54 @@ class TestVariantParsesStrict(unittest.TestCase):
         data = json.loads(_CODEX.read_text(encoding="utf-8"))
         self.assertIsInstance(data, dict)
         self.assertIn("hooks", data)
+
+
+class TestFormatterExclusionCoversEveryManifest(unittest.TestCase):
+    """The strict-JSON guard must cover EVERY hook manifest, not just the first.
+
+    `ruff.toml` carries `extend-exclude` plus `force-exclude = true` so that an
+    ad-hoc `ruff format .` — or a path passed explicitly — cannot rewrite a hook
+    manifest and introduce a trailing comma the host then rejects. That guard
+    was written when `hooks.json` was the only manifest, and its glob names that
+    one file. Generating a sibling silently left the new file outside it.
+
+    This pin is stated over the DIRECTORY rather than over today's two
+    filenames, so a third manifest is covered the day it appears instead of
+    inheriting the same gap.
+    """
+
+    def setUp(self):
+        # Local import: ruff.toml targets py310, where tomllib is not stdlib, so a
+        # top-level import gets sorted into the third-party block. Same pattern
+        # this file already uses for hooks_emit. See debt on the target-version
+        # drift — CLAUDE.md requires 3.11+.
+        import tomllib
+
+        self.config = tomllib.loads(_RUFF_TOML.read_text(encoding="utf-8"))
+        self.patterns = self.config.get("extend-exclude", [])
+        self.assertTrue(self.patterns, "ruff.toml declares no extend-exclude")
+
+    def _is_excluded(self, name: str) -> bool:
+        # ruff matches globs against the path; a leading `**/` makes the
+        # pattern basename-relative, which is how every entry here is written.
+        return any(
+            fnmatch(name, pattern.removeprefix("**/")) for pattern in self.patterns
+        )
+
+    def test_every_hook_manifest_is_excluded_from_formatting(self):
+        manifests = sorted(p.name for p in _HOOKS_DIR.glob("*.json"))
+        self.assertTrue(manifests, "no hook manifests found to check")
+        unguarded = [name for name in manifests if not self._is_excluded(name)]
+        self.assertEqual(
+            unguarded,
+            [],
+            f"hook manifests outside ruff's exclude: {unguarded}. A formatter "
+            "run can introduce a trailing comma and the host rejects the file.",
+        )
+
+    def test_force_exclude_stays_on(self):
+        """Without it the exclude is ignored for explicitly-passed paths."""
+        self.assertIs(self.config.get("force-exclude"), True)
 
 
 if __name__ == "__main__":
