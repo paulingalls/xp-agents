@@ -15,6 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, NamedTuple, TypeVar
 
+import _subprocess_env
 import linters
 from lint_budget import (  # noqa: F401 — see BASE_S/PER_PATH_S below
     # Not read here any more (own_ceiling_s owns the formula) but still BOUND:
@@ -137,7 +138,7 @@ def run_linter(
             ),
         )
         if result.returncode != 0:
-            output = result.stdout or result.stderr
+            output = _subprocess_env.combined_output(result)
             return output.strip() if output else "Lint errors detected"
     except subprocess.TimeoutExpired:
         return None
@@ -352,7 +353,7 @@ def run_linter_batch(
     if proc.returncode == 0:
         return LintRun("clean", "")
 
-    output = (proc.stdout or proc.stderr or "").strip()
+    output = _subprocess_env.combined_output(proc).strip()
     if not output:
         return LintRun(
             "unverified",
@@ -468,8 +469,11 @@ def run_linter_stdin(
     if proc.returncode == 0:
         return LintRun("clean", "")
 
-    raw = proc.stdout or proc.stderr or b""
-    output = raw.decode("utf-8", errors="replace").strip()
+    # Decoded per-stream because this call site alone runs in binary mode.
+    output = _subprocess_env.combine_streams(
+        (proc.stderr or b"").decode("utf-8", errors="replace"),
+        (proc.stdout or b"").decode("utf-8", errors="replace"),
+    ).strip()
     if not output:
         return LintRun(
             "unverified", f"{linter_name}: exited {proc.returncode} without saying why"

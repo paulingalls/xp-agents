@@ -10,9 +10,11 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import seed_smm
 import smm_schema
+from _routing_detect import find_verify_claim_lines
 
 # PROCESS_GUIDE.md documents the Wisdom pillar's 5-10 cap; nothing in
 # smm_schema enforces it, so the seeded list is checked here.
@@ -156,6 +158,22 @@ class TestGenerateSMM(unittest.TestCase):
         self.assertIn("git", text, "no git destination for history")
         self.assertIn(
             "cannot express", text, "comments not confined to the why/constraint"
+        )
+
+    def test_seeded_wisdom_carries_the_verify_the_claim_rule(self):
+        """The fourth surface of the rule the reviewer agents and
+        PROCESS_GUIDE.md also state — pinned here rather than in
+        `test_prose_routing_pin.py` because this one is generated, not a prose
+        file that pin's corpus scan can reach. The shared matcher keeps the
+        four from drifting into four different rules."""
+        smm = seed_smm.generate_smm(self.tmpdir)
+        joined = "\n".join(e["content"] for e in smm["wisdom"])
+
+        self.assertNotEqual(
+            find_verify_claim_lines(joined, "seeded wisdom"),
+            [],
+            "the seeded wisdom no longer says a contradicted claim is narrowed "
+            "to what is true rather than deleted",
         )
 
     def test_seeded_wisdom_stays_within_the_documented_cap(self):

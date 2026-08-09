@@ -2,9 +2,8 @@
 """Session-marker lifecycle: naming, aging, and the SessionStart sweep.
 
 Extracted from markers.py to keep that module under its size pin. This
-module owns the rule shared by session-keyed markers (liveness heartbeat,
-housekeeping in-flight) and the sweep that clears markers which must never
-survive a session boundary.
+module owns the rule shared by session-keyed markers and the sweep that
+clears markers which must never survive a session boundary.
 """
 
 import math
@@ -41,10 +40,10 @@ def session_marker(base_name: str, session_id: object) -> MarkerDef:
     same rule from the appender's pre-write path, which cannot import
     `scripts/`; one home means the two cannot drift.
 
-    This helper adds only the JSON content type, which is what the two
-    session-keyed records here (liveness heartbeat, housekeeping in-flight)
-    need: anything that is not a non-blank string resolves to the unsuffixed
-    shared marker — the un-scoped check such a host was always going to get.
+    This helper adds only the JSON content type, which is what every
+    session-keyed record here needs: anything that is not a non-blank string
+    resolves to the unsuffixed shared marker — the un-scoped check such a host
+    was always going to get.
     """
     return MarkerDef(session_scope.scoped_name(base_name, session_id), "json")
 
@@ -52,12 +51,11 @@ def session_marker(base_name: str, session_id: object) -> MarkerDef:
 def marker_age_seconds(now: float, written_at: object) -> float | None:
     """Age of a JSON marker's timestamp, or None when it is not usable.
 
-    The single home for the rule, shared by `hook_liveness` and
-    `housekeeping_flight`. Callers own the BOUNDS: a negative age (a future
-    timestamp) comes back as-is, and BOTH callers bound it, because
-    `age < threshold` alone reads a negative age as fresh forever. They differ
-    only in how much future they tolerate first — the housekeeping gate none
-    (`0 <= age`), the heartbeat a minute of clock slew
+    The single home for the rule. Callers own the BOUNDS: a negative age (a
+    future timestamp) comes back as-is, so any caller that must fail CLOSED has
+    to bound it below — `age < threshold` alone reads a negative age as fresh
+    forever. They differ in how much future they tolerate — the in-flight gates
+    none (`0 <= age`), the heartbeat a minute of clock slew
     (`hook_liveness.FUTURE_SKEW_GRACE_SECONDS`), since false-refusing a working
     session is the failure that gets a liveness check switched off.
 
@@ -135,14 +133,14 @@ def sweep_stale_session_markers(smm_dir: Path) -> None:
     be load-bearing for in-flight close-skills or pending /xp-accept.
 
     Every marker in the set above is unconditionally consumed because none of
-    them can belong to another LIVE session. Two records here can, and neither
-    is in that set. The housekeeping in-flight record is swept by
-    `housekeeping_flight.sweep_orphan_records`, which keeps one still inside
-    its freshness window; that module owns the record's field names and its
-    window, and imports this one — hence the lazy import, the same shape
-    `markers.warn_once` uses to reach `concerns`.
+    them can belong to another LIVE session. Three records here can, and none
+    is in that set. Two are in-flight records — the housekeeper's and the
+    sprint reviewer's — each swept by its own module's `sweep_orphan_records`,
+    which keeps a record still inside its own freshness window. Those modules
+    own the field names and the (different) windows, and import this one —
+    hence the lazy imports, the shape `markers.warn_once` uses for `concerns`.
 
-    The close-cycle marker is the other, and it is RECORDED rather than
+    The close-cycle marker is the third, and it is RECORDED rather than
     consumed. This sweep is one of the three components that can positively
     learn a close cycle died — the reviewer that releases the marker never ran
     — so deleting it silently threw away the only evidence anyone would ever
@@ -162,5 +160,7 @@ def sweep_stale_session_markers(smm_dir: Path) -> None:
         marker_consume(smm_dir, marker)
 
     import housekeeping_flight
+    import sprint_review_flight
 
     housekeeping_flight.sweep_orphan_records(smm_dir)
+    sprint_review_flight.sweep_orphan_records(smm_dir)

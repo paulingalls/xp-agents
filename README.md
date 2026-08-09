@@ -338,7 +338,7 @@ xp-agents works out of the box with zero configuration. It is opinionated — al
 
 ## Development setup
 
-**The gates do not exist until you run this.** `lefthook install` writes the git hooks — nothing does that for you, and a clone that skips it commits and pushes ungated, silently. The commit gate runs lint, format and types (~12s); the full suite runs on **push**, which is where every story close lands it.
+**The gates do not exist until you run this.** `lefthook install` writes the git hooks — nothing does that for you, and a clone that skips it commits and pushes ungated, silently. The commit gate runs lint, format, types and the test files you staged (~12s plus those tests); the full suite runs on **push**, which is where every story close lands it.
 
 ```bash
 make setup
@@ -366,7 +366,7 @@ pytest -n auto
 python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py"
 ```
 
-`lefthook` then runs `pytest -n auto` on every **push** (the commit gate is lint, format and types only — the suite measured 432s here, too slow to pay per increment). If `pytest` stops working on PATH, lefthook will fail loud — reinstall it via the steps above, or set `LEFTHOOK=0 git push ...` to bypass for an emergency.
+`lefthook` then runs `pytest -n auto` on every **push** (the commit gate is lint, format, types and the test files you staged — the whole suite measured 432s here, too slow to pay per increment). If `pytest` stops working on PATH, lefthook will fail loud — reinstall it via the steps above, or set `LEFTHOOK=0 git push ...` to bypass for an emergency.
 
 Run a single file: `pytest plugins/xp-agents/tests/hooks/test_session_start_core.py`.
 Run a single test: `pytest plugins/xp-agents/tests/hooks/test_session_start_core.py::TestSessionStart::test_clear_source_returns_context`.

@@ -213,7 +213,8 @@ def generate_smm(root: Path) -> dict:
             "wisdom",
             "Checkable claims go in tests, where they rot loudly; comments "
             "carry only the why or constraint the code cannot express. "
-            "History lives in git",
+            "History lives in git. A claim that contradicts the code is "
+            "narrowed to what is true, rather than deleted",
         ),
     ]
 

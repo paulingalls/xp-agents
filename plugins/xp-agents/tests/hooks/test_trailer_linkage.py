@@ -232,7 +232,19 @@ class TestUnconfirmableCommitFailsLoud(_RealGitRepoTestCase):
 
 class TestTrailerLinkage(_RealGitRepoTestCase):
     """Leg A + Leg B: the trailer must reach metadata.resolves, and an
-    unlinkable id must be surfaced rather than silently dropped."""
+    unlinkable id must be surfaced rather than silently dropped.
+
+    A later debt (`4aa345599eba`) claimed the opposite — that the trailer
+    "links a commit to an event for the merge advisory but does NOT close it"
+    — and proposed rewording the close skills to say so. It was misdiagnosed,
+    and `test_e2e_debt_then_trailer_resolves_it` below has been green
+    throughout: the trailer closes its target. What the debt's author actually
+    hit was a commit that produced no event AT ALL, so there was no
+    `metadata.resolves` for the trailer to reach. See
+    `docs/completed/BUG_backgrounded_commit_no_event.md`. The lesson worth
+    keeping: every claim here is about a commit whose event exists, so absence
+    of resolution is evidence about the EVENT before it is evidence about the
+    trailer."""
 
     def _append_debt(self, content: str) -> str:
         event = _common.make_event(EVENT_TYPE_DEBT, "main", content, files=["seed.py"])

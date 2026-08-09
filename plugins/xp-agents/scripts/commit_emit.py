@@ -182,7 +182,8 @@ def _message_unreadable_from_command(command: str) -> bool:
     commit-msg hook rewrote. Both must stay with the trace — recording there
     would fabricate a commit this command never made and honor a trailer off
     somebody else's message, resolving events on false evidence. That is a
-    worse fail-open than the dropped trailer being fixed.
+    worse fail-open than the dropped trailer being fixed. It holds only for a
+    command that RAN, so `rebuild_at_head` skips this when backgrounded.
 
     So the scan applies ONLY to a form the shell expands. A `$` or a backtick
     inside a single-quoted `-m`, a `<<'EOF'` heredoc, or a `-F <path>` body is
@@ -254,6 +255,7 @@ def rebuild_at_head(
     *,
     events: list[dict],
     is_xp_agent_leak: bool = False,
+    backgrounded: bool = False,
 ) -> bool:
     """Record the commit event for an unrecorded HEAD. True if one landed.
 
@@ -261,7 +263,8 @@ def rebuild_at_head(
     past git's `[branch hash] msg` line, and an `-m`/`-F` argument the hook
     cannot expand. The event then never gets built, and since a
     `Resolves-Event:` trailer is honored ONLY through `metadata.resolves`,
-    every id the author named stays silently open.
+    every id the author named stays silently open. `backgrounded` — the tool
+    call returned at LAUNCH — is the larger way both go blind at once.
 
     What this event claims is narrower than the success path's: "a commit
     exists at this hash with no event, and here is its message read back from
@@ -274,7 +277,7 @@ def rebuild_at_head(
     already carries a TRACE (an earlier attempt whose body read failed) must
     remain rebuildable, or its trailer is dropped forever.
     """
-    if not _message_unreadable_from_command(command):
+    if not backgrounded and not _message_unreadable_from_command(command):
         return False
     if not _head_is_a_freshly_landed_commit(cwd, commit_hash):
         return False

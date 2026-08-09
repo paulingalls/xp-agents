@@ -120,6 +120,19 @@ def _blocking_pre_push_hook(repo: str) -> None:
     hook.chmod(0o755)
 
 
+def _stdout_only_failing_pre_push_hook(repo: str, cause: str) -> None:
+    """Install a pre-push hook that writes `cause` to STDOUT ONLY and fails.
+
+    `_blocking_pre_push_hook` writes to neither stream, so it cannot tell a
+    stderr-only relay from a combined-streams relay. This one puts the
+    distinctive cause where lefthook actually writes it — stdout — so a
+    relay that drops stdout loses it.
+    """
+    hook = Path(repo) / ".git" / "hooks" / "pre-push"
+    hook.write_text(f"#!/bin/sh\necho '{cause}'\nexit 1\n")
+    hook.chmod(0o755)
+
+
 def _base_destroying_pre_push_hook(repo: str, base: str) -> None:
     """Install a pre-push hook that allows the push but deletes the base branch.
 
@@ -280,6 +293,12 @@ class TestCloseCommonPushSolo(unittest.TestCase):
         result = _push(self.repo, "story-solo")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("skipped", result.stdout)
+
+    def test_relayed_output_carries_a_stdout_only_hook_cause(self):
+        _stdout_only_failing_pre_push_hook(self.repo, "hook said: cause-006")
+        result = _push(self.repo, "story-solo")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cause-006", result.stderr)
 
 
 class TestCloseCommonMergeRepushWorktree(unittest.TestCase):

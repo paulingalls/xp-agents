@@ -37,7 +37,7 @@ class TestProjectAgnosticAssertHelper(unittest.TestCase):
     # tuple lists that name in BOTH casings, so a lowercasing helper still
     # raises — on the lowercase twin. The assertion therefore pins WHICH member
     # the failure names, in its raw casing, so a lowercasing helper goes red on
-    # both members rather than only on ` LOC` (the one member with no twin to
+    # both members rather than only on `LOC` (the one member with no twin to
     # cover for it). That the message names the offending token at all is part
     # of the helper's contract too — a scan that fails without saying what
     # leaked sends the reader back to the tuple.
@@ -51,7 +51,7 @@ class TestProjectAgnosticAssertHelper(unittest.TestCase):
                 ):
                     assert_project_agnostic(
                         self,
-                        f"a prose section mentioning{member} verbatim",
+                        f"a prose section mentioning {member} verbatim",
                         "fixture section",
                     )
 
@@ -77,6 +77,32 @@ class TestProjectAgnosticAssertHelper(unittest.TestCase):
             "a prose section using only generic terms: state field, marker, gate.",
             "fixture section",
         )
+
+    def test_a_longer_word_sharing_a_members_prefix_does_not_false_positive(self):
+        """Boundary-aware proof: `LOC` is a substring of `LOCAL`, so a
+        substring-matching helper raises on this clean sentence. Genuine-use
+        matching must not."""
+        assert_project_agnostic(
+            self,
+            "a LOCAL variable holds no cross-request state.",
+            "fixture section",
+        )
+
+    def test_the_new_plural_members_are_caught_through_the_helper(self):
+        """story-008: boundary matching stops `docstring`/`Docstring`/`LOC`
+        covering their plural forms, so each plural gets its own registry
+        entry — pinned here with its own fails-before proof."""
+        fixtures = {
+            "docstrings": "restate the file in prose instead of trusting docstrings",
+            "Docstrings": "Docstrings are not a substitute for tests.",
+            "LOCs": "keep files under 500 LOCs total",
+        }
+        for member, section in fixtures.items():
+            with (
+                self.subTest(member=member),
+                self.assertRaisesRegex(AssertionError, re.escape(f"token: {member!r}")),
+            ):
+                assert_project_agnostic(self, section, "fixture section")
 
 
 if __name__ == "__main__":

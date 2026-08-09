@@ -263,11 +263,13 @@ class TestTheSuiteRunCannotArmTheTimers(unittest.TestCase):
     anything real.
 
     This guard used to sit on pre-commit's `tests` command. The full suite moved
-    to pre-push (the commit gate now runs lint, format, shellcheck and pyright
-    only), so the guard moved with it — the property is a property of the
+    to pre-push, so the guard moved with it — the property is a property of the
     PARALLEL SUITE RUN, not of the hook it happens to live in. Note pre-push's
     prior `integration` command never carried `-u XP_PERF`; inheriting the
     suite's full breadth without it would have armed the timers under xdist.
+
+    The commit gate keeps a run of its own (`staged-tests`), and its strip is
+    pinned beside it in `test_lefthook_commit_gate.py`.
     """
 
     def test_parallel_suite_command_strips_xp_perf(self):
@@ -280,7 +282,7 @@ class TestTheSuiteRunCannotArmTheTimers(unittest.TestCase):
         )
 
     def test_pre_commit_no_longer_runs_the_suite(self):
-        """The commit gate is lint-and-types only.
+        """The commit gate runs the staged tests, never the whole tree.
 
         Pinned as an assertion rather than left implicit: a `tests` command
         reappearing here silently restores a ~7-minute commit gate, which is

@@ -20,12 +20,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from _md_helpers import CORPUS_WIDE_FORBIDDEN, PROJECT_AGNOSTIC_FORBIDDEN_VOCAB
+from _md_helpers import (
+    CORPUS_WIDE_FORBIDDEN,
+    OCCUPANCY_EXEMPT,
+    PROJECT_AGNOSTIC_FORBIDDEN_VOCAB,
+    SECTION_SCOPED_FORBIDDEN,
+)
 from _routing_detect import (
     find_comment_routing_lines,
     find_incomplete_rule_lines,
     find_single_language_tokens,
+    find_verify_claim_lines,
+    zero_use_members,
 )
+from _vocab_detect import token_occurs
 
 # The five ORIGINAL unqualified strings this story amends, verbatim (see
 # execution_plan.json / the story body's Step 2). Feeding these proves the
@@ -241,6 +249,114 @@ class TestLanguageTokenMatcher(unittest.TestCase):
         """
         hits = find_single_language_tokens("a Docstring here", surface="x")
         self.assertEqual(hits, [("x", "Docstring")])
+
+
+class TestTokenOccursBoundaryMatching(unittest.TestCase):
+    """`token_occurs` counts a genuine use, not a substring hit: a member's own
+    alphanumeric edges must not be extended by whatever surrounds it in the
+    text. Underscore is deliberately excluded from the guard class, so a
+    plugin-internal name stays banned behind an underscore-joined suffix."""
+
+    def test_dot_rs_does_not_match_inside_dot_rspec(self) -> None:
+        self.assertFalse(token_occurs(".rs", "run the .rspec suite"))
+
+    def test_dot_js_does_not_match_inside_dot_json(self) -> None:
+        self.assertFalse(token_occurs(".js", "read the config.json file"))
+
+    def test_def_space_does_not_match_inside_undef_space(self) -> None:
+        self.assertFalse(token_occurs("def ", "an undef  variable"))
+
+    def test_loc_does_not_match_inside_local(self) -> None:
+        self.assertFalse(token_occurs("LOC", "a LOCAL variable"))
+
+    def test_loc_matches_when_punctuation_adjacent(self) -> None:
+        """The registry drops the leading space it used to hand-roll a left
+        edge with, so a bolded or bracketed use no longer escapes the ban."""
+        self.assertTrue(token_occurs("LOC", "cap files at 500 **LOC** total"))
+
+    def test_foo_dot_rs_still_matches(self) -> None:
+        self.assertTrue(token_occurs(".rs", "see foo.rs for the impl"))
+
+    def test_next_dot_js_still_matches(self) -> None:
+        self.assertTrue(token_occurs(".js", "built with Next.js"))
+
+    def test_triple_quote_is_unaffected(self) -> None:
+        self.assertTrue(token_occurs('"""', 'use """ to open one'))
+
+    def test_dot_py_does_not_match_inside_copy(self) -> None:
+        """Catches an unescaped pattern: unescaped, the `.` in `.py` reads as
+        "any character", which matches the `opy` inside `copy`."""
+        self.assertFalse(token_occurs(".py", "make a copy of the file"))
+
+    def test_accept_in_flight_still_matches_inside_a_suffixed_variant(self) -> None:
+        """Catches `_` creeping into the guard class: if it did, this suffixed
+        variant would escape the ban."""
+        self.assertTrue(
+            token_occurs("accept_in_flight", "the accept_in_flight_marker field")
+        )
+
+    def test_bare_docstring_does_not_match_docstrings(self) -> None:
+        self.assertFalse(token_occurs("docstring", "write good docstrings here"))
+
+
+class TestZeroUseMembersReddens(unittest.TestCase):
+    """`zero_use_members` is the arithmetic the reverse leg's assertion runs.
+    A finder proof alone says nothing about whether the leg would ever fire —
+    this is the piece that proves it can."""
+
+    def test_a_member_absent_from_every_text_is_returned(self) -> None:
+        result = zero_use_members(
+            ("present", "absent"), ["text carrying present", "another text"]
+        )
+        self.assertEqual(result, ["absent"])
+
+    def test_a_member_present_in_any_text_is_not_returned(self) -> None:
+        result = zero_use_members(("present",), ["text carrying present"])
+        self.assertEqual(result, [])
+
+
+class TestSectionScopedOccupancyLegIsNotVacuous(unittest.TestCase):
+    """The reverse leg cannot pass by having nothing left to check: at least
+    one SECTION_SCOPED_FORBIDDEN member must fall outside OCCUPANCY_EXEMPT."""
+
+    def test_non_exempt_members_remain(self) -> None:
+        checked = [t for t in SECTION_SCOPED_FORBIDDEN if t not in OCCUPANCY_EXEMPT]
+        self.assertTrue(checked)
+
+
+class TestVerifyClaimMatcher(unittest.TestCase):
+    """The verify-the-claim selector, on synthetic text. Its pin can only ever
+    be green against a tree this story just fixed."""
+
+    _SHIPPED = (
+        "- Claim contradicts the code — counts, entry points, call sites, "
+        "where it sends a reader → Concern; narrow it to what is true rather "
+        "than delete it."
+    )
+    _TELEGRAPHIC = "history→git; false claims→narrowed, not deleted"
+
+    def test_both_shipped_wordings_are_selected(self):
+        for text in (self._SHIPPED, self._TELEGRAPHIC):
+            self.assertEqual(find_verify_claim_lines(text, "s"), [("s", 1)])
+
+    def test_naming_the_case_without_the_verdict_is_not_enough(self):
+        """The offending shape: a surface that says a claim may contradict the
+        code and leaves the reader to guess that deleting it is fine."""
+        text = "Flag a comment that contradicts the code."
+
+        self.assertEqual(find_verify_claim_lines(text, "s"), [])
+
+    def test_narrowing_without_refusing_deletion_is_not_enough(self):
+        text = "Narrow the claim."
+
+        self.assertEqual(find_verify_claim_lines(text, "s"), [])
+
+    def test_the_two_halves_must_share_a_line(self):
+        """Split across lines, either can be deleted and the survivor still
+        reads as complete advice."""
+        text = "A claim contradicts the code.\nNarrow it rather than delete it."
+
+        self.assertEqual(find_verify_claim_lines(text, "s"), [])
 
 
 class TestTheCorpusWideCategoryJoinsTheUnion(unittest.TestCase):
