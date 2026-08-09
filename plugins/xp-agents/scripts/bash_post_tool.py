@@ -29,6 +29,8 @@ from commit_handling import (
 from event_metadata import (
     CONCERN_ACTION_TRANSIENT_TEST,
     METADATA_KEY_CWD,
+    METADATA_KEY_TEST_COUNT,
+    METADATA_KEY_TEST_ERRORS,
     METADATA_KEY_TEST_FAILED,
 )
 from event_schema import (
@@ -50,6 +52,11 @@ CAPTURED_EXIT_ADVISORY = (
     "&&` or a trailing `&& next` still counts — to clear open test-failure "
     "concerns."
 )
+MID_CHAIN_NUDGE = (
+    "Multiple stories in-progress. If this commit completed the current "
+    "story's acceptance criteria, run /xp-accept to mark it done and "
+    "switch to the next story branch."
+)
 
 
 def _collapse_home_cwd(cwd: str) -> str:
@@ -66,13 +73,6 @@ def _collapse_home_cwd(cwd: str) -> str:
     if cwd.startswith(home + os.sep):
         return "~" + cwd[len(home) :]
     return cwd
-
-
-MID_CHAIN_NUDGE = (
-    "Multiple stories in-progress. If this commit completed the current "
-    "story's acceptance criteria, run /xp-accept to mark it done and "
-    "switch to the next story branch."
-)
 
 
 def _check_mid_chain_nudge(smm_dir: Path, input_data: dict) -> str | None:
@@ -263,13 +263,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         elif parser_status == PARSER_STATUS_PARSED:
             content = f"Tests: {passed} passed, {failed} failed ({framework})"
             metadata["test_passed"] = failed == 0
-            metadata["test_count"] = passed + failed
+            metadata[METADATA_KEY_TEST_COUNT] = passed + failed
             if errors > 0:
-                metadata["test_errors"] = errors
+                metadata[METADATA_KEY_TEST_ERRORS] = errors
         elif parser_status == PARSER_STATUS_ZERO:
             content = f"Tests ran ({framework}) — 0 tests"
             metadata["test_passed"] = True
-            metadata["test_count"] = 0
+            metadata[METADATA_KEY_TEST_COUNT] = 0
         else:
             content = f"Tests ran ({framework}) — counts not extracted"
 
@@ -286,10 +286,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             concern_metadata: dict = {
                 "action": CONCERN_ACTION_TRANSIENT_TEST,
                 METADATA_KEY_TEST_FAILED: failed,
-                "test_count": passed + failed,
+                METADATA_KEY_TEST_COUNT: passed + failed,
             }
             if errors > 0:
-                concern_metadata["test_errors"] = errors
+                concern_metadata[METADATA_KEY_TEST_ERRORS] = errors
             payload_cwd = input_data.get("cwd")
             if payload_cwd:
                 concern_metadata[METADATA_KEY_CWD] = _collapse_home_cwd(payload_cwd)

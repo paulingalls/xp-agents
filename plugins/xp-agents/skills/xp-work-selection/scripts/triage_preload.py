@@ -210,20 +210,18 @@ def _digests(item: dict, intents: dict[str, dict] | None) -> bool:
 def _run_attribution_suffix(item: dict) -> str:
     """The run-identifying suffix on a test-failure concern (story-001).
 
-    Gated on the PRESENCE of the attribution keys (test_failed, test_count,
-    cwd), not on `action == transient_test_failure` — simpler, avoids
-    importing smm_count's private discriminator, and extends free to
-    story-002's degraded producer, which stamps the same keys.
+    Gated on the PRESENCE of the attribution keys, not on
+    `action == transient_test_failure` — simpler, avoids importing
+    smm_count's private discriminator, and any other producer that stamps
+    the same keys gets the render for free.
 
     Checkout renders as `Path(cwd).name`, not the full value — the full
-    value is one `get-event <id>` away, same retrieval contract as the
-    digest block already relies on. Any key missing (including cwd, which
-    the producer omits when the payload carried none) renders nothing, so
-    an ordinary concern stays byte-identical to today.
+    value is one `get-event <id>` away, the same retrieval contract the
+    digest block already relies on.
     """
     metadata = item.get("metadata") or {}
     failed = metadata.get(event_metadata.METADATA_KEY_TEST_FAILED)
-    total = metadata.get("test_count")
+    total = metadata.get(event_metadata.METADATA_KEY_TEST_COUNT)
     cwd = metadata.get(event_metadata.METADATA_KEY_CWD)
     if failed is None or total is None or not cwd:
         return ""
