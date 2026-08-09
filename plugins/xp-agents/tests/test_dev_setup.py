@@ -328,6 +328,66 @@ class TestGatingClaimsAreConditional(unittest.TestCase):
         )
 
 
+class TestSetupKeepsThePushConnectionAlive(unittest.TestCase):
+    """`make setup` must configure an SSH keepalive for this clone.
+
+    Measured, and a direct consequence of running the suite on pre-push: git
+    opens the connection to the remote BEFORE running the hook, so a
+    multi-minute suite leaves that connection idle until the server closes it.
+    The suite then passes and the push dies anyway, with a one-line log
+    ("Connection to github.com closed by remote host") and none of the hook's
+    output surviving — a failure that reads like a network blip and is not.
+
+    Observed: a 320s hook landed, a 510s hook died with SIGPIPE, and two ~360s
+    story pushes died with exit 243.
+
+    It goes in `make setup` because that is what makes it travel. `core.ssh
+    Command` is per-clone git config, so it cannot be committed, and every
+    clone already runs this target to get the hooks installed.
+
+    NOT claimed: that a keepalive is sufficient at every duration. The one
+    validating run so far was 320s — a duration that had already succeeded
+    without it — so it is consistent with the fix, not proof of it. A run past
+    ~500s with the keepalive set is what would settle it.
+    """
+
+    def test_setup_configures_an_ssh_keepalive(self):
+        text = MAKEFILE.read_text(encoding="utf-8")
+        self.assertIn(
+            "core.sshCommand",
+            text,
+            "make setup must set core.sshCommand — without a keepalive, a "
+            "pre-push suite longer than the remote's idle timeout kills the "
+            "push after the suite has already passed.",
+        )
+        self.assertIn(
+            "ServerAliveInterval",
+            text,
+            "the sshCommand must carry ServerAliveInterval — that is the "
+            "option holding the idle connection open during the hook.",
+        )
+
+    def test_setup_explains_the_keepalive_rather_than_just_setting_it(self):
+        """Unexplained git config in a Makefile reads as ceremony and gets cut.
+
+        The comment has to name pre-push, because that is the only thing that
+        makes a keepalive necessary here.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        keepalive_line = next(
+            (i for i, ln in enumerate(text.splitlines()) if "core.sshCommand" in ln),
+            None,
+        )
+        self.assertIsNotNone(keepalive_line, "no core.sshCommand line to explain")
+        preceding = "\n".join(text.splitlines()[: keepalive_line or 0]).lower()
+        self.assertIn(
+            "pre-push",
+            preceding,
+            "the keepalive needs a preceding comment tying it to the pre-push "
+            "suite, or the next reader removes it as unexplained config",
+        )
+
+
 class TestMakefileSetupTarget(unittest.TestCase):
     def test_setup_target_exists(self):
         text = MAKEFILE.read_text(encoding="utf-8")

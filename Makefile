@@ -1,8 +1,21 @@
 .PHONY: setup
 
-# Wires up the commit gate: verifies pytest -n auto actually works (the
-# CAPABILITY that matters, however it got installed — pipx is only the
-# recommended route, not a requirement), then installs the lefthook hook.
+# Wires up the gates: verifies pytest -n auto actually works (the CAPABILITY
+# that matters, however it got installed — pipx is only the recommended
+# route, not a requirement), installs the lefthook hooks, and sets an SSH
+# keepalive for this clone.
+#
+# The keepalive is not optional housekeeping. The full suite runs on
+# PRE-PUSH, and git opens the connection to the remote BEFORE running that
+# hook — so a multi-minute suite leaves the connection idle until the server
+# closes it. The suite passes and the push dies anyway, reporting only
+# "Connection to github.com closed by remote host" with none of the hook's
+# output. Measured here: a 320s hook landed, a 510s hook died with SIGPIPE,
+# two ~360s pushes died with exit 243.
+#
+# It lives here because core.sshCommand is per-clone git config — it cannot
+# be committed, and this is the target every clone already runs.
+#
 # Idempotent: test_dev_setup.py's failure message points developers here,
 # and some will run it twice.
 setup:
@@ -24,4 +37,6 @@ setup:
 		exit 1; \
 	fi
 	lefthook install
-	@echo "Commit gate installed — pytest -n auto now runs on every commit."
+	git config core.sshCommand "ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=10"
+	@echo "Gates installed — lint/format/types plus your staged tests on commit;"
+	@echo "the full suite on push, with an SSH keepalive so it survives the wait."
