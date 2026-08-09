@@ -73,11 +73,11 @@ BAND_CEILINGS = {
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
-    # Entered the band with story-011's per-stream tail helper
-    # (`_tail_streams`): routing the sprint-verify row through
-    # `branch_lifecycle.combine_streams` needed a few lines to keep a chatty
-    # stdout from evicting the stderr diagnosis from the kept tail slice.
-    "plugins/xp-agents/scripts/verify_acceptance.py": 455,
+    # RETIRED: verify_acceptance.py 455->434, under the 450 floor so the entry
+    # is deleted rather than re-recorded. Deduping the sprint run to one
+    # subprocess per DISTINCT command replaced the inline row-building loop
+    # with `_run_one` plus two helpers in verify_acceptance_record.py, which
+    # took out more lines than the dedup added.
     # tests (57)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
     # Entered the band with the shell surface's own red proofs. Its own

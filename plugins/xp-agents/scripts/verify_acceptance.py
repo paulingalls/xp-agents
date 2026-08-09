@@ -20,8 +20,6 @@ Three modes:
   green). ``unverified`` is a reader-side verdict, not a recorded status: the
   event schema accepts only red/green/none, so it is derived here rather than
   written.
-
-Back-compat: a single ``command: str`` is treated as a one-element list.
 """
 
 import argparse
@@ -52,6 +50,8 @@ from verify_acceptance_record import (
     VERIFY_REPORT_UNVERIFIED,
     _gather_sprint_items,
     _print_matrix,
+    distinct_commands,
+    rows_from_results,
     unverified_items,
     verify_report,
 )
@@ -219,6 +219,36 @@ def _load_sprint(smm_dir: Path) -> tuple[dict | None, int]:
         return None, _EXIT_ERROR
 
 
+def _run_one(cmd: str, cwd: str, timeout: int, env: dict[str, str]) -> dict:
+    """Shell one command and report `{returncode, output?}`.
+
+    Captured, because the matrix and the failure tails read the output; in its
+    own process group (see `run_in_new_process_group`) so a timeout cannot
+    leave what the command backgrounded — a dev server, a stack — outliving
+    the close it was started for.
+    """
+    marker = ""
+    try:
+        proc = _subprocess_env.run_in_new_process_group(
+            cmd, cwd=cwd, timeout=timeout, env=env
+        )
+        rc = proc.returncode
+        err_text, out_text = proc.stderr or "", proc.stdout or ""
+    except subprocess.TimeoutExpired as exc:
+        rc = -1
+        # Marker AHEAD of the tail slice, not inside it, or a chatty hang evicts
+        # it and the row reads as an ordinary non-zero exit. The drained output
+        # is usually the only clue to WHY it hung.
+        marker = f"timed out after {timeout}s"
+        err_text = getattr(exc, "text_stderr", "").strip()
+        out_text = getattr(exc, "text_stdout", "").strip()
+    if rc == 0:
+        return {"returncode": rc}
+    # Carry a tail of the failure so the close gate can explain the red.
+    output = ": ".join(p for p in (marker, _tail_streams(err_text, out_text)) if p)
+    return {"returncode": rc, "output": output}
+
+
 def _run_sprint(smm_dir: Path) -> int:
     """Rerun every verify-bearing item, print the matrix, emit the verify event."""
     sprint, code = _load_sprint(smm_dir)
@@ -240,84 +270,23 @@ def _run_sprint(smm_dir: Path) -> int:
     # The batch total, frozen once. None means the project disabled it.
     budget = _batch_budget()
     deadline = None if budget is None else _now() + budget
-    rows: list[dict] = []
-    skipped: list[dict] = []
-    for sid, ac_idx, surface, cmd, na in items:
-        if na:
-            # A command-less (manual) block — its check is human/agent
-            # judgment; never subprocess.run it, never count it toward
-            # `failing`.
-            rows.append(
-                {
-                    "story": sid,
-                    "ac_idx": ac_idx,
-                    "surface": surface,
-                    "command": "(manual — not run)",
-                    "na": True,
-                }
-            )
-            continue
-        # A non-N/A item always carries a command (see _gather_sprint_items);
-        # only the command-less sentinel above uses cmd=None.
-        assert cmd is not None
-        # PLACEMENT IS THE DESIGN. The batch bound decides which items START:
-        # before the run (checking after would let an item begin on an already
-        # exhausted budget) and after the N/A branch (a manual row is never
-        # shelled, so it costs no time and cannot be "not run"). Nothing here
-        # kills a RUNNING command — that would blame the batch's exhaustion on
-        # whichever item was in flight, the misattribution two separate bounds
-        # exist to avoid, and it leaves the worst case at budget + one
-        # per-command timeout. `continue`, not `break`: every remaining item
-        # still needs a row, or the matrix silently shortens instead of naming
-        # what went unrun.
+    # One run per DISTINCT command; `distinct_commands` owns why. PLACEMENT IS
+    # THE DESIGN: the batch bound decides which commands START, before the run,
+    # since checking after would let one begin on an already exhausted budget.
+    # Nothing here kills a RUNNING command — that would blame the batch's
+    # exhaustion on whichever was in flight, the misattribution two separate
+    # bounds exist to avoid, and it leaves the worst case at budget plus one
+    # per-command timeout. `break` is safe only because `rows_from_results`
+    # reports every item a result is missing for as skipped; the matrix names
+    # what went unrun rather than silently shortening.
+    results: dict[str, dict] = {}
+    for cmd in distinct_commands(items):
         if deadline is not None and _now() >= deadline:
-            row = {
-                "story": sid,
-                "ac_idx": ac_idx,
-                "surface": surface,
-                "command": cmd,
-                "skipped": True,
-            }
-            rows.append(row)
-            skipped.append(row)
-            continue
-        # Run in its own session so the timeout kills the whole process GROUP:
-        # a plain shell timeout reaps only the shell, leaving alive whatever
-        # the acceptance command backgrounded (a dev server, a stack) to
-        # outlive the close it was started for. Captured, because the matrix
-        # and the failure tails below read the output.
-        # Kept OUT of the truncated tail below, which keeps the LAST
-        # _OUTPUT_TAIL_CHARS: a hung command that talked a lot before it was
-        # killed would otherwise evict its own "timed out" marker, and the row
-        # would read as an ordinary non-zero exit.
-        marker = ""
-        try:
-            proc = _subprocess_env.run_in_new_process_group(
-                cmd, cwd=cwd, timeout=timeout, env=env
-            )
-            rc = proc.returncode
-            err_text, out_text = proc.stderr or "", proc.stdout or ""
-        except subprocess.TimeoutExpired as exc:
-            rc = -1
-            marker = f"timed out after {timeout}s"
-            # Whatever the command managed to say before it was killed is
-            # usually the only clue to WHY it hung; a bare "timed out after
-            # Ns" sends the operator off to reproduce it by hand.
-            err_text = getattr(exc, "text_stderr", "").strip()
-            out_text = getattr(exc, "text_stdout", "").strip()
-        row: dict = {
-            "story": sid,
-            "ac_idx": ac_idx,
-            "surface": surface,
-            "command": cmd,
-            "returncode": rc,
-        }
-        if rc != 0:
-            # Carry a tail of the failure so the close gate can explain the red.
-            row["output"] = ": ".join(
-                p for p in (marker, _tail_streams(err_text, out_text)) if p
-            )
-        rows.append(row)
+            break
+        results[cmd] = _run_one(cmd, cwd, timeout, env)
+
+    rows = rows_from_results(items, results)
+    skipped = [r for r in rows if r.get("skipped")]
 
     _print_matrix(rows)
     # Skipped rows carry no returncode, so they must drop out BEFORE the
