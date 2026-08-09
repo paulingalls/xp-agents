@@ -24,7 +24,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
+import sprint_store
 import verify_acceptance_record
+from _bases import _HookTestCase
+from conftest import make_sprint_dict, run_cli
+
+_VERIFY_ACCEPTANCE = (
+    Path(__file__).parent.parent.parent / "scripts" / "verify_acceptance.py"
+)
 
 
 class TestDistinctCommands(unittest.TestCase):
@@ -67,6 +74,18 @@ class TestDistinctCommands(unittest.TestCase):
         items = [("story-001", None, None, None, True)]
 
         self.assertEqual(verify_acceptance_record.distinct_commands(items), ())
+
+    def test_an_empty_declared_command_is_still_enumerated(self):
+        """The guard is `is not None`, not truthiness, and the difference is
+        reachable: the schema only requires `command` to be a string, so `""`
+        validates. Filtered out, it would reach `rows_from_results` with no
+        result and report `skipped` — blaming a batch budget that never ran
+        out, and turning a previously green sprint red for the wrong reason."""
+        items = [("story-001", None, None, "", False)]
+
+        self.assertEqual(verify_acceptance_record.distinct_commands(items), ("",))
+        row = verify_acceptance_record.rows_from_results(items, {"": {"returncode": 0}})
+        self.assertNotIn("skipped", row[0])
 
 
 class TestEveryRowStillReported(unittest.TestCase):
@@ -126,6 +145,47 @@ class TestEveryRowStillReported(unittest.TestCase):
         for row in rows:
             self.assertTrue(row["skipped"])
             self.assertNotIn("returncode", row)
+
+
+class TestTheRunnerShellsItOnce(_HookTestCase):
+    """The end-to-end half: the helpers dedupe, and the runner USES them.
+
+    A unit proof that `distinct_commands` collapses repeats says nothing about
+    how many subprocesses the batch starts, and the count is the whole defect —
+    one sprint spent ~35 minutes running 21 items that were 13 commands. Only a
+    run that counts executions catches a regression back to one run per item,
+    so this seeds one command twice and looks at what the shell did.
+    """
+
+    def _seed(self, commands: list[str]) -> None:
+        story = {
+            "id": "story-001",
+            "title": "Story story-001",
+            "status": "done",
+            "dependencies": [],
+            "milestone_ref": "",
+            "design_sources": "",
+            "context": "ctx",
+            "file_domain": ["src/a.py — x"],
+            "interface_contracts": [],
+            "acceptance_criteria": [
+                {"description": f"c{i}", "surface": "cli", "command": cmd}
+                for i, cmd in enumerate(commands)
+            ],
+        }
+        sprint = make_sprint_dict(sprint_id="sprint-093", stories=[story])
+        sprint_store.save_sprint(self.smm_dir, sprint, enforce_budget=False)
+
+    def test_a_shared_command_runs_once_and_still_passes_every_sharer(self):
+        log = Path(self.smm_dir) / "runs.log"
+        shared = f"echo ran >> {log}"
+        self._seed([shared, shared, "true"])
+
+        result = run_cli(_VERIFY_ACCEPTANCE, ["--sprint"], self.smm_dir)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(log.read_text().count("ran"), 1, log.read_text())
+        self.assertEqual(result.stdout.count("[PASS]"), 3, result.stdout)
 
 
 if __name__ == "__main__":

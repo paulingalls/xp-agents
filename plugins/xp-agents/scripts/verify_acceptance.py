@@ -20,8 +20,6 @@ Three modes:
   green). ``unverified`` is a reader-side verdict, not a recorded status: the
   event schema accepts only red/green/none, so it is derived here rather than
   written.
-
-Back-compat: a single ``command: str`` is treated as a one-element list.
 """
 
 import argparse
@@ -221,18 +219,13 @@ def _load_sprint(smm_dir: Path) -> tuple[dict | None, int]:
         return None, _EXIT_ERROR
 
 
-def _run_one(cmd: str, cwd: str, timeout: int, env: dict) -> dict:
+def _run_one(cmd: str, cwd: str, timeout: int, env: dict[str, str]) -> dict:
     """Shell one command and report `{returncode, output?}`.
 
-    Run in its own session so the timeout kills the whole process GROUP: a
-    plain shell timeout reaps only the shell, leaving alive whatever the
-    command backgrounded (a dev server, a stack) to outlive the close it was
-    started for. Captured, because the matrix and failure tails read the output.
-
-    The timeout marker is kept OUT of the truncated tail, which keeps the LAST
-    `_OUTPUT_TAIL_CHARS`: a hung command that talked a lot before it was killed
-    would otherwise evict its own marker, and the row would read as an ordinary
-    non-zero exit.
+    Captured, because the matrix and the failure tails read the output; in its
+    own process group (see `run_in_new_process_group`) so a timeout cannot
+    leave what the command backgrounded — a dev server, a stack — outliving
+    the close it was started for.
     """
     marker = ""
     try:
@@ -243,10 +236,10 @@ def _run_one(cmd: str, cwd: str, timeout: int, env: dict) -> dict:
         err_text, out_text = proc.stderr or "", proc.stdout or ""
     except subprocess.TimeoutExpired as exc:
         rc = -1
+        # Marker AHEAD of the tail slice, not inside it, or a chatty hang evicts
+        # it and the row reads as an ordinary non-zero exit. The drained output
+        # is usually the only clue to WHY it hung.
         marker = f"timed out after {timeout}s"
-        # Whatever the command managed to say before it was killed is usually
-        # the only clue to WHY it hung; a bare "timed out after Ns" sends the
-        # operator off to reproduce it by hand.
         err_text = getattr(exc, "text_stderr", "").strip()
         out_text = getattr(exc, "text_stdout", "").strip()
     if rc == 0:
@@ -277,19 +270,15 @@ def _run_sprint(smm_dir: Path) -> int:
     # The batch total, frozen once. None means the project disabled it.
     budget = _batch_budget()
     deadline = None if budget is None else _now() + budget
-    # One run per DISTINCT command. Stories share commands — nearly every one
-    # declares the whole-suite E2E check — and an unchanging tree cannot answer
-    # the same command differently per story, so re-running it only spends the
-    # budget that skips later items.
-    #
-    # PLACEMENT IS THE DESIGN. The batch bound decides which commands START:
-    # before the run, since checking after would let one begin on an already
-    # exhausted budget. Nothing here kills a RUNNING command — that would blame
-    # the batch's exhaustion on whichever was in flight, the misattribution two
-    # separate bounds exist to avoid, and it leaves the worst case at budget
-    # plus one per-command timeout. `break` is safe only because
-    # `rows_from_results` reports every item a result is missing for as
-    # skipped; the matrix names what went unrun rather than silently shortening.
+    # One run per DISTINCT command; `distinct_commands` owns why. PLACEMENT IS
+    # THE DESIGN: the batch bound decides which commands START, before the run,
+    # since checking after would let one begin on an already exhausted budget.
+    # Nothing here kills a RUNNING command — that would blame the batch's
+    # exhaustion on whichever was in flight, the misattribution two separate
+    # bounds exist to avoid, and it leaves the worst case at budget plus one
+    # per-command timeout. `break` is safe only because `rows_from_results`
+    # reports every item a result is missing for as skipped; the matrix names
+    # what went unrun rather than silently shortening.
     results: dict[str, dict] = {}
     for cmd in distinct_commands(items):
         if deadline is not None and _now() >= deadline:

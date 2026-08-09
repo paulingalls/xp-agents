@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
 """The sprint verify RECORD: what goes into it, how it shows, how it reads back.
 
-The half of ``verify_acceptance --sprint`` that never runs anything. One
-function turns a sprint document into the list of items to run; one turns the
-results into the operator's PASS/FAIL matrix; two read the emitted verify event
-back out and describe it. Nothing here shells out, reads a clock, or decides an
-exit code — running and bounding stayed in ``verify_acceptance``.
+The half of ``verify_acceptance --sprint`` that never runs anything: it
+enumerates the items, reduces them to the commands worth shelling, renders the
+results as the operator's PASS/FAIL matrix, and reads the emitted verify event
+back out. Nothing here shells out, reads a clock, or decides an exit code —
+running and bounding stayed in ``verify_acceptance``.
 
 The read side lives here rather than beside the runner because the event has
 TWO consumers — the status CLI and the in-process merge gate — and a shared
 description is what stops them drifting into reporting the same event
 differently. The gate once refused a merge naming nothing at all, because it
 built its own message from half the record.
-
-Extracted when the batch-total budget would have pushed ``verify_acceptance.py``
-past this repo's file-size band, above which a module may not grow further
-without shrinking back under it first. Splitting at the commit that crosses the
-line is cheaper than crossing it and extracting under that constraint later.
 
 Imports DOWN only; ``verify_acceptance`` imports these names, never the reverse.
 """
@@ -99,17 +94,16 @@ def distinct_commands(
 ) -> tuple[str, ...]:
     """The commands to actually SHELL, first-appearance order, no repeats.
 
-    Stories share commands — nearly every story declares the whole-suite E2E
-    check — and one unchanging tree cannot answer the same command differently
-    per story. Running it once per sharer only spends the batch budget, which
-    then SKIPS later items in sprint order, so the duplication can push
-    genuine, distinct checks out of the verified set.
-
-    Order is first appearance, not sorted: the budget stops the run partway, so
-    what runs before it is exhausted must stay what the sprint declared first.
-    N/A sentinels carry no command and never enter the set.
+    Stories share commands, and one unchanging tree cannot answer the same
+    command differently per story. Re-running per sharer only spends the batch
+    budget, which then skips later items in sprint order — so the duplication
+    can push genuine, distinct checks out of the verified set. First
+    appearance, not sorted, because that is the order the budget consumes.
     """
-    return tuple(dict.fromkeys(cmd for *_, cmd, na in items if not na and cmd))
+    # `is not None`, not truthiness: only the N/A sentinel is command-less, and
+    # an empty declared command owes a result, not a budget-blaming skip.
+    runnable = (cmd for *_, cmd, na in items if not na and cmd is not None)
+    return tuple(dict.fromkeys(runnable))
 
 
 def rows_from_results(
@@ -118,14 +112,10 @@ def rows_from_results(
 ) -> list[dict]:
     """One matrix row per item, carrying its command's single result.
 
-    The counterpart to `distinct_commands`, and the half that must NOT collapse:
-    the matrix is how a reader sees which stories are covered, and the close
-    gate counts failing ITEMS. Two stories sharing one red command are both
-    unverified, so both rows carry that red.
-
-    A command absent from *results* never started — the batch budget ran out
-    before it — and reports `skipped`, which is neither pass nor fail. Every
-    sharer says so rather than dropping out and shortening the matrix silently.
+    The half that must NOT collapse: the matrix shows which stories are covered
+    and the close gate counts failing ITEMS. A command absent from *results*
+    never started — the budget stopped before it — so its sharers report
+    `skipped`, neither pass nor fail, rather than vanishing from the matrix.
     """
     rows: list[dict] = []
     for sid, ac_idx, surface, cmd, na in items:

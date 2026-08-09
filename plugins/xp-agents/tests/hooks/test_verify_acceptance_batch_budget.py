@@ -271,10 +271,9 @@ class TestTheBudgetIsABackstopNotAGate(_BatchRunTestCase):
         self.assertNotIn("[SKIP]", out)
 
     def test_a_manual_row_neither_consumes_budget_nor_reports_skipped(self):
-        """The N/A branch runs BEFORE the deadline check. A manual block is
-        never shelled, so it costs no time and cannot be 'not run' — marking it
-        skipped would invent a failure out of a row that was never going to
-        execute."""
+        """A manual block never enters the run set at all, so it costs no time
+        and cannot be 'not run' — marking it skipped would invent a failure out
+        of a row that was never going to execute."""
         self._seed([None, "true"])
         _, out, _ = self._run(_clock(0, 20000))
         self.assertIn("[N/A]", out)
