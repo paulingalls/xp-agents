@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import _common
+import archive
 import identity
 import marker_names
 import smm_store
@@ -254,8 +255,18 @@ def _cmd_get_event(args: argparse.Namespace) -> int:
     try:
         _, event = smm_store.lookup_event(args.smm_dir, args.event_id)
     except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+        # Compaction MOVES events into backups/ rather than deleting them,
+        # while the id stays citable in later `references`/`metadata.resolves`
+        # — so a live-log miss is relocation more often than deletion. Only
+        # this command falls back: lookup_event's contract is shared with
+        # promote and question-close, which should keep reading the live log.
+        found = archive.find_in_archives(Path(args.smm_dir) / "backups", args.event_id)
+        if found is None:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        # stderr, so stdout stays a clean event document for piped readers.
+        print(f"(archived in {found[0].name})", file=sys.stderr)
+        event = found[1]
     print(json.dumps(event, indent=2))
     return 0
 

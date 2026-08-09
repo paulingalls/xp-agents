@@ -105,3 +105,48 @@ def archive_json(
         f"{MAX_COLLISIONS} collisions on {prefix}_{ts}; refusing to overwrite "
         "an existing snapshot."
     )
+
+
+def find_in_archives(backups_dir: Path, event_id: str) -> tuple[Path, dict] | None:
+    """The archived copy of *event_id*, or None. Newest archive wins.
+
+    The read side of this module's invariant: what the rewriters moved here is
+    the ONLY copy, and an id stays citable in `references` and
+    `metadata.resolves` long after compaction takes it out of events.jsonl. A
+    lookup that stops at the live log therefore reports DELETION where there
+    was only relocation — which is not a hypothetical: it produced an hour of
+    wrong diagnosis and two retracted events in this project's own log.
+
+    Ordered by MTIME, not by name. `backups/` mixes `archive-*`, legacy
+    `events-*` and `pre-repair-*`, plus `-N` collision suffixes, so a lexical
+    sort is not chronological — `pre-repair-2026...` sorts before
+    `archive-2026...` while being the newer file. A pre-repair backup is a
+    whole-file copy, so one id genuinely lives in several archives and the
+    order decides which version the reader gets.
+
+    Parsed tolerantly, via the canonical JSONL reader: a repair archive holds
+    malformed lines BY CONSTRUCTION — dropping them is why it exists — so a
+    per-line json.loads would raise on exactly the files most likely to carry
+    a recovered id.
+
+    Exact ids only. Prefix resolution stays with the live-log lookup, whose
+    ambiguity rule is defined over one file; an archive scan cannot see the
+    whole id space at once, so a prefix that is unique here may not be unique
+    overall.
+    """
+    if not backups_dir.is_dir():
+        return None
+
+    import append_validation
+
+    archives = [p for p in backups_dir.glob("*.jsonl") if p.is_file()]
+    for path in sorted(archives, key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        events, _ = append_validation.parse_jsonl(raw)
+        for event in events:
+            if event.get("id") == event_id:
+                return path, event
+    return None
