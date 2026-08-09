@@ -30,7 +30,7 @@ from event_metadata import (
     METADATA_KEY_CWD,
     METADATA_KEY_TEST_FAILED,
 )
-from event_schema import EVENT_TYPE_CONCERN
+from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS
 
 _WATERMARK_ID = "test-bash-test-concern-metadata"
 
@@ -119,6 +119,29 @@ class TestTotalOnlyWhenTrustworthy(_ConcernMetadataTestCase):
     def test_total_recorded_when_passes_were_observed(self):
         concerns = self._run("pytest tests/", "3 passed, 2 failed in 1.2s")
         self.assertEqual(concerns[0]["metadata"]["test_count"], 5)
+
+    def _status_metadata(self, command: str, stdout: str) -> dict:
+        inp = _make_bash_input(command=command, stdout=stdout)
+        inp["cwd"] = "/tmp/proj"
+        with patch_commits(files=[], body=""):
+            bash_post_tool.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
+        return statuses[-1]["metadata"]
+
+    def test_status_leg_omits_the_untrusted_total_too(self):
+        # The sibling STATUS event carries the same METADATA_KEY_TEST_COUNT.
+        # Sharing the spelling is not sharing the trust rule — fixing only the
+        # concern would leave the same fabricated 2/2 one event over.
+        metadata = self._status_metadata(
+            "npx playwright test",
+            "Running 500 tests using 10 workers\n\n  2 failed\n    a.spec.ts:3:1\n",
+        )
+        self.assertNotIn("test_count", metadata)
+
+    def test_status_leg_keeps_the_total_when_passes_were_observed(self):
+        metadata = self._status_metadata("pytest tests/", "3 passed, 2 failed in 1.2s")
+        self.assertEqual(metadata["test_count"], 5)
 
 
 class TestConcernCwdAttribution(_ConcernMetadataTestCase):

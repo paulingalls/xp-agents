@@ -212,6 +212,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         failed = results["failed"]
         errors = results["errors"]
 
+        # ONE derivation for both legs below (the STATUS digest and the failure
+        # concern), because they share the METADATA_KEY_TEST_COUNT spelling and
+        # must share its trust rule too — fixing one alone leaves the same
+        # fabricated denominator on the other event.
+        #
+        # Only an ANCHORED pair may be summed. The whole-response scan takes
+        # the last `N passed` and last `N failed` independently, so `passed`
+        # reads 0 when no pass line exists at all: a 500-test playwright run
+        # showing only `2 failed` would become `2/2 failed` — the whole suite
+        # red, and the denominator looks like a measurement. Consumers already
+        # degrade to a count-alone render when the total is missing.
+        trustworthy_total = passed + failed if results.get("counts_anchored") else None
+
         # Structured metadata.action+companion fields are the canonical signal;
         # content stays as a human-readable digest for log readers.
         # parser_status disambiguates "framework ran 0 tests" (ZERO) from
@@ -245,7 +258,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         elif parser_status == PARSER_STATUS_PARSED:
             content = f"Tests: {passed} passed, {failed} failed ({framework})"
             metadata["test_passed"] = failed == 0
-            metadata[METADATA_KEY_TEST_COUNT] = passed + failed
+            if trustworthy_total is not None:
+                metadata[METADATA_KEY_TEST_COUNT] = trustworthy_total
             if errors > 0:
                 metadata[METADATA_KEY_TEST_ERRORS] = errors
         elif parser_status == PARSER_STATUS_ZERO:
@@ -268,15 +282,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             # Shared with bash_failure's degraded producer so the two cannot
             # drift on the keys or the omit-don't-fabricate rules; this caller
             # is the one that always has parsed counts.
-            # A denominator only when the passes were actually SEEN.
-            # `result_counts.two_counts` returns `p or 0`, collapsing "0
-            # passed" into "passed not observed", so `passed + failed` can
-            # assert a proportion nothing measured: a 500-test playwright run
-            # whose pass line is absent from the captured output parses as
-            # passed=0/failed=2 and would render `[2/2 failed]` — the whole
-            # suite red. Omitting degrades to the count-alone render, which is
-            # the same rule bash_failure follows for the same reason.
-            trustworthy_total = passed + failed if passed > 0 else None
             concern_metadata: dict = {
                 "action": CONCERN_ACTION_TRANSIENT_TEST,
                 **run_attribution.run_attribution_metadata(
