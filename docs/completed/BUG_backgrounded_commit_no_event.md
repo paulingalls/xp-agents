@@ -111,11 +111,19 @@ The next commit-shaped command in the repo then recovers the previous one.
 
 ### What this does not fix
 
-Recovery happens at the **next** commit-shaped Bash call, so the last
-backgrounded commit before an agent stops committing still has no observer.
-That is one commit per teammate run rather than every commit — 79% loss
-becomes roughly one-per-story — and the close-cycle merge emitter still
-re-derives its trailers, which is why nothing was ever permanently lost.
+Recovery happens at the next commit-shaped Bash call that **itself fails
+confirmation**, which is the branch the HEAD probe lives on. A backgrounded
+launch always fails it, so a run of background commits recovers all but its
+last. Two shapes still lose one:
+
+* the last backgrounded commit before an agent stops committing;
+* a backgrounded commit followed by a **foreground** one, which confirms
+  normally, records its own event and returns without ever probing the prior
+  HEAD. Measured, not inferred.
+
+That is one commit per teammate run rather than every commit — 79% loss becomes
+roughly one-per-story — and the close-cycle merge emitter still re-derives its
+trailers, which is why nothing was ever permanently lost.
 
 Closing the residual needs an observation point this story does not own: a
 `PreToolUse:Bash` refusal of a backgrounded `git commit` (pointing the author

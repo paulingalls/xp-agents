@@ -326,6 +326,17 @@ class TestBackgroundedCommitIsNotEvidence(_RebuildTestCase):
         self.assertEqual(len(self.commit_events()), 1)
         self.assertEqual(self.concerns(), [])
 
+    def test_the_reset_is_keyed_to_the_commit_recovered(self):
+        """Not to the one this launch will eventually make — that hash does
+        not exist yet, and the next commit's gate sizes its review by diffing
+        `last_review_commit..HEAD`."""
+        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        head = self.commit("feat: landed in the background, unobserved")
+        self.run_hook(self._STILL_RUNNING, stdout=self._LAUNCH_NOTICE, background=True)
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["quality_review_done"])
+        self.assertEqual(cycle["last_review_commit"], head)
+
     def test_the_other_guards_still_stand_when_backgrounded(self):
         """Only the message guard is bypassed. An old HEAD is still someone
         else's history, backgrounded or not."""
