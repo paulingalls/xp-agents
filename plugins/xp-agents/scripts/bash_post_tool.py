@@ -6,6 +6,7 @@ pass/fail status. Nudges to commit and run /xp-quality-review when a
 green test run leaves code files uncommitted.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -25,7 +26,13 @@ from commit_handling import (
     _working_tree_is_test_only,
     is_tdd_red_step,
 )
-from event_metadata import CONCERN_ACTION_TRANSIENT_TEST
+from event_metadata import (
+    CONCERN_ACTION_TRANSIENT_TEST,
+    METADATA_KEY_CWD,
+    METADATA_KEY_TEST_COUNT,
+    METADATA_KEY_TEST_ERRORS,
+    METADATA_KEY_TEST_FAILED,
+)
 from event_schema import (
     METADATA_KEY_TDD_RED,
     STATUS_ACTION_TEST_RUN_COMPLETE,
@@ -45,12 +52,27 @@ CAPTURED_EXIT_ADVISORY = (
     "&&` or a trailing `&& next` still counts — to clear open test-failure "
     "concerns."
 )
-
 MID_CHAIN_NUDGE = (
     "Multiple stories in-progress. If this commit completed the current "
     "story's acceptance criteria, run /xp-accept to mark it done and "
     "switch to the next story branch."
 )
+
+
+def _collapse_home_cwd(cwd: str) -> str:
+    """Collapse a leading $HOME onto `~`; a path outside $HOME (container
+    mount, /tmp) has no home to strip and stays absolute.
+
+    The SMM log is durable and renders back into prompts, so an absolute path
+    under $HOME would carry the username for no gain — `~` keeps everything
+    that matters (worktree fragment, subdirectory, basename) without it.
+    """
+    home = os.path.expanduser("~")
+    if cwd == home:
+        return "~"
+    if cwd.startswith(home + os.sep):
+        return "~" + cwd[len(home) :]
+    return cwd
 
 
 def _check_mid_chain_nudge(smm_dir: Path, input_data: dict) -> str | None:
@@ -241,13 +263,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         elif parser_status == PARSER_STATUS_PARSED:
             content = f"Tests: {passed} passed, {failed} failed ({framework})"
             metadata["test_passed"] = failed == 0
-            metadata["test_count"] = passed + failed
+            metadata[METADATA_KEY_TEST_COUNT] = passed + failed
             if errors > 0:
-                metadata["test_errors"] = errors
+                metadata[METADATA_KEY_TEST_ERRORS] = errors
         elif parser_status == PARSER_STATUS_ZERO:
             content = f"Tests ran ({framework}) — 0 tests"
             metadata["test_passed"] = True
-            metadata["test_count"] = 0
+            metadata[METADATA_KEY_TEST_COUNT] = 0
         else:
             content = f"Tests ran ({framework}) — counts not extracted"
 
@@ -261,12 +283,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         _common.append_safe(smm_dir, status)
 
         if failed > 0 and not tree_test_only:
+            concern_metadata: dict = {
+                "action": CONCERN_ACTION_TRANSIENT_TEST,
+                METADATA_KEY_TEST_FAILED: failed,
+                METADATA_KEY_TEST_COUNT: passed + failed,
+            }
+            if errors > 0:
+                concern_metadata[METADATA_KEY_TEST_ERRORS] = errors
+            payload_cwd = input_data.get("cwd")
+            if payload_cwd:
+                concern_metadata[METADATA_KEY_CWD] = _collapse_home_cwd(payload_cwd)
             concern = _common.make_event(
                 _common.CONCERN,
                 agent_id,
                 f"{concerns.TEST_FAILURES_PREFIX}: {failed} failed ({framework})",
                 severity="high",
-                metadata={"action": CONCERN_ACTION_TRANSIENT_TEST},
+                metadata=concern_metadata,
             )
             _common.append_safe(smm_dir, concern)
         elif failed == 0 and ran_a_runner and exit_proves_pass:

@@ -14,6 +14,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
 import commits  # noqa: E402
+import event_metadata  # noqa: E402
 import event_schema  # noqa: E402
 import intent  # noqa: E402
 import materialize  # noqa: E402
@@ -206,6 +207,28 @@ def _digests(item: dict, intents: dict[str, dict] | None) -> bool:
     return (entry.get("defer_count") or 0) < _NEGLECT_DEFER_COUNT
 
 
+def _run_attribution_suffix(item: dict) -> str:
+    """The run-identifying suffix on a test-failure concern (story-001).
+
+    Gated on the PRESENCE of the attribution keys, not on
+    `action == transient_test_failure` — simpler, avoids importing
+    smm_count's private discriminator, and any other producer that stamps
+    the same keys gets the render for free.
+
+    Checkout renders as `Path(cwd).name`, not the full value — the full
+    value is one `get-event <id>` away, the same retrieval contract the
+    digest block already relies on.
+    """
+    metadata = item.get("metadata") or {}
+    failed = metadata.get(event_metadata.METADATA_KEY_TEST_FAILED)
+    total = metadata.get(event_metadata.METADATA_KEY_TEST_COUNT)
+    cwd = metadata.get(event_metadata.METADATA_KEY_CWD)
+    if failed is None or total is None or not cwd:
+        return ""
+    checkout = Path(cwd).name
+    return f" [{failed}/{total} failed in {checkout}]"
+
+
 def _full_line(
     item: dict, session_anchor_timestamps: list[str], intents: dict[str, dict] | None
 ) -> str:
@@ -214,8 +237,11 @@ def _full_line(
     )
     age_str = f"{age} sessions" if age != 1 else "1 session"
     excerpt = _common.truncate(item.get("content", ""), _EXCERPT_MAX_CHARS)
+    attribution = _run_attribution_suffix(item)
     suffix = _intent_suffix(item, session_anchor_timestamps, intents)
-    return f"- [id: {item.get('id', '')}] {excerpt} ({age_str} old){suffix}"
+    return (
+        f"- [id: {item.get('id', '')}] {excerpt} ({age_str} old){attribution}{suffix}"
+    )
 
 
 def _digest_line(
@@ -229,8 +255,9 @@ def _digest_line(
     honestly than an anchor count that compaction resets.
     """
     excerpt = _common.truncate(item.get("content", ""), _DIGEST_EXCERPT_MAX_CHARS)
+    attribution = _run_attribution_suffix(item)
     suffix = _intent_suffix(item, session_anchor_timestamps, intents)
-    return f"- [id: {item.get('id', '')}] {excerpt}{suffix}"
+    return f"- [id: {item.get('id', '')}] {excerpt}{attribution}{suffix}"
 
 
 def _intent_suffix(

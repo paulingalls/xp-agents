@@ -9,14 +9,9 @@ event_schema.py crossed 500 lines. The convention is that event_schema.py
 re-exports every public name here, so callers keep writing
 `from event_schema import STATUS_ACTION_*` without churn.
 
-CAVEAT, so the next reader is not misled: the shim is NOT presently a complete
-mirror. The ten STATUS_ACTION_RETIRE_* / STATUS_ACTION_EDIT_* names are absent
-from it, and their only consumers (system_context_retire_cli,
-system_context_edit_cli) import them from THIS module directly, so nothing is
-broken today — but `from event_schema import STATUS_ACTION_RETIRE_MODULE` would
-raise ImportError, which is not what the convention above advertises. Whether
-to close the gap or to narrow the convention is an open question (see the SMM);
-either way, do not read the gap as license to skip a re-export.
+Adding a public name here means adding it to that import list in the same
+change; `tests/smm/test_event_schema.py` sweeps every public name in this
+module and fails on the first one the shim does not mirror by identity.
 
 Zero dependencies on other event_schema symbols — nothing here imports from
 event_schema — so this module has no circular-import risk with it.
@@ -274,6 +269,23 @@ METADATA_KEY_RESOLVES = "resolves"
 METADATA_KEY_SUPERSEDES = "supersedes"
 METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_RESOLVED_BY_COMMITS = "resolved_by_commits"
+
+# Run-identifying attribution on a test-failure concern (story-001). Producer:
+# bash_post_tool's parsed-failure branch. Consumer: triage_preload's
+# attribution suffix.
+#
+# METADATA_KEY_CWD's value is the HOOK PAYLOAD's working directory, not
+# necessarily where the tests actually executed — `docker compose exec ...
+# pytest` records the host cwd (the container's is not delivered to the hook
+# at all), and `cd sub && pytest` records the parent. Treat it as "which
+# checkout/session this ran from", not as run-location fidelity.
+METADATA_KEY_CWD = "cwd"
+# The count keys reuse the STATUS event's own spelling ("test_failed" is new;
+# the other two are shared verbatim with the test-run STATUS) so the two event
+# shapes cannot drift into two names for the same count.
+METADATA_KEY_TEST_FAILED = "test_failed"
+METADATA_KEY_TEST_COUNT = "test_count"
+METADATA_KEY_TEST_ERRORS = "test_errors"
 
 # Concern metadata.kind discriminator vocabulary. Centralized so producer
 # (scripts/close_cycle_abandonment, the sole owner of this record — the
