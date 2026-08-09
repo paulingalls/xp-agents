@@ -38,13 +38,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import archive
 from conftest import _SMMTestCase
+from event_schema import EVENT_TYPE_DECISION
 
 
 def _event(event_id: str, content: str = "archived decision") -> dict:
     return {
         "id": event_id,
         "ts": "2026-08-08T22:23:28.508514+00:00",
-        "type": "decision",
+        "type": EVENT_TYPE_DECISION,
         "agent_id": "main",
         "content": content,
         "topic": "retro-try-one-slug-per-subject",
