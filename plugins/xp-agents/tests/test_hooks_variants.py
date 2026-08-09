@@ -243,6 +243,78 @@ class TestNoAsyncInTheVariant(unittest.TestCase):
         self.assertEqual(offenders, [], "; ".join(offenders))
 
 
+class TestSourceIsNeverWritten(unittest.TestCase):
+    """The emitter derives; it does not edit its own input.
+
+    This is the property the whole design rests on. Because the first harness's
+    manifest is never rewritten, its byte-identity after this story is
+    guaranteed by construction rather than by a test, which is what lets the
+    fourteen existing suites that read it stay untouched. A pin still earns its
+    place: the guarantee is only as good as the emitter continuing to honour it,
+    and an "improvement" that normalised both files would be silent.
+    """
+
+    def test_emitting_leaves_the_source_byte_identical(self):
+        import hooks_emit
+
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            source = work / "hooks.json"
+            original = _SOURCE.read_bytes()
+            source.write_bytes(original)
+
+            hooks_emit.emit(source=source, out_dir=work)
+
+            self.assertEqual(source.read_bytes(), original, "emitter wrote its source")
+
+    def test_emitting_creates_only_the_variant(self):
+        import hooks_emit
+
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            hooks_emit.emit(source=_SOURCE, out_dir=work)
+            self.assertEqual(
+                sorted(p.name for p in work.iterdir()),
+                ["hooks.codex.json"],
+                "emitter produced files beyond the variant",
+            )
+
+
+class TestVariantIsDerivedBySubtraction(unittest.TestCase):
+    """Nothing in the variant was invented — every command comes from the source.
+
+    Cheaper and stronger than re-walking each path to check it exists on disk:
+    `TestPluginIntegrity._assert_hook_paths_exist` already proves existence for
+    the source, and a subset claim inherits it. It also catches the failure that
+    path-existence would miss — a command the emitter synthesised that happens
+    to point at a real file.
+    """
+
+    def setUp(self):
+        self.source = json.loads(_SOURCE.read_text(encoding="utf-8"))
+        self.codex = json.loads(_CODEX.read_text(encoding="utf-8"))
+
+    def _commands(self, manifest: dict) -> set[str]:
+        return {hook["command"] for _, hook in _all_hook_objects(manifest)}
+
+    def test_variant_commands_are_a_subset_of_the_source(self):
+        invented = self._commands(self.codex) - self._commands(self.source)
+        self.assertEqual(invented, set(), f"commands not present in source: {invented}")
+
+    def test_every_command_resolves_through_the_plugin_root_variable(self):
+        """A relative or absolute path breaks once the host caches the plugin.
+
+        The same rule the shipped hooks.json lives under, asserted on the
+        generated file so the emitter cannot rewrite a path into a literal.
+        """
+        offenders = [
+            f"{event}: {hook['command']}"
+            for event, hook in _all_hook_objects(self.codex)
+            if "${CLAUDE_PLUGIN_ROOT}" not in hook["command"]
+        ]
+        self.assertEqual(offenders, [], "; ".join(offenders))
+
+
 class TestVariantParsesStrict(unittest.TestCase):
     """Both manifests must parse as strict JSON.
 
