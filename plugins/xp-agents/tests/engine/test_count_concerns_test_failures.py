@@ -233,6 +233,55 @@ class TestTransientTestFailuresWhenScoped(_SMMTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "2")
 
+    def test_run_attribution_metadata_does_not_perturb_scoped_exclusion(self) -> None:
+        # story-001: the transient-test concern now also carries cwd/
+        # test_failed/test_count/test_errors (event_metadata.py). smm_count
+        # keys off metadata["action"] alone, so these extra fields must not
+        # change whether the concern is excluded when scoped.
+        write_events(
+            self.events_file,
+            [
+                _concern(
+                    "high",
+                    metadata={
+                        "action": CONCERN_ACTION_TRANSIENT_TEST,
+                        "test_failed": 2,
+                        "test_count": 5,
+                        "test_errors": 1,
+                        "cwd": "~/worktree-story-001-x",
+                    },
+                    content=f"{TEST_FAILURES_PREFIX}: 2 failed (pytest)",
+                )
+            ],
+        )
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0")
+
+    def test_run_attribution_metadata_does_not_perturb_unscoped_count(self) -> None:
+        write_events(
+            self.events_file,
+            [
+                _concern(
+                    "high",
+                    metadata={
+                        "action": CONCERN_ACTION_TRANSIENT_TEST,
+                        "test_failed": 2,
+                        "test_count": 5,
+                        "cwd": "~/worktree-story-001-x",
+                    },
+                    content=f"{TEST_FAILURES_PREFIX}: 2 failed (pytest)",
+                )
+            ],
+        )
+        result = run_cli(_CLI, ["count-concerns", "--severity", "high"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1")
+
     def test_test_failure_tagged_with_different_cycle_id_still_excluded(self) -> None:
         # A test-failure concern tagged with a DIFFERENT close_cycle_id is
         # excluded by both the cycle-id filter AND the new transient-class

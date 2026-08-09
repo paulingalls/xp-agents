@@ -19,13 +19,18 @@ import git_commits
 import hook_liveness
 import identity
 import markers
+import run_attribution
 import test_attribution
 from commit_handling import (
     _handle_commit,
     _working_tree_is_test_only,
     is_tdd_red_step,
 )
-from event_metadata import CONCERN_ACTION_TRANSIENT_TEST
+from event_metadata import (
+    CONCERN_ACTION_TRANSIENT_TEST,
+    METADATA_KEY_TEST_COUNT,
+    METADATA_KEY_TEST_ERRORS,
+)
 from event_schema import (
     METADATA_KEY_TDD_RED,
     STATUS_ACTION_TEST_RUN_COMPLETE,
@@ -45,7 +50,6 @@ CAPTURED_EXIT_ADVISORY = (
     "&&` or a trailing `&& next` still counts — to clear open test-failure "
     "concerns."
 )
-
 MID_CHAIN_NUDGE = (
     "Multiple stories in-progress. If this commit completed the current "
     "story's acceptance criteria, run /xp-accept to mark it done and "
@@ -209,6 +213,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         failed = results["failed"]
         errors = results["errors"]
 
+        # ONE derivation for both legs below (the STATUS digest and the failure
+        # concern), because they share the METADATA_KEY_TEST_COUNT spelling and
+        # must share its trust rule too — fixing one alone leaves the same
+        # fabricated denominator on the other event.
+        #
+        # Only an ANCHORED pair may be summed. The whole-response scan takes
+        # the last `N passed` and last `N failed` independently, so `passed`
+        # reads 0 when no pass line exists at all: a 500-test playwright run
+        # showing only `2 failed` would become `2/2 failed` — the whole suite
+        # red, and the denominator looks like a measurement. Consumers already
+        # degrade to a count-alone render when the total is missing.
+        trustworthy_total = passed + failed if results.get("counts_anchored") else None
+
         # Structured metadata.action+companion fields are the canonical signal;
         # content stays as a human-readable digest for log readers.
         # parser_status disambiguates "framework ran 0 tests" (ZERO) from
@@ -242,13 +259,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         elif parser_status == PARSER_STATUS_PARSED:
             content = f"Tests: {passed} passed, {failed} failed ({framework})"
             metadata["test_passed"] = failed == 0
-            metadata["test_count"] = passed + failed
+            if trustworthy_total is not None:
+                metadata[METADATA_KEY_TEST_COUNT] = trustworthy_total
             if errors > 0:
-                metadata["test_errors"] = errors
+                metadata[METADATA_KEY_TEST_ERRORS] = errors
         elif parser_status == PARSER_STATUS_ZERO:
             content = f"Tests ran ({framework}) — 0 tests"
             metadata["test_passed"] = True
-            metadata["test_count"] = 0
+            metadata[METADATA_KEY_TEST_COUNT] = 0
         else:
             content = f"Tests ran ({framework}) — counts not extracted"
 
@@ -262,12 +280,24 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         _common.append_safe(smm_dir, status)
 
         if failed > 0 and not tree_test_only:
+            # Shared with bash_failure's degraded producer so the two cannot
+            # drift on the keys or the omit-don't-fabricate rules; this caller
+            # is the one that always has parsed counts.
+            concern_metadata: dict = {
+                "action": CONCERN_ACTION_TRANSIENT_TEST,
+                **run_attribution.run_attribution_metadata(
+                    input_data.get("cwd"),
+                    failed=failed,
+                    total=trustworthy_total,
+                    errors=errors,
+                ),
+            }
             concern = _common.make_event(
                 _common.CONCERN,
                 agent_id,
                 f"{concerns.TEST_FAILURES_PREFIX}: {failed} failed ({framework})",
                 severity="high",
-                metadata={"action": CONCERN_ACTION_TRANSIENT_TEST},
+                metadata=concern_metadata,
             )
             _common.append_safe(smm_dir, concern)
         elif failed == 0 and ran_a_runner and exit_proves_pass:

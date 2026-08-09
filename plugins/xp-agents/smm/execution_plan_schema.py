@@ -244,6 +244,7 @@ def _validate_milestone(
     *,
     enforce_budget: bool = True,
     valid_surfaces: frozenset[str] | None = None,
+    grandfathered_milestone_numbers: frozenset[int] | None = None,
 ) -> list[str]:
     """Validate a milestone entry.
 
@@ -251,6 +252,10 @@ def _validate_milestone(
     ``valid_surfaces`` is supplied, each entry must be one of those names
     (FK to ``acceptance_surfaces[*].name``); when ``None``, only the
     list-of-strings shape is checked.
+
+    ``grandfathered_milestone_numbers`` carries the manual-shape rule: None
+    switches it off entirely (read paths), a set switches it on for every
+    milestone except the listed numbers. See validate_plan.
     """
     errors: list[str] = []
     if not isinstance(milestone, dict):
@@ -325,11 +330,19 @@ def _validate_milestone(
 
     ae = milestone.get("acceptance_execution")
     if ae is not None:
+        # A non-int number never matches an exemption, and looking up an
+        # unhashable one would raise out of a function contracted to RETURN
+        # its errors.
+        number = milestone["number"]
+        enforce_manual_shape = grandfathered_milestone_numbers is not None and (
+            not isinstance(number, int) or number not in grandfathered_milestone_numbers
+        )
         errors.extend(
             validate_acceptance_execution(
                 ae,
                 f"milestones[{idx}].acceptance_execution",
                 allow_pins=False,
+                enforce_manual_shape=enforce_manual_shape,
             )
         )
 
@@ -357,6 +370,7 @@ def validate_plan(
     *,
     enforce_budget: bool = True,
     valid_surfaces: frozenset[str] | None = None,
+    grandfathered_milestone_numbers: frozenset[int] | None = None,
 ) -> list[str]:
     """Validate an execution plan document.
 
@@ -365,6 +379,12 @@ def validate_plan(
     (read-path grandfathering, matching smm_schema precedent).
     When valid_surfaces is supplied, milestone.surfaces_touched entries
     are FK-checked against it; when None, only their shape is validated.
+    ``grandfathered_milestone_numbers`` is the manual-shape rule's switch:
+    None (the read-path default) leaves it off, so a stored manual+command
+    block still loads; a frozenset turns it on for every milestone whose
+    number is not listed. An empty frozenset is therefore "enforce
+    everywhere" — the fail-closed answer when no on-disk proof of
+    grandfathering could be read.
     """
     errors: list[str] = []
 
@@ -407,6 +427,7 @@ def validate_plan(
                     idx,
                     enforce_budget=enforce_budget,
                     valid_surfaces=valid_surfaces,
+                    grandfathered_milestone_numbers=grandfathered_milestone_numbers,
                 )
             )
 

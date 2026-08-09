@@ -137,46 +137,46 @@ class TestStatusActionConstants(unittest.TestCase):
                 )
 
 
-class TestRetireEditReExportCompleteness(unittest.TestCase):
-    """STATUS_ACTION_RETIRE_*/EDIT_* must be re-exported from event_schema.
+class TestSplitShimReExportCompleteness(unittest.TestCase):
+    """EVERY public name in event_metadata must be re-exported by event_schema.
 
-    Regression test for concern c83d08870bf2: event_metadata.py defines
-    these ten names, and event_schema.py's docstring/comment above the
-    `from event_metadata import (...)` block claims "EVERY public name in
-    event_metadata belongs in this list" — but these ten were missing,
-    so `from event_schema import STATUS_ACTION_RETIRE_MODULE` raised
-    ImportError even though callers reach these names as
-    `event_schema.STATUS_ACTION_RETIRE_MODULE`.
+    Regression test for concern c83d08870bf2: ten STATUS_ACTION_RETIRE_*/
+    EDIT_* names were missing from event_schema's `from event_metadata
+    import (...)` block, so `from event_schema import
+    STATUS_ACTION_RETIRE_MODULE` raised ImportError even though the shim
+    comment promises the mirror is complete.
+
+    The sweep is over every public name rather than the ten that regressed:
+    an enumerated gate only ever catches the leak it was written for, and
+    the next name added to event_metadata is exactly the one no enumeration
+    knows about. event_metadata imports nothing, so its public `dir()` is
+    exactly the names it defines.
     """
 
-    RETIRE_EDIT_NAMES: ClassVar[list[str]] = [
-        "STATUS_ACTION_RETIRE_PRINCIPLE",
-        "STATUS_ACTION_RETIRE_MODULE",
-        "STATUS_ACTION_RETIRE_CONVENTION",
-        "STATUS_ACTION_RETIRE_PROJECT_SPECIFIC",
-        "STATUS_ACTION_RETIRE_ACCEPTANCE_SURFACE",
-        "STATUS_ACTION_EDIT_PRINCIPLE",
-        "STATUS_ACTION_EDIT_MODULE",
-        "STATUS_ACTION_EDIT_CONVENTION",
-        "STATUS_ACTION_EDIT_PROJECT_SPECIFIC",
-        "STATUS_ACTION_EDIT_ACCEPTANCE_SURFACE",
-    ]
+    @staticmethod
+    def _public_names() -> list[str]:
+        import event_metadata
+
+        names = [n for n in dir(event_metadata) if not n.startswith("_")]
+        assert names, "event_metadata exposes no public names — sweep is vacuous"
+        return names
 
     def test_names_importable_from_event_schema(self):
-        for name in self.RETIRE_EDIT_NAMES:
+        for name in self._public_names():
             with self.subTest(constant=name):
                 self.assertTrue(
                     hasattr(event_schema, name),
-                    f"event_schema missing re-exported constant {name}",
+                    f"event_schema missing re-exported constant {name} — add it "
+                    f"to the `from event_metadata import (...)` block",
                 )
 
     def test_reexported_names_are_identity_equal_to_event_metadata(self):
         import event_metadata
 
-        for name in self.RETIRE_EDIT_NAMES:
+        for name in self._public_names():
             with self.subTest(constant=name):
                 self.assertIs(
-                    getattr(event_schema, name),
+                    getattr(event_schema, name, None),
                     getattr(event_metadata, name),
                     f"event_schema.{name} is not identity-equal to "
                     f"event_metadata.{name} — re-export must be by identity, "
