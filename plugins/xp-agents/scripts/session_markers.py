@@ -2,9 +2,8 @@
 """Session-marker lifecycle: naming, aging, and the SessionStart sweep.
 
 Extracted from markers.py to keep that module under its size pin. This
-module owns the rule shared by session-keyed markers (liveness heartbeat,
-housekeeping in-flight) and the sweep that clears markers which must never
-survive a session boundary.
+module owns the rule shared by session-keyed markers and the sweep that
+clears markers which must never survive a session boundary.
 """
 
 import math
@@ -41,10 +40,10 @@ def session_marker(base_name: str, session_id: object) -> MarkerDef:
     same rule from the appender's pre-write path, which cannot import
     `scripts/`; one home means the two cannot drift.
 
-    This helper adds only the JSON content type, which is what the two
-    session-keyed records here (liveness heartbeat, housekeeping in-flight)
-    need: anything that is not a non-blank string resolves to the unsuffixed
-    shared marker — the time-only check such a host was always going to get.
+    This helper adds only the JSON content type, which is what every
+    session-keyed record here needs: anything that is not a non-blank string
+    resolves to the unsuffixed shared marker — the time-only check such a host
+    was always going to get.
     """
     return MarkerDef(session_scope.scoped_name(base_name, session_id), "json")
 
@@ -52,12 +51,11 @@ def session_marker(base_name: str, session_id: object) -> MarkerDef:
 def marker_age_seconds(now: float, written_at: object) -> float | None:
     """Age of a JSON marker's timestamp, or None when it is not usable.
 
-    The single home for the rule, shared by `hook_liveness` and
-    `housekeeping_flight`. Callers own the BOUNDS: a negative age (a future
-    timestamp) comes back as-is, and BOTH callers bound it, because
-    `age < threshold` alone reads a negative age as fresh forever. They differ
-    only in how much future they tolerate first — the housekeeping gate none
-    (`0 <= age`), the heartbeat a minute of clock slew
+    The single home for the rule. Callers own the BOUNDS: a negative age (a
+    future timestamp) comes back as-is, so any caller that must fail CLOSED has
+    to bound it below — `age < threshold` alone reads a negative age as fresh
+    forever. They differ in how much future they tolerate — the in-flight gates
+    none (`0 <= age`), the heartbeat a minute of clock slew
     (`hook_liveness.FUTURE_SKEW_GRACE_SECONDS`), since false-refusing a working
     session is the failure that gets a liveness check switched off.
 
