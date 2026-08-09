@@ -2,6 +2,64 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.10.0 — A number you could not check, and a field that got shelled
+
+### Every red looked the same
+
+A test-failure concern recorded that something failed and nothing about which
+run. A one-test scoped run, a `docker compose exec … pytest`, a teammate's
+worktree and a 508-test suite all rendered as one line at kickoff. Diagnosing a
+single such streak had already cost a scheduled story: the largest suite in the
+flagged window held 23 tests while the real one held 508, and every full-suite
+run in that window was green.
+
+The concern now carries the working directory — `$HOME` collapsed to `~`, so a
+durable log that renders back into prompts stops carrying a username — and the
+run's counts. The command is deliberately never recorded: a command line can
+carry a token, and a test pins that it does not leak.
+
+**The other producer knew less and had to say so.** `bash_failure` handles runs
+that exit non-zero with no readable summary, so it often has no count at all.
+It stamps the same keys through the same builder, but never a total: with no
+summary line the counts come from two independent last-match scans, and their
+sum can pair numbers from unrelated lines. A missing denominator is honest; a
+fabricated one looks like a measurement. The triage render degrades to match —
+`2/23 failed in x`, then `2 failed in x`, then `in x` — because the run nobody
+could count is the one a reader most needs attributed.
+
+That rule then had to be carried back. The parsed producer was summing an
+unanchored pair too: a 500-test Playwright run showing only `2 failed` recorded
+`2/2` — the whole suite red, and the number looked measured. The parser now
+reports whether one summary line yielded the pair, and both events read that
+single answer instead of two spellings of a trust rule.
+
+### Prose in a field that gets shelled
+
+Story-level acceptance already refused `command` on a `type: manual` block, so
+observational prose had exactly one home and could never reach a shell. The
+milestone-level caller left that flag off — and the sprint reviewer shells a
+milestone's `setup`/`command`, producing the same exit-127 red no operator can
+make green, one level coarser. The module said so about itself and called it an
+open gap.
+
+The flag was never the work. `validate_plan` walks every milestone on the READ
+path, so switching it on would have made stored plans unloadable. The fix is a
+per-item grandfather derived from the document already on disk, exempting only
+a block that is unchanged, and failing closed on a missing, symlinked,
+unreadable or corrupt source — an exemption that failed open would be a bypass
+reachable by deleting a file. Run-time is untouched: what can be written
+narrows, what a written block does is unchanged.
+
+### Gates that could not catch their next case
+
+Three defects surfaced only in review, and each was a check that had stopped at
+the case which created it. The re-export contract said *every* public name
+belongs in the list while its test enumerated the ten that had once regressed,
+so name eleven walked through; it now sweeps the module. A validator contracted
+to *return* errors could still raise, because appending a type error did not
+stop the lookup below it. And the discriminator the TDD gate routes on was
+asserted by no test in the tree.
+
 ## v5.9.0 — Three checks that vouched for themselves
 
 ### Evidence about a neighbour is not evidence about you
