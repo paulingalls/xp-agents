@@ -15,8 +15,10 @@ variant lives.
 """
 
 import json
+import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -207,6 +209,54 @@ class TestNoSubagentsShippingKey(unittest.TestCase):
     def test_codex_manifest_declares_no_agents_key(self):
         codex = json.loads(_CODEX_MANIFEST.read_text(encoding="utf-8"))
         self.assertNotIn("agents", codex)
+
+
+def _resolved_paths_via_subprocess(manifest: Path, plugin_root: Path) -> list[str]:
+    """E2E: a fresh subprocess reads `manifest` and resolves every `./`-prefixed
+    value against `plugin_root`, the way an installing host would."""
+    script = textwrap.dedent(f"""
+        import json
+        from pathlib import Path
+        manifest = json.loads(Path({str(manifest)!r}).read_text(encoding="utf-8"))
+        root = Path({str(plugin_root)!r})
+        resolved = [
+            str((root / v.removeprefix("./")).resolve())
+            for v in manifest.values()
+            if isinstance(v, str) and v.startswith("./")
+        ]
+        print(json.dumps(resolved))
+        """)
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+    )
+    return json.loads(result.stdout)
+
+
+class TestManifestPathsResolve(unittest.TestCase):
+    """E2E: every `./`-prefixed field, read fresh by a subprocess, names a real path.
+
+    The primary declares ZERO path-valued fields today — that half is
+    vacuous by design, asserted as such rather than left to imply coverage
+    it does not have. The derived manifest must yield at least two, or a
+    transform that stopped adding `skills`/`hooks` would go unnoticed.
+    """
+
+    def test_codex_manifest_paths_resolve_to_real_files_or_directories(self):
+        resolved = _resolved_paths_via_subprocess(_CODEX_MANIFEST, _PLUGIN_ROOT)
+        self.assertGreaterEqual(
+            len(resolved),
+            2,
+            "derived manifest yielded fewer than two resolved paths — "
+            "did skills/hooks stop being added?",
+        )
+        for path in resolved:
+            with self.subTest(path=path):
+                self.assertTrue(Path(path).exists(), f"{path} does not exist")
+
+    def test_claude_manifest_declares_no_path_valued_fields_today(self):
+        """Not a gap: the primary has nothing `./`-prefixed to resolve yet."""
+        resolved = _resolved_paths_via_subprocess(_CLAUDE_MANIFEST, _PLUGIN_ROOT)
+        self.assertEqual(resolved, [])
 
 
 if __name__ == "__main__":
