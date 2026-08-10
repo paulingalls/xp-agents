@@ -38,7 +38,7 @@ import close_cycle_abandonment
 import hook_liveness
 import markers
 from _abandonment_fixtures import _AbandonmentAssertions, arm_abandoned
-from conftest import _HookTestCase
+from conftest import _HookTestCase, _make_stop_input
 
 _OWNER = "owner-session-id"
 
@@ -241,6 +241,85 @@ class TestArmingStampsTheOwner(_OwnerCase):
             "arming must never fail closed — an unowned marker is decidable "
             "by age, an unarmed one gates nothing at all",
         )
+
+
+class TestTheStopGateBypassFollowsTheOwnerToo(_OwnerCase):
+    """The same rule, seen through the gate that consumes the marker.
+
+    These live here rather than beside the other bypass tests because the rule
+    they assert is this module's subject, not the gate's. The bypass tests in
+    test_close_cycle_stop_gate_core arm with a session id that has no
+    heartbeat, so `owner_session_is_live` returns None and only the AGE
+    fallback runs — they are named for the bypass decision but never reach the
+    owner check that makes it.
+    """
+
+    def test_bypass_follows_a_live_owner_over_the_marker_age(self):
+        """The rule the two tests above never reach.
+
+        Both arm with session `"1"`, which has no heartbeat, so
+        `owner_session_is_live` returns None and only the AGE fallback runs —
+        they pin the fallback while their names claim the bypass decision.
+        Age has not been the primary rule since the owner check landed: an
+        owner that is answering keeps its cycle no matter how old the marker
+        is. Arm with a session that HAS a heartbeat and the age is not
+        consulted at all.
+        """
+        import os
+
+        import close_cycle_abandonment
+        import close_cycle_stop_gate
+        import hook_liveness
+        import markers
+
+        owner = "live-owner-session"
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, owner)
+        hook_liveness.write_heartbeat(self.smm_dir, session_id=owner)
+        marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+        backdate = close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC + 60
+        old_mtime = marker_path.stat().st_mtime - backdate
+        os.utime(marker_path, (old_mtime, old_mtime))
+
+        close_cycle_stop_gate.run(
+            _make_stop_input(stop_hook_active=True),
+            smm_dir=self.smm_dir,
+        )
+
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "a live owner's marker must survive however old it is",
+        )
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 0, "a running close is not abandoned")
+
+    def test_bypass_records_a_dead_owner_even_on_a_young_marker(self):
+        """The other direction, and the one the age rule got backwards."""
+        import close_cycle_stop_gate
+        import hook_liveness
+        import markers
+
+        owner = "dead-owner-session"
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, owner)
+        hook_liveness.write_heartbeat(self.smm_dir, session_id=owner)
+        beat = markers.marker_path(self.smm_dir, hook_liveness.heartbeat_marker(owner))
+        stopped = beat.stat().st_mtime - hook_liveness.STALE_AFTER_SECONDS - 60
+        markers.marker_write(
+            self.smm_dir,
+            hook_liveness.heartbeat_marker(owner),
+            {"written_at": stopped},
+        )
+
+        close_cycle_stop_gate.run(
+            _make_stop_input(stop_hook_active=True),
+            smm_dir=self.smm_dir,
+        )
+
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "a stopped owner is an abandoned cycle at any marker age",
+        )
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1)
 
 
 if __name__ == "__main__":

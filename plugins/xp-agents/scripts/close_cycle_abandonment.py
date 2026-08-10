@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """One owner of the "a close cycle died mid-flight" record.
 
-The close-cycle marker is armed at close START and released only when
-xp-close-reviewer completes, so EVERY exit before that reviewer leaves it
-behind — a Step 0 gate refusal, a pre-flight/push/PR failure, an interrupt
-anywhere in the middle. Three separate components can be the first to find the
-survivor, and each of them used to have the option of just deleting it:
+The close-cycle marker is armed at close START, and the happy path releases it
+when xp-close-reviewer completes — so EVERY exit before that reviewer leaves it
+behind: a Step 0 gate refusal, a pre-flight/push/PR failure, an interrupt
+anywhere in the middle. (Recording below releases it too; that is this module's
+whole job.) Three separate components can be the first to find the survivor,
+and each of them used to have the option of just deleting it:
 
   - `close_cycle_stop_gate` — an aged marker on a Stop the platform's
     re-entry flag has already latched (the gate ALLOWS that stop, deliberately;
@@ -22,10 +23,10 @@ over-budget concern fails schema validation and never lands, which is a real
 prior outage on this exact record. `metadata.detector` is what tells the three
 apart in the log.
 
-They also share the AGE rule (`ABANDONMENT_MIN_AGE_SEC`), which is what makes
-the record mean anything: bare marker existence cannot tell an abandoned cycle
-from one that is still running, and two of the three detectors routinely see
-the latter.
+They also share the decision itself, because bare marker existence cannot tell
+an abandoned cycle from a running one and two of the three routinely see the
+latter. The OWNING SESSION decides it; `ABANDONMENT_MIN_AGE_SEC` is the shared
+fallback for an owner that cannot be named or read, not the primary rule.
 
 Recording CONSUMES the marker, so a cycle recorded by one detector is normally
 invisible to the next. That is a narrow window, not an interlock — the three
