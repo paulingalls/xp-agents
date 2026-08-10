@@ -140,6 +140,64 @@ class TestIsGitCommit(unittest.TestCase):
         self.assertFalse(git_commits.is_git_commit("git \\\n  status"))
         self.assertFalse(git_commits.is_git_commit("echo git \\\n  commit-tree"))
 
+    def test_merge_abort_is_not_a_commit(self):
+        # `merge --abort` UNWINDS a merge; it produces no commit. The
+        # `(?!-)` lookahead can't reject it — it's evaluated at the
+        # character after `merge`, a space here, not a `-`.
+        self.assertFalse(git_commits.is_git_commit("git merge --abort"))
+
+    def test_merge_quit_is_not_a_commit(self):
+        self.assertFalse(git_commits.is_git_commit("git merge --quit"))
+
+    def test_merge_continue_is_a_commit(self):
+        """`--continue` FINISHES the merge and writes a commit, so it stays
+        gated like any other commit-producing form. This is a recorded
+        decision (see the module-level comment), not an oversight."""
+        self.assertTrue(git_commits.is_git_commit("git merge --continue"))
+
+    def test_git_dash_C_merge_abort_is_not_a_commit(self):
+        self.assertFalse(git_commits.is_git_commit("git -C /repo merge --abort"))
+
+    def test_git_dash_C_merge_no_ff_is_still_a_commit(self):
+        self.assertTrue(git_commits.is_git_commit("git -C /repo merge --no-ff feature"))
+
+    def test_merge_abort_across_backslash_continuation(self):
+        # This module treats a `\`-newline as a token gap (TOKEN_GAP), not
+        # `\s+` — the exemption pattern must honor the same gap or a wrapped
+        # `merge --abort` would fall through to the commit-or-merge check.
+        self.assertFalse(git_commits.is_git_commit("git merge \\\n  --abort"))
+
+    def test_commit_compounded_with_merge_abort_still_a_commit(self):
+        """The bypass guard — the most important assertion in this story.
+
+        `is_git_commit` scans the WHOLE Bash command string. A naive early
+        return on `merge --abort` presence would exempt this entire
+        compound command, disarming the tier-1 secret scan, staged-lint
+        gate, branch guard and review-cycle gate on a genuine commit for
+        the price of nine appended characters. The fix must be subtractive:
+        remove the non-committing merge span, then re-ask the question of
+        what remains — which here still contains `git commit`.
+        """
+        self.assertTrue(
+            git_commits.is_git_commit("git commit -m x && git merge --abort")
+        )
+
+    def test_abort_before_a_commit_still_a_commit(self):
+        """The other compound order: the removed span must not take the
+        FOLLOWING `git commit` with it. `GIT_PREFIX` is greedy over
+        `-X <value>` pairs, so the abort span's own prefix is the one place a
+        later token could be swallowed — pin that it isn't."""
+        self.assertTrue(
+            git_commits.is_git_commit("git merge --abort && git commit -m x")
+        )
+        self.assertTrue(
+            git_commits.is_git_commit("git -C /p merge --abort; git -C /p commit -m x")
+        )
+
+    def test_merge_abortive_is_not_exempted(self):
+        # No `\b` leak into a longer word: `--abortive` is not `--abort`.
+        self.assertTrue(git_commits.is_git_commit("git merge --abortive"))
+
 
 class TestStripQuotedPublic(unittest.TestCase):
     """story-007: `_strip_quoted` was promoted to public `strip_quoted` so
