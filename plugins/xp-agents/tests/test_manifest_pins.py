@@ -51,6 +51,21 @@ class TestCodexManifestRegenerationClean(unittest.TestCase):
             f"re-run `python3 {_SCRIPTS_DIR / 'manifest_emit.py'}` and commit",
         )
 
+    def test_hooks_field_names_the_generated_second_variant_explicitly(self):
+        """A component key REPLACES default discovery on the second harness.
+
+        Omitting `hooks` there would not fall back to nothing — it would load
+        the FIRST harness's `hooks.json`, registering every handler against a
+        manifest built for the other harness.
+        """
+        codex = json.loads(_CODEX_MANIFEST.read_text(encoding="utf-8"))
+        self.assertEqual(codex["hooks"], "./hooks/hooks.codex.json")
+
+        hooks_path = _CODEX_MANIFEST.parent.parent / "hooks" / "hooks.codex.json"
+        self.assertTrue(
+            hooks_path.is_file(), f"{hooks_path} named by the manifest does not exist"
+        )
+
 
 class TestSourceIsNeverWritten(unittest.TestCase):
     """The emitter derives; it does not edit its own input.
@@ -167,6 +182,31 @@ class TestSharedMetadataIsIdentical(unittest.TestCase):
         for key in self._SHARED_KEYS:
             with self.subTest(key=key):
                 self.assertEqual(self.claude[key], self.codex[key])
+
+
+class TestNoSubagentsShippingKey(unittest.TestCase):
+    """Neither manifest declares an `agents` key — for two DIFFERENT reasons.
+
+    On the second harness, an `agents` key is accepted and SILENTLY IGNORED:
+    measured by installing `"agents": "./agents/"` and reading the plugin
+    back — no `agents` key surfaced at all, while `skills` and `hooks` did.
+    Declaring it there would therefore be harmless but pointless.
+
+    On the first harness, `agents` IS honoured and REPLACES the default
+    `agents/` directory scan. Declaring it there would be a live behaviour
+    change, not a no-op — the opposite risk from the second harness's.
+
+    Neither rationale is true of both manifests; this pin's docstring exists
+    so a future edit doesn't collapse the two reasons into one.
+    """
+
+    def test_claude_manifest_declares_no_agents_key(self):
+        claude = json.loads(_CLAUDE_MANIFEST.read_text(encoding="utf-8"))
+        self.assertNotIn("agents", claude)
+
+    def test_codex_manifest_declares_no_agents_key(self):
+        codex = json.loads(_CODEX_MANIFEST.read_text(encoding="utf-8"))
+        self.assertNotIn("agents", codex)
 
 
 if __name__ == "__main__":
