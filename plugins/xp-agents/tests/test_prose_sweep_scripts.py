@@ -43,6 +43,47 @@ from _prose_scan import scan_roots
 
 _PLUGIN_ROOT = Path(__file__).parent.parent
 
+# Prose lines a file may carry before it needs a recorded ceiling. Below it a
+# file is ungoverned by RULE — the same uniform exemption for every file —
+# rather than by omission from a hand-kept list, which is what let two files
+# (`session_start_banner.py`, `run_attribution.py`) sit unmeasured indefinitely.
+# Growth is still caught at the crossing: a file that passes this line with no
+# recorded ceiling is a violation, so the floor sets where explicit ceilings
+# begin, not where enforcement does.
+#
+# 120 governs 42 of 144 `scripts/` files and 57% of the root's prose lines.
+# Lower buys coverage at the cost of reddening most new modules on arrival —
+# measured at 60, roughly three in five recently-added files would have had to
+# record a ceiling before their first commit, and friction paid that routinely
+# stops being read.
+_PROSE_FLOOR = 120
+
+
+def _prose_violations(files: dict[str, int], ceilings: dict[str, int]) -> list[str]:
+    """Per-file prose lines that exceed, or fail to declare, a ceiling.
+
+    `files` and `ceilings` are both keyed by repo-relative path. Modelled on
+    `test_file_size_pin._band_violations`: the TREE drives the loop and the
+    table only supplies numbers, so a file above the floor with no entry is a
+    violation rather than an exemption.
+    """
+    violations = []
+    for path, prose in sorted(files.items()):
+        if prose <= _PROSE_FLOOR:
+            continue
+        ceiling = ceilings.get(path)
+        if ceiling is None:
+            violations.append(
+                f"{path} ({prose} prose lines) crossed above {_PROSE_FLOOR} with "
+                "no recorded ceiling in _prose_baseline.PROSE_MEASURED"
+            )
+        elif prose > ceiling:
+            violations.append(
+                f"{path} grew to {prose} prose lines, above its recorded "
+                f"ceiling of {ceiling}"
+            )
+    return violations
+
 
 def _ratio_regression(
     prose: int, total: int, base_prose: int, base_total: int
@@ -212,6 +253,63 @@ class TestTheDeclaredSlack(unittest.TestCase):
         ratchet, and `test_the_tree_plus_a_systematic_regrowth_is_red` is the
         behavioural half of the same bound."""
         self.assertLess(SLACK_PROSE_LINES, MEASURED_PROSE // 100)
+
+
+class TestPerFileProseViolations(unittest.TestCase):
+    """Per-file absolute, replacing the ratio above.
+
+    A ratio lets one file's honest shrink pay for another's growth, and moves
+    against claim-narrowing — a true claim is usually longer than the false
+    short one it replaces. Per-file absolute has neither property.
+
+    `ceilings` is a required argument rather than a table with a sentinel
+    default: the only real-tree caller passes the exposed ceilings explicitly,
+    so a default would exist purely to be overridden.
+    """
+
+    _ABOVE = _PROSE_FLOOR + 10
+
+    def test_growth_past_a_recorded_ceiling_is_flagged(self):
+        violations = _prose_violations({"a.py": self._ABOVE}, {"a.py": self._ABOVE - 1})
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("a.py", violations[0])
+        self.assertIn(str(self._ABOVE), violations[0])
+
+    def test_sitting_exactly_at_the_ceiling_is_clean(self):
+        """A ratchet's compliant state is sitting AT its recorded number."""
+        self.assertEqual(
+            _prose_violations({"a.py": self._ABOVE}, {"a.py": self._ABOVE}), []
+        )
+
+    def test_a_file_above_the_floor_with_no_ceiling_is_flagged(self):
+        """The reverse direction, structural: the tree drives the loop and the
+        table only supplies numbers, so a file nobody recorded is red by
+        construction rather than exempt until someone notices."""
+        violations = _prose_violations({"new.py": self._ABOVE}, {})
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("no recorded ceiling", violations[0])
+
+    def test_a_file_below_the_floor_is_not_governed(self):
+        self.assertEqual(_prose_violations({"small.py": _PROSE_FLOOR}, {}), [])
+
+    def test_shrinking_to_the_floor_is_allowed_despite_a_higher_ceiling(self):
+        """Shrinking leaves the governed population entirely — the early exit,
+        not a comparison. A stale ceiling left behind is inert."""
+        self.assertEqual(
+            _prose_violations({"a.py": _PROSE_FLOOR}, {"a.py": _PROSE_FLOOR * 3}), []
+        )
+
+    def test_one_files_shrink_cannot_mask_anothers_growth(self):
+        """The defect the ratio had: a sum lets a deletion pay for a regrowth."""
+        violations = _prose_violations(
+            {"grew.py": self._ABOVE, "shrank.py": _PROSE_FLOOR + 1},
+            {"grew.py": self._ABOVE - 5, "shrank.py": self._ABOVE * 2},
+        )
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("grew.py", violations[0])
 
 
 if __name__ == "__main__":
