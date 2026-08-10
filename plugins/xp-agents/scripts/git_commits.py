@@ -29,8 +29,6 @@ GIT_PREFIX = r"\bgit(?:" + TOKEN_GAP + r"-\S+(?:" + TOKEN_GAP + r"\S+)?)*" + TOK
 # Lifted to module level so both uses of the commit/merge test share one
 # spelling. This module's own docstrings already argue that two spellings of
 # one rule is how the last bug (the GIT_PREFIX gap) survived — see TOKEN_GAP.
-# The `(?!-)` lookahead rejects plumbing subcommands like `commit-tree` /
-# `merge-tree`.
 _COMMIT_OR_MERGE_RE = re.compile(GIT_PREFIX + r"(?:commit|merge)\b(?!-)")
 
 # `merge --abort` / `merge --quit` UNWIND a merge; they produce no commit. The
@@ -114,12 +112,10 @@ def is_git_commit(command: str, *, scan_target: str | None = None) -> bool:
     quoted arguments. The `(?!-)` lookahead rejects plumbing subcommands
     like `commit-tree` / `merge-tree`.
 
-    `merge --abort` / `merge --quit` are exempted: they unwind a merge and
-    produce no commit (see `_MERGE_NON_COMMITTING_RE`). The exemption is
-    subtractive — the non-committing merge span is removed from the scan
-    target before re-asking whether anything commit-producing remains — so
-    an appended `&& git merge --abort` cannot disarm detection of a real
-    `git commit` earlier in the same command.
+    `merge --abort` / `merge --quit` are exempted subtractively: the
+    non-committing span is removed and the question re-asked, so an appended
+    `&& git merge --abort` cannot disarm detection of a real `git commit`
+    earlier in the same command. See `_MERGE_NON_COMMITTING_RE`.
 
     `scan_target` lets callers pass a pre-stripped command (via
     `strip_quoted`) so the same Bash invocation isn't quote-stripped

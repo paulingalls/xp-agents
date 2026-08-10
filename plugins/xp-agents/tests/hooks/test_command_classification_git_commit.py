@@ -182,6 +182,18 @@ class TestIsGitCommit(unittest.TestCase):
             git_commits.is_git_commit("git commit -m x && git merge --abort")
         )
 
+    def test_abort_before_a_commit_still_a_commit(self):
+        """The other compound order: the removed span must not take the
+        FOLLOWING `git commit` with it. `GIT_PREFIX` is greedy over
+        `-X <value>` pairs, so the abort span's own prefix is the one place a
+        later token could be swallowed — pin that it isn't."""
+        self.assertTrue(
+            git_commits.is_git_commit("git merge --abort && git commit -m x")
+        )
+        self.assertTrue(
+            git_commits.is_git_commit("git -C /p merge --abort; git -C /p commit -m x")
+        )
+
     def test_merge_abortive_is_not_exempted(self):
         # No `\b` leak into a longer word: `--abortive` is not `--abort`.
         self.assertTrue(git_commits.is_git_commit("git merge --abortive"))
