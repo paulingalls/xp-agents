@@ -17,6 +17,7 @@ show which one was chosen.
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -254,6 +255,69 @@ class TestTheReadIsUncached(_FixtureRootTestCase):
 
         self.assertEqual(self._version_at(first), "1.2.3")
         self.assertEqual(self._version_at(second), "4.5.6")
+
+
+class TestBannerNamesTheExecutingCopy(_FixtureRootTestCase):
+    """E2E: the real hook, as a subprocess, names the executing copy's version.
+
+    The in-process rows above prove the loader's decision table. This one proves
+    the number actually reaches the user, through the hook the host runs — which
+    is where the defect was observed, as a banner reading a version the session
+    was not running.
+
+    `SMM_DIR` deliberately points at an unusable path so the hook takes its
+    SMM-failed branch: that path still formats the version into a banner, so no
+    plugin-tree scaffolding beyond the two manifests is needed. The assertion is
+    on the version, not on the enforcement wording, which the banner suite
+    already owns.
+
+    Hand-rolled rather than inheriting the integration base: that base pins
+    CLAUDE_PLUGIN_ROOT to the real plugin root, which is the one thing this row
+    has to override.
+    """
+
+    _HOOK = Path(__file__).parent.parent.parent / "scripts" / "session_start.py"
+
+    def _banner(self, root: Path) -> str:
+        env = os.environ.copy()
+        env["CLAUDE_PLUGIN_ROOT"] = str(root)
+        env["SMM_DIR"] = "/dev/null/not-a-directory"
+        result = subprocess.run(
+            [sys.executable, str(self._HOOK)],
+            input=json.dumps({"session_id": "version-e2e", "source": "startup"}),
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        message = payload.get("systemMessage")
+        self.assertIsNotNone(
+            message,
+            "no systemMessage — an absent banner would satisfy every "
+            f"'does not name the wrong version' assertion. stdout: {result.stdout}",
+        )
+        return message
+
+    def test_the_banner_names_the_attributed_manifest_not_the_sibling(self):
+        root = self._root("9.9.9")
+        _write_manifest(root, ".claude-plugin", {"version": "1.0.0"})
+        _write_manifest(root, ".codex-plugin", {"version": "9.9.9"})
+
+        message = self._banner(root)
+        self.assertIn("v9.9.9", message)
+        self.assertNotIn("v1.0.0", message)
+
+    def test_the_banner_reports_unknown_when_the_copy_cannot_be_attributed(self):
+        """The reported-disagreement decision, visible to the user as `v?`."""
+        root = self._root("7.7.7")
+        _write_manifest(root, ".claude-plugin", {"version": "5.5.0"})
+        _write_manifest(root, ".codex-plugin", {"version": "5.5.0"})
+
+        message = self._banner(root)
+        self.assertIn(f"v{_UNKNOWN}", message)
+        self.assertNotIn("v5.5.0", message)
 
 
 if __name__ == "__main__":
