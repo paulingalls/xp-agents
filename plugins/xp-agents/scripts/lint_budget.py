@@ -121,8 +121,13 @@ def timeout_message(
         else ""
     )
 
+    remedy_note = f". {remedy}" if remedy else ""
+
     if consumed >= own_ceiling - _MATERIALLY_SHORT_S:
-        return f"{linter_name}: timed out after {consumed:g}s{second_attempt_note}"
+        return (
+            f"{linter_name}: timed out after {consumed:g}s"
+            f"{second_attempt_note}{remedy_note}"
+        )
 
     budget_note = (
         f", with {budget_s:g}s left of the commit gate's "
@@ -130,7 +135,6 @@ def timeout_message(
         if budget_s is not None
         else ""
     )
-    remedy_note = f". {remedy}" if remedy else ""
     return (
         f"{linter_name}: ran {consumed:g}s against its own {own_ceiling:g}s "
         f"ceiling{budget_note} — it may have been cut short rather than hung"
