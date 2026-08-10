@@ -90,6 +90,41 @@ class TestTheWriterAndTheGateAgreeOnTheKey(_HookTestCase):
         self.assertIsNotNone(self._stop(agent_id="subagent-abc"))
 
 
+class TestTheCliSubstitutesForTheHookExactly(unittest.TestCase):
+    """The CLI's lifecycle entry must equal the hook leg it stands in for.
+
+    The CLI exists because a Workflow completion does not fire
+    review_cycle_done, so retro_metrics would not count the close-time review.
+    That only holds while the two emit the SAME action and content — a drift
+    makes the substitute counted as a different thing, or not at all.
+
+    This was a "keep X in sync with Y" comment, which is a rule with nobody
+    checking it.
+    """
+
+    def test_the_simplify_leg_matches_the_hook_it_substitutes_for(self):
+        import review_cycle_done
+
+        self.assertEqual(
+            review_flag_cli._FLAG_LIFECYCLE["simplify_done"],
+            review_cycle_done._TARGET_LIFECYCLE[review_cycle_done._TARGET_SIMPLIFY],
+        )
+
+    def test_the_flag_name_matches_the_hook_it_substitutes_for(self):
+        import review_cycle_done
+
+        self.assertIn(
+            review_cycle_done._TARGET_FLAG[review_cycle_done._TARGET_SIMPLIFY],
+            review_flag_cli._FLAG_LIFECYCLE,
+        )
+
+    def test_the_cli_covers_only_the_async_leg(self):
+        """Non-vacuity: an equality over an empty table proves nothing, and
+        the quality-review leg deliberately has no CLI substitute — it still
+        launches via the Skill tool, so the hook sets it."""
+        self.assertEqual(set(review_flag_cli._FLAG_LIFECYCLE), {"simplify_done"})
+
+
 class TestReviewFlagCli(_HookTestCase):
     """review_flag_cli sets a review-cycle flag for the cwd-resolved agent_id."""
 

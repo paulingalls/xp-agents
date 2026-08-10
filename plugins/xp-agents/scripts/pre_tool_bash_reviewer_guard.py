@@ -17,11 +17,12 @@ that reset the guard does not cover it and cannot, since the main agent sends no
 Scope is deliberately narrow, because a guard that false-refuses is its own
 failure mode:
 
-- Exactly TWO agents are guarded, the two with incidents. The rest are left
-  alone on purpose: `agents/xp-system-analyzer.md` prescribes `git branch -a`
-  and `git config user.email`, and a subcommand-level allowlist cannot pass
-  `branch -a` while refusing `branch -D`. Keeping the set at two is what lets
-  the allowlist stay FLAT instead of growing per-flag rules.
+- Only the agents with incidents are guarded (count pinned in
+  test_pre_tool_bash_reviewer_guard.py). The rest are left alone on purpose:
+  `agents/xp-system-analyzer.md` prescribes `git branch -a` and `git config
+  user.email`, and a subcommand-level allowlist cannot pass `branch -a` while
+  refusing `branch -D`. Keeping the set small is what lets the allowlist stay
+  FLAT instead of growing per-flag rules.
 - Only `git` is constrained. Reviewers read files, grep, and run test suites;
   none of that is this gate's business.
 

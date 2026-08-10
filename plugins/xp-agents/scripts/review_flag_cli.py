@@ -25,9 +25,9 @@ worktree, so ${TEAMMATE_CWD:-.} resolves to the orchestrator ('main'),
 matching the reader; story-close (the only closing-worktree case) skips
 Step 4b entirely.
 
-Keep _FLAG_LIFECYCLE in sync with review_cycle_done._TARGET_LIFECYCLE /
-_TARGET_FLAG — this CLI is the async-Step-4b substitute for that hook's
-simplify/quality-review legs.
+This CLI is the async-Step-4b substitute for review_cycle_done's simplify leg,
+so the two must emit the same action and content; pinned in
+test_review_flag_cli.py.
 """
 
 import argparse

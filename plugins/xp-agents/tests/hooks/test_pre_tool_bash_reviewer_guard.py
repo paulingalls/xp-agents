@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import pre_tool_bash
 import pre_tool_bash_reviewer_guard as reviewer_guard
+import target_routing
 from _branching_fixtures import GIT_ENV, init_repo
 from conftest import _HookTestCase, _make_bash_input
 
@@ -358,6 +359,31 @@ class TestSiblingGateRegression(_ReviewerGuardCase):
         self._assert_allowed(
             "git branch -D paulingalls/story-003-x", "xp-agents:xp-story-close"
         )
+
+
+class TestTheGuardedSetStaysAtTwo(_ReviewerGuardCase):
+    """The scope claim, which nothing checked.
+
+    The module argues its allowlist can stay FLAT precisely because only the
+    two agents with recorded incidents are guarded: a subcommand-level
+    allowlist cannot pass `branch -a` while refusing `branch -D`, so a third
+    agent with different needs would force per-flag rules. The negative tests
+    name specific unguarded agents; none of them notices a THIRD entry
+    arriving, which is how the scope argument goes quietly false.
+    """
+
+    def test_exactly_two_agents_are_guarded(self):
+        self.assertEqual(
+            len(reviewer_guard.GUARDED_AGENTS),
+            2,
+            "a third guarded agent breaks the flat-allowlist argument in this "
+            "module's docstring — widen the allowlist design, or the prose",
+        )
+
+    def test_the_two_are_the_reviewers_with_incidents(self):
+        """Non-vacuity: a count alone passes on any two names."""
+        self.assertIn("xp-code-reviewer", reviewer_guard.GUARDED_AGENTS)
+        self.assertIn(target_routing.CLOSE_REVIEWER_BARE, reviewer_guard.GUARDED_AGENTS)
 
 
 class TestModuleDocstringRecordsMeasurement(_ReviewerGuardCase):
