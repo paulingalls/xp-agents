@@ -10,7 +10,13 @@ target-version = "py310"
 # pattern per manifest — force-exclude's matcher is filename-shaped, so a
 # **/*-plugin/plugin.json glob would satisfy ruff while missing every other
 # JSON file (marketplace catalogs, future manifests) the same way.
-extend-exclude = ["**/*.json"]
+#
+# Markdown for the same reason, different blast radius: ruff 0.16 reformats
+# Python code blocks INSIDE markdown, and `ruff format .` rewrites 11 docs
+# files here — prose nobody formats with ruff, and diff noise attached to
+# whatever commit happened to run it. Nothing rejects the result, so unlike
+# the JSON half this is untidiness rather than corruption.
+extend-exclude = ["**/*.json", "**/*.md"]
 force-exclude = true
 
 [lint]
