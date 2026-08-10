@@ -13,10 +13,19 @@ on work that rotted nothing:
   replaces, so correcting prose RAISED the number — the ratio moved against
   exactly the work milestones 1 and 3 exist to produce.
 
-Both are gone here. An extracted file is measured on its own terms, and a
-narrowed claim can only move its OWN file's number. A per-file measure also
-closes the defect the named-set fix left behind: a sum let one file's honest
-shrink pay for another's regrowth, which no per-file comparison can express.
+EXTRACTION is gone: an extracted file is measured on its own terms, so it
+cannot move a number recorded on anything else.
+
+CLAIM-NARROWING is NOT gone. Any line-counting measure moves against it, and
+this one still does — it is only localised, to the one governed file the
+correction lands in, and bounded there by the slack below. A correction longer
+than that slack still reads as a regression, and the pressure to golf out
+accurate rationale to get green survives with it. That gap is smaller than the
+ratio's, not closed.
+
+A per-file measure does close the defect the named-set fix left behind: a sum
+let one file's honest shrink pay for another's regrowth, which no per-file
+comparison can express.
 
 WHO IS GOVERNED. The pin walks the TREE and reads this table for numbers, so a
 file above the floor with no entry here is a violation, not an exemption. That

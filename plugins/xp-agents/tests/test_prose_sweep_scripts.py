@@ -49,6 +49,12 @@ _REPO_ROOT = _PLUGIN_ROOT.parent.parent
 # measured at 60, roughly three in five recently-added files would have had to
 # record a ceiling before their first commit, and friction paid that routinely
 # stops being read.
+#
+# WHAT IT COSTS, IN THE UNIT PROSE IS WRITTEN IN. The 102 files under the floor
+# held ~6,700 lines of headroom between them on 2026-08-10, so `scripts/` prose
+# could grow by about half again before anything here reddens. This is a
+# per-FILE regrowth check, not a tree-wide budget; the ratio it replaced was the
+# reverse of that trade and fired falsely twice, which is why the trade was made.
 _PROSE_FLOOR = 120
 
 
@@ -154,6 +160,21 @@ class TestScriptsProseStaysUnderItsCeilings(unittest.TestCase):
         table that drifted to nothing would report clean over an empty set."""
         self.assertEqual(sorted(PROSE_MEASURED.keys() - self._scanned().keys()), [])
 
+    def _governed(self) -> dict[str, int]:
+        """The scanned files a ceiling actually governs.
+
+        Both slack proofs below grow this population, never the whole scan. A
+        file BELOW the floor reddens by crossing it, which is the floor's rule
+        and not the slack's — folding those in makes the red proof pass on
+        evidence that says nothing about the allowance, and makes the headroom
+        proof fail the day an ordinary file lands three lines under the floor.
+        """
+        return {
+            p: n
+            for p, n in self._scanned().items()
+            if n > _PROSE_FLOOR and p in PROSE_MEASURED
+        }
+
     def test_the_governed_population_is_not_vacuous(self):
         """A floor set above every file would make this pin certify nothing."""
         governed = [n for n in self._scanned().values() if n > _PROSE_FLOOR]
@@ -168,17 +189,22 @@ class TestScriptsProseStaysUnderItsCeilings(unittest.TestCase):
     def test_the_tree_has_room_for_a_rationale_comment(self):
         """Why the slack exists: three added rationale lines in every governed
         file is the edit this milestone produces, and must not fail at push."""
-        grown = {path: n + 3 for path, n in self._scanned().items()}
+        grown = {path: n + 3 for path, n in self._governed().items()}
 
         self.assertEqual(_prose_violations(grown, prose_ceilings()), [])
 
     def test_the_tree_plus_a_systematic_regrowth_is_red(self):
         """A slack large enough never to fire is worse than no pin, so the RED
         state is proved on the real tree at its real distance from the ceiling:
-        one line past the allowance, in every governed file, must fail."""
-        grown = {path: n + PROSE_SLACK_LINES + 1 for path, n in self._scanned().items()}
+        one line past the allowance, in every governed file, must fail.
 
-        self.assertNotEqual(_prose_violations(grown, prose_ceilings()), [])
+        EVERY one, not merely some: a count short of the population means some
+        ceiling absorbed the extra line, which is the amnesty this asserts
+        against."""
+        governed = self._governed()
+        grown = {path: n + PROSE_SLACK_LINES + 1 for path, n in governed.items()}
+
+        self.assertEqual(len(_prose_violations(grown, prose_ceilings())), len(governed))
 
 
 class TestTheDeclaredSlack(unittest.TestCase):

@@ -19,10 +19,8 @@ LIMITS — READ THIS BEFORE TRUSTING THE GREEN CHECK.
   class name (`pinned by TestTheBootstrapPatchSeam`) is invisible here — see
   `_test_pointer_detect.is_test_shaped` for why the bare form is not safely
   matchable.
-* Shell coverage is whole-line comments only, and `.md` surfaces are not
-  scanned at all: the only test paths in shipped Markdown are an illustrative
-  placeholder and a user-project example, so scanning them would buy allowlist
-  entries and no coverage.
+* Shell coverage is whole-line comments only. Python, shell and Markdown are
+  the three surfaces read; `.json` and the manifest are not.
 """
 
 import sys
@@ -31,12 +29,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from _pin_helpers import rel, shipped_files_by_root, shipped_shell_to_scan
+from _pin_helpers import (
+    rel,
+    shipped_files_by_root,
+    shipped_prose_to_scan,
+    shipped_shell_to_scan,
+)
 from _test_pointer_detect import (
     find_test_pointers,
     index_python_files,
     is_glob,
     is_test_shaped,
+    markdown_prose,
     python_prose,
     resolves,
     shell_prose,
@@ -50,7 +54,9 @@ _REPO_ROOT = _PLUGIN_ROOT.parent.parent
 # carries a reason, so every one states what it illustrates and where.
 _PLACEHOLDERS: dict[str, str] = {
     "test_foo.py": "story_metrics: illustrates test-to-source name mapping",
-    "tests/hooks/test_x.py": "verify_paths: illustrates path-prefix matching",
+    "tests/hooks/test_x.py": (
+        "verify_paths, xp-plan-reviewer.md: illustrates path-prefix matching"
+    ),
     "tests/a.py": "glob_translator, surface_selection: ** spanning segments",
     "tests/sub/a.py": "glob_translator: the nested half of the same example",
 }
@@ -65,6 +71,10 @@ def _pointers() -> list[tuple[str, int, str]]:
     for path in shipped_shell_to_scan(_PLUGIN_ROOT):
         surface = rel(path, _REPO_ROOT)
         hits += find_test_pointers(shell_prose(path.read_text()), surface)
+    for paths in shipped_prose_to_scan(_PLUGIN_ROOT).values():
+        for path in paths:
+            surface = rel(path, _REPO_ROOT)
+            hits += find_test_pointers(markdown_prose(path.read_text()), surface)
     return hits
 
 
@@ -113,13 +123,16 @@ class TestTheScanIsNotVacuous(unittest.TestCase):
             "nothing would make the check above certify nothing",
         )
 
-    def test_both_surfaces_contribute(self):
-        """A total floor cannot see one surface empty out, and the shell leg is
-        the one with least to lose before it stops covering anything."""
+    def test_every_surface_contributes(self):
+        """A total floor cannot see one surface empty out, and the shell and
+        Markdown legs are the ones with least to lose before they stop covering
+        anything — Markdown carries a single live pointer today."""
         surfaces = {surface for surface, _, _ in _pointers()}
 
-        self.assertTrue(any(s.endswith(".py") for s in surfaces), "no .py pointers")
-        self.assertTrue(any(s.endswith(".sh") for s in surfaces), "no .sh pointers")
+        for suffix in (".py", ".sh", ".md"):
+            self.assertTrue(
+                any(s.endswith(suffix) for s in surfaces), f"no {suffix} pointers"
+            )
 
 
 class TestTheMatchersThemselves(unittest.TestCase):

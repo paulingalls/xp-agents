@@ -89,9 +89,21 @@ def shell_prose(source: str) -> list[tuple[int, str]]:
     ]
 
 
-def find_test_pointers(segments: list[tuple[int, str]], surface: str):
+def markdown_prose(source: str) -> list[tuple[int, str]]:
+    """`(lineno, text)` for every line of a Markdown file.
+
+    A `.md` surface is prose end to end, so there is nothing to separate out —
+    including fenced blocks, where a command naming a test file that no longer
+    exists rots exactly like a sentence naming it.
+    """
+    return list(enumerate(source.splitlines(), start=1))
+
+
+def find_test_pointers(
+    segments: list[tuple[int, str]], surface: str
+) -> list[tuple[str, int, str]]:
     """`(surface, lineno, token)` for each test-shaped, non-glob `.py` token."""
-    hits = []
+    hits: list[tuple[str, int, str]] = []
     for lineno, text in segments:
         for token in _TOKEN_RE.findall(text):
             if is_test_shaped(token) and not is_glob(token):
@@ -100,11 +112,19 @@ def find_test_pointers(segments: list[tuple[int, str]], surface: str):
 
 
 def index_python_files(repo_root: Path) -> set[str]:
-    """Every `.py` path in the repo, repo-relative, for pointer resolution."""
+    """Every `.py` path in the repo, repo-relative, for pointer resolution.
+
+    DOT-PREFIXED directories are skipped, not just `.git`. Resolution is by
+    suffix, so anything indexed can answer a pointer: a local `.venv` or
+    `.tox` full of third-party test modules would resolve a name that is
+    genuinely dead here, and would resolve the generic placeholders
+    (`test_foo.py`) the pin asserts stay unresolvable. Excluding by shape
+    keeps the index to files the repo actually owns.
+    """
     return {
-        str(p.relative_to(repo_root)).replace("\\", "/")
-        for p in repo_root.rglob("*.py")
-        if ".git" not in p.parts
+        str(rel).replace("\\", "/")
+        for rel in (p.relative_to(repo_root) for p in repo_root.rglob("*.py"))
+        if not any(part.startswith(".") for part in rel.parts)
     }
 
 
