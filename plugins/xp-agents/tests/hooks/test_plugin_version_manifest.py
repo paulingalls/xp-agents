@@ -93,6 +93,17 @@ class TestExecutingCopyWins(_FixtureRootTestCase):
 
         self.assertEqual(self._version_at(root), "9.9.9")
 
+    def test_a_v_prefixed_path_component_still_attributes(self):
+        """Hosts key caches by a bare `9.9.9` today; the prefix is tolerated on
+        the PATH side only. A manifest `version` is bare semver by both plugin
+        specs, so a `v` there is invalid input rather than a spelling to accept.
+        """
+        root = self._root("v9.9.9")
+        _write_manifest(root, ".claude-plugin", {"version": "1.0.0"})
+        _write_manifest(root, ".codex-plugin", {"version": "9.9.9"})
+
+        self.assertEqual(self._version_at(root), "9.9.9")
+
     def test_the_measured_case(self):
         """The spike's own numbers, as a regression row.
 
@@ -173,6 +184,38 @@ class TestVersionShapedComponentMatchingNothing(_FixtureRootTestCase):
         self.assertEqual(self._version_at(root), _UNKNOWN)
 
 
+class TestEveryShippedManifestIsRead(_FixtureRootTestCase):
+    """No host is named in the resolution path — a directory name it never heard
+    of is still read.
+
+    Naming the two known manifests as literals passes every other row here and
+    puts harness-specific vocabulary back into shipped logic, which is the thing
+    the project guardrail forbids and the reason the read is a shape rather than
+    a list.
+    """
+
+    def test_an_unknown_manifest_directory_is_read(self):
+        root = self._root("checkout")
+        _write_manifest(root, ".future-plugin", {"version": "5.12.0"})
+
+        self.assertEqual(self._version_at(root), "5.12.0")
+
+
+class TestMultipleVersionShapedComponents(_FixtureRootTestCase):
+    """The component that MATCHES decides, wherever it sits among shaped siblings.
+
+    Reading only the first version-shaped component passes every other row in
+    this file, and answers unknown for any host whose version-keyed directory
+    happens to sit under a second version-shaped one.
+    """
+
+    def test_a_matching_component_outranks_an_earlier_unmatched_one(self):
+        root = self._root("1.0.0/9.9.9")
+        _write_manifest(root, ".claude-plugin", {"version": "9.9.9"})
+
+        self.assertEqual(self._version_at(root), "9.9.9")
+
+
 class TestUnreadableManifests(_FixtureRootTestCase):
     """A manifest that exists but cannot be read is a failure to report.
 
@@ -211,6 +254,17 @@ class TestUnreadableManifests(_FixtureRootTestCase):
         _write_manifest(root, ".codex-plugin", {"version": "9.9.9"})
 
         self.assertEqual(self._version_at(root), "9.9.9")
+
+    def test_a_manifest_that_parses_to_a_non_object_gives_the_unknown_marker(self):
+        """`null` and a top-level list parse fine and carry no `.get`.
+
+        Unhandled that raises out of whichever hook asked for the version, so the
+        banner is lost rather than degraded.
+        """
+        root = self._root("checkout")
+        _write_manifest(root, ".claude-plugin", "null")
+
+        self.assertEqual(self._version_at(root), _UNKNOWN)
 
     def test_no_manifest_at_all_gives_the_unknown_marker(self):
         self.assertEqual(self._version_at(self._root("checkout")), _UNKNOWN)
