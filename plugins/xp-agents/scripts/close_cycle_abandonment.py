@@ -114,6 +114,11 @@ def owner_session_is_live(smm_dir: Path, session_id: str) -> bool | None:
     Callers fall back to the age rule there rather than guessing, because the
     two mistakes are not symmetric: a false record breaks a healthy close,
     while a missed one is only the silent loss that predates this module.
+
+    A heartbeat dated FURTHER AHEAD than the skew grace is unageable in that
+    same sense, not fresh — see `session_markers.marker_age_seconds`, which
+    hands a future timestamp back as a negative number and leaves the bound to
+    its callers. Pinned in test_close_cycle_owner_liveness.py.
     """
     if not session_id:
         return None
@@ -121,7 +126,7 @@ def owner_session_is_live(smm_dir: Path, session_id: str) -> bool | None:
     if not isinstance(data, dict):
         return None
     age = session_markers.marker_age_seconds(time.time(), data.get("written_at"))
-    if age is None:
+    if age is None or age < -hook_liveness.FUTURE_SKEW_GRACE_SECONDS:
         return None
     return age < hook_liveness.STALE_AFTER_SECONDS
 
