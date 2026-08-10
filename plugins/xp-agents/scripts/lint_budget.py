@@ -112,7 +112,7 @@ def timeout_message(
     is_second_attempt = fired < timeout
     consumed = timeout if is_second_attempt else fired
     second_attempt_note = (
-        " — this was the batch's second attempt, after its first was rejected "
+        " — this was the run's second attempt, after its first was rejected "
         "for an unsupported flag; the duration above covers both, which shared "
         "one slice"
         if is_second_attempt

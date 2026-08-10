@@ -85,15 +85,24 @@ class TestHangCarriesRemedyButNotBudget(unittest.TestCase):
 
     _CEILING = lint_budget.own_ceiling_s(1)
     _REMEDY = "`git add app.ts` lets it lint in the shared batch instead"
+    _BUDGET_CLAUSE = "shared lint budget"
 
-    def _hang_message(self) -> str:
+    def _message(self, consumed: float) -> str:
         return lint_budget.timeout_message(
             "eslint",
-            _expired(self._CEILING),
-            timeout=self._CEILING,
+            _expired(consumed),
+            timeout=consumed,
             own_ceiling=self._CEILING,
-            budget_s=self._CEILING - 0.5,
+            budget_s=consumed - 0.5,
             remedy=self._REMEDY,
+        )
+
+    def _hang_message(self) -> str:
+        return self._message(self._CEILING)
+
+    def _cut_short_message(self) -> str:
+        return self._message(
+            self._CEILING - lint_budget._MATERIALLY_SHORT_S * 5,
         )
 
     def test_the_fixture_really_is_on_the_hang_side(self):
@@ -104,7 +113,20 @@ class TestHangCarriesRemedyButNotBudget(unittest.TestCase):
         self.assertIn(self._REMEDY, self._hang_message())
 
     def test_hang_omits_the_starting_budget_clause(self):
-        self.assertNotIn("shared lint budget", self._hang_message())
+        self.assertNotIn(self._BUDGET_CLAUSE, self._hang_message())
+
+    def test_the_cut_short_branch_does_carry_that_clause(self):
+        """Without this, a reworded clause disarms the assertion above silently.
+
+        The negative assertion names a literal production owns. Pin it from the
+        branch that DOES state it, or a rename leaves the pair passing while
+        checking nothing.
+        """
+        message = self._cut_short_message()
+        self.assertIn(
+            "may have been cut short", message, "fixture is on the wrong side"
+        )
+        self.assertIn(self._BUDGET_CLAUSE, message)
 
 
 if __name__ == "__main__":

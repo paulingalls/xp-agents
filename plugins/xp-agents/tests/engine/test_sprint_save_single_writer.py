@@ -26,9 +26,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import sprint_save
 import sprint_store
-from _paths import _PLUGIN_ROOT
 from _pin_helpers import rel, shipped_files_by_root
-from conftest import _SMMTestCase, make_sprint_dict, make_story_dict
+from conftest import _PLUGIN_ROOT, _SMMTestCase, make_sprint_dict, make_story_dict
 
 _REPO_ROOT = _PLUGIN_ROOT.parent.parent
 _SPRINT_SAVE = _PLUGIN_ROOT / "smm" / "sprint_save.py"
