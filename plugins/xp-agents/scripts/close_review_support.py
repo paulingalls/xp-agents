@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
 """Read-only review-support commands for the close-skill pipeline.
 
-Split out of close_common.py (story-002) when that module crossed the
-500-line cap while adding `merge --archive-sprint`. These three commands
-don't mutate git state — they drive the review step the close skills run
-before merging: close-review-gate (sizing threshold for the full
-/code-review), diff-command (the merged-range diff the reviewer must
-review), and hook-present (detects a project test-running git hook).
-close_common.py's `merge`/`push`/`preflight`/`create-pr` stay there; this
-mirrors the existing test split (test_close_common_review_support.py vs
-test_close_common_pipeline.py).
+`close-review-gate` (sizing threshold for the full /code-review),
+`diff-command` (the merged-range diff to review) and `hook-present` (a project
+test-running git hook) drive the review step the close skills run before
+merging. None mutates git state. The pipeline's other subcommands stay in
+close_common.py: `merge`, `push`, `preflight`, `create-pr`.
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-# Resolve sibling/smm modules without modifying caller sys.path.
+# Resolve sibling/smm modules without requiring the caller to.
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 

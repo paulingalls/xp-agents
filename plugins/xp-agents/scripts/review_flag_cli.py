@@ -16,11 +16,14 @@ when it LAUNCHES the workflow so:
     it via _ACTION_TO_COUNTER; without it the close /code-review is invisible).
 
 The flag is keyed on the cwd-resolved agent_id via
-identity.resolve_agent_id_from_cwd — the SAME resolution the readers
-(review_mode.py, close_cycle_stop_gate.py) use. In every close mode that runs
-Step 4b — sprint/plan/free-close — there is no closing-story worktree, so
-${TEAMMATE_CWD:-.} resolves to the orchestrator ('main'), matching the reader;
-story-close (the only closing-worktree case) skips Step 4b entirely.
+identity.resolve_agent_id_from_cwd. The xp-quality-review preload
+(skills/xp-quality-review/scripts/review_mode.py) reads it the same way;
+close_cycle_stop_gate reads it via resolve_agent_id(input_data), which falls
+back to that same cwd resolution only when agent_id is empty. In every close
+mode that runs Step 4b — sprint/plan/free-close — there is no closing-story
+worktree, so ${TEAMMATE_CWD:-.} resolves to the orchestrator ('main'),
+matching the reader; story-close (the only closing-worktree case) skips
+Step 4b entirely.
 
 Keep _FLAG_LIFECYCLE in sync with review_cycle_done._TARGET_LIFECYCLE /
 _TARGET_FLAG — this CLI is the async-Step-4b substitute for that hook's

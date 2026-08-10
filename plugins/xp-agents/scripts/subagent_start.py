@@ -196,6 +196,20 @@ def _inject_housekeeper(smm: dict, smm_dir: Path, input_data: dict) -> list[str]
     return parts
 
 
+def _inject_sprint_reviewer(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
+    """xp-sprint-reviewer: arm the in-flight record, inject what it always did.
+
+    This type used to be served by the xp-* fallback, so naming it here is the
+    one change that could silently give or take away context it was tuned for.
+    It delegates to that fallback rather than restating it, and its registry
+    entry keeps the note. Lazy import for `_inject_housekeeper`'s reason.
+    """
+    import sprint_review_flight
+
+    sprint_review_flight.record_start(smm_dir, input_data)
+    return _inject_no_smm(smm, smm_dir, input_data)
+
+
 SEQUENTIAL_DISCIPLINE_NOTE = (
     "You are a single-purpose sequential agent: do one action, observe its "
     "result, then proceed. The harness's parallel-batching guidance does not "
@@ -221,6 +235,8 @@ _TIERS: dict[str, tuple[Callable[..., list[str]], bool]] = {
     "Plan": (_inject_full, True),
     "xp-retrospective": (_inject_retrospective, True),
     "xp-housekeeper": (_inject_housekeeper, True),
+    # Named for its side effect only — same payload as the fallback it took.
+    "xp-sprint-reviewer": (_inject_sprint_reviewer, True),
     # Generic catch-alls (Workflow fan-out + ad-hoc Task agents): reference tier.
     "workflow-subagent": _GENERIC_TIER,
     "general-purpose": _GENERIC_TIER,

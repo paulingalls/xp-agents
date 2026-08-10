@@ -179,6 +179,23 @@ class TestValidateSprint(unittest.TestCase):
         errors = sprint_schema.validate_sprint(sprint)
         self.assertTrue(any("acceptance_execution" in e for e in errors))
 
+    def test_unhashable_story_id_reports_an_error_instead_of_raising(self):
+        # validate_sprint returns its errors; the manual-shape exemption
+        # lookup must not turn garbage input into a TypeError escaping past
+        # every caller that only catches ValueError (sprint_cli's
+        # `except ValueError`).
+        story = _make_story(
+            id={}, acceptance_execution={"type": "manual", "command": "go look"}
+        )
+        errors = sprint_schema.validate_sprint(
+            _make_sprint(stories=[story]), grandfathered_story_ids=frozenset()
+        )
+        self.assertIn("stories[0].id must be a string", errors)
+        self.assertTrue(
+            any("steps" in e for e in errors),
+            f"manual-shape rule must still fire for an unkeyable story: {errors}",
+        )
+
 
 class TestAcceptanceCriteriaItemShape(unittest.TestCase):
     """AC items may be a bare string (manual) or a per-AC verify object."""

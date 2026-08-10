@@ -315,5 +315,84 @@ class TestDeclaredCommandCwd(_HardeningTestCase):
         )
 
 
+class TestSprintRowRelaysBothStreams(_HardeningTestCase):
+    """The --sprint row used to report `stderr or stdout` — whichever stream
+    the `or` happened to pick, the other was silently dropped from the
+    stored failing-item output."""
+
+    def _failing_output(self, command: str, **kwargs) -> str:
+        self._seed({"type": "bash", "commands": [command]})
+        result = self._run_from(self._workdir(), "--sprint", **kwargs)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        failing = self._verify_events()[0]["metadata"]["failing"]
+        self.assertEqual(len(failing), 1, failing)
+        return failing[0]["output"]
+
+    def test_stdout_diagnosis_survives_alongside_stderr_noise(self):
+        output = self._failing_output(
+            "echo diagnosis-on-stdout; echo noise-on-stderr >&2; exit 1"
+        )
+        self.assertIn("diagnosis-on-stdout", output)
+        self.assertIn("noise-on-stderr", output)
+
+    def test_stderr_comes_first(self):
+        output = self._failing_output("echo on-stdout; echo on-stderr >&2; exit 1")
+        self.assertLess(output.index("on-stderr"), output.index("on-stdout"))
+
+    def test_the_timed_out_row_relays_both_streams_too(self):
+        """The branch where the relay matters MOST: a hung command has no exit
+        code to reason from, so what it said before the kill is the whole
+        diagnosis — and that branch picked one stream as well."""
+        output = self._failing_output(
+            "echo diagnosis-on-stdout; echo noise-on-stderr >&2; sleep 30",
+            extra_env={"VERIFY_CMD_TIMEOUT_S": "1"},
+        )
+        self.assertIn("timed out", output)
+        self.assertIn("diagnosis-on-stdout", output)
+        self.assertIn("noise-on-stderr", output)
+
+
+class TestSprintRowTail(_HardeningTestCase):
+    """The row's tail is the shared `tail_streams`, at this module's cap.
+
+    Two properties come with it: each stream is tailed independently, so a
+    chatty stdout cannot evict a short stderr diagnosis from the kept slice
+    once the two are joined stderr-first; and a slice that dropped a head says
+    so."""
+
+    def _sole_failing_output(self, command: str) -> str:
+        self._seed({"type": "bash", "commands": [command]})
+        result = self._run_from(self._workdir(), "--sprint")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        failing = self._verify_events()[0]["metadata"]["failing"]
+        self.assertEqual(len(failing), 1, failing)
+        return failing[0]["output"]
+
+    def test_stderr_diagnosis_survives_a_chatty_stdout(self):
+        chatty = "x" * (verify_acceptance._OUTPUT_TAIL_CHARS + 200)
+        output = self._sole_failing_output(
+            f"printf %s {chatty}; echo diagnosis-on-stderr >&2; exit 1"
+        )
+
+        self.assertIn("diagnosis-on-stderr", output)
+
+    def test_a_truncated_row_says_so(self):
+        """Without the marker an operator reading a red row cannot tell a tail
+        from a whole output, and reads a mid-sentence start as the command's
+        own first word."""
+        chatty = "x" * (verify_acceptance._OUTPUT_TAIL_CHARS + 200)
+
+        output = self._sole_failing_output(f"printf %s {chatty} >&2; exit 1")
+
+        self.assertTrue(output.startswith("..."), output[:40])
+
+    def test_a_row_that_fit_carries_no_truncation_marker(self):
+        """The marker has to mean something: an output kept whole must not
+        claim to have lost a head."""
+        output = self._sole_failing_output("echo short-and-complete >&2; exit 1")
+
+        self.assertEqual(output, "short-and-complete")
+
+
 if __name__ == "__main__":
     unittest.main()

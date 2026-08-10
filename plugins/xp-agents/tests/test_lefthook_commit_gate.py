@@ -27,13 +27,16 @@ YAML, so a change to the parser cannot make one file's pins silently vacuous
 while the other's still bite.
 """
 
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from test_lefthook_perf_gate import _command_body, _hook
+from test_lefthook_perf_gate import REPO_ROOT, _command_body, _hook
 
 
 class TestRewritersRunBeforeReaders(unittest.TestCase):
@@ -156,24 +159,210 @@ class TestStagedTestsRunOnTheCommitGate(unittest.TestCase):
     def test_glob_reaches_test_files_directly_under_tests(self):
         """`tests/**/test_*.py` would silently skip the top-level pins.
 
-        lefthook's `**` requires at least one directory, so the narrower glob
+        lefthook's `**` requires at least one directory, so that narrower glob
         matched tests/skills/... and ran 11 tests while a staged
-        tests/test_dev_setup.py was never collected. Measured, not reasoned —
-        and it matters because the cross-cutting pins live at that top level.
+        tests/test_dev_setup.py was never collected. Measured, not reasoned.
+
+        The current glob is wider still — `**/*.py`, with the BODY doing the
+        classifying — because shared fixtures carry no `test_` in their names.
+        Pinned positively as well as negatively: a regex that only forbade the
+        old form went vacuous the moment the glob widened, so narrowing it back
+        would have passed green while silently dropping fixture coverage.
         """
         self.assertNotRegex(
             self.cmd,
             r"glob:.*tests/\*\*/test_",
-            "staged-tests glob must not require a subdirectory under tests/ — "
-            "use **/test_*.py so top-level test files are collected too.",
+            "staged-tests glob must not require a subdirectory under tests/",
+        )
+        self.assertRegex(
+            self.cmd,
+            r'glob:\s*"\*\*/\*\.py"',
+            "staged-tests must glob every .py and classify in the body — a "
+            "test_*-only glob cannot see conftest.py or the _*.py helpers.",
         )
 
-    def test_does_not_run_the_whole_suite(self):
+    def test_tolerates_an_empty_collection(self):
+        """pytest exits 5 on "no tests collected", which lefthook reads as a
+        failed commit. A directory target can legitimately contain none (a new
+        package, one emptied by a rename), so the exit must be tolerated or the
+        gate refuses commits for the very reason it was fixed."""
+        self.assertRegex(
+            self.cmd,
+            r"\|\|\s*\[\s*\$\?\s*-eq\s*5\s*\]",
+            "staged-tests must tolerate pytest's exit 5",
+        )
+
+    def test_strips_xp_perf(self):
+        """A developer with XP_PERF=1 exported who stages a scale test would
+        otherwise arm wall-clock benchmarks inside the commit gate, where they
+        fail on timing noise. The pre-push side of the same property lives in
+        `test_lefthook_perf_gate.py`; this leg is what keeps the commit gate's
+        own run covered after the suite moved off it."""
+        self.assertIn(
+            "-u XP_PERF",
+            self.cmd,
+            "staged-tests must env -u XP_PERF",
+        )
+
+    def test_never_a_bare_whole_tree_pytest(self):
+        """A literal tree path on the pytest line would restore the full run.
+
+        Renamed from `test_does_not_run_the_whole_suite`, whose regex forbade
+        `pytest -n auto` — the CHEAP spelling. Once a directory target exists
+        the sequential run is the dangerous one (the recorded 432s), so that
+        form pinned the wrong half. The real invariant is behavioral and lives
+        in TestGateSelectsTheRightTargets, which executes the body and asserts
+        on the argv pytest receives.
+        """
         self.assertNotRegex(
             self.cmd,
-            r"pytest\s+-n\s+auto\s*$",
-            "staged-tests must not run the full suite — that is pre-push's job",
+            r"pytest\s+plugins/xp-agents/tests\b",
+            "staged-tests must never name the tree literally — targets are "
+            "derived from staged files",
         )
+
+
+def _shell_body(cmd: str) -> str:
+    """Just the shell, without the YAML that carries it.
+
+    `_command_body` returns every indented line under `staged-tests:`, which
+    includes `glob:` and `run: |`. Handing those to `sh -c` made it report
+    "glob:: command not found" and — because `run: |` ends in a pipe — turned
+    the body's first real statement into the right half of a pipeline, where
+    its assignment was lost to a subshell. The tests passed only because the
+    variable happened to be unset, so the harness was not executing what
+    lefthook executes.
+    """
+    lines = cmd.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip().startswith("run:"):
+            return "\n".join(lines[i + 1 :])
+    return cmd
+
+
+def _execute_gate(cmd: str, staged: list[str], tmp: Path) -> tuple[list[str], int]:
+    """Run the gate's shell body for real; return (argv pytest received, rc).
+
+    The rest of this file pins lefthook.yml as TEXT, which cannot distinguish
+    a filter that works from one that never fires — a wrong `case` pattern, a
+    mapping eaten by the `-f` guard, or a mistyped prefix all leave the same
+    string in the file. So this substitutes `{staged_files}`, puts a stub
+    `pytest` on PATH that records its arguments, and asserts on what the
+    command actually decided to run.
+    """
+    bin_dir = tmp / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    argv_log = tmp / "argv.txt"
+    stub = bin_dir / "pytest"
+    stub.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" >> "{argv_log}"\n')
+    stub.chmod(0o755)
+
+    env = dict(os.environ)
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    body = _shell_body(cmd).replace("{staged_files}", " ".join(staged))
+    proc = subprocess.run(
+        ["sh", "-c", body], cwd=REPO_ROOT, env=env, capture_output=True, text=True
+    )
+    argv = (
+        [line for line in argv_log.read_text().splitlines() if line]
+        if argv_log.exists()
+        else []
+    )
+    return argv, proc.returncode
+
+
+class TestGateSelectsTheRightTargets(unittest.TestCase):
+    """What the command DOES, not what lefthook.yml says."""
+
+    def setUp(self):
+        self.cmd = _command_body(_hook("pre-commit"), "staged-tests")
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_production_module_named_like_a_test_runs_nothing(self):
+        """scripts/test_parsing.py is SHIPPED code, not a test.
+
+        pytest collects nothing there and exits 5, which lefthook reads as
+        failure — so staging it alone refused the commit outright. Verified:
+        `pytest plugins/xp-agents/scripts/test_parsing.py -q` → no tests ran.
+        """
+        argv, rc = _execute_gate(
+            self.cmd, ["plugins/xp-agents/scripts/test_parsing.py"], self.tmp
+        )
+        self.assertEqual(
+            argv, [], "a production module must not become a pytest target"
+        )
+        # The reported symptom was "the commit is refused", which argv alone
+        # does not cover: a body that runs nothing but exits non-zero blocks
+        # every commit exactly as before.
+        self.assertEqual(rc, 0, "the gate must not refuse the commit")
+
+    def test_real_test_file_still_runs(self):
+        argv, _ = _execute_gate(
+            self.cmd, ["plugins/xp-agents/tests/test_dev_setup.py"], self.tmp
+        )
+        self.assertIn("plugins/xp-agents/tests/test_dev_setup.py", argv)
+
+    def test_shared_fixture_selects_its_directory_in_parallel(self):
+        """Editing conftest.py can break thousands of tests, and matched no
+        glob — so it ran ZERO of them and committed green."""
+        argv, _ = _execute_gate(
+            self.cmd, ["plugins/xp-agents/tests/conftest.py"], self.tmp
+        )
+        self.assertIn("plugins/xp-agents/tests", argv)
+        self.assertIn("-n", argv)
+        self.assertIn("auto", argv)
+
+    def test_nested_fixture_selects_only_its_own_directory(self):
+        argv, _ = _execute_gate(
+            self.cmd, ["plugins/xp-agents/tests/hooks/_commit_helpers.py"], self.tmp
+        )
+        self.assertIn("plugins/xp-agents/tests/hooks", argv)
+        self.assertNotIn("plugins/xp-agents/tests", argv)
+
+    def test_fixture_and_a_test_inside_it_do_not_both_become_targets(self):
+        """pytest handed both a directory and a file inside it double-collects."""
+        argv, _ = _execute_gate(
+            self.cmd,
+            [
+                "plugins/xp-agents/tests/hooks/_commit_helpers.py",
+                "plugins/xp-agents/tests/hooks/test_bash.py",
+            ],
+            self.tmp,
+        )
+        self.assertIn("plugins/xp-agents/tests/hooks", argv)
+        self.assertNotIn("plugins/xp-agents/tests/hooks/test_bash.py", argv)
+
+    def test_helper_that_is_not_conftest_or_underscore_selects_its_directory(self):
+        """tests/engine/sister_test_base.py defines a base class and no
+        test_* functions. An earlier catch-all made it a bare file target,
+        where pytest collects nothing and exits 5 and lefthook refuses the
+        commit — the same defect this command fixes for scripts/test_parsing.py,
+        one directory over. Only test_*.py is a file; every other .py in the
+        tests tree is a helper."""
+        argv, rc = _execute_gate(
+            self.cmd, ["plugins/xp-agents/tests/engine/sister_test_base.py"], self.tmp
+        )
+        self.assertIn("plugins/xp-agents/tests/engine", argv)
+        self.assertNotIn("plugins/xp-agents/tests/engine/sister_test_base.py", argv)
+        self.assertEqual(rc, 0)
+
+    def test_file_only_selection_stays_sequential(self):
+        """-n auto is for directory targets. Spawning xdist workers to run one
+        file costs more than it saves, and the commit gate's whole point is
+        being cheap enough to pay on every increment."""
+        argv, _ = _execute_gate(
+            self.cmd, ["plugins/xp-agents/tests/test_dev_setup.py"], self.tmp
+        )
+        self.assertNotIn("-n", argv)
+
+    def test_deleted_staged_file_still_bails(self):
+        argv, rc = _execute_gate(
+            self.cmd, ["plugins/xp-agents/tests/test_gone_forever.py"], self.tmp
+        )
+        self.assertEqual(argv, [])
+        self.assertEqual(rc, 0, "a deleted staged test must not refuse the commit")
 
 
 if __name__ == "__main__":

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Deterministic close-gate backstop for close_common.py's `merge`.
+"""Deterministic close-gate backstops for close_common.py's `merge`.
 
-Extracted from close_common.py to keep that module under the 500-line
-target. The single public entry point is ``verify_gate_block(args)``,
-called first by ``cmd_merge`` before the merge runs; it re-derives the
-gate signal and returns a refusal reason (or None to proceed).
+Two entry points, both run by ``cmd_merge`` before the merge lands, each
+returning a refusal reason or nothing: ``verify_gate_block(args)``
+re-derives the acceptance gate signal, and ``review_clean_block(cwd)``
+refuses when a post-review worktree still holds uncommitted reviewer fixes.
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-# Resolve sibling/smm modules without modifying caller sys.path.
+# Resolve sibling/smm modules without requiring the caller to.
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 

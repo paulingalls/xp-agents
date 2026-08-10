@@ -14,6 +14,7 @@ from pathlib import Path
 
 from _acceptance_execution import render_acceptance_execution
 from _append_impl import write_text_atomic
+from _manual_shape_exemption import grandfathered_milestone_numbers
 from archive import archive_json
 from execution_plan_schema import (
     PLAN_FILENAME,
@@ -85,6 +86,11 @@ def save_plan(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> None
     ``enforce_budget=False`` and grandfather both, so post-authoring
     acceptance_surface drift never blocks a routine resave.
 
+    Every write applies the manual-acceptance-shape rule, exempting only
+    blocks already on disk (see _manual_shape_exemption) — computed
+    unconditionally, exactly as save_sprint does, so an enforce_budget=False
+    resave of an unchanged stored block still writes.
+
     Raises:
         ValueError: If the data fails schema validation.
         OSError: If the target path is a symlink.
@@ -97,6 +103,7 @@ def save_plan(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> None
         data,
         enforce_budget=enforce_budget,
         valid_surfaces=(acceptance_surface_names(smm_dir) if enforce_budget else None),
+        grandfathered_milestone_numbers=grandfathered_milestone_numbers(smm_dir, data),
     )
     if errors:
         raise ValueError(f"Plan validation failed: {'; '.join(errors)}")

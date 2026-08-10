@@ -21,8 +21,11 @@ ever grows a suffix.
 
 import os
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+import append_validation
 
 # Bound on same-second collisions before we refuse to guess. Reaching this means
 # something is very wrong (a thousand rewrites in one second); losing the archive
@@ -105,3 +108,89 @@ def archive_json(
         f"{MAX_COLLISIONS} collisions on {prefix}_{ts}; refusing to overwrite "
         "an existing snapshot."
     )
+
+
+def find_in_archives(backups_dir: Path, event_id: str) -> tuple[Path, dict] | None:
+    """The archived copy of *event_id*, or None. Newest archive wins.
+
+    The read side of this module's invariant: what the rewriters moved here is
+    the ONLY copy, and an id stays citable in `references` and
+    `metadata.resolves` long after compaction takes it out of events.jsonl. A
+    lookup that stops at the live log therefore reports DELETION where there
+    was only relocation — which is not a hypothetical: it produced an hour of
+    wrong diagnosis and two retracted events in this project's own log.
+
+    Ordered by MTIME, not by name. `backups/` mixes `archive-*`, legacy
+    `events-*` and `pre-repair-*`, plus `-N` collision suffixes, so a lexical
+    sort is not chronological — `pre-repair-2026...` sorts before
+    `archive-2026...` while being the newer file. A pre-repair backup is a
+    whole-file copy, so one id genuinely lives in several archives and the
+    order decides which version the reader gets.
+
+    Parsed tolerantly, via the canonical JSONL reader: a repair archive holds
+    malformed lines BY CONSTRUCTION — dropping them is why it exists — so a
+    per-line json.loads would raise on exactly the files most likely to carry
+    a recovered id.
+
+    Accepts a PREFIX as well as a full id, because `get-event` advertises
+    "by ID or prefix" and its own usage example shows one — an exact-only
+    fallback would still report a prefixed archived id as absent, which is the
+    false-deletion answer this exists to remove. An exact match wins
+    immediately; otherwise a prefix matching more than one distinct id raises
+    rather than guessing, mirroring the live-log lookup.
+    """
+    if not backups_dir.is_dir():
+        return None
+
+    # stat() inside the sort key would escape the per-file guard below:
+    # pre_compact rotates backups/ while other sessions read it, so a file
+    # captured by glob() can be unlinked before the key reaches it, and the
+    # FileNotFoundError would surface as a traceback rather than a miss.
+    candidates = []
+    for path in backups_dir.glob("*.jsonl"):
+        try:
+            candidates.append((path.stat().st_mtime, path))
+        except OSError:
+            continue
+    candidates.sort(key=lambda pair: pair[0], reverse=True)
+
+    prefix_hits: dict[str, tuple[Path, dict]] = {}
+    for _, path in candidates:
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except (OSError, ValueError) as exc:
+            # ValueError covers UnicodeDecodeError: pre_compact copies
+            # events.jsonl byte-for-byte, so live-log corruption lands here
+            # verbatim, and an uncaught decode error would abort the whole
+            # scan — hiding ids in the VALID archives sorted behind it.
+            #
+            # Named on stderr rather than swallowed. A silent skip re-creates
+            # the false "not found" this function exists to remove, and the
+            # reader would have no way to tell a miss from an unread file.
+            print(
+                f"warning: skipped unreadable archive {path.name}: {exc}",
+                file=sys.stderr,
+            )
+            continue
+        events, _ = append_validation.parse_jsonl(raw)
+        for event in events:
+            found_id = event.get("id")
+            if not isinstance(found_id, str):
+                continue
+            if found_id == event_id:
+                return path, event
+            if found_id.startswith(event_id):
+                prefix_hits.setdefault(found_id, (path, event))
+
+    # `get-event` advertises "by ID or prefix" and its own usage example uses
+    # one, so an exact-only fallback would still report a prefixed archived id
+    # as absent. Ambiguity is refused rather than guessed, matching the
+    # live-log lookup.
+    if len(prefix_hits) > 1:
+        raise ValueError(
+            f"Ambiguous prefix {event_id!r} in archives: "
+            f"matches {len(prefix_hits)} events"
+        )
+    if prefix_hits:
+        return next(iter(prefix_hits.values()))
+    return None

@@ -2,6 +2,165 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.12.0 — A name is not the thing it names
+
+Both fixes here are the same mistake in different clothes: something read a
+label where it should have read the thing, and reported the label's answer with
+full confidence.
+
+### Moved is not deleted
+
+`compact` and `repair` take events OUT of `events.jsonl` and put them under
+`backups/` — `archive.py` calls that file "the ONLY copy of what was removed".
+But `get-event` searched the live log alone, so an id that had been archived
+came back **not found**. Ids stay citable forever: later events point at them
+through `references` and `metadata.resolves`, so the answer turned relocation
+into apparent deletion.
+
+That is not a hypothetical cost. In this project's own log it produced an hour
+of wrong diagnosis and two events that had to be retracted — a high-severity
+claim that the adopt CLI silently dropped a write, and a follow-on claim that an
+adopted retro Try had been lost. The event was in `backups/` the whole time,
+carrying `disposition: adopted`, and the adoption ledger had it too. The tool
+that reported the absence is now the tool that disproves it.
+
+The scan lives in `archive.py`, which already owns the `backups/` naming
+convention. Ordered by mtime rather than filename — the directory mixes
+`archive-*`, `events-*` and `pre-repair-*` with collision suffixes, so a lexical
+sort is not chronological, and a pre-repair backup is a whole-file copy, so one
+id can genuinely live in several archives. Parsed tolerantly, because a repair
+archive holds malformed lines by construction. Only `get-event` falls back;
+`lookup_event`'s contract is shared with promote and question-close, which keep
+reading the live log.
+
+### Named like a test is not being a test
+
+The commit gate selected work by filename. `scripts/test_parsing.py` and
+`scripts/test_attribution.py` are shipped modules that happen to start with
+`test_`; pytest collects nothing in them and exits 5, which lefthook reads as a
+failed commit — so staging one alone refused the commit outright, with no way
+out short of disabling the hook.
+
+The same rule was blind in the other direction. `tests/conftest.py` and the
+`tests/_*.py` helpers carry no `test_` in their names, so a change that can fail
+thousands of tests matched nothing and ran **zero** of them, committing green.
+
+Targets now come from what was staged rather than from a naming convention:
+paths under the tests tree only, fixtures mapped to their containing directory,
+files dropped when a selected directory already covers them. A directory target
+runs with `-n auto` — the tree sequentially is the 432-second run the gate exists
+to avoid, while the same tree under xdist is seconds.
+
+The tests that were supposed to protect this asserted only that certain strings
+appeared in `lefthook.yml`, which cannot tell a filter that works from one that
+never fires. They now execute the gate's shell body against a stub runner and
+assert on the arguments it actually receives.
+
+## v5.11.0 — A milestone that disproved itself
+
+The sprint set out to sweep stale prose out of three shipped roots. Its first
+story measured the roots and found almost nothing to sweep: in the 2005-line
+close/review subsystem, the "restates the code" bucket was empirically zero and
+the next bucket yielded ~1.4%. Two of the four planned sweeps were cancelled on
+that evidence and replaced with a rule for diff reviewers, because stale prose
+is caught where prose is written, not by re-reading code nobody touched.
+
+### Checks that fired on the work they were meant to protect
+
+**The prose ratchet punished extraction and claim-narrowing.** It compared the
+tree against a number recorded on a different tree without recording WHICH files
+the number covered, so any change to the file set read as prose growth. Splitting
+a file past the 500-line rule adds a module docstring and no code, and a claim
+narrowed to what is true is longer than the false short one it replaced — so the
+ratchet moved against both. It now names the 142 files it was measured over, and
+a name whose file vanished fails loud instead of quietly shrinking the measure.
+
+**Sprint verify ran the same suite nine times.** `--sprint` shelled one
+subprocess per (story, command), and nearly every story declares the whole-suite
+E2E check. One sprint enumerated 21 items that were 13 commands and spent ~35
+minutes. Worse than slow: the batch budget skips items in sprint order once
+exhausted and skipped items gate the close as red, so duplication could push
+genuine checks out of the verified set. Execution is deduped; reporting is not —
+every story keeps its row.
+
+### Backgrounded commits outran their own hook
+
+`PostToolUse:Bash` fires when the tool call returns, which for a backgrounded
+command is at launch — before git has moved HEAD. 79% of ordinary commits left
+no event, taking `Resolves-Event:` links and story attribution with them. The
+hook no longer reads a launch as evidence the commit did not land. Recovery
+happens at the next commit-shaped call that itself fails confirmation, so two
+shapes keep no observer: the last backgrounded commit of a run, and one followed
+by a foreground commit, which confirms normally and never probes the prior HEAD.
+Both residuals are recorded rather than implied.
+
+### Also
+
+- Vocabulary bans match on genuine use, not substrings — `.rs` no longer fires
+  inside `.rspec`, while `snake_case` internal names stay banned behind suffixes.
+- Both reviewer definitions gained a verify-the-claim lens.
+- Diagnostics relay both streams at eight sites that reported one and dropped
+  the other.
+- The stop gate tells an agent what actually clears it, per branch state.
+- A sprint review already running no longer reads as one never started.
+## v5.10.0 — A number you could not check, and a field that got shelled
+
+### Every red looked the same
+
+A test-failure concern recorded that something failed and nothing about which
+run. A one-test scoped run, a `docker compose exec … pytest`, a teammate's
+worktree and a 508-test suite all rendered as one line at kickoff. Diagnosing a
+single such streak had already cost a scheduled story: the largest suite in the
+flagged window held 23 tests while the real one held 508, and every full-suite
+run in that window was green.
+
+The concern now carries the working directory — `$HOME` collapsed to `~`, so a
+durable log that renders back into prompts stops carrying a username — and the
+run's counts. The command is deliberately never recorded: a command line can
+carry a token, and a test pins that it does not leak.
+
+**The other producer knew less and had to say so.** `bash_failure` handles runs
+that exit non-zero with no readable summary, so it often has no count at all.
+It stamps the same keys through the same builder, but never a total: with no
+summary line the counts come from two independent last-match scans, and their
+sum can pair numbers from unrelated lines. A missing denominator is honest; a
+fabricated one looks like a measurement. The triage render degrades to match —
+`2/23 failed in x`, then `2 failed in x`, then `in x` — because the run nobody
+could count is the one a reader most needs attributed.
+
+That rule then had to be carried back. The parsed producer was summing an
+unanchored pair too: a 500-test Playwright run showing only `2 failed` recorded
+`2/2` — the whole suite red, and the number looked measured. The parser now
+reports whether one summary line yielded the pair, and both events read that
+single answer instead of two spellings of a trust rule.
+
+### Prose in a field that gets shelled
+
+Story-level acceptance already refused `command` on a `type: manual` block, so
+observational prose had exactly one home and could never reach a shell. The
+milestone-level caller left that flag off — and the sprint reviewer shells a
+milestone's `setup`/`command`, producing the same exit-127 red no operator can
+make green, one level coarser. The module said so about itself and called it an
+open gap.
+
+The flag was never the work. `validate_plan` walks every milestone on the READ
+path, so switching it on would have made stored plans unloadable. The fix is a
+per-item grandfather derived from the document already on disk, exempting only
+a block that is unchanged, and failing closed on a missing, symlinked,
+unreadable or corrupt source — an exemption that failed open would be a bypass
+reachable by deleting a file. Run-time is untouched: what can be written
+narrows, what a written block does is unchanged.
+
+### Gates that could not catch their next case
+
+Three defects surfaced only in review, and each was a check that had stopped at
+the case which created it. The re-export contract said *every* public name
+belongs in the list while its test enumerated the ten that had once regressed,
+so name eleven walked through; it now sweeps the module. A validator contracted
+to *return* errors could still raise, because appending a type error did not
+stop the lookup below it. And the discriminator the TDD gate routes on was
+asserted by no test in the tree.
+
 ## v5.9.0 — Three checks that vouched for themselves
 
 ### Evidence about a neighbour is not evidence about you

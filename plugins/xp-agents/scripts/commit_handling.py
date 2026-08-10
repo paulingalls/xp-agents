@@ -128,6 +128,7 @@ def _handle_commit(
     *,
     is_xp_agent_leak: bool = False,
     scan_target: str | None = None,
+    backgrounded: bool = False,
 ) -> str | None:
     """Process a git commit response: record events, consume markers, nudge.
 
@@ -150,7 +151,8 @@ def _handle_commit(
     is the pre-stripped command from `run` — passing it through avoids a
     second strip_quoted scan in the `-C` presence predicates below
     (`dash_c_unreachable`, `head_probe_target`), which are what still consume
-    it; `parse_effective_cwd` reads its own offset-preserving mask.
+    it; `parse_effective_cwd` reads its own offset-preserving mask, and
+    `backgrounded` reaches `rebuild_at_head` — see its guard.
     """
     effective_cwd, raw_body = _confirm_commit_repo(
         command, cwd, response_text, scan_target=scan_target
@@ -198,6 +200,7 @@ def _handle_commit(
                     head,
                     events=events,
                     is_xp_agent_leak=is_xp_agent_leak,
+                    backgrounded=backgrounded,
                 )
                 if not rebuilt and not _head_trace_recorded(events, head):
                     _record_head_moved_trace(smm_dir, command, agent_id, head)

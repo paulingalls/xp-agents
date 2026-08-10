@@ -32,6 +32,7 @@ import _common
 import append_validation
 import concerns
 import identity
+import run_attribution
 import test_attribution
 from event_metadata import CONCERN_ACTION_TRANSIENT_TEST
 from event_schema import STATUS_ACTION_BASH_FAILED, get_required_budget
@@ -121,12 +122,23 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
             get_required_budget(_common.CONCERN) - len(head),
         )
         content = f"{head}{detail}"
+    # Same attribution keys as bash_post_tool's parsed producer, via the same
+    # builder, so a scoped run and a full-suite run stop rendering identically.
+    # This caller passes NO total on purpose: `parsed_failed_count` opts into
+    # `allow_scan_fallback`, which reaches two independent last-match scans, so
+    # `passed + failed` here could pair numbers from unrelated lines. A missing
+    # denominator is honest; a fabricated one looks like a measurement.
     concern = _common.make_event(
         _common.CONCERN,
         agent_id,
         content,
         severity="high",
-        metadata={"action": CONCERN_ACTION_TRANSIENT_TEST},
+        metadata={
+            "action": CONCERN_ACTION_TRANSIENT_TEST,
+            **run_attribution.run_attribution_metadata(
+                input_data.get("cwd"), failed=failed
+            ),
+        },
     )
     _common.append_safe(smm_dir, concern)
 

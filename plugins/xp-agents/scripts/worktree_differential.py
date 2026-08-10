@@ -167,11 +167,9 @@ def undifferentiable_reason(command: str) -> str | None:
     return None
 
 
-def _tail(text: str) -> str:
-    text = (text or "").strip()
-    if len(text) <= _OUTPUT_TAIL_CHARS:
-        return text
-    return "..." + text[-_OUTPUT_TAIL_CHARS:]
+def _tail_streams(stderr: str, stdout: str) -> str:
+    """This module's cap, on the shared per-stream tail."""
+    return _subprocess_env.tail_streams(stderr, stdout, _OUTPUT_TAIL_CHARS)
 
 
 def _remove_throwaway(name: str, cwd: str, smm_dir: Path | None = None) -> bool:
@@ -352,7 +350,9 @@ def differential(
     except subprocess.TimeoutExpired as exc:
         # Name the leg. Reporting a hung PRIMARY's output under `worktree_output`
         # points the operator at the wrong checkout.
-        tail = _tail(getattr(exc, "text_stdout", "") or getattr(exc, "text_stderr", ""))
+        tail = _tail_streams(
+            getattr(exc, "text_stderr", ""), getattr(exc, "text_stdout", "")
+        )
         return _result(
             OUTCOME_ERROR,
             command,
@@ -378,8 +378,8 @@ def differential(
         command,
         primary_exit=primary.returncode,
         worktree_exit=throwaway.returncode,
-        worktree_output=_tail(throwaway.stderr or throwaway.stdout or ""),
-        primary_output=_tail(primary.stderr or primary.stdout or ""),
+        worktree_output=_tail_streams(throwaway.stderr or "", throwaway.stdout or ""),
+        primary_output=_tail_streams(primary.stderr or "", primary.stdout or ""),
         extra_caveats=degraded,
     )
 

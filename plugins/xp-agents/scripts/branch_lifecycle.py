@@ -2,10 +2,13 @@
 """Lifecycle primitives for branch merge and deletion.
 
 Closed call island extracted from branching.py to keep that module
-under the 500-line target. branching.py re-exports every symbol here
-for backwards compat — callers should keep importing from branching.
+under the 500-line target. branching.py re-exports the merge/delete
+symbols (is_merged_into, merge_branch, delete_branch and friends) for
+backwards compat; `push_source_no_verify` is not among them and is
+imported from here directly.
 
-Cross-call graph (no outbound calls beyond this module):
+Cross-call graph (outbound only to `_subprocess_env`, for the stderr-first
+relay helpers this module used to host):
 - _fast_forward_if_safe -> is_merged_into
 - delete_branch         -> survives_delete_of, is_merged_into
 - merge_branch          -> _merge_into_target
@@ -16,6 +19,8 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
+
+import _subprocess_env
 
 # git's own words when another process holds the repo's index. Matched on the
 # SIGNATURE rather than the exit code, because git returns the same 128 for plenty
@@ -156,7 +161,7 @@ def _merge_into_target(cwd: str, source_branch: str, target: str) -> None:
         cwd,
     )
     if r.returncode != 0:
-        details = (r.stderr or "") + (r.stdout or "")
+        details = _subprocess_env.combined_output(r)
         print(
             f"Merge of {source_branch} into {target} failed: {details.strip()}",
             file=sys.stderr,
@@ -218,7 +223,7 @@ def push_source_no_verify(cwd: str, source: str) -> None:
         sys.stderr.write(
             f"warn: failed to re-push {source} before merge; the PR record may "
             f"be stale relative to what merged (the merge is the truth and "
-            f"proceeds). git said: {r.stderr.strip()}\n"
+            f"proceeds). git said: {_subprocess_env.tailed_output(r)}\n"
         )
 
 
