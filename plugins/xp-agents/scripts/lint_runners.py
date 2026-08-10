@@ -418,8 +418,8 @@ def run_linter_stdin(
     # The remedy this path alone can offer: it costs a process of its own only
     # because `path`'s staged bytes differ from the working tree. Re-staging
     # makes them agree, which routes it back through the batched path instead —
-    # N files, one process. Handed to timeout_message for BOTH the pre-run
-    # spent-budget message below and a mid-run cut-short one.
+    # N files, one process. Carried by BOTH the pre-run spent-budget message
+    # below and every mid-run timeout message, hung or cut short.
     remedy = (
         f"Its staged bytes differ from the working tree, which is why it costs "
         f"a process of its own; `git add {path}` (if the working-tree copy is "

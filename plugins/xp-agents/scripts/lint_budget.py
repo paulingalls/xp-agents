@@ -88,10 +88,8 @@ def timeout_message(
     discriminators in lint_runners' commit history — so it never claims to.
     It states two numbers it DOES know for certain: `consumed`, how long this
     run spent in total, and `own_ceiling`, its own cap before any
-    shared-budget narrowing. A `consumed` materially below `own_ceiling`
-    means the run stopped short of what it was allowed to use — it MAY have
-    been cut short rather than hung. A `consumed` at or near `own_ceiling`
-    still reads as a hang.
+    shared-budget narrowing. Which side of the margin a reading falls on, and
+    what each branch may say, are pinned in test_lint_budget_margin.py.
 
     `fired < timeout` is the one inference that IS certain, not guessed: the
     only way a run gets less than the nominal slice it was granted is that
@@ -114,15 +112,20 @@ def timeout_message(
     is_second_attempt = fired < timeout
     consumed = timeout if is_second_attempt else fired
     second_attempt_note = (
-        " — this was the batch's second attempt, after its first was rejected "
+        " — this was the run's second attempt, after its first was rejected "
         "for an unsupported flag; the duration above covers both, which shared "
         "one slice"
         if is_second_attempt
         else ""
     )
 
+    remedy_note = f". {remedy}" if remedy else ""
+
     if consumed >= own_ceiling - _MATERIALLY_SHORT_S:
-        return f"{linter_name}: timed out after {consumed:g}s{second_attempt_note}"
+        return (
+            f"{linter_name}: timed out after {consumed:g}s"
+            f"{second_attempt_note}{remedy_note}"
+        )
 
     budget_note = (
         f", with {budget_s:g}s left of the commit gate's "
@@ -130,7 +133,6 @@ def timeout_message(
         if budget_s is not None
         else ""
     )
-    remedy_note = f". {remedy}" if remedy else ""
     return (
         f"{linter_name}: ran {consumed:g}s against its own {own_ceiling:g}s "
         f"ceiling{budget_note} — it may have been cut short rather than hung"
