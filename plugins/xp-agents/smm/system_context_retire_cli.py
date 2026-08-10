@@ -29,7 +29,7 @@ from event_metadata import (
 
 # Map kind → STATUS_ACTION constant for retire-* status event emission.
 # The CLI is a non-hook producer; constants live in event_metadata.py +
-# tests/hooks/test_action_vocabulary_smoke.py:_NON_HOOK_PRODUCERS.
+# tests/hooks/_action_vocabulary_smoke_helpers.py:_NON_HOOK_PRODUCERS.
 _RETIRE_ACTIONS: dict[str, str] = {
     "principle": STATUS_ACTION_RETIRE_PRINCIPLE,
     "module": STATUS_ACTION_RETIRE_MODULE,
