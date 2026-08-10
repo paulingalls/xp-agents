@@ -18,7 +18,6 @@ import signal
 # patching via either name patches the one real module.
 import subprocess  # noqa: F401
 import sys
-import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -106,8 +105,23 @@ LOCK_TIMEOUT_SECONDS = 10
 _LOCK_TIMEOUT_ENV_VAR = "XP_LOCK_TIMEOUT_SECONDS"
 
 
-def _effective_lock_timeout_seconds() -> int:
-    """``LOCK_TIMEOUT_SECONDS``, overridable via ``XP_LOCK_TIMEOUT_SECONDS``."""
+def _effective_lock_timeout_seconds(default: int | None = None) -> int:
+    """The acquire budget: env var, else *default*, else ``LOCK_TIMEOUT_SECONDS``.
+
+    *default* is a CALLER's named budget (``flock_with_timeout(timeout_s=...)``),
+    and it sits BELOW the env var deliberately. ``XP_LOCK_TIMEOUT_SECONDS`` is
+    the only lever that reaches a subprocess — one re-imports this module and
+    cannot see an in-process patch — so it has to be able to shorten every
+    acquire, including one whose caller named its own budget. Were it the other
+    way round, any caller passing ``timeout_s`` would become the one place a
+    real cross-process contention test could not speed up.
+
+    ``None`` (not a literal ``LOCK_TIMEOUT_SECONDS``) is the sentinel for "no
+    named budget", because a literal default argument in the caller's signature
+    would be evaluated at ``def`` time and freeze the module global at import —
+    silently defeating the ``mock.patch.object`` seam ``_append_lock.py``'s
+    docstring exists to protect.
+    """
     raw = os.environ.get(_LOCK_TIMEOUT_ENV_VAR, "").strip()
     if raw:
         try:
@@ -116,27 +130,43 @@ def _effective_lock_timeout_seconds() -> int:
             value = 0
         if value > 0:
             return value
-    return LOCK_TIMEOUT_SECONDS
+    return default if default is not None else LOCK_TIMEOUT_SECONDS
 
 
-def _on_alarm(signum: int, frame: object) -> None:
-    raise LockTimeoutError(
-        f"Could not acquire lock within {_effective_lock_timeout_seconds()} seconds"
-    )
+def _make_alarm_handler(seconds: int):
+    """A SIGALRM handler that reports the budget it was actually armed with.
+
+    Captured rather than re-derived: rebuilding the number inside the handler
+    read the module default, so a 2s acquire that timed out announced "within 10
+    seconds" — a figure nothing had used, in the one line a human reads while
+    diagnosing contention.
+    """
+
+    def _handler(signum: int, frame: object) -> None:
+        raise LockTimeoutError(f"Could not acquire lock within {seconds} seconds")
+
+    return _handler
 
 
 @contextmanager
-def flock_with_timeout(lock_path: Path, mode: int = fcntl.LOCK_EX) -> Iterator[None]:
+def flock_with_timeout(
+    lock_path: Path, mode: int = fcntl.LOCK_EX, *, timeout_s: int | None = None
+) -> Iterator[None]:
     """Acquire ``flock(mode)`` on ``lock_path`` under a SIGALRM timeout.
 
     Opens ``lock_path`` with ``O_NOFOLLOW`` (rejecting symlinks) and
-    permission ``0o600``, arms ``SIGALRM`` for ``LOCK_TIMEOUT_SECONDS``
-    seconds (overridable per-process via the ``XP_LOCK_TIMEOUT_SECONDS``
-    env var — see ``_effective_lock_timeout_seconds``), takes the flock,
-    yields, then on exit releases the lock and closes the fd. ``LOCK_UN``
-    is wrapped in ``contextlib.suppress(OSError)`` so a flaky release
-    never masks an in-flight exception or blocks ``close``. Restores any
-    prior ``SIGALRM`` handler.
+    permission ``0o600``, arms ``SIGALRM`` for the resolved budget, takes
+    the flock, yields, then on exit releases the lock and closes the fd.
+    ``LOCK_UN`` is wrapped in ``contextlib.suppress(OSError)`` so a flaky
+    release never masks an in-flight exception or blocks ``close``.
+    Restores any prior ``SIGALRM`` handler.
+
+    ``timeout_s`` names this caller's own budget — for a best-effort advisory
+    file, where blocking a synchronous hook for the event log's 10s is its own
+    problem. Omit it and the budget is ``LOCK_TIMEOUT_SECONDS`` exactly as
+    before; ``XP_LOCK_TIMEOUT_SECONDS`` outranks both. See
+    ``_effective_lock_timeout_seconds`` for why the precedence runs that way
+    and why the default is a ``None`` sentinel rather than the global itself.
 
     Raises ``LockTimeoutError`` if the lock cannot be acquired within
     the budget; raises ``OSError`` if ``lock_path`` is a symlink.
@@ -152,9 +182,10 @@ def flock_with_timeout(lock_path: Path, mode: int = fcntl.LOCK_EX) -> Iterator[N
         os.close(raw_fd)
         raise
     try:
-        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
+        budget = _effective_lock_timeout_seconds(timeout_s)
+        old_handler = signal.signal(signal.SIGALRM, _make_alarm_handler(budget))
         try:
-            signal.alarm(_effective_lock_timeout_seconds())
+            signal.alarm(budget)
             fcntl.flock(lock_fd, mode)
             signal.alarm(0)
         finally:
@@ -294,108 +325,17 @@ def bulk_append(smm_dir: Path, events: list[dict]) -> None:
         _notify_blocking_question(event)
 
 
-def event_ids(events: list[dict]) -> set[str]:
-    """The ids of *events* — the `seen_ids` a whole-file rewriter must pass.
-
-    Skips entries with no usable string id; `parse_jsonl` admits any dict, so
-    a hand-edited line can reach a caller without one. Such an entry is still
-    written if the caller retained it — it is only unmatchable when scanning
-    the file, which is what the id-less DROP rule in `replace_events_file`
-    covers.
-    """
-    return {e["id"] for e in events if isinstance(e.get("id"), str)}
-
-
-def _preservable_id(line: str) -> str | None:
-    """The id of a file line that a rewriter could have SEEN, else None.
-
-    None means the line is not preservable and is dropped: it is malformed, is
-    not an object, or carries no string id. Dropping it is SAFE because of that
-    missing id — every event built for `append_event` gets a `generate_id()`
-    id, so an id-less line was never a concurrent arrival. The guarantee is the
-    BUILDERS', not validation's: `append_event` does not call `validate_event`
-    and neither do all of its callers, so an append path that can omit `id`
-    would break this rule. Dropping is also NECESSARY: an unpreservable line
-    can never be in any `seen_ids`, so a naive preserve-the-unseen rule would
-    keep it forever and `repair` could never delete a malformed line again.
-    """
-    try:
-        obj = json.loads(line)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(obj, dict):
-        return None
-    event_id = obj.get("id")
-    return event_id if isinstance(event_id, str) else None
-
-
-def replace_events_file(
-    smm_dir: Path, events: list[dict], *, seen_ids: set[str]
-) -> str:
-    """Read events.jsonl under exclusive flock, replace atomically.
-
-    *events* is the caller's snapshot of what should survive — but the caller
-    read it WITHOUT the exclusive lock, so the file may have grown since. An
-    event appended in that window is in neither the snapshot nor the archive
-    the caller built from it; writing the snapshot verbatim would erase it
-    with no trace anywhere. So the read this function already does under the
-    lock is not thrown away: it is merged.
-
-    *seen_ids* is what makes the merge decidable — the ids the caller actually
-    LOOKED AT. Every file line is then one of four things:
-
-      * seen and retained     -> written (the caller's copy, so a rewriter such
-                                 as `migrate` keeps its transformation)
-      * seen and NOT retained -> dropped, deliberately (archived, invalid, a
-                                 duplicate) — the fix must not resurrect these
-      * NOT seen              -> PRESERVED at the tail: an event the caller
-                                 never saw was never a candidate for removal
-      * unpreservable         -> dropped; see `_preservable_id`
-
-    Keyword-only and REQUIRED on purpose: a caller that forgets it is a
-    TypeError, not a silent return to eating events.
-
-    Preserved lines are written back BYTE-FOR-BYTE rather than re-serialized —
-    this function has no business rewriting an event it does not understand.
-
-    Returns the original file contents (for callers that back up the original).
-    Raises LockTimeoutError if the lock cannot be acquired.
-    """
-    events_file = smm_dir / "events.jsonl"
-    lock_file = smm_dir / "events.lock"
-    original_content = ""
-
-    with flock_with_timeout(lock_file):
-        # Read original under lock (prevents TOCTOU race)
-        try:
-            original_content = events_file.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            original_content = ""
-
-        # Events that arrived while the caller was deciding — keep them.
-        unseen: list[str] = [
-            stripped
-            for line in original_content.splitlines()
-            if (stripped := line.strip())
-            and (event_id := _preservable_id(stripped)) is not None
-            and event_id not in seen_ids
-        ]
-
-        # Write replacement via tempfile + rename
-        lines = [json.dumps(e, ensure_ascii=False) for e in events] + unseen
-        fd, tmp = tempfile.mkstemp(dir=smm_dir, suffix=".jsonl.tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines) + ("\n" if lines else ""))
-            os.chmod(tmp, 0o600)
-            os.rename(tmp, events_file)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp)
-            raise
-
-    return original_content
-
+# Whole-file rewriting (moved out to keep this file under its line-count band;
+# re-exported here BY IDENTITY so every existing
+# `from _append_impl import replace_events_file` and
+# `_append_impl.replace_events_file` reference resolves unchanged). That module
+# imports `flock_with_timeout` back from here LAZILY — see its docstring for why
+# a module-level import would cycle.
+from _events_replace import (  # noqa: E402  intentional post-definition re-export
+    _preservable_id,  # noqa: F401
+    event_ids,  # noqa: F401
+    replace_events_file,  # noqa: F401
+)
 
 # ---------------------------------------------------------------------------
 # CLI
