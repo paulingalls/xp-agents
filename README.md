@@ -65,6 +65,51 @@ For local development, use `--plugin-dir` (session-only, not persisted):
 claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 ```
 
+### Installing on Codex
+
+Codex reads its own marketplace catalog and its own plugin manifest, both shipped
+in this repo beside the Claude ones. Register the marketplace, then install:
+
+```bash
+# From a local checkout — this is the sequence the test suite executes
+codex plugin marketplace add /path/to/xp-agents
+codex plugin add xp-agents@xp-agents
+
+# From the published repo — same commands, source given as owner/repo
+codex plugin marketplace add paulingalls/xp-agents
+codex plugin add xp-agents@xp-agents
+```
+
+The local form is listed first because it is the one the suite actually runs. The
+published form's syntax is documented by `codex plugin marketplace add`, but
+whether a fresh clone resolves the catalog's relative plugin path has not been
+measured here — treat it as untested, not as broken.
+
+**You must review the hooks, or nothing is enforced.** Codex will not run
+plugin-bundled hooks until you trust them, and this is the part worth reading
+twice:
+
+- **Interactive:** run `/hooks` and approve. Approval is per *content hash*, so
+  it must be repeated after every plugin update.
+- **Headless:** pass `--dangerously-bypass-hook-trust`.
+- **If you skip it, nothing tells you.** Untrusted hooks are skipped **silently** —
+  the hooks file is demonstrably read, yet no handler runs and no error appears.
+  The session looks completely normal while every XP gate is absent: no commit
+  gate, no TDD gate, no stop gates, no secret scan.
+
+**`--disable unified_exec` is required on every Codex spawn**, not a
+recommendation. Without it, `exec_command` opens a persistent shell and
+`write_stdin` sends work into it that the command hook never sees — bypassing the
+commit gate, the tier-1 secret scan, staged-lint and branch protection. The flag
+removes that channel and substitutes `shell_command`, which is gated.
+
+**No minimum Codex version is claimed.** The plugin was exercised on `0.146.0`
+and nothing older was ever installed, so there is no measured floor to state — a
+version that works tells you nothing about where support began. This is an
+unknown, not an assurance that every version works: an older Codex that runs the
+skills while ignoring the hooks would be unenforced in exactly the silent way
+described above.
+
 **Requirements:** Python 3.11+ on PATH. macOS or Linux. Zero external packages.
 
 **Scopes:** User scope makes xp-agents available on all your projects. Project scope shares it with your team via version control. Both work with CLI teammates — the SMM is stored under `XP_AGENTS_DATA` (default `~/.xp-agents/data`, shared across worktrees).
