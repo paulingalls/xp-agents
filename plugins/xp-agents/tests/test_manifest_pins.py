@@ -20,7 +20,10 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from fnmatch import fnmatch
 from pathlib import Path
+
+import tomllib
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
@@ -30,6 +33,7 @@ from _paths import _PLUGIN_ROOT, _SCRIPTS_DIR
 
 _CLAUDE_MANIFEST = _PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
 _CODEX_MANIFEST = _PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
+_RUFF_TOML = _PLUGIN_ROOT.parents[1] / "ruff.toml"
 
 
 class TestCodexManifestRegenerationClean(unittest.TestCase):
@@ -257,6 +261,31 @@ class TestManifestPathsResolve(unittest.TestCase):
         """Not a gap: the primary has nothing `./`-prefixed to resolve yet."""
         resolved = _resolved_paths_via_subprocess(_CLAUDE_MANIFEST, _PLUGIN_ROOT)
         self.assertEqual(resolved, [])
+
+
+class TestGeneratedManifestExcludedFromFormatting(unittest.TestCase):
+    """Both plugin manifests sit inside ruff's strict-JSON exclusion.
+
+    Duplicated from `test_hooks_variants.py`'s `_is_excluded` rather than
+    extracted to a shared helper — two occurrences don't justify an
+    abstraction; generalize at the third.
+    """
+
+    def setUp(self):
+        config = tomllib.loads(_RUFF_TOML.read_text(encoding="utf-8"))
+        self.patterns = config.get("extend-exclude", [])
+        self.assertTrue(self.patterns, "ruff.toml declares no extend-exclude")
+
+    def _is_excluded(self, name: str) -> bool:
+        return any(
+            fnmatch(name, pattern.removeprefix("**/")) for pattern in self.patterns
+        )
+
+    def test_claude_manifest_is_excluded(self):
+        self.assertTrue(self._is_excluded(_CLAUDE_MANIFEST.name))
+
+    def test_codex_manifest_is_excluded(self):
+        self.assertTrue(self._is_excluded(_CODEX_MANIFEST.name))
 
 
 if __name__ == "__main__":
