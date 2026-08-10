@@ -88,10 +88,8 @@ def timeout_message(
     discriminators in lint_runners' commit history — so it never claims to.
     It states two numbers it DOES know for certain: `consumed`, how long this
     run spent in total, and `own_ceiling`, its own cap before any
-    shared-budget narrowing. A `consumed` materially below `own_ceiling`
-    means the run stopped short of what it was allowed to use — it MAY have
-    been cut short rather than hung. A `consumed` at or near `own_ceiling`
-    still reads as a hang.
+    shared-budget narrowing. Which side of the margin a reading falls on, and
+    what each branch may say, are pinned in test_lint_budget_margin.py.
 
     `fired < timeout` is the one inference that IS certain, not guessed: the
     only way a run gets less than the nominal slice it was granted is that
