@@ -4,9 +4,9 @@
 `.claude-plugin/plugin.json` is the hand-edited source of truth.
 `scripts/manifest_emit.py` derives `.codex-plugin/plugin.json` from it by
 ADDITION — copying every key of the primary untouched and adding exactly
-`skills` and `hooks` — and never writes the source. The second manifest is
-therefore byte-identical by construction rather than by assertion, which is
-what keeps shared metadata (name, version, description) from ever diverging.
+`skills` and `hooks` — and never writes the source. Shared metadata (name,
+version, description) therefore agrees by construction rather than by
+assertion, and the primary is byte-identical after a run.
 
 Lives at the top level of `tests/` beside the other cross-cutting pins
 (`test_hooks_variants.py`, `test_file_size_pin.py`) rather than under a
@@ -135,6 +135,44 @@ class TestEmitRefusesToOverwriteItsSource(unittest.TestCase):
             # And the source itself was not touched by the attempt.
             self.assertEqual(source.read_bytes(), _CLAUDE_MANIFEST.read_bytes())
 
+    def test_emit_raises_when_out_dir_differs_from_the_source_only_by_case(self):
+        """A case-insensitive filesystem makes the two directories one.
+
+        `Path.resolve()` follows symlinks but preserves case, so comparing
+        resolved paths alone waves this through and the hand-edited primary is
+        replaced by generated content on the platform this repo is developed on.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_dir = Path(tmp) / ".claude-plugin"
+            claude_dir.mkdir()
+            source = claude_dir / "plugin.json"
+            source.write_bytes(_CLAUDE_MANIFEST.read_bytes())
+
+            mixed_case = Path(tmp) / ".Claude-Plugin"
+            if not (mixed_case / "plugin.json").exists():
+                self.skipTest("filesystem is case-sensitive")
+
+            with self.assertRaises(ValueError):
+                manifest_emit.emit(source=source, out_dir=mixed_case)
+
+            self.assertEqual(source.read_bytes(), _CLAUDE_MANIFEST.read_bytes())
+
+    def test_emit_raises_when_out_dir_is_a_symlink_to_the_source_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            claude_dir = work / ".claude-plugin"
+            claude_dir.mkdir()
+            source = claude_dir / "plugin.json"
+            source.write_bytes(_CLAUDE_MANIFEST.read_bytes())
+
+            link = work / ".codex-plugin"
+            link.symlink_to(claude_dir, target_is_directory=True)
+
+            with self.assertRaises(ValueError):
+                manifest_emit.emit(source=source, out_dir=link)
+
+            self.assertEqual(source.read_bytes(), _CLAUDE_MANIFEST.read_bytes())
+
 
 class TestEmitterDefaultTargets(unittest.TestCase):
     """The emitter's default source and out_dir are the two shipped directories.
@@ -173,11 +211,12 @@ class TestSharedMetadataIsIdentical(unittest.TestCase):
         self.codex = json.loads(_CODEX_MANIFEST.read_text(encoding="utf-8"))
 
     def test_all_shared_keys_are_present_in_both_manifests(self):
-        """Non-vacuity guard: two absent keys would otherwise compare equal.
+        """Presence is a property in its own right, not only equality's premise.
 
-        Without this, a manifest missing `version` entirely would satisfy the
-        equality pin below by both sides being `None` — asserting nothing
-        about the property the milestone actually requires.
+        The equality pin below subscripts, so a dropped key raises KeyError
+        there rather than passing vacuously — this states which manifest lost
+        which key instead of leaving that to a traceback, and it holds if the
+        equality pin is ever rewritten with `.get()`.
         """
         for key in self._SHARED_KEYS:
             with self.subTest(key=key):
@@ -231,8 +270,12 @@ def _resolved_paths_via_subprocess(manifest: Path, plugin_root: Path) -> list[st
         print(json.dumps(resolved))
         """)
     result = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
     )
+    if result.returncode != 0:
+        # `check=True` would raise with the traceback captured and unreported,
+        # leaving a failure that says only "exit status 1".
+        raise AssertionError(f"resolving {manifest} failed:\n{result.stderr}")
     return json.loads(result.stdout)
 
 
@@ -261,6 +304,37 @@ class TestManifestPathsResolve(unittest.TestCase):
         """Not a gap: the primary has nothing `./`-prefixed to resolve yet."""
         resolved = _resolved_paths_via_subprocess(_CLAUDE_MANIFEST, _PLUGIN_ROOT)
         self.assertEqual(resolved, [])
+
+
+class TestEmitterRunsAsASubprocess(unittest.TestCase):
+    """E2E: the emitter works when INVOKED, not just when imported.
+
+    Every other pin here calls `emit()` in-process, which never exercises the
+    CLI entry point, the argument parsing or the shebang — the form the module
+    docstring tells a human to use. An import-only suite stays green with
+    `main()` broken. `--out-dir` is passed deliberately: the bare command writes
+    into the shipped tree, which no test may do.
+    """
+
+    def test_cli_emits_the_derived_manifest_into_a_target_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(_SCRIPTS_DIR / "manifest_emit.py"),
+                    "--out-dir",
+                    str(out_dir),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), str(out_dir / "plugin.json"))
+            produced = (out_dir / "plugin.json").read_bytes()
+
+        self.assertEqual(produced, _CODEX_MANIFEST.read_bytes())
 
 
 class TestGeneratedManifestExcludedFromFormatting(unittest.TestCase):

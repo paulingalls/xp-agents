@@ -10,9 +10,9 @@ The sharpest difference from `hooks_emit.py`: there, source and target are two
 different FILENAMES in one directory, so "never writes the source" is
 structural. Here they share the basename `plugin.json` and differ only by
 DIRECTORY, so `--out-dir .claude-plugin` would overwrite the hand-edited
-primary with generated content. `emit()` therefore raises when the resolved
-target path equals the resolved source path — the hooks emitter's structural
-safety does not carry over, so this guard is load-bearing rather than defensive.
+primary with generated content. `emit()` therefore raises when the target would
+land on the source — the hooks emitter's structural safety does not carry over,
+so this guard is load-bearing rather than defensive.
 
 Run with no arguments to regenerate in place:
 
@@ -54,16 +54,31 @@ def transform(source: dict) -> dict:
     return derived
 
 
+def _would_overwrite(target: Path, source: Path) -> bool:
+    """Whether writing `target` would land on `source`.
+
+    Comparing resolved paths is not enough on its own: `resolve()` follows
+    symlinks but PRESERVES CASE, so on a case-insensitive filesystem
+    (macOS/APFS) `--out-dir .Claude-Plugin` compares unequal while naming the
+    same file. `samefile` compares device+inode, which catches that and a hard
+    link too, but needs both paths to exist — so the resolved comparison still
+    carries the ordinary case where the target has not been created yet.
+    """
+    if target.resolve() == source.resolve():
+        return True
+    return target.exists() and source.exists() and target.samefile(source)
+
+
 def emit(source: Path | None = None, out_dir: Path | None = None) -> Path:
     """Write the derived manifest into out_dir and return its path.
 
-    Raises ValueError when the resolved target equals the resolved source,
-    rather than overwriting the hand-edited primary with generated content.
+    Raises ValueError when the target would land on the source, rather than
+    overwriting the hand-edited primary with generated content.
     """
     source = source or default_source()
     out_dir = out_dir or default_out_dir()
     target = out_dir / _MANIFEST_NAME
-    if target.resolve() == source.resolve():
+    if _would_overwrite(target, source):
         raise ValueError(f"refusing to overwrite the manifest source at {source}")
     data = json.loads(source.read_text(encoding="utf-8"))
     out_dir.mkdir(parents=True, exist_ok=True)
