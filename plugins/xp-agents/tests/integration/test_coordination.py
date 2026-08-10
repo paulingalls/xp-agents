@@ -10,6 +10,7 @@ verify the subprocess path — real stdin, real file I/O, real watermark
 persistence across subprocess invocations.
 """
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -239,6 +240,64 @@ class TestPromptNuggetIntegration(_IntegrationTestCase):
 
         # Watermark file exists on disk — proves persistence.
         self.assertTrue((self.smm_dir / ".watermark-prompt-nugget").exists())
+
+
+# ---------------------------------------------------------------------------
+# post_tool_use.py — concurrent writes to .coordination.json (story-002 AC#5)
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentCoordinationWrites(_IntegrationTestCase):
+    """Several real hooks writing the coordination file at once.
+
+    `.coordination.json` is the file parallel teammates contend, and every write
+    goes through `post_tool_use.py`'s `update_coordination` call on the
+    synchronous PostToolUse path. The lock exists to serialize exactly this, so
+    the end state has to be: every hook exits cleanly, the file is still valid
+    JSON, and nobody's entry was lost to someone else's write.
+
+    Driven as concurrent SUBPROCESSES rather than in-process calls because that
+    is the only shape in which a hook DEATH is observable as a result instead of
+    taking the test runner with it — which is what the pre-fix `SIG_DFL` alarm
+    did to a hook that waited too long.
+    """
+
+    _AGENTS = ("agent-a", "agent-b", "agent-c", "agent-d")
+
+    def _spawn(self, agent_id: str) -> tuple[subprocess.Popen[str], str]:
+        payload = {
+            "session_id": "int-test",
+            "tool_name": "Write",
+            "tool_input": {"file_path": f"src/{agent_id}.ts", "content": "x"},
+            "tool_response": {"success": True},
+            "cwd": str(self.tmpdir),
+            "agent_id": agent_id,
+        }
+        return subprocess.Popen(
+            ["python3", str(self.scripts_dir / "post_tool_use.py")],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=self._test_env.copy(),
+        ), json.dumps(payload)
+
+    def test_every_concurrent_writer_lands_and_none_dies(self):
+        started = [self._spawn(a) for a in self._AGENTS]
+        results = []
+        for proc, payload in started:
+            out, err = proc.communicate(input=payload, timeout=60)
+            results.append((proc.returncode, out, err))
+
+        for (code, _out, err), agent in zip(results, self._AGENTS, strict=True):
+            self.assertEqual(code, 0, f"{agent} exited {code}: {err}")
+
+        coord = self.smm_dir / ".coordination.json"
+        self.assertTrue(coord.exists(), "no coordination file was written")
+        data = json.loads(coord.read_text(encoding="utf-8"))  # valid JSON or raises
+        for agent in self._AGENTS:
+            self.assertIn(agent, data, f"{agent}'s entry was lost to a rival write")
+            self.assertEqual(data[agent]["working_on"], [f"src/{agent}.ts"])
 
 
 if __name__ == "__main__":
