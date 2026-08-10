@@ -70,12 +70,17 @@ claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 Codex reads its own marketplace catalog and its own plugin manifest, both shipped
 in this repo beside the Claude ones. Register the marketplace, then install:
 
+From a local checkout — this is the sequence the test suite executes:
+
 ```bash
-# From a local checkout — this is the sequence the test suite executes
 codex plugin marketplace add /path/to/xp-agents
 codex plugin add xp-agents@xp-agents
+```
 
-# From the published repo — same commands, source given as owner/repo
+From the published repo — the same commands, with the source given as
+`owner/repo`:
+
+```bash
 codex plugin marketplace add paulingalls/xp-agents
 codex plugin add xp-agents@xp-agents
 ```

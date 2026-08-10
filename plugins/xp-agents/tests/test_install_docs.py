@@ -17,6 +17,8 @@ skipping it costs:
   every gate riding the command hook.
 """
 
+import re
+import shutil
 import sys
 import unittest
 from pathlib import Path
@@ -24,6 +26,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from _paths import _PLUGIN_ROOT
+
+# Imported, not copied. These carry the harness's stdout contract and the
+# isolation guarantee; a second copy would put the contract most likely to
+# change under the harness in two places at once. The repo already imports
+# across test modules this way — see test_lefthook_commit_gate importing from
+# test_lefthook_perf_gate.
+from test_marketplace_install import (
+    _HARNESS,
+    _PLUGIN_ID,
+    _harness,
+    _installed_root,
+    _isolated_home,
+)
 
 _README = _PLUGIN_ROOT.parents[1] / "README.md"
 
@@ -143,6 +158,99 @@ class TestNoUnmeasuredVersionFloor(unittest.TestCase):
     def test_the_unknown_is_not_dressed_as_an_assurance(self):
         """An unmeasured floor must not read as 'every version works'."""
         self.assertRegex(_readme(), r"unknown, not an assurance")
+
+
+def _documented_local_commands() -> list[str]:
+    """The local-path harness commands, read out of the README itself.
+
+    This is what makes the docs verified rather than merely present: the
+    sequence executed below is the sequence a reader is told to type. Docs that
+    drift from the commands the catalog accepts fail the suite.
+
+    Scoped to the fenced block carrying the harness's own local registration,
+    NOT to the whole file, and not merely to the placeholder. Two narrowings the
+    first two runs of this test forced:
+
+    - a file-wide scan pulls THREE commands, because both documented forms end
+      in an identical `plugin add` line, and would install twice;
+    - the placeholder alone is not unique either — the first harness's
+      `--plugin-dir` example carries it too.
+
+    Both were caught by the assertions below rather than by inspection, which is
+    the whole reason they are assertions.
+    """
+    anchor = f"{_HARNESS} plugin marketplace add {_LOCAL_PATH_PLACEHOLDER}"
+    blocks = re.findall(r"```bash\n(.*?)```", _readme(), re.DOTALL)
+    local = [b for b in blocks if anchor in b]
+    if len(local) != 1:
+        raise AssertionError(
+            f"expected exactly one bash block carrying {anchor!r}, found {len(local)}"
+        )
+    return [
+        line.strip()
+        for line in local[0].splitlines()
+        if line.strip().startswith(f"{_HARNESS} plugin")
+    ]
+
+
+@unittest.skipUnless(
+    shutil.which(_HARNESS), f"{_HARNESS} not on PATH — install-dependent rows skip"
+)
+class TestTheDocumentedSequenceActuallyWorks(unittest.TestCase):
+    """A reader who types the documented sequence gets a working install.
+
+    Only the LOCAL form is executed. The published form needs the network and a
+    published ref, so it is excluded here and flagged as untested in the README
+    rather than implied to be proven — the same honesty the version-floor rows
+    enforce.
+    """
+
+    def test_the_extraction_finds_the_whole_sequence(self):
+        """Non-vacuity guard for the extraction itself.
+
+        A regex that matched nothing would run zero commands and report green,
+        so the count is asserted before anything is executed.
+        """
+        commands = _documented_local_commands()
+        self.assertEqual(
+            len(commands),
+            2,
+            f"expected the register+install pair, extracted {commands}",
+        )
+        self.assertTrue(commands[0].startswith(f"{_HARNESS} plugin marketplace add"))
+        self.assertIn(_PLUGIN_ID, commands[1])
+
+    def test_running_the_documented_commands_installs_a_loadable_plugin(self):
+        env, home = _isolated_home()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        repo_root = str(_PLUGIN_ROOT.parents[1])
+
+        commands = _documented_local_commands()
+        add_stdout = ""
+        for command in commands:
+            substituted = command.replace(_LOCAL_PATH_PLACEHOLDER, repo_root)
+            self.assertNotIn(
+                _LOCAL_PATH_PLACEHOLDER,
+                substituted,
+                "the documented placeholder changed shape, so the substitution "
+                "silently became a no-op — update _LOCAL_PATH_PLACEHOLDER",
+            )
+            args = substituted.split()[2:]  # drop the harness + `plugin`
+            result = _harness(env, *args)
+            self.assertEqual(
+                result.returncode, 0, f"{substituted!r} failed: {result.stderr}"
+            )
+            add_stdout = result.stdout
+
+        installed_root = _installed_root(add_stdout)
+        self.assertTrue(
+            installed_root.is_relative_to(Path(env["CODEX_HOME"]).resolve()),
+            f"{installed_root} is not inside the isolated home",
+        )
+        installed_skills = sorted(p.name for p in (installed_root / "skills").iterdir())
+        shipped_skills = sorted(p.name for p in (_PLUGIN_ROOT / "skills").iterdir())
+        self.assertTrue(shipped_skills, "no skills shipped to compare against")
+        self.assertEqual(installed_skills, shipped_skills)
 
 
 if __name__ == "__main__":
