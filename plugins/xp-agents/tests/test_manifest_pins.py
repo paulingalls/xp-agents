@@ -14,6 +14,7 @@ harness-specific subdirectory, matching where the sibling pin for the hooks
 variant lives.
 """
 
+import json
 import sys
 import tempfile
 import unittest
@@ -132,6 +133,40 @@ class TestEmitterDefaultTargets(unittest.TestCase):
         self.assertNotEqual(
             manifest_emit.default_source().parent, manifest_emit.default_out_dir()
         )
+
+
+class TestSharedMetadataIsIdentical(unittest.TestCase):
+    """`name`, `version` and `description` must agree across both manifests.
+
+    The story's whole reason to derive rather than hand-write: shared metadata
+    holds by construction because the second manifest copies the primary, but
+    a copy step can still be edited into dropping a key, so the property is
+    pinned directly rather than left to follow from
+    `TestCodexManifestRegenerationClean`.
+    """
+
+    _SHARED_KEYS = ("name", "version", "description")
+
+    def setUp(self):
+        self.claude = json.loads(_CLAUDE_MANIFEST.read_text(encoding="utf-8"))
+        self.codex = json.loads(_CODEX_MANIFEST.read_text(encoding="utf-8"))
+
+    def test_all_shared_keys_are_present_in_both_manifests(self):
+        """Non-vacuity guard: two absent keys would otherwise compare equal.
+
+        Without this, a manifest missing `version` entirely would satisfy the
+        equality pin below by both sides being `None` — asserting nothing
+        about the property the milestone actually requires.
+        """
+        for key in self._SHARED_KEYS:
+            with self.subTest(key=key):
+                self.assertIn(key, self.claude, f"primary manifest is missing {key!r}")
+                self.assertIn(key, self.codex, f"derived manifest is missing {key!r}")
+
+    def test_shared_metadata_matches(self):
+        for key in self._SHARED_KEYS:
+            with self.subTest(key=key):
+                self.assertEqual(self.claude[key], self.codex[key])
 
 
 if __name__ == "__main__":
