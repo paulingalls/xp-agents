@@ -57,10 +57,11 @@ THREE LEGS.
 LIMITS — READ THIS BEFORE TRUSTING THE GREEN CHECK.
 
 * Leg 1 proves a routing line is PRESENT on each known surface. It never
-  proves the advice on that line is correct, that a named test exists, or that
-  any comment already in the tree is true. Over-claiming coverage is itself
-  the fail-silent defect this milestone targets. Whether a present line states
-  the WHOLE rule is the sibling pin's verdict, not this one's.
+  proves the advice on that line is correct, or that any comment already in
+  the tree is true. Over-claiming coverage is itself the fail-silent defect
+  this milestone targets. Whether a present line states the WHOLE rule is the
+  sibling pin's verdict, not this one's; whether a test a comment NAMES still
+  exists is `test_prose_pointer_pin`'s.
 * Leg 1 is per LINE and reads only `_routing_detect.COMMENT_DEST_RE`, so a
   routing clause that word-wraps across two lines in the source `.md`, or one
   phrased as "an inline comment", counts for nothing here — a surface whose
