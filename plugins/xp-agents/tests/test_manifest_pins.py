@@ -90,5 +90,49 @@ class TestSourceIsNeverWritten(unittest.TestCase):
         )
 
 
+class TestEmitRefusesToOverwriteItsSource(unittest.TestCase):
+    """`emit()` raises rather than overwrite the hand-edited primary.
+
+    Source and target share the basename `plugin.json` and differ only by
+    directory, so an `--out-dir` equal to the source's own directory would
+    silently replace the hand-edited primary with generated content. This is
+    the enforced guarantee the milestone's plan review flagged as its
+    highest-severity finding.
+    """
+
+    def test_emit_raises_when_out_dir_resolves_to_the_source_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_dir = Path(tmp) / ".claude-plugin"
+            claude_dir.mkdir()
+            source = claude_dir / "plugin.json"
+            source.write_bytes(_CLAUDE_MANIFEST.read_bytes())
+
+            with self.assertRaises(ValueError):
+                manifest_emit.emit(source=source, out_dir=claude_dir)
+
+            # And the source itself was not touched by the attempt.
+            self.assertEqual(source.read_bytes(), _CLAUDE_MANIFEST.read_bytes())
+
+
+class TestEmitterDefaultTargets(unittest.TestCase):
+    """The emitter's default source and out_dir are the two shipped directories.
+
+    Every other pin here passes explicit paths, so without this one the
+    defaults the emitter actually ships with — the ones a bare
+    `python3 manifest_emit.py` uses — are exercised only by a human running it.
+    """
+
+    def test_default_source_is_the_checked_in_claude_manifest(self):
+        self.assertEqual(manifest_emit.default_source(), _CLAUDE_MANIFEST)
+
+    def test_default_out_dir_is_the_shipped_codex_plugin_dir(self):
+        self.assertEqual(manifest_emit.default_out_dir(), _CODEX_MANIFEST.parent)
+
+    def test_defaults_are_two_distinct_directories(self):
+        self.assertNotEqual(
+            manifest_emit.default_source().parent, manifest_emit.default_out_dir()
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
