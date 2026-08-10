@@ -61,5 +61,89 @@ class TestBothHarnessInstallPathsDocumented(unittest.TestCase):
         )
 
 
+class TestTrustStepIsDocumented(unittest.TestCase):
+    """The trust step is pinned by CONSEQUENCE, not by keyword.
+
+    A document can name the review command and still leave a reader believing
+    that skipping it produces an error they would notice. The measured fact is
+    the opposite — untrusted hooks are skipped silently — and that is the half a
+    careless edit would drop, because it is the only half that is bad news.
+    """
+
+    def test_the_review_command_and_its_per_hash_scope_are_documented(self):
+        text = _readme()
+        self.assertIn("/hooks", text)
+        self.assertIn("content hash", text)
+
+    def test_the_re_review_after_every_update_is_documented(self):
+        self.assertRegex(_readme(), r"repeated after every plugin update")
+
+    def test_the_headless_bypass_is_documented(self):
+        self.assertIn("--dangerously-bypass-hook-trust", _readme())
+
+    def test_the_silent_skip_consequence_is_documented(self):
+        """The row that matters. Naming `/hooks` without this is worse than
+        silence: it implies a failure the reader would see."""
+        text = _readme()
+        self.assertIn("silently", text)
+        self.assertRegex(
+            text,
+            r"no error appears|nothing tells you",
+            "the docs name the trust step but not that skipping it is silent",
+        )
+
+
+class TestTheMandatorySpawnFlagIsDocumented(unittest.TestCase):
+    """The flag is documented with the gates it protects, not as a bare rule.
+
+    A reader who is told only "pass this flag" has no way to judge what a
+    forgotten flag costs, and will treat it as boilerplate.
+    """
+
+    def test_the_flag_is_documented(self):
+        self.assertIn("--disable unified_exec", _readme())
+
+    def test_the_flag_is_stated_as_required_not_advisory(self):
+        self.assertRegex(_readme(), r"required on every Codex spawn")
+
+    def test_the_bypassed_gates_are_named(self):
+        text = _readme()
+        for gate in ("commit gate", "secret scan", "branch protection"):
+            with self.subTest(gate=gate):
+                self.assertIn(gate, text)
+
+
+class TestNoUnmeasuredVersionFloor(unittest.TestCase):
+    """No minimum version is claimed, AND the docs say why.
+
+    Both halves are required. Absence of a version claim is vacuously true of a
+    document that never mentions versions at all, so the positive half — that
+    the floor is explicitly unestablished — is what makes the negative mean
+    something. Only one version was ever installed; a version that works says
+    nothing about where support began.
+    """
+
+    _FLOOR_CLAIMS = (
+        r">=\s*0\.\d+",
+        r"requires Codex \d",
+        r"Codex \d[\d.]* or (later|newer)",
+    )
+
+    def test_no_minimum_version_is_claimed(self):
+        text = _readme()
+        for claim in self._FLOOR_CLAIMS:
+            with self.subTest(claim=claim):
+                self.assertNotRegex(text, claim)
+
+    def test_the_docs_state_the_floor_is_unmeasured(self):
+        text = _readme()
+        self.assertRegex(text, r"No minimum Codex version is claimed")
+        self.assertIn("nothing older was ever installed", text)
+
+    def test_the_unknown_is_not_dressed_as_an_assurance(self):
+        """An unmeasured floor must not read as 'every version works'."""
+        self.assertRegex(_readme(), r"unknown, not an assurance")
+
+
 if __name__ == "__main__":
     unittest.main()
