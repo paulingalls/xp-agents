@@ -20,7 +20,21 @@ in-process caller.
 
 import json
 import os
+import re
 from pathlib import Path
+
+_UNKNOWN = "?"
+
+# Every shipped manifest, without naming a single host. A literal directory name
+# here would put harness-specific vocabulary into shipped resolution logic, and
+# a third manifest would silently go unread the day it appears.
+_MANIFEST_GLOB = ".*-plugin/plugin.json"
+
+# What a version-keyed path component looks like. Deliberately NARROW: the job
+# is to tell "this path names a version" from "this path names nothing of the
+# kind", and a looser shape would read an ordinary directory like `2` or `1.0`
+# as a cache key and answer unknown for an ordinary checkout.
+_VERSION_SHAPED = re.compile(r"^v?\d+\.\d+\.\d+$")
 
 
 def resolve_plugin_root() -> Path:
@@ -31,18 +45,81 @@ def resolve_plugin_root() -> Path:
     return Path(__file__).parent.parent
 
 
+def _manifest_versions(root: Path) -> tuple[list[str], bool]:
+    """Versions declared under `root`, and whether the survey was COMPLETE.
+
+    `complete` is False when a manifest exists but could not be parsed or
+    declares no version. Such a file is a failure to report, not a candidate to
+    drop: substituting a readable sibling's number is exactly how a version
+    stops identifying the copy that is running. It blocks the agreement shortcut
+    in `plugin_version` without blocking path attribution, which rests on
+    positive evidence from a manifest that WAS read.
+    """
+    versions: list[str] = []
+    complete = True
+    try:
+        found = sorted(root.glob(_MANIFEST_GLOB))
+    except OSError:
+        return [], False
+    for path in found:
+        try:
+            declared = json.loads(path.read_text(encoding="utf-8")).get("version")
+        except (OSError, json.JSONDecodeError, ValueError, AttributeError):
+            complete = False
+            continue
+        if not declared:
+            complete = False
+            continue
+        versions.append(str(declared))
+    return versions, complete
+
+
+def _version_shaped_components(root: Path) -> list[str]:
+    """Path components of `root` that look like a version key.
+
+    Components, not an index: which position carries the version is the host's
+    business and differs between them, so nothing here assumes it sits last.
+    """
+    return [part for part in root.parts if _VERSION_SHAPED.match(part)]
+
+
 def plugin_version() -> str:
-    """Version string from the plugin manifest, or '?' if unreadable.
+    """Version of the plugin copy that is EXECUTING, or '?' when unknowable.
 
     Lives here rather than in a hook entry point: a library module must not
     import a hook, so every reader that is not session_start would otherwise
     copy this.
+
+    Reading one fixed manifest was the measured defect — a session reported one
+    number while the version-keyed cache directory it executed from held
+    another, hiding the only value that says which cached copy is running. Two
+    manifests now ship and agree by construction, so the signal is agreement
+    between a manifest and the PATH being executed:
+
+    - a version-shaped path component matching a declared version -> that
+      version, the executing copy;
+    - a version-shaped component matching NO manifest -> unknown. This is the
+      cache-bumped-in-place state, and reporting it is the point: a confident
+      wrong number is worse than a visible '?';
+    - no version-shaped component (an ordinary checkout) and one agreed version
+      across a complete survey -> that version;
+    - anything else -> unknown, rather than preferring a candidate for which
+      there is no evidence.
     """
-    try:
-        path = resolve_plugin_root() / ".claude-plugin" / "plugin.json"
-        return str(json.loads(path.read_text(encoding="utf-8")).get("version", "?"))
-    except (OSError, json.JSONDecodeError, ValueError):
-        return "?"
+    root = resolve_plugin_root()
+    versions, complete = _manifest_versions(root)
+    if not versions:
+        return _UNKNOWN
+    shaped = _version_shaped_components(root)
+    if shaped:
+        for component in shaped:
+            for declared in versions:
+                if declared == component.removeprefix("v"):
+                    return declared
+        return _UNKNOWN
+    if complete and len(set(versions)) == 1:
+        return versions[0]
+    return _UNKNOWN
 
 
 def expand_plugin_root(text: str) -> str:
