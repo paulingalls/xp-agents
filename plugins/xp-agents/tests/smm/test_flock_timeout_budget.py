@@ -54,8 +54,10 @@ from conftest import _SMMTestCase
 def _env(**overrides: str) -> dict:
     """os.environ minus the lock lever, plus *overrides*.
 
-    The lever is NOT in `tests/_env_hygiene.py`'s strip list, so a developer
-    shell that exports it would otherwise silently set every budget here.
+    `tests/_env_hygiene.py` already strips the lever session-wide, which is the
+    real containment. This filter is belt to those braces: it also clears a
+    value a sibling case in this process set, so `clear=True` below starts from
+    "unset" whichever way it got there.
     """
     env = {k: v for k, v in os.environ.items() if k != "XP_LOCK_TIMEOUT_SECONDS"}
     env.update(overrides)

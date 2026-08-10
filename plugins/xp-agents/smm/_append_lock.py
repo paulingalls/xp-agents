@@ -6,15 +6,16 @@ Self-contained: no import of ``_append_impl`` here, on purpose — importing
 back up would close a cycle, since ``_append_impl`` imports these primitives
 back down at module load time (see the bottom of ``_append_impl.py``).
 
-``LockTimeoutError``, ``LOCK_TIMEOUT_SECONDS``, ``flock_with_timeout``, and
-``read_with_lock`` deliberately stay in ``_append_impl.py`` rather than moving
-here: several tests patch ``_append_impl.LOCK_TIMEOUT_SECONDS`` via
-``mock.patch.object`` (see ``tests/_lock_helpers.py``,
-``tests/_in_place_helpers.py``), which only rebinds the name inside
-``_append_impl``'s own namespace. ``flock_with_timeout`` resolves that global
-through ``_effective_lock_timeout_seconds`` at acquire time, so if it lived here
-instead, that patch would silently miss it and the timeout tests would hang
-or behave incorrectly. Keeping the pair together preserves the patch seam.
+``LockTimeoutError``, ``LOCK_TIMEOUT_SECONDS``, ``_effective_lock_timeout_seconds``,
+``flock_with_timeout``, and ``read_with_lock`` deliberately stay in
+``_append_impl.py`` rather than moving here: several tests patch
+``_append_impl.LOCK_TIMEOUT_SECONDS`` via ``mock.patch.object`` (see
+``tests/_lock_helpers.py``, ``tests/_in_place_helpers.py``), which only rebinds
+the name inside ``_append_impl``'s own namespace. ``_effective_lock_timeout_seconds``
+reads that global bare, at acquire time, so it is the one that must live beside
+it — and moving ``flock_with_timeout`` down alone would mean importing the
+resolver back up, which is the cycle this file opens by refusing. Keeping the
+group together preserves the patch seam.
 """
 
 import contextlib

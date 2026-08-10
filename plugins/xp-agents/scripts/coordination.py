@@ -38,11 +38,10 @@ def _hold_coordination_lock(smm_dir: Path, stack: contextlib.ExitStack) -> bool:
     `write_json_atomic` (a full disk, say) and record it as a lock failure,
     writing a wrong diagnosis into the error log.
 
-    Never raises, and never dies. Both lock sites previously armed SIGALRM with
-    `SIG_DFL`, whose disposition is TERMINATE, so a lock held past the budget
-    killed the hook outright — no `except`, no `finally`, no trace. A give-up is
-    now logged, which is the difference between a degraded write and a silent
-    one.
+    A give-up is LOGGED rather than swallowed: this runs on a synchronous hook
+    path where the alternative to a trace is a coordination entry that silently
+    stopped being written. `tests/hooks/test_coordination_lock.py` carries the
+    defect this shape exists to prevent.
     """
     lock_path = smm_dir / marker_names.COORDINATION_LOCK
     try:

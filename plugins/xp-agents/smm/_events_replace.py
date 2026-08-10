@@ -14,10 +14,12 @@ contract ``_append_lock.py`` is held to.
 
 ``flock_with_timeout`` is imported LAZILY inside ``replace_events_file`` rather
 than at module level, and that is not a style choice: ``_append_impl`` imports
-this module at load time for the identity re-export, so importing back up here
-would close a cycle. Resolving at call time also keeps the
-``LOCK_TIMEOUT_SECONDS`` patch seam intact, because the lookup hits
-``_append_impl``'s live namespace rather than a binding frozen at import.
+this module at load time for the identity re-export, so a module-level import
+back up here would close a cycle — whichever of the two is imported first, the
+second sees a half-initialized module and the from-import raises. The
+``LOCK_TIMEOUT_SECONDS`` patch seam is unaffected either way: it lives in
+``_append_impl``'s own namespace, which is where ``flock_with_timeout`` reads it
+from regardless of how this module got hold of the function.
 """
 
 import contextlib
