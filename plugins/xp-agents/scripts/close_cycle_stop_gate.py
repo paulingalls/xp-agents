@@ -80,9 +80,9 @@ import target_routing
 # defer (delays surfacing real abandonment) or too short for abandonment
 # (false positives). The split keeps each knob honest to its purpose.
 _CLOSE_CYCLE_DEFER_WINDOW_SEC = 1800
-# Owned by close_cycle_abandonment: all three detectors apply the same age
-# rule, so the number cannot live with one of them.
-_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC = close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC
+# The abandonment age is NOT re-declared here. It is owned by
+# close_cycle_abandonment, whose recorder this module delegates the whole
+# decision to — an alias would be a second name for it with nothing reading it.
 
 _BLOCK_MESSAGE = (
     "Close cycle mid-flight. Run /security-review (Step 4) then "
