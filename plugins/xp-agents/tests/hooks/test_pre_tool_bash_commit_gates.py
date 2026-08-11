@@ -33,7 +33,6 @@ from _close_fixtures import _assert_text_ordering
 from conftest import _HookTestCase
 
 _COMMIT_CMD = "git commit -m 'test'"
-_AGENT_ID = "agent-1"
 
 _AKIA_DIFF = (
     "diff --git a/src/cfg.py b/src/cfg.py\n"
@@ -55,7 +54,7 @@ class TestCommitGatePartsPrimitive(_HookTestCase):
     @patch("git_commits.is_git_commit", return_value=False)
     def test_non_commit_returns_empty_list(self, *_mocks):
         result = pre_tool_bash_commit_gates.commit_gate_parts(
-            self.smm_dir, "git status", "/tmp", _AGENT_ID
+            self.smm_dir, "git status", "/tmp"
         )
         self.assertEqual(result, [])
 
@@ -64,7 +63,7 @@ class TestCommitGatePartsPrimitive(_HookTestCase):
     def test_tier1_secret_raises_blocked_error(self, *_mocks):
         with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_bash_commit_gates.commit_gate_parts(
-                self.smm_dir, _COMMIT_CMD, "/tmp", _AGENT_ID
+                self.smm_dir, _COMMIT_CMD, "/tmp"
             )
         self.assertIn("aws-access-key", str(ctx.exception))
 
@@ -132,7 +131,7 @@ class TestGateOrdering(_HookTestCase):
         the moment review coverage was satisfied."""
         with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_bash_commit_gates.commit_gate_parts(
-                self.smm_dir, _COMMIT_CMD, "/tmp", _AGENT_ID
+                self.smm_dir, _COMMIT_CMD, "/tmp"
             )
         msg = str(ctx.exception)
         self.assertIn("Tier 1 security scan blocked", msg)
@@ -157,7 +156,7 @@ class TestGateOrdering(_HookTestCase):
             self.assertRaises(_common.BlockedError),
         ):
             pre_tool_bash_commit_gates.commit_gate_parts(
-                self.smm_dir, _COMMIT_CMD, "/tmp", _AGENT_ID
+                self.smm_dir, _COMMIT_CMD, "/tmp"
             )
         self.assertEqual(order, ["lint", "review"])
 
@@ -177,7 +176,7 @@ class TestGateOrdering(_HookTestCase):
         assert relative POSITIONS; a substring check alone cannot detect a
         reorder of the underlying `parts.extend`/`parts.append` calls."""
         parts = pre_tool_bash_commit_gates.commit_gate_parts(
-            self.smm_dir, _COMMIT_CMD, "/tmp", _AGENT_ID
+            self.smm_dir, _COMMIT_CMD, "/tmp"
         )
         _assert_text_ordering(
             self,

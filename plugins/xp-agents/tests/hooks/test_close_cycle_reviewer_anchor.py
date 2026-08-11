@@ -64,7 +64,9 @@ class _AnchorTestCase(_HookTestCase):
         return markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
 
     def age_out(self, marker_path: Path) -> None:
-        backdate = close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC + 60
+        import close_cycle_abandonment
+
+        backdate = close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC + 60
         old = marker_path.stat().st_mtime - backdate
         os.utime(marker_path, (old, old))
 

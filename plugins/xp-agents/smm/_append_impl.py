@@ -12,7 +12,7 @@ import os
 import signal
 
 # Not used directly below — kept so `mock.patch("_append_impl.subprocess.…")`
-# in tests/hooks/test_common.py and tests/smm/test_append_safety.py still
+# in tests/hooks/test_common_io.py and tests/smm/test_append_schema.py still
 # resolves. `subprocess` is a singleton in sys.modules, so this binds the
 # SAME module object `smm_dir_resolve._derive_smm_dir` calls through;
 # patching via either name patches the one real module.

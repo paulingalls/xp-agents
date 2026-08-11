@@ -2,6 +2,138 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.13.0 — The conversions were not the point
+
+This release set out to turn checkable claims in shipped docstrings into tests
+that go red when the claim stops holding, and to measure whether doing that at
+scale is worth it. The measurement came back 24.8%, and the conversions turned
+out to be the least valuable thing the work produced.
+
+### What a claim costs when nobody checks it
+
+Triaging ten long docstrings across the close-gate cluster found 128 claims —
+105 a machine could check, 26 of them unpinned. That is the headline number,
+and it argues against funding more sweeps: the cluster was chosen precisely
+because it measured the *thinnest* existing coverage, so 24.8% is the optimistic
+end.
+
+What the same reading found instead was four false claims, shipped, in the two
+modules the cluster's behaviour actually turns on. `close_cycle_stop_gate`
+described its `stop_hook_active` bypass as age-gated and named a constant as the
+mechanism; the owning session has decided it since the liveness check landed,
+and the repo's own tests falsify the age story in both directions. The constant
+it named was read by nothing — it survived only in prose and in tests that used
+it as a backdate value. The same docstring claimed the gate blocks whenever the
+marker is present, omitting the evidence-release path.
+`close_cycle_abandonment` said the marker is released only when the reviewer
+completes, contradicted 190 lines below by its own recorder.
+
+Two more turned up in the tests themselves, including a remedial message naming
+a call site that does not exist.
+
+None of that comes out of a conversion pass. It comes out of reading claims
+against the code they describe, which is a reviewer's work — the same lesson
+this project already recorded as "stale prose is caught by diff review, not by
+sweeping unchanged code".
+
+### A ratio moves against the work that corrects it
+
+The `scripts/` prose ratchet compared the whole root against one recorded ratio
+over a hand-kept file set. That shape has two failure modes, and both had fired.
+A true claim is usually longer than the false short one it replaces, so
+correcting prose RAISED the number the ratchet watches — it moved against
+exactly the work it was installed to protect. And a sum lets one file's honest
+deletion pay for another's regrowth.
+
+It now measures per file, in absolute lines, against a table generated from the
+scan rather than hand-typed. The tree drives the comparison and the table only
+supplies numbers, so a file above the floor with no recorded entry is a
+violation rather than an exemption — so a file added after the hand-kept set
+was recorded can no longer stay unmeasured indefinitely by nobody thinking to
+add it. The two that had been are `session_start_banner.py` and
+`run_attribution.py`, and neither is measured today either: at 83 and 52 prose
+lines they sit below the floor. What changed for them is the reason, not the
+outcome — a rule they will trip on the way up, instead of an omission.
+
+**The floor is 120 prose lines, and it governs 42 of the 144 files in
+`scripts/`.** Below it a file is ungoverned — by a uniform rule now rather than
+by omission, and it becomes a violation the moment it crosses — but ungoverned
+all the same: this is a ceiling on the long files, not a bound on the tree.
+Choosing 120 was a friction measurement, not a principle; at 60 roughly three
+in five new files would have arrived red.
+
+Measurement and slack are recorded as two numbers rather than one fudged one,
+and both are public — the pin imports them to build the regrowth leg that gives
+the slack constant its teeth.
+
+### A pointer is not a promise
+
+Converting a claim leaves a pointer where the claim was: "pinned in
+`test_x.py`". Nothing checked that the named file existed. Two pointers in the
+tree were already dead — both killed by file *splits* rather than renames, which
+is the case a rename-aware habit misses. One of them justified an otherwise
+unused import by naming the tests that patch through it.
+
+A new pin now resolves every test file named in shipped Python, shell and
+Markdown prose.
+It matches file-shaped tokens only: shipped code carries `test_passed` and
+`test_count` as event fields and `TestLayout` as a domain type, and a
+bare-identifier matcher reports all of them dead. It states plainly what it
+cannot do — it proves a named file exists, never that the file still asserts the
+claim pointing at it.
+
+### Two gates that failed open
+
+`owner_session_is_live` compared a heartbeat's age against a staleness threshold
+with no lower bound, so a timestamp recorded in milliseconds, or written across
+a backwards clock step, aged negative and read as a live owner. Live is the
+dangerous verdict: it suppresses the age fallback, leaving the close-cycle Stop
+gate armed with nothing able to release it while the next close overwrites the
+marker it should have recorded.
+
+Separately, the review-cycle flag was written, read and cleared under two
+different `agent_id` resolutions — some sites keying on the hook payload, some
+on the checkout. A Stop payload carrying a platform agent id sent the close gate
+looking for a key the Step 4b CLI never wrote, so it blocked an agent
+mid-review.
+
+The first attempt widened the gate's READ to accept either key, and that was
+worse than the bug: the writes and clears stayed split, so the checkout-keyed
+record never left mid-cycle and the gate deferred away every Stop for the rest
+of its window — the close ended half-done with no nudge at all, where before it
+at least blocked. Its own release review caught that.
+
+Converging the eleven sites on one checkout-derived key came next, and it was
+still not the fix — because the record held two fields that do not have the
+same owner. `last_review_commit` is a sha, and its only consumer diffs
+`{sha}..HEAD` inside a specific repo; the two flags say whether *this session*
+has reviewed yet. Every site that touched both had to pick one owner for both,
+and the four commit sites picked the repo the commit lands in while the seven
+flag sites picked the session. `git -C <other-repo> commit` — the form this
+project's own close skills prescribe for a fix in someone else's worktree — is
+exactly where those differ, and there the gate read a record
+`/xp-quality-review` never writes. Re-running the review could not clear it:
+every writer kept writing the other one.
+
+So the record splits, and the seam lands where the disagreement was. The
+watermark is keyed on the target repo, the flags on the reviewing session, and
+neither key can answer for the other's question. Collapsing both onto the
+session would have been worse than the block it removed: a foreign sha makes
+git's diff fail, the changed-file count collapses to the staged set, and the
+gate stops firing silently. A loud false block is the better failure.
+
+The review functions moved out of `markers.py` in the same change — it had
+reached its 450-line sub-cap, and this was the group that grew.
+
+### A gate that allowed a Stop but kept the marker
+
+`close_cycle_stop_gate`'s evidence-release branch returned without consuming
+`CLOSE_CYCLE_ACTIVE`. Allowing the Stop was never a release: the surviving
+marker reached the SessionStart sweep, which has no evidence check, and became a
+false high-severity "close abandoned" concern against a close whose reviewer
+demonstrably ran — and that false concern then counts toward aborting a healthy
+close. The branch now consumes the marker it was documented as releasing.
+
 ## v5.12.0 — A name is not the thing it names
 
 Both fixes here are the same mistake in different clothes: something read a

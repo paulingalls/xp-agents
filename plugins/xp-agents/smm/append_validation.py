@@ -37,6 +37,16 @@ def validate_smm_dir(smm_dir: Path) -> None:
         raise ValueError(f"SMM directory is world-writable: {smm_dir}")
 
 
+def is_valid_agent_id(agent_id: str) -> bool:
+    """The same allowlist as a question rather than an assertion.
+
+    For the caller that can DEGRADE on a bad id instead of failing — a resolver
+    turning a path into a marker key, where raising takes down a hook that is
+    supposed to be advisory. Pinned in test_review_record_owners.py.
+    """
+    return bool(agent_id) and bool(_AGENT_ID_RE.match(agent_id))
+
+
 def validate_agent_id(agent_id: str) -> None:
     """Reject agent IDs that don't match the allowlist pattern."""
     if not agent_id:

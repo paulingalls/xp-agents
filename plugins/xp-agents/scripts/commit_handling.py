@@ -35,8 +35,10 @@ import code_files
 import commit_command
 import commit_emit
 import commits
+import identity
 import lint_resolution
 import markers
+import review_records
 from event_schema import METADATA_KEY_COMMIT_HASH
 from pre_tool_write import is_test_file
 from verify_deferred import (
@@ -199,6 +201,7 @@ def _handle_commit(
                     command,
                     head,
                     events=events,
+                    session_cwd=cwd,
                     is_xp_agent_leak=is_xp_agent_leak,
                     backgrounded=backgrounded,
                 )
@@ -309,7 +312,16 @@ def _handle_commit(
     )
 
     if commit_hash:
-        markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
+        # One commit, two records: the watermark advances in the repo the
+        # commit landed in, and the review cycle ends for the session that ran
+        # the review. A commit into someone else's checkout does not end
+        # THEIR cycle — they have not reviewed anything.
+        review_records.end_review_cycle(
+            smm_dir,
+            identity.review_watermark_key(effective_cwd),
+            identity.review_flags_key(cwd),
+            commit_hash,
+        )
 
     return _check_qr_linkage(
         events, agent_id, has_code=has_code, cadence=review_cadence

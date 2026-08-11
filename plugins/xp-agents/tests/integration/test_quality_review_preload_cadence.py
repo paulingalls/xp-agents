@@ -13,10 +13,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
-import markers
 from _bases import _PLUGIN_ROOT
 from conftest import _IntegrationTestCase
 
@@ -92,7 +93,7 @@ class TestQualityReviewPreloadCadence(_IntegrationTestCase):
     def test_mode_consume_findings_after_code_review(self):
         """simplify_done set (a /code-review ran this cycle) → consume-findings."""
         self._checkout_main_clean()
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
         result = self._run_preload(_PRELOAD)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self._extract_var(result.stdout, "MODE"), "consume-findings")
@@ -106,7 +107,7 @@ class TestQualityReviewPreloadCadence(_IntegrationTestCase):
         commits live on a branch ahead of the merge target (main)."""
         self._checkout_main_clean()
         self._commit_on_branch("close-branch", "qux.py")
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
         result = self._run_preload(_PRELOAD)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self._extract_var(result.stdout, "MODE"), "consume-findings")
@@ -124,7 +125,7 @@ class TestQualityReviewPreloadCadence(_IntegrationTestCase):
         loud 'Close diff unavailable' marker and does NOT surface a staged
         working-tree file as if it were the close diff."""
         self._checkout_main_clean()
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
         (self.tmpdir / "wip.py").write_text("z = 3\n")
         self._git("add", "wip.py")
         result = self._run_preload(_PRELOAD)

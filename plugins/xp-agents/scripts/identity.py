@@ -8,7 +8,16 @@ Detects CLI teammates by worktree directory prefix.
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
+
+# APPEND, where every sibling inserts at 0. They own their smm/ imports the
+# same way, but this module is imported by nearly every hook, so putting smm/
+# ahead of scripts/ here would reorder resolution for all of them to reuse one
+# regex. Appended, scripts/ still wins and the reach is additive only.
+sys.path.append(str(Path(__file__).parent.parent / "smm"))
+
+import append_validation
 
 # Single source of truth for the LEGACY in-repo worktree directory under each
 # project root. Consumed by hooks (pre_tool_bash matcher), worktree path
@@ -202,12 +211,11 @@ def in_place_teammate_name(smm_dir: Path | None = None) -> str | None:
         from smm_dir_resolve import follow_migration_pointer
 
         smm_dir = follow_migration_pointer(Path(env_dir))
-    # Deferred import: identity carries no sys.path shim of its own (its
-    # module-level imports are stdlib-only) — a top-level `import _common`
-    # would resolve only by the side effect of some other module having
-    # already inserted smm/ onto sys.path. _common.py:13 does that insert
-    # itself, and every caller of this function already imports identity
-    # after running that shim.
+    # Deferred for the same reason as `_recorded_user_namespace`'s imports,
+    # not for path reasons — the shim at the top of this module already
+    # resolves smm/. identity is imported by nearly every hook, and `_common`
+    # pulls the SMM engine in behind it; only the callers that reach this
+    # branch should pay for that.
     import _common
 
     resolved_smm_dir = _common.try_validate_smm_dir(smm_dir)
@@ -274,8 +282,36 @@ def resolve_agent_id_from_cwd(cwd: str) -> str:
     """Resolve agent_id from a cwd path — worktree name or 'main' fallback.
 
     For skill-invoked scripts that have cwd but no hook input_data.
+
+    The result is always a usable marker key: a path segment is wider than the
+    allowlist behind `MarkerDef.filename`, and a commit command's own `-C`
+    target reaches here, so an unrepresentable one would raise out of an
+    advisory gate. Falls back to the default, as it already does for any
+    non-worktree path. Pinned in test_review_record_owners.py.
     """
-    return extract_worktree_name(cwd) or "main"
+    name = extract_worktree_name(cwd)
+    if name and append_validation.is_valid_agent_id(name):
+        return name
+    return "main"
+
+
+def review_flags_key(session_cwd: str) -> str:
+    """Key for the review FLAGS: the checkout the reviewing session runs in.
+
+    Never a payload agent_id — the hooks that set the flags carry a subagent's
+    id, and a flag set under one id whose clear lands under another stays set
+    for good. Pinned in test_review_flag_cli.py.
+    """
+    return resolve_agent_id_from_cwd(session_cwd)
+
+
+def review_watermark_key(repo_cwd: str) -> str:
+    """Key for the review WATERMARK: the repo a commit lands in.
+
+    A different checkout from the one above whenever a commit names its target
+    (`git -C <path> commit`). Pinned in test_review_record_owners.py.
+    """
+    return resolve_agent_id_from_cwd(repo_cwd)
 
 
 def _slugify(s: str) -> str:

@@ -13,8 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from unittest.mock import patch
 
 import _common
-import markers
 import pre_tool_bash
+import review_records
 from conftest import _HookTestCase, _make_bash_input
 
 _COMMIT_CMD = "git commit -m 'test'"
@@ -30,7 +30,9 @@ class TestPreToolBashWorktreeAgentId(_HookTestCase):
         the gate must block on /xp-quality-review (proves it read the
         worktree-scoped marker, not main's empty cycle).
         """
-        markers.set_review_flag(self.smm_dir, "teammate-story-001", "simplify_done")
+        review_records.set_review_flag(
+            self.smm_dir, "teammate-story-001", "simplify_done"
+        )
         inp = _make_bash_input(
             command=_COMMIT_CMD,
             cwd="/proj/.claude/worktrees/teammate-story-001",

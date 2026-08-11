@@ -26,11 +26,12 @@ import sys
 import unittest
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import markers
 from conftest import _IntegrationTestCase, _make_bash_input
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN
@@ -39,7 +40,7 @@ from event_schema import EVENT_TYPE_CONCERN
 # on the staging-time ruff path the AC actually exercises. Two staged .py
 # files cross commits.REVIEW_CYCLE_THRESHOLD; without this the simplify
 # gate would block first and mask the F401 outcome under test.
-_REVIEW_DONE = dict(markers._DEFAULT_REVIEW_CYCLE) | {
+_REVIEW_DONE = dict(review_records._DEFAULT_REVIEW_FLAGS) | {
     "simplify_done": True,
     "quality_review_done": True,
 }
@@ -119,7 +120,7 @@ class TestReplaceAllMultiFileE2E(_IntegrationTestCase):
         )
 
         # Stage both files for the commit-time gate.
-        markers.write_review_cycle(self.smm_dir, "main", _REVIEW_DONE)
+        review_records.write_review_flags(self.smm_dir, "main", _REVIEW_DONE)
         subprocess.run(
             ["git", "add", "file_a.py", "file_b.py"],
             cwd=self.tmpdir,

@@ -21,7 +21,7 @@ from conftest import (
     _HookTestCase,
     _make_bash_input,
 )
-from markers import write_review_cycle
+from review_records import write_review_flags
 
 
 class TestTier1SecurityScan(_HookTestCase):
@@ -49,7 +49,7 @@ class TestTier1SecurityScan(_HookTestCase):
 
     def _satisfy_review_cycle(self) -> None:
         """Write all markers so the existing review-cycle gate would pass."""
-        write_review_cycle(
+        write_review_flags(
             self.smm_dir,
             "main",
             {
