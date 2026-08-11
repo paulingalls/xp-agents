@@ -79,8 +79,16 @@ def within_window(age: float | None, stale_after: float = STALE_AFTER_SECONDS) -
     good" is not one question: the preload check tolerates a user who stepped
     away between prompts, while a Stop gate deciding whether to release on a
     teammate cannot. A caller that needs a tighter answer passes its own value
-    rather than growing a second implementation — the near end, the None
-    handling, and the comparison itself stay here.
+    rather than growing a second implementation.
+
+    NOT every caller, though, and the bounds are spelled out twice more — in
+    `hook_liveness.check_liveness` and `close_cycle_abandonment
+    .owner_session_is_live`. Returning `bool` is what excludes them: it
+    collapses unreadable into False, and both answer `bool | None` precisely so
+    an unreadable heartbeat falls to their age fallback instead of reading as a
+    dead owner. Extracting a shared `unageable()` was tried and reverted —
+    each still needs its own `age is None` leg to build that third answer, so
+    the extraction moved one comparison and left the branch behind.
     """
     return age is not None and -FUTURE_SKEW_GRACE_SECONDS <= age < stale_after
 

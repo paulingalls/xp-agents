@@ -118,7 +118,11 @@ PROSE_SLACK_LINES = 5
 def prose_ceilings() -> dict[str, int]:
     """Path -> the number the tree is compared against: measurement + slack.
 
-    A function rather than a fourth constant so no caller can compare against
-    the raw measurement and rediscover the zero-headroom ceiling.
+    A function rather than a fourth constant so the ceiling has one derivation
+    and a caller reaching for it gets slack included by default. It does not
+    HIDE the measurement — PROSE_MEASURED and PROSE_SLACK_LINES are public and
+    the pin imports both to build its regrowth legs. Nothing here stops a
+    future caller comparing against the raw number; what stops it is that the
+    zero-headroom ceiling has a name and a recorded reason.
     """
     return {path: n + PROSE_SLACK_LINES for path, n in PROSE_MEASURED.items()}

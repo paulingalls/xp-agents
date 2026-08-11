@@ -48,12 +48,23 @@ deletion pay for another's regrowth.
 It now measures per file, in absolute lines, against a table generated from the
 scan rather than hand-typed. The tree drives the comparison and the table only
 supplies numbers, so a file above the floor with no recorded entry is a
-violation rather than an exemption — which closes the other half of the old
-design, where a file added after the set was recorded stayed unmeasured
-indefinitely. Two were.
+violation rather than an exemption — so a file added after the hand-kept set
+was recorded can no longer stay unmeasured indefinitely by nobody thinking to
+add it. The two that had been are `session_start_banner.py` and
+`run_attribution.py`, and neither is measured today either: at 83 and 52 prose
+lines they sit below the floor. What changed for them is the reason, not the
+outcome — a rule they will trip on the way up, instead of an omission.
 
-Measurement and slack stay separate, and only the ceiling is exposed, so no
-caller can compare against the raw number and rediscover a zero-headroom gate.
+**The floor is 120 prose lines, and it governs 42 of the 144 files in
+`scripts/`.** Below it a file is ungoverned — by a uniform rule now rather than
+by omission, and it becomes a violation the moment it crosses — but ungoverned
+all the same: this is a ceiling on the long files, not a bound on the tree.
+Choosing 120 was a friction measurement, not a principle; at 60 roughly three
+in five new files would have arrived red.
+
+Measurement and slack are recorded as two numbers rather than one fudged one,
+and both are public — the pin imports them to build the regrowth leg that gives
+the slack constant its teeth.
 
 ### A pointer is not a promise
 
@@ -91,11 +102,27 @@ record never left mid-cycle and the gate deferred away every Stop for the rest
 of its window — the close ended half-done with no nudge at all, where before it
 at least blocked. Its own release review caught that.
 
-The fix is on the write side. `identity.review_cycle_agent_id` is now the one
-key every review-cycle read, write, clear and reset resolves through, keyed on
-the checkout and never on a payload id, across all eleven sites. There is no
-divergence left to tolerate, which also retires the sibling gate's copy of the
-same hazard.
+Converging the eleven sites on one checkout-derived key came next, and it was
+still not the fix — because the record held two fields that do not have the
+same owner. `last_review_commit` is a sha, and its only consumer diffs
+`{sha}..HEAD` inside a specific repo; the two flags say whether *this session*
+has reviewed yet. Every site that touched both had to pick one owner for both,
+and the four commit sites picked the repo the commit lands in while the seven
+flag sites picked the session. `git -C <other-repo> commit` — the form this
+project's own close skills prescribe for a fix in someone else's worktree — is
+exactly where those differ, and there the gate read a record
+`/xp-quality-review` never writes. Re-running the review could not clear it:
+every writer kept writing the other one.
+
+So the record splits, and the seam lands where the disagreement was. The
+watermark is keyed on the target repo, the flags on the reviewing session, and
+neither key can answer for the other's question. Collapsing both onto the
+session would have been worse than the block it removed: a foreign sha makes
+git's diff fail, the changed-file count collapses to the staged set, and the
+gate stops firing silently. A loud false block is the better failure.
+
+The review functions moved out of `markers.py` in the same change — it had
+reached its 450-line sub-cap, and this was the group that grew.
 
 ### A gate that allowed a Stop but kept the marker
 
