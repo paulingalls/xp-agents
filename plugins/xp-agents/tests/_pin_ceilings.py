@@ -55,11 +55,14 @@ BAND_CEILINGS = {
     # per-stream first, so a discarded stream can't drop half a linter's
     # diagnosis.
     "plugins/xp-agents/scripts/lint_runners.py": 482,
-    # RETIRED (story-002): _append_impl.py 469->409, under the 450 floor so the
+    # RETIRED (story-002): _append_impl.py 469 -> under the 450 floor, so the
     # entry is deleted rather than lowered. Whole-file rewriting (event_ids,
     # _preservable_id, replace_events_file) moved to _events_replace.py — the
     # appender adds one event under lock, that module replaces the file from a
     # caller's snapshot, and they were two responsibilities in one file.
+    # No landing count quoted on purpose: two attempts at one (377, then 409)
+    # were both stale within the same sprint, and the retirement's legitimacy
+    # rests on "below 450", which `wc -l` answers at any time.
     #
     # Entered the band at sprint close: the start-time file_domain gate needed
     # an ABSOLUTE sister-expanded report alongside the this-write-only one.

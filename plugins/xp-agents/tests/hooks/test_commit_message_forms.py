@@ -302,11 +302,13 @@ class TestAMessageMayDiscussHeredocs(unittest.TestCase):
 
 
 class TestTheOrdinaryFormsAreUnchanged(unittest.TestCase):
-    """The regression guard for the subtraction's ORDER.
+    """The regression guard for the ORDER the two `-m` readers run in.
 
-    `_HEREDOC_MSG_RE` must keep matching the ORIGINAL command: it is itself a
-    heredoc form, so subtracting bodies first would delete the very body it
-    captures. Only the simple-`-m` search moves onto stripped text.
+    `_HEREDOC_MSG_RE` must be tried first. Its own `-m` sits OUTSIDE the heredoc
+    body it wraps, so the general scan would accept that `-m` and hand back the
+    whole `$(cat …)` expression as the message. (An earlier draft justified the
+    order by saying bodies were subtracted before the scan and would delete this
+    pattern's own body — true of that draft, and nothing is subtracted now.)
     """
 
     def test_the_cat_heredoc_form_still_returns_its_whole_body(self):

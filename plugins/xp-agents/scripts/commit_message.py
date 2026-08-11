@@ -151,8 +151,10 @@ def recover_commit_message(command: str) -> tuple[str | None, bool]:
     HEAD's body is the only signal that the commit actually landed. Parsing
     only `-m` silently dropped every `-F`-bodied commit from the event log.
     """
-    # Ordering is load-bearing: this pattern is itself a heredoc form, so
-    # subtracting bodies first would delete the body it captures.
+    # Ordering is load-bearing, though not for the reason an earlier draft gave
+    # (nothing is subtracted any more): this pattern's own `-m` sits OUTSIDE the
+    # heredoc body it wraps, so the general scan below would accept it and hand
+    # back the whole `$(cat …)` expression as the message.
     heredoc = _HEREDOC_MSG_RE.search(command)
     if heredoc:
         return heredoc.group("body"), not heredoc.group("mq")

@@ -51,13 +51,31 @@ at all**. Every `Resolves-Event:` id the author named stayed silently open.
 
 Honest scope: this was pitched as covering seven recorded incidents and it
 covers one or two. `-m "$(cat <<'EOF' … )"`, the other spelling that looks
-identical in a transcript, parses correctly and always did. The heredoc body is
-now stripped before the simple-`-m` scan, and the heredoc form is tried FIRST
-because it is itself a heredoc.
+identical in a transcript, parses correctly and always did.
 
-A hand-run `git merge` also records an event now, tagged `is_merge` so it stays
-out of the resolves-link-rate denominator — including a conflict finished by
-hand, which git spells `commit (merge)` rather than `merge`.
+A `-m` found INSIDE a heredoc body is now data and skipped, while one outside
+every body stays an argument whatever its value contains — and the
+`-m "$(cat <<EOF …)"` form is tried first, because it is itself a heredoc. The
+first attempt at this deleted every heredoc-shaped span before the scan instead,
+which mangled any message that discussed a heredoc; a close review caught it in
+the same release. Every quoted delimiter spelling now counts as quoted, too:
+bash disables expansion for `<<'EOF'`, `<<"EOF"` and `<<\EOF` alike, and
+admitting only the first left the original defect alive one keystroke away.
+
+A hand-run `git merge` records an event in one case it previously did not: when
+the command supplies no readable message AND git prints no success line, the
+HEAD-rebuild path recognises a merge landing from the reflog and tags it
+`is_merge`, keeping it out of the resolves-link-rate denominator. A conflicted
+merge finished by hand is recognised there too, spelled `commit (merge)`.
+
+**Narrower than it sounds — the common shapes are not covered.**
+`git merge --no-ff side -m "Merge side"`, and a conflict finished with
+`git commit --no-edit`, both get confirmed the ordinary way (message match, or
+git's `[branch hash]` line), so they take the shared success path, which does not
+pass `is_merge` and records them as plain commits carrying the whole merged
+branch as their files. Threading the tag through that path is the next piece of
+work and is tracked as an open concern. These notes claimed the general case
+until a close review measured both shapes end to end.
 
 ### The fix that claimed another clone's commit
 

@@ -99,7 +99,7 @@ Promoted from concern `3a59b2018e99`, which an auto-producer filed at `low`. Not
 
 The premise ("only reachable if the PreToolUse block was bypassed") is true, and the bypass is not hypothetical:
 
-- `pre_tool_bash.py:228` returns early for `xp-` agents — the recursion-prevention convention — and the hidden-path refusal sits **below** it, inside the `commit_gate_parts` call at `:242` (the `raise` itself is `pre_tool_bash_commit_gates.py:133`).
+- `pre_tool_bash.py:228` returns early for `xp-` agents — the recursion-prevention convention — and the hidden-path refusal sits **below** it, inside the `commit_gate_parts` call at `:242` (the `raise` itself is in `pre_tool_bash_commit_gates.py`, in the unresolvable-`-C` refusal — named rather than numbered, because that line moved within one sprint of being written).
 - `bash_post_tool.py:174` computes `is_xp_agent_leak` and still calls `_handle_commit`, because the commit event must always land; only side-effect mutations are gated.
 
 So for an `xp-` subagent, nothing refuses an unresolvable `-C`, and the scan is the only thing standing between that and a commit attributed to the wrong repo — a *wrong* attribution, not merely a missing event. Drop the worktree candidates and `_confirm_commit_repo` exhausts the two cheap ones (both the caller's checkout, since the hidden path falls back to `cwd`), then hits its stdout-success fallback at `commit_event.py:249`, which trusts the **first** candidate. A real commit prints `[branch hash] subject`, so that fallback fires, the event records against the caller's HEAD, and `_record_unconfirmed_commit` never runs.

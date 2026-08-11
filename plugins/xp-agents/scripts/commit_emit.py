@@ -91,8 +91,10 @@ _CONFLICT_FINISH_REFLOG_ACTION = "commit (merge)"
 # failing OPEN on a miss; `test_commit_event_provenance.py` holds what it took.
 _MERGE_CREATED_DETAIL_PREFIX = "merge made by"
 
-# Spelled as a type, like `in_place_marker._State`: the caller compares the kind
-# to a bare string, and a typo there fails closed and silently.
+# Spelled as a type, like `in_place_marker._State`, to name the two landings in
+# one place. It does NOT catch a typo in a caller's bare-string comparison —
+# pyright runs `basic` here with `reportUnnecessaryComparison` off, so
+# `kind == "mrege"` is reported by nothing (measured). The tests guard that.
 _LandingKind = Literal["plain", "merge"]
 
 
