@@ -2,10 +2,11 @@
 """Stop command hook: close-cycle gate.
 
 Blocks Stop while a close skill is mid-cycle (CLOSE_CYCLE_ACTIVE marker
-present), nudging the agent to invoke xp-close-reviewer next. The marker is
-written by the three closes that run /security-review — sprint, plan and free —
-before that review runs, and consumed by subagent_stop.py when
-xp-close-reviewer completes.
+present), nudging the agent to invoke xp-close-reviewer next — unless evidence
+of a completed reviewer has landed since the close started, which releases the
+marker instead. The marker is written by the three closes that run
+/security-review — sprint, plan and free — before that review runs, and
+consumed by subagent_stop.py when xp-close-reviewer completes.
 
 xp-story-close is deliberately OUTSIDE this gate, and the asymmetry is not an
 oversight to correct. Two reasons, either sufficient: it skips Step 4 entirely
@@ -13,11 +14,9 @@ oversight to correct. Two reasons, either sufficient: it skips Step 4 entirely
 /security-review and /code-review steps do not apply to it), and under story
 cadence its review path is the full per-story review cycle, which does not fork
 xp-close-reviewer — the only thing that releases this gate. Arming it there
-would block until the marker aged past
-`_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC` and then record a high-severity
-"close abandoned" concern against a close that ran exactly the review it was
-supposed to. `_BYPASS_RECOVERY` naming /xp-{sprint,plan,free}-close is correct
-as written for the same reason.
+would record a high-severity "close abandoned" concern against a close that ran
+exactly the review it was supposed to. `_BYPASS_RECOVERY` naming
+/xp-{sprint,plan,free}-close is correct as written for the same reason.
 
 Story-close still has a cycle IDENTITY — every close mode writes its cycle id
 to a separate marker, which the appender reads to tag concerns. That marker
@@ -38,15 +37,15 @@ stop_hook_active bypass: Claude Code latches `stop_hook_active=True`
 session-wide once any Stop hook returns a `reason` (e.g.,
 `session_end_warning`'s nudge) — it does NOT reset per-turn. Once the
 flag is True, this gate's block message can no longer reach the agent
-reliably. The bypass is **age-gated**: only when the CLOSE_CYCLE_ACTIVE
-marker is OLDER than `_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC` is the cycle
-treated as truly abandoned — then the gate records a high-severity concern + emits
-stderr (loud signal) and consumes the marker. A YOUNG marker is a live
-in-flight cycle (e.g. the agent yielding during the async Step 4b wait
-with stop_hook_active already latched); recording an abandonment concern
-there is a false positive, so the bypass leaves it alone (SessionStart
-sweep is the backstop). Marker mtime is set by markers.marker_write at
-close-cycle start and is equivalent to the preload's CLOSE_START_TS.
+reliably. So the bypass allows the Stop and asks
+`close_cycle_abandonment.record_abandonment` whether the cycle died; on yes it
+records a high-severity concern, emits stderr, and consumes the marker.
+
+This gate does not decide that. The OWNING SESSION does: a close whose session
+still heartbeats is running however old its marker is, and one whose session
+stopped is abandoned however young. Age survives only as the fallback for an
+owner that cannot be named or read. The decision lives in one place because
+three detectors face it; see close_cycle_abandonment.
 """
 
 import sys
@@ -80,9 +79,9 @@ import target_routing
 # defer (delays surfacing real abandonment) or too short for abandonment
 # (false positives). The split keeps each knob honest to its purpose.
 _CLOSE_CYCLE_DEFER_WINDOW_SEC = 1800
-# Owned by close_cycle_abandonment: all three detectors apply the same age
-# rule, so the number cannot live with one of them.
-_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC = close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC
+# The abandonment age is NOT re-declared here. It is owned by
+# close_cycle_abandonment, whose recorder this module delegates the whole
+# decision to — an alias would be a second name for it with nothing reading it.
 
 _BLOCK_MESSAGE = (
     "Close cycle mid-flight. Run /security-review (Step 4) then "
@@ -101,6 +100,22 @@ _BYPASS_STDERR = (
     f"CLOSE_CYCLE_ACTIVE marker still set — high-severity concern recorded. "
     f"{_BYPASS_RECOVERY}\n"
 )
+
+
+def _review_mid_cycle_under_either_key(smm_dir: Path, input_data: dict) -> bool:
+    """Is a review in flight under EITHER agent_id the flag may be keyed on?
+
+    Three writers, two resolutions: the hooks key by `resolve_agent_id` (a
+    platform agent_id, verbatim), `review_flag_cli` by cwd. No one resolution
+    serves all three, so reading one misses a writer — and missing the CLI's
+    flag BLOCKS an agent mid-review, while a spurious defer only delays a
+    block. Pinned in test_review_flag_cli.py.
+    """
+    seen = {
+        identity.resolve_agent_id(input_data),
+        identity.resolve_agent_id_from_cwd(input_data.get("cwd", "")),
+    }
+    return any(markers.review_mid_cycle(smm_dir, agent_id) for agent_id in seen)
 
 
 def _marker_age_under(smm_dir: Path, threshold_sec: float) -> bool:
@@ -189,22 +204,17 @@ def reviewer_completed_this_cycle(
 
 
 def _record_bypass(smm_dir: Path, input_data: dict) -> None:
-    """Record an abandonment concern and consume the marker — AGED markers only.
+    """Record an abandonment concern and consume the marker — dead cycles only.
 
-    A young marker is a legitimately in-flight close (e.g. the agent yielded
-    during the async Step 4b `/code-review` wait, with `stop_hook_active`
-    already latched session-wide by an unrelated earlier hook). That is NOT
-    abandonment — the workflow-completion notification re-wakes the agent and
-    the close finishes. Recording a high-severity "close abandoned" concern
-    there is a false positive (the bug this guard fixes), so the recorder does
-    nothing: no stderr, no concern, no consume; the SessionStart sweep is the
-    backstop once that cycle ages out.
+    A cycle whose owning session still heartbeats is legitimately in flight
+    (e.g. the agent yielded during the async Step 4b `/code-review` wait, with
+    `stop_hook_active` already latched session-wide by an unrelated earlier
+    hook), however old its marker is. Recording a high-severity "close
+    abandoned" concern there is a false positive, so the recorder does nothing:
+    no stderr, no concern, no consume; the SessionStart sweep is the backstop.
+    Only where the owner cannot be named or read does age decide.
 
-    Once the marker ages past the threshold the cycle is truly stuck/abandoned:
-    the shared recorder appends the high-severity concern and consumes the
-    marker so subsequent Stops don't re-fire.
-
-    The age decision, the record and the consume all belong to
+    That decision, the record and the consume all belong to
     close_cycle_abandonment — all three detectors face the same live-vs-dead
     question and would drift apart deciding it separately. What stays here is
     the stderr line, and it is written only when the recorder says a concern
@@ -255,19 +265,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # Step 4b window: the close /code-review workflow is in flight
         # (review mid-cycle). Defer the close-reviewer nudge until the
         # workflow returns and /xp-quality-review consumes its findings —
-        # same predicate sprint_stop_gate uses, keyed to the gate's
-        # resolved agent_id so the close /code-review's simplify_done
-        # (written under that same key) is read here.
+        # same predicate sprint_stop_gate uses, read under BOTH key
+        # resolutions (see _review_mid_cycle_under_either_key).
         #
-        # Age-bound the defer (same threshold _record_bypass uses): defer
-        # ONLY while the marker is young (workflow plausibly still running).
+        # Age-bound the defer on its own window (shorter than the abandonment
+        # age): defer ONLY while the marker is young (workflow plausibly
+        # still running).
         # Once it ages past the threshold the mid-cycle flag is stuck — a
         # /xp-quality-review consume that never set quality_review_done — so
         # an unbounded defer would silently abandon the close forever. Fall
         # through to the block; the next stop_hook_active bypass then consumes
         # the aged marker and records the abandonment concern.
-        agent_id = identity.resolve_agent_id(input_data)
-        mid_cycle = markers.review_mid_cycle(smm_dir, agent_id)
+        mid_cycle = _review_mid_cycle_under_either_key(smm_dir, input_data)
         if mid_cycle and _marker_age_under(smm_dir, _CLOSE_CYCLE_DEFER_WINDOW_SEC):
             return None
         return _BLOCK_MESSAGE

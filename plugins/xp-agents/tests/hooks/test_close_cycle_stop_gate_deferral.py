@@ -143,6 +143,7 @@ class TestCloseCycleEvidenceRelease(_HookTestCase):
         both) never gets mis-recorded as 'reviewer never ran'."""
         import os
 
+        import close_cycle_abandonment
         import close_cycle_stop_gate
         import markers
 
@@ -150,7 +151,7 @@ class TestCloseCycleEvidenceRelease(_HookTestCase):
         _seed_status(self.smm_dir, "close_started")
         _seed_status(self.smm_dir, "subagent_complete", agent_type="xp-close-reviewer")
         marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        backdate = close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC + 60
+        backdate = close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC + 60
         old = marker_path.stat().st_mtime - backdate
         os.utime(marker_path, (old, old))
 
@@ -229,11 +230,11 @@ class TestCloseCycleMidCycleAgeGate(_HookTestCase):
     def _backdate_marker(self) -> None:
         import os
 
-        import close_cycle_stop_gate
+        import close_cycle_abandonment
         import markers
 
         marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        backdate = close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC + 60
+        backdate = close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC + 60
         old = marker_path.stat().st_mtime - backdate
         os.utime(marker_path, (old, old))
 

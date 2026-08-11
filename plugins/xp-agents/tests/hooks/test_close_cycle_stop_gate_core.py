@@ -118,12 +118,13 @@ class TestCloseCycleStopGate(_HookTestCase):
         young in-flight marker is left alone (see the mid-cycle test)."""
         import os
 
+        import close_cycle_abandonment
         import close_cycle_stop_gate
         import markers
 
         markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
         marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        backdate = close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC + 60
+        backdate = close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC + 60
         old = marker_path.stat().st_mtime - backdate
         os.utime(marker_path, (old, old))
         stderr_buf = io.StringIO()
@@ -175,12 +176,13 @@ class TestCloseCycleStopGate(_HookTestCase):
         abandoned, avoids re-firing the gate on every subsequent Stop."""
         import os
 
+        import close_cycle_abandonment
         import close_cycle_stop_gate
         import markers
 
         markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
         marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        backdate_sec = close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC + 60
+        backdate_sec = close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC + 60
         old_mtime = marker_path.stat().st_mtime - backdate_sec
         os.utime(marker_path, (old_mtime, old_mtime))
 
