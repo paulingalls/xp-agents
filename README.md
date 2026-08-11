@@ -65,10 +65,29 @@ For local development, use `--plugin-dir` (session-only, not persisted):
 claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 ```
 
+**Requirements:** Python 3.11+ on PATH. macOS or Linux. Zero external packages.
+
+**Scopes:** User scope makes xp-agents available on all your projects. Project scope shares it with your team via version control. Both work with CLI teammates — the SMM is stored under `XP_AGENTS_DATA` (default `~/.xp-agents/data`, shared across worktrees).
+
+**For teams:** Add this to your project's `.claude/settings.json` so teammates can discover the plugin:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "xp-agents": {
+      "source": { "source": "github", "repo": "paulingalls/xp-agents" }
+    }
+  }
+}
+```
+
+Each person installs individually. The marketplace entry is just discovery.
+
 ### Installing on Codex
 
-Codex reads its own marketplace catalog and its own plugin manifest, both shipped
-in this repo beside the Claude ones. Register the marketplace, then install:
+Everything above this heading describes Claude Code. Codex reads its own
+marketplace catalog and its own plugin manifest, both shipped in this repo beside
+the Claude ones. Register the marketplace, then install:
 
 From a local checkout — this is the sequence the test suite executes:
 
@@ -115,23 +134,9 @@ unknown, not an assurance that every version works: an older Codex that runs the
 skills while ignoring the hooks would be unenforced in exactly the silent way
 described above.
 
-**Requirements:** Python 3.11+ on PATH. macOS or Linux. Zero external packages.
-
-**Scopes:** User scope makes xp-agents available on all your projects. Project scope shares it with your team via version control. Both work with CLI teammates — the SMM is stored under `XP_AGENTS_DATA` (default `~/.xp-agents/data`, shared across worktrees).
-
-**For teams:** Add this to your project's `.claude/settings.json` so teammates can discover the plugin:
-
-```json
-{
-  "extraKnownMarketplaces": {
-    "xp-agents": {
-      "source": { "source": "github", "repo": "paulingalls/xp-agents" }
-    }
-  }
-}
-```
-
-Each person installs individually. The marketplace entry is just discovery.
+The scope and team-discovery notes above are Claude Code's. `codex plugin add`
+takes no scope flag, and no `.claude/settings.json` equivalent for sharing the
+marketplace with a team was measured here — each person registers it themselves.
 
 ---
 

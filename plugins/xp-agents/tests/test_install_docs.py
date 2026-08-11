@@ -15,9 +15,15 @@ skipping it costs:
 - the minimum harness version is UNMEASURED, so no floor may be stated;
 - the spawn flag is MANDATORY, because without it a persistent shell bypasses
   every gate riding the command hook.
+
+The harness's own binary name stays a literal here and in the README, because it
+is what a reader types. An audit that strips harness names from shipped prose is
+right about agent and skill vocabulary and wrong about this document; these rows
+are where that boundary is enforced rather than remembered.
 """
 
 import re
+import shlex
 import shutil
 import sys
 import unittest
@@ -35,16 +41,17 @@ from _paths import _PLUGIN_ROOT
 from test_marketplace_install import (
     _HARNESS,
     _PLUGIN_ID,
+    _REPO_ROOT,
     _harness,
     _installed_root,
     _isolated_home,
 )
 
-_README = _PLUGIN_ROOT.parents[1] / "README.md"
+_README = _REPO_ROOT / "README.md"
 
 # The placeholder the documented local-path command carries. Pinned as a
-# constant because the E2E substitutes it; a rename that slipped past would
-# quietly turn that substitution into a no-op.
+# constant because the E2E substitutes it, and because it is the anchor that
+# scopes the extraction below to a single fenced block.
 _LOCAL_PATH_PLACEHOLDER = "/path/to/xp-agents"
 
 
@@ -171,8 +178,8 @@ def _documented_local_commands() -> list[str]:
     NOT to the whole file, and not merely to the placeholder. Two narrowings the
     first two runs of this test forced:
 
-    - a file-wide scan pulls THREE commands, because both documented forms end
-      in an identical `plugin add` line, and would install twice;
+    - a file-wide scan pulls all FOUR documented lines — the two forms share an
+      identical `plugin add` line — and would register and install twice;
     - the placeholder alone is not unique either — the first harness's
       `--plugin-dir` example carries it too.
 
@@ -223,22 +230,30 @@ class TestTheDocumentedSequenceActuallyWorks(unittest.TestCase):
     def test_running_the_documented_commands_installs_a_loadable_plugin(self):
         env, home = _isolated_home()
         self.addCleanup(shutil.rmtree, home, ignore_errors=True)
-        repo_root = str(_PLUGIN_ROOT.parents[1])
+        repo_root = str(_REPO_ROOT)
 
         commands = _documented_local_commands()
+        # Stated, because `_installed_root` below reads the LAST command's
+        # stdout: a step documented after the install would be measured instead
+        # of it, and the row would fail somewhere unrelated to the cause.
+        self.assertIn(
+            _PLUGIN_ID,
+            commands[-1],
+            f"the install must be the last documented command, got {commands}",
+        )
+
         add_stdout = ""
         for command in commands:
-            substituted = command.replace(_LOCAL_PATH_PLACEHOLDER, repo_root)
-            self.assertNotIn(
-                _LOCAL_PATH_PLACEHOLDER,
-                substituted,
-                "the documented placeholder changed shape, so the substitution "
-                "silently became a no-op — update _LOCAL_PATH_PLACEHOLDER",
-            )
-            args = substituted.split()[2:]  # drop the harness + `plugin`
+            # shlex, not `.split()`: the substituted repo root is a real path
+            # and a developer's checkout may contain a space, which would
+            # otherwise be handed to the harness as two arguments.
+            args = [
+                arg.replace(_LOCAL_PATH_PLACEHOLDER, repo_root)
+                for arg in shlex.split(command)
+            ][2:]  # drop the harness + `plugin`
             result = _harness(env, *args)
             self.assertEqual(
-                result.returncode, 0, f"{substituted!r} failed: {result.stderr}"
+                result.returncode, 0, f"{command!r} failed: {result.stderr}"
             )
             add_stdout = result.stdout
 
