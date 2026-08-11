@@ -53,14 +53,6 @@ class TestCloseCycleThresholdSplit(unittest.TestCase):
             "defer window must exceed observed /code-review high runtime",
         )
 
-    def test_abandonment_timeout_constant_exists(self):
-        """Module exposes an abandonment-timeout constant."""
-        self.assertTrue(
-            hasattr(gate, "_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC"),
-            "close_cycle_stop_gate must define _CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC",
-        )
-        self.assertIsInstance(gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC, int)
-
     def test_defer_window_and_abandonment_timeout_are_distinct(self):
         """The two timescales must be DIFFERENT values — that's the whole point.
 
@@ -69,13 +61,13 @@ class TestCloseCycleThresholdSplit(unittest.TestCase):
         """
         self.assertNotEqual(
             gate._CLOSE_CYCLE_DEFER_WINDOW_SEC,
-            gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC,
-            "defer_window and abandonment_timeout must be distinct values",
+            close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC,
+            "defer_window and the abandonment age must be distinct values",
         )
         self.assertGreater(
-            gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC,
+            close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC,
             gate._CLOSE_CYCLE_DEFER_WINDOW_SEC,
-            "abandonment_timeout must exceed defer_window — a slow legitimate "
+            "the abandonment age must exceed defer_window — a slow legitimate "
             "close cycle must not be misclassified as abandoned",
         )
 
@@ -97,20 +89,6 @@ class TestCloseCycleThresholdSplit(unittest.TestCase):
             "_marker_age_under",
             run_src,
             "run() must delegate the age check to the shared _marker_age_under helper",
-        )
-
-    def test_the_abandonment_constant_is_the_shared_recorders(self):
-        """The abandonment age decision belongs to close_cycle_abandonment.
-
-        All THREE detectors face the same live-vs-dead question — the marker is
-        not session-scoped and the SMM is shared across windows — so deciding
-        it per-detector is what let two of them fire on a running cycle. This
-        module's constant must BE the recorder's, never a second copy free to
-        drift under the defer window the assertions above bound it against.
-        """
-        self.assertEqual(
-            gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC,
-            close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC,
         )
 
     def test_the_bypass_delegates_the_whole_decision(self):
@@ -149,8 +127,8 @@ class TestCloseCycleThresholdSplit(unittest.TestCase):
         )
         self.assertFalse(
             hasattr(gate, "_marker_within_abandonment_window"),
-            "_marker_within_abandonment_window wrapper must be removed in favor of "
-            "_marker_age_under(..., _CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC)",
+            "_marker_within_abandonment_window wrapper must be removed — the "
+            "abandonment decision is delegated to close_cycle_abandonment",
         )
 
     def test_legacy_unified_constant_removed(self):

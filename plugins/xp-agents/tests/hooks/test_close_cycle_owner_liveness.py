@@ -25,6 +25,7 @@ own; it defers to age.
 """
 
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -37,7 +38,7 @@ import close_cycle_abandonment
 import hook_liveness
 import markers
 from _abandonment_fixtures import _AbandonmentAssertions, arm_abandoned
-from conftest import _HookTestCase
+from conftest import _HookTestCase, _make_stop_input
 
 _OWNER = "owner-session-id"
 
@@ -56,22 +57,80 @@ class _OwnerCase(_AbandonmentAssertions, _HookTestCase):
         """Write `owner`'s heartbeat, optionally old enough to read as stopped."""
         hook_liveness.write_heartbeat(self.smm_dir, session_id=owner)
         if stale:
-            path = markers.marker_path(
-                self.smm_dir, hook_liveness.heartbeat_marker(owner)
-            )
-            old = path.stat().st_mtime
-            markers.marker_write(
-                self.smm_dir,
-                hook_liveness.heartbeat_marker(owner),
-                {
-                    "written_at": old - hook_liveness.STALE_AFTER_SECONDS - 60,
-                },
-            )
+            self._restamp(owner, -hook_liveness.STALE_AFTER_SECONDS - 60)
+
+    def beat_at_offset(self, offset: float, owner: str = _OWNER) -> None:
+        """Write `owner`'s heartbeat stamped `offset` seconds from now.
+
+        A positive offset dates it in the FUTURE. `owner_session_is_live` reads
+        the clock itself rather than taking a `now`, so a future timestamp is
+        the only way to reach a negative age — the same shape
+        `test_hook_heartbeat_marker` uses for its far-future legs.
+        """
+        hook_liveness.write_heartbeat(self.smm_dir, session_id=owner)
+        self._restamp(owner, offset)
+
+    def _restamp(self, owner: str, offset: float) -> None:
+        path = markers.marker_path(self.smm_dir, hook_liveness.heartbeat_marker(owner))
+        markers.marker_write(
+            self.smm_dir,
+            hook_liveness.heartbeat_marker(owner),
+            {"written_at": path.stat().st_mtime + offset},
+        )
 
     def record(self) -> bool:
         return close_cycle_abandonment.record_abandonment(
             self.smm_dir, close_cycle_abandonment.DETECTOR_SESSION_SWEEP
         )
+
+
+class TestAFutureHeartbeatIsNotEvidenceOfLife(_OwnerCase):
+    """A negative age must not read as fresh.
+
+    `session_markers.marker_age_seconds` hands a future timestamp back as a
+    negative number on purpose and says so: "Callers own the BOUNDS ... any
+    caller that must fail CLOSED has to bound it below." `hook_liveness` and
+    the two in-flight gates all bound it; this reader did not, so a heartbeat
+    stamped in milliseconds, or written across a backwards clock step, aged
+    negative and read live.
+
+    Live is the dangerous verdict here: it suppresses the age fallback
+    entirely, so the close-cycle Stop gate stays armed with nothing able to
+    release it, and the next close's preload overwrites the marker it should
+    have recorded. Bounded in practice only by another session's heartbeat
+    write, which reaps an out-of-window sibling.
+    """
+
+    def test_a_millisecond_timestamp_does_not_read_as_live(self):
+        """The observed shape: seconds recorded as milliseconds."""
+        self.arm_owned(aged=True)
+        self.beat_at_offset(time.time() * 1000)
+
+        self.assertIsNone(
+            close_cycle_abandonment.owner_session_is_live(self.smm_dir, _OWNER)
+        )
+
+    def test_a_future_heartbeat_falls_back_to_the_age_rule(self):
+        """None, not False: the owner is unreadable, not proven dead."""
+        self.arm_owned(aged=True)
+        self.beat_at_offset(hook_liveness.FUTURE_SKEW_GRACE_SECONDS + 60)
+
+        self.assertIsNone(
+            close_cycle_abandonment.owner_session_is_live(self.smm_dir, _OWNER)
+        )
+        self.assertTrue(self.record(), "an aged marker must still record")
+
+    def test_ordinary_clock_slew_is_still_live(self):
+        """The non-vacuity leg. Bounding below must not start false-recording
+        abandonment on the small forward skew a normal machine produces —
+        that is the failure that gets a liveness check switched off."""
+        self.arm_owned(aged=True)
+        self.beat_at_offset(hook_liveness.FUTURE_SKEW_GRACE_SECONDS - 1)
+
+        self.assertTrue(
+            close_cycle_abandonment.owner_session_is_live(self.smm_dir, _OWNER)
+        )
+        self.assertFalse(self.record(), "a live owner is never abandoned")
 
 
 class TestALiveOwnerIsNeverAbandoned(_OwnerCase):
@@ -182,6 +241,54 @@ class TestArmingStampsTheOwner(_OwnerCase):
             "arming must never fail closed — an unowned marker is decidable "
             "by age, an unarmed one gates nothing at all",
         )
+
+
+class TestTheStopGateBypassFollowsTheOwnerToo(_OwnerCase):
+    """The same rule, seen through the gate that consumes the marker.
+
+    These live here rather than beside the other bypass tests because the rule
+    they assert is this module's subject, not the gate's. The bypass tests in
+    test_close_cycle_stop_gate_core arm with a session id that has no
+    heartbeat, so `owner_session_is_live` returns None and only the AGE
+    fallback runs — they are named for the bypass decision but never reach the
+    owner check that makes it.
+    """
+
+    def bypass_stop(self) -> None:
+        """Drive the gate down its stop_hook_active bypass path."""
+        import close_cycle_stop_gate
+
+        close_cycle_stop_gate.run(
+            _make_stop_input(stop_hook_active=True), smm_dir=self.smm_dir
+        )
+
+    def test_bypass_follows_a_live_owner_over_the_marker_age(self):
+        """An owner that is answering keeps its cycle however old the marker."""
+        self.arm_owned(aged=True)
+        self.beat()
+
+        self.bypass_stop()
+
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "a live owner's marker must survive however old it is",
+        )
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 0, "a running close is not abandoned")
+
+    def test_bypass_records_a_dead_owner_even_on_a_young_marker(self):
+        """The other direction, and the one the age rule got backwards."""
+        self.arm_owned()
+        self.beat(stale=True)
+
+        self.bypass_stop()
+
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "a stopped owner is an abandoned cycle at any marker age",
+        )
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ Renders the milestone done-state into executable assertions:
 - Commits clear with `/simplify` + `/xp-quality-review` only.
 - Tier 1 deterministic patterns still block on staged secrets.
 - Doc set carries zero `security_review_done` references.
-- `markers._REVIEW_FLAGS` and `_DEFAULT_REVIEW_CYCLE` no longer
+- `review_records._REVIEW_FLAGS` and `_DEFAULT_REVIEW_FLAGS` no longer
   contain `security_review_done`.
 - Below-threshold commits no longer auto-write the security marker
   (absorbs story-001 close-reviewer concern 26d40317ed82 — the
@@ -17,11 +17,12 @@ import sys
 import unittest
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import markers
 from conftest import _PLUGIN_ROOT, _IntegrationTestCase, _make_bash_input
 
 _REPO_ROOT = _PLUGIN_ROOT.parent.parent
@@ -31,7 +32,7 @@ _AKIA_LINE = 'aws_key = "AKIAIOSFODNN7EXAMPLE"\n'
 
 # Spread the post-M-4 default so the schema stays in lockstep with markers.py;
 # we only flip the two surviving flags.
-_REVIEW_DONE = dict(markers._DEFAULT_REVIEW_CYCLE) | {
+_REVIEW_DONE = dict(review_records._DEFAULT_REVIEW_FLAGS) | {
     "simplify_done": True,
     "quality_review_done": True,
 }
@@ -53,7 +54,7 @@ class TestM4CutoverE2E(_IntegrationTestCase):
         return _make_bash_input(command="git commit -m 'wip'", cwd=str(self.tmpdir))
 
     def test_commit_with_only_simplify_and_quality_passes(self):
-        markers.write_review_cycle(self.smm_dir, "main", _REVIEW_DONE)
+        review_records.write_review_flags(self.smm_dir, "main", _REVIEW_DONE)
         self._stage("app.py", _CLEAN_LINE)
 
         result = self._run_script("pre_tool_bash.py", self._commit_input())
@@ -63,7 +64,7 @@ class TestM4CutoverE2E(_IntegrationTestCase):
         self.assertNotIn("security-review", result.stderr)
 
     def test_tier1_pattern_still_blocks_after_m4(self):
-        markers.write_review_cycle(self.smm_dir, "main", _REVIEW_DONE)
+        review_records.write_review_flags(self.smm_dir, "main", _REVIEW_DONE)
         self._stage("secrets.py", _AKIA_LINE)
 
         result = self._run_script("pre_tool_bash.py", self._commit_input())
@@ -83,8 +84,8 @@ class TestM4CutoverE2E(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_review_flags_no_longer_contain_security(self):
-        self.assertNotIn("security_review_done", markers._REVIEW_FLAGS)
-        self.assertNotIn("security_review_done", markers._DEFAULT_REVIEW_CYCLE)
+        self.assertNotIn("security_review_done", review_records._REVIEW_FLAGS)
+        self.assertNotIn("security_review_done", review_records._DEFAULT_REVIEW_FLAGS)
 
     def test_doc_grep_zero_security_review_done_references(self):
         files = [

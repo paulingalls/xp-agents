@@ -239,9 +239,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     if smm_dir is not None:
         parts.extend(
-            pre_tool_bash_commit_gates.commit_gate_parts(
-                smm_dir, command, cwd, agent_id
-            )
+            pre_tool_bash_commit_gates.commit_gate_parts(smm_dir, command, cwd)
         )
 
     mark_done = story_done_gate.mark_done_invocations(command)

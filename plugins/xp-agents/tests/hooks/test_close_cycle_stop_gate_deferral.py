@@ -12,7 +12,7 @@ behavior and the hooks.json registration check.
 Mirrors sprint_stop_gate.py shape but with a single block trigger:
 the CLOSE_CYCLE_ACTIVE marker. ASKING_USER deferral preserves
 AskUserQuestion dialogue flow; the review-mid-cycle deferral applies
-only inside the close /code-review's Step 4b window (markers.review_mid_cycle)
+only inside the close /code-review's Step 4b window (review_records.review_mid_cycle)
 so the close-reviewer nudge waits for the async workflow — otherwise the
 close cycle wants to block mid-cycle. Teammates deferral is NOT applied.
 """
@@ -20,6 +20,8 @@ close cycle wants to block mid-cycle. Teammates deferral is NOT applied.
 import sys
 import unittest
 from pathlib import Path
+
+import review_records
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -143,6 +145,7 @@ class TestCloseCycleEvidenceRelease(_HookTestCase):
         both) never gets mis-recorded as 'reviewer never ran'."""
         import os
 
+        import close_cycle_abandonment
         import close_cycle_stop_gate
         import markers
 
@@ -150,7 +153,7 @@ class TestCloseCycleEvidenceRelease(_HookTestCase):
         _seed_status(self.smm_dir, "close_started")
         _seed_status(self.smm_dir, "subagent_complete", agent_type="xp-close-reviewer")
         marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        backdate = close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC + 60
+        backdate = close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC + 60
         old = marker_path.stat().st_mtime - backdate
         os.utime(marker_path, (old, old))
 
@@ -165,6 +168,48 @@ class TestCloseCycleEvidenceRelease(_HookTestCase):
             0,
             "evidence release must pre-empt the bypass — no false abandonment concern",
         )
+
+    def test_the_release_consumes_the_marker(self):
+        """Allowing the Stop is not releasing. The marker outlives the session
+        that held the evidence, and the next thing to find it — the
+        SessionStart sweep — asks the shared recorder with no evidence check of
+        its own, so a survivor becomes the false high-severity 'close
+        abandoned' concern this branch exists to prevent."""
+        import close_cycle_stop_gate
+        import markers
+        import session_markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        _seed_status(self.smm_dir, "close_started")
+        _seed_status(self.smm_dir, "subagent_complete", agent_type="xp-close-reviewer")
+
+        self.assertIsNone(
+            close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "the evidence release must consume the marker, not just allow the stop",
+        )
+
+        session_markers.sweep_stale_session_markers(self.smm_dir)
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(
+            concerns, [], "a reviewed cycle must not be swept as abandoned later"
+        )
+
+    def test_a_release_with_no_evidence_leaves_the_marker_for_the_sweep(self):
+        """Non-vacuity for the consume: without evidence nothing is released,
+        so a genuinely abandoned cycle still reaches the sweep."""
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        _seed_status(self.smm_dir, "close_started")
+
+        self.assertIsNotNone(
+            close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        )
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE))
 
     def test_fail_closed_on_corrupt_read_still_blocks(self):
         """AC #5: a failed event read is treated as no-evidence → the gate
@@ -210,10 +255,15 @@ class TestCloseCycleMidCycleAgeGate(_HookTestCase):
     never sets quality_review_done (interrupted/errored consume), review_mid_cycle
     stays True on every Stop and the unbounded defer silently abandons the close
     (CLOSE_CYCLE_ACTIVE stuck, security-review + close-reviewer never run). Bound
-    the defer to the same age threshold _record_bypass uses: once the marker is
-    older than the threshold the consume is stuck — block instead of defer, so the
-    next stop_hook_active bypass consumes the marker and records the abandonment
-    concern.
+    the defer to its own window: once the marker is older than that, the consume
+    is stuck — block instead of defer, so the close is surfaced rather than
+    silently dropped.
+
+    `_arm_mid_cycle` arms with an owner id nothing heartbeats, which is the
+    older-version / unresolvable-session case: the one where age still decides.
+    A marker armed by `arm_close_cycle` in a LIVE session is never recorded
+    against however old it is — `test_close_cycle_owner_liveness.py` owns both
+    directions of that rule.
     """
 
     def _arm_mid_cycle(self) -> dict:
@@ -223,17 +273,17 @@ class TestCloseCycleMidCycleAgeGate(_HookTestCase):
         input_data = _make_stop_input()
         agent_id = identity.resolve_agent_id(input_data)
         markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
-        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+        review_records.set_review_flag(self.smm_dir, agent_id, "simplify_done")
         return input_data
 
     def _backdate_marker(self) -> None:
         import os
 
-        import close_cycle_stop_gate
+        import close_cycle_abandonment
         import markers
 
         marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        backdate = close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC + 60
+        backdate = close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC + 60
         old = marker_path.stat().st_mtime - backdate
         os.utime(marker_path, (old, old))
 
@@ -250,9 +300,11 @@ class TestCloseCycleMidCycleAgeGate(_HookTestCase):
         self.assertIn("xp-close-reviewer", result)
 
     def test_aged_mid_cycle_then_bypass_unsticks(self):
-        """Full unstick: aged marker + mid-cycle blocks, then the NEXT Stop
-        (stop_hook_active latched) consumes the now-aged marker AND records the
-        abandonment concern — the gate doesn't just block every Stop forever."""
+        """Full unstick for an UNOWNED marker: aged + mid-cycle blocks, then the
+        NEXT Stop (stop_hook_active latched) consumes the now-aged marker AND
+        records the abandonment concern — the gate doesn't block every Stop
+        forever. An owned marker whose session still answers is the other rule;
+        see the class docstring."""
         import close_cycle_stop_gate
         import markers
 
@@ -325,7 +377,7 @@ class TestCloseCycleMidCycleAgeGate(_HookTestCase):
 
         input_data = _make_stop_input()
         agent_id = identity.resolve_agent_id(input_data)
-        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+        review_records.set_review_flag(self.smm_dir, agent_id, "simplify_done")
 
         def _selective(_smm_dir, marker, _agent_id=""):
             return marker == markers.CLOSE_CYCLE_ACTIVE
