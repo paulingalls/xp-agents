@@ -65,12 +65,21 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/close_cycle_stop_gate.py": 163,
     "plugins/xp-agents/scripts/close_gate_commands.py": 149,
     "plugins/xp-agents/scripts/commit_command.py": 272,
-    "plugins/xp-agents/scripts/commit_emit.py": 173,
+    # Re-measured 173 -> 187 and 145 -> 166 at the back-merge that brought this
+    # table onto the commit-path branch. The table was measured on a tree that
+    # did not contain that branch's work, so both numbers are the FIRST
+    # measurement of these two files, not a raised one — and both grew for the
+    # reason this ratchet's docstring says it still moves against: a close
+    # review demanded the longer true claim (why a reflog action is matched as a
+    # leading word and not by equality; why only a lock ACQUIRE is wrapped and
+    # never the body). `coordination.py` also shed two duplicated raw-`fcntl`
+    # blocks for one helper, so its prose rose while its code fell.
+    "plugins/xp-agents/scripts/commit_emit.py": 187,
     "plugins/xp-agents/scripts/commit_event.py": 167,
     "plugins/xp-agents/scripts/commit_handling.py": 161,
     "plugins/xp-agents/scripts/commits.py": 175,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
-    "plugins/xp-agents/scripts/coordination.py": 145,
+    "plugins/xp-agents/scripts/coordination.py": 166,  # see commit_emit.py above
     "plugins/xp-agents/scripts/dash_c_tokens.py": 129,
     "plugins/xp-agents/scripts/framework_detect.py": 122,
     "plugins/xp-agents/scripts/hook_liveness.py": 196,
