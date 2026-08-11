@@ -27,6 +27,17 @@ from conftest import _HookTestCase, _make_bash_input, make_event
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_COMMIT, EVENT_TYPE_CONCERN
 
+# Two shapes of "the hook cannot expand this message". `-F <path>` yields no
+# message at all; `"$MSG"` yields the literal variable name, which never
+# matches HEAD. Both are real: the recorded incident used a command
+# substitution, and `-F -` with a heredoc is the other common spelling.
+#
+# Here rather than in either consumer: both suites drive the rebuild through an
+# unreadable command, and the pair is explained once. Splitting them apart
+# would put half the explanation in each file.
+UNREADABLE_F = "git commit -F {repo}/.git/MSG-ALREADY-GONE"
+UNREADABLE_VAR = 'git commit -m "$MSG"'
+
 
 class _RebuildTestCase(_HookTestCase):
     """A real git repo plus a temp SMM, fresh per test."""

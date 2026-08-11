@@ -26,6 +26,33 @@ TOKEN_GAP = r"(?:\s|\\\n)+"
 # files for `git -C add` / `git -C commit -a`.
 GIT_PREFIX = r"\bgit(?:" + TOKEN_GAP + r"-\S+(?:" + TOKEN_GAP + r"\S+)?)*" + TOKEN_GAP
 
+# Lifted to module level so both uses of the commit/merge test share one
+# spelling. This module's own docstrings already argue that two spellings of
+# one rule is how the last bug (the GIT_PREFIX gap) survived — see TOKEN_GAP.
+_COMMIT_OR_MERGE_RE = re.compile(GIT_PREFIX + r"(?:commit|merge)\b(?!-)")
+
+# `merge --abort` / `merge --quit` UNWIND a merge; they produce no commit. The
+# `(?!-)` lookahead cannot reject them — it is evaluated at the character after
+# `merge`, a space here, so the plumbing guard (`merge-tree`) never fires for an
+# argument form. Gating them is worse than a false block: an operator who cannot
+# abort a conflicted merge reaches for `git reset --hard`, which discards the
+# uncommitted work the abort would have preserved.
+#
+# `--continue` is deliberately absent: it FINISHES the merge and writes a
+# commit, so it stays gated like any other commit-producing form. That is a
+# recorded decision, not the lookahead's accident.
+#
+# Requiring the flag as the FIRST token after `merge` is exhaustive, not a
+# narrowing: git itself rejects any companion argument (`git merge -q --abort`
+# exits 129, `fatal: --abort expects no arguments`).
+#
+# Subtractive, not an early `return False`: this function scans the whole Bash
+# command, so a bare early return would exempt
+# `git commit -m x && git merge --abort` and disarm four gates on a real commit.
+_MERGE_NON_COMMITTING_RE = re.compile(
+    GIT_PREFIX + r"merge" + TOKEN_GAP + r"--(?:abort|quit)\b"
+)
+
 
 def strip_heredocs(command: str) -> str:
     """Remove heredoc bodies (`<<'DELIM'...DELIM` / `<<DELIM...DELIM`).
@@ -85,10 +112,18 @@ def is_git_commit(command: str, *, scan_target: str | None = None) -> bool:
     quoted arguments. The `(?!-)` lookahead rejects plumbing subcommands
     like `commit-tree` / `merge-tree`.
 
+    `merge --abort` / `merge --quit` are exempted subtractively: the
+    non-committing span is removed and the question re-asked, so an appended
+    `&& git merge --abort` cannot disarm detection of a real `git commit`
+    earlier in the same command. See `_MERGE_NON_COMMITTING_RE`.
+
     `scan_target` lets callers pass a pre-stripped command (via
     `strip_quoted`) so the same Bash invocation isn't quote-stripped
     twice when downstream functions also need it.
     """
     if scan_target is None:
         scan_target = strip_quoted(command)
-    return bool(re.search(GIT_PREFIX + r"(?:commit|merge)\b(?!-)", scan_target))
+    if not _COMMIT_OR_MERGE_RE.search(scan_target):
+        return False
+    remaining = _MERGE_NON_COMMITTING_RE.sub("", scan_target)
+    return bool(_COMMIT_OR_MERGE_RE.search(remaining))

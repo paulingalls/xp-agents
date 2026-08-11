@@ -165,5 +165,181 @@ class TestLiteralSubjectIsNotRebuilt(_RebuildTestCase):
         self.assertEqual(len(self.concerns()), 1)
 
 
+class TestAHeredocBodyDoesNotSupplyTheMessage(unittest.TestCase):
+    """A `-m` token inside a stdin-fed BODY is prose, not an argument.
+
+    `recover_commit_message` searched the simple `-m` pattern across the whole
+    command string before it ever reached the `-F -` branch, so a body
+    mentioning a runner flag supplied the message. The damage is not a wrong
+    string: the recovered text then fails to match HEAD's subject, so NO commit
+    event is written at all, a `Resolves-Event:` trailer never links, and an
+    escape-hatch prefix in the real subject is invisible to the branch guard.
+    """
+
+    _SUBJECT = "Real subject here"
+
+    def _stdin_commit(self, body: str, *, delimiter: str = "MSG") -> str:
+        return f"git commit -F - <<'{delimiter}'\n{body}\n{delimiter}"
+
+    def test_a_runner_flag_in_the_body_is_not_the_message(self):
+        command = self._stdin_commit(
+            f'{self._SUBJECT}\n\nRan pytest -m "slow" to check.'
+        )
+        message, _ = commit_message.recover_commit_message(command)
+        self.assertIsNotNone(message)
+        self.assertTrue((message or "").startswith(self._SUBJECT))
+        self.assertNotEqual(message, "slow")
+
+    def test_a_body_that_mentions_its_own_delimiter_still_holds(self):
+        """The strict span matters. A helper that terminates at the delimiter
+        WORD anywhere leaves the rest of the body exposed, so a body discussing
+        its own delimiter would still leak the `-m` after it."""
+        command = self._stdin_commit(
+            f'{self._SUBJECT}\n\nDiscussed the MSG format; ran pytest -m "slow".'
+        )
+        message, _ = commit_message.recover_commit_message(command)
+        self.assertTrue((message or "").startswith(self._SUBJECT))
+        self.assertNotEqual(message, "slow")
+
+    def test_the_dash_form_body_is_also_protected(self):
+        command = (
+            f'git commit -F - <<-MSG\n\t{self._SUBJECT}\n\tpytest -m "slow"\n\tMSG'
+        )
+        message, _ = commit_message.recover_commit_message(command)
+        self.assertTrue((message or "").startswith(self._SUBJECT))
+        self.assertNotEqual(message, "slow")
+
+    def test_an_escape_hatch_prefix_in_a_stdin_subject_is_seen(self):
+        command = self._stdin_commit('[sprint-direct] Real work\n\npytest -m "slow"')
+        self.assertTrue(commit_message.is_escape_hatch_commit(command))
+
+    def test_an_earlier_unrelated_heredoc_does_not_capture_the_message(self):
+        command = (
+            "cat <<CFG > cfg.ini\n"
+            'runner = pytest -m "slow"\n'
+            "CFG\n"
+            f"git commit -F - <<'MSG'\n{self._SUBJECT}\nMSG"
+        )
+        message, _ = commit_message.recover_commit_message(command)
+        self.assertEqual(message, self._SUBJECT)
+
+    def test_every_quoted_delimiter_form_protects_its_body(self):
+        """A quoted delimiter is `'EOF'`, `"EOF"` OR `\\EOF` — bash treats all
+        three the same, and admitting only the first left the fixed defect alive
+        one keystroke away: the body's `-m` supplied the message again.
+
+        Also asserts the expansion flag, which every quoted form sets to False:
+        the shell hands a quoted-delimiter body on verbatim, so a `$` in it is a
+        literal and NOT a sign the hook is reading a pre-expansion string.
+        """
+        for delimiter in ("'MSG'", '"MSG"', "\\MSG"):
+            with self.subTest(delimiter=delimiter):
+                command = (
+                    f"git commit -F - <<{delimiter}\n"
+                    f'{self._SUBJECT}\n\nRan pytest -m "slow" to check.\nMSG'
+                )
+                message, expands = commit_message.recover_commit_message(command)
+                self.assertTrue((message or "").startswith(self._SUBJECT))
+                self.assertNotEqual(message, "slow")
+                self.assertFalse(expands)
+
+
+class TestAMessageMayDiscussHeredocs(unittest.TestCase):
+    """The mirror of the class above, and the direction its fix overshot.
+
+    Subtracting every heredoc-shaped span before the `-m` scan deleted spans
+    found INSIDE the `-m` value, so a commit whose message talks about heredocs
+    — this repo writes them constantly — had its middle removed. The recovered
+    subject then failed to match HEAD, and because the mangled string is still
+    readable and `$`-free, `_message_unreadable_from_command` returned False and
+    the rebuild refused too: no commit event, trailer closes nothing. Exactly
+    the loss the sibling class exists to prevent, arrived at from the other side.
+
+    The rule that holds both: a `-m` INSIDE a heredoc body is data. One outside
+    every body is an argument, whatever its value happens to contain.
+    """
+
+    def test_a_message_containing_a_whole_heredoc_survives_intact(self):
+        body = (
+            "docs: explain the <<EOF form\n\nBefore:\n<<EOF\nbody\nEOF\nafter the fix"
+        )
+        command = f'git commit -m "{body}"'
+
+        message, expands = commit_message.recover_commit_message(command)
+
+        self.assertEqual(message, body)
+        self.assertTrue(expands)
+
+    def test_a_single_quoted_message_may_also_discuss_heredocs(self):
+        """No apostrophe in the body, deliberately: a single quote inside a
+        single-quoted argument ENDS it, so a body containing `<<'EOF'` is not a
+        thing bash can hand git as one argument. Using a bare delimiter keeps
+        the case about heredoc spans rather than about quoting."""
+        body = "fix: stop <<EOF from eating the body\n\n<<EOF\nx\nEOF\ndone"
+        command = f"git commit -m '{body}'"
+
+        message, expands = commit_message.recover_commit_message(command)
+
+        self.assertEqual(message, body)
+        self.assertFalse(expands)
+
+    def test_a_real_stdin_body_still_outranks_a_mention_inside_it(self):
+        """The discrimination, in one command: the `-m` here is inside the body,
+        so it stays data even though the body also looks like prose about a
+        heredoc. Without this the fix above would simply undo story-003."""
+        command = (
+            "git commit -F - <<'MSG'\n"
+            "Real subject here\n"
+            "\n"
+            'Discussed <<EOF and ran pytest -m "slow".\n'
+            "MSG"
+        )
+
+        message, _ = commit_message.recover_commit_message(command)
+
+        self.assertTrue((message or "").startswith("Real subject here"))
+        self.assertNotEqual(message, "slow")
+
+
+class TestTheOrdinaryFormsAreUnchanged(unittest.TestCase):
+    """The regression guard for the ORDER the two `-m` readers run in.
+
+    `_HEREDOC_MSG_RE` must be tried first. Its own `-m` sits OUTSIDE the heredoc
+    body it wraps, so the general scan would accept that `-m` and hand back the
+    whole `$(cat …)` expression as the message. (An earlier draft justified the
+    order by saying bodies were subtracted before the scan and would delete this
+    pattern's own body — true of that draft, and nothing is subtracted now.)
+    """
+
+    def test_the_cat_heredoc_form_still_returns_its_whole_body(self):
+        body = 'Subject line\n\nRan pytest -m "slow" while testing.'
+        message, expands = commit_message.recover_commit_message(_heredoc("'", body))
+        self.assertEqual(message, body)
+        self.assertFalse(expands)
+
+    def test_a_plain_single_quoted_message_is_unchanged(self):
+        message, expands = commit_message.recover_commit_message(
+            f"git commit -m '{_DOLLAR_SUBJECT}'"
+        )
+        self.assertEqual(message, _DOLLAR_SUBJECT)
+        self.assertFalse(expands)
+
+    def test_a_plain_double_quoted_message_still_reports_expansion(self):
+        message, expands = commit_message.recover_commit_message(
+            'git commit -m "subject with $VAR"'
+        )
+        self.assertEqual(message, "subject with $VAR")
+        self.assertTrue(expands)
+
+    def test_a_real_message_wins_over_a_heredoc_later_in_the_command(self):
+        command = (
+            'git commit -m "the real subject" && cat <<CFG > c.ini\n'
+            'x = pytest -m "fake"\n'
+            "CFG"
+        )
+        message, _ = commit_message.recover_commit_message(command)
+        self.assertEqual(message, "the real subject")
+
+
 if __name__ == "__main__":
     unittest.main()

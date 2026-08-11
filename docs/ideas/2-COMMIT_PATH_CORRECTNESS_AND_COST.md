@@ -91,11 +91,26 @@ Promoted from concern `3a59b2018e99`, which an auto-producer filed at `low`. Not
 
 **Direction.** Prefer the `-F -` / `-F <path>` branch whenever its flag is present, or bound the `-m` search to the text before the heredoc opener. **Files.** `scripts/commit_message.py`.
 
-## Also worth a look (unverified — do not plan as a defect yet)
+## Also worth a look — both questions answered in story-004, sprint-003; neither by changing code
 
-`dash_c_unreachable` only judges `git -C` tokens. A `cd "$WT" && git commit` shape hides the target repo the same way; `pre_tool_bash_commit_gates.py:106` resolves it via `parse_effective_cwd`, which **silently falls back to the hook's `cwd` on an unresolvable path** — the exact silent-wrong-repo failure the `-C` block (`:119-127`, shipped v5.1.0) was written to close. Nobody has confirmed this path is reachable in practice. Investigate before filing.
+~~`dash_c_unreachable` only judges `git -C` tokens. A `cd "$WT" && git commit` shape hides the target repo the same way.~~ **Already closed when this was written.** `commit_command.cd_target_unreachable` exists and `pre_tool_bash_commit_gates.py:133` refuses on it alongside the `-C` leg, naming which one in the message. Nothing to investigate.
 
-Related and **recommended closed as superseded**: the PostToolUse recovery branch for an unreachable `git -C` (`commit_handling.py:156-164`) never probes candidate HEADs, and `commit_command.commit_repo_candidates` (`:329-390`) still exists to serve it. Since v5.1.0 that branch is only reachable if the PreToolUse block was bypassed, so the honest question is whether the worktree scan still earns its keep — not whether to add HEAD probing to it.
+~~**Recommended closed as superseded**: … `commit_repo_candidates` still exists to serve it. Since v5.1.0 that branch is only reachable if the PreToolUse block was bypassed, so the honest question is whether the worktree scan still earns its keep.~~ **The question was right; the recommendation was wrong. Verdict: KEEP — conditionally.**
+
+The premise ("only reachable if the PreToolUse block was bypassed") is true, and the bypass is not hypothetical:
+
+- `pre_tool_bash.py:228` returns early for `xp-` agents — the recursion-prevention convention — and the hidden-path refusal sits **below** it, inside the `commit_gate_parts` call at `:242` (the `raise` itself is in `pre_tool_bash_commit_gates.py`, in the unresolvable-`-C` refusal — named rather than numbered, because that line moved within one sprint of being written).
+- `bash_post_tool.py:174` computes `is_xp_agent_leak` and still calls `_handle_commit`, because the commit event must always land; only side-effect mutations are gated.
+
+So for an `xp-` subagent, nothing refuses an unresolvable `-C`, and the scan is the only thing standing between that and a commit attributed to the wrong repo — a *wrong* attribution, not merely a missing event. Drop the worktree candidates and `_confirm_commit_repo` exhausts the two cheap ones (both the caller's checkout, since the hidden path falls back to `cwd`), then hits its stdout-success fallback at `commit_event.py:249`, which trusts the **first** candidate. A real commit prints `[branch hash] subject`, so that fallback fires, the event records against the caller's HEAD, and `_record_unconfirmed_commit` never runs.
+
+Reachability needs **both** halves, and they are not the same kind of thing: the skip is shipped code, while the variable-form `git -C "$WT"` is an agent *deviating* from the literal-path instruction every shipped skill gives it.
+
+Cost is not the objection it looks like. The scan is doubly lazy — gated on `dash_c_unreachable` **and** only reached when no earlier candidate matched — so an ordinary solo commit never spawns `git worktree list`.
+
+**Conditional, and the condition is written down.** The keep rests entirely on that refusal sitting below the skip. The recorded follow-on is to *hoist the refusal above the skip* — the shape `pre_tool_bash_reviewer_guard.reviewer_mutation_block` already uses in the same file, since a refusal that forks no agent has no recursion to prevent. **Not** to close the skip, which is a stated convention. If that lands, this verdict expires and retiring the scan becomes the right question again.
+
+**The absence argument, searched rather than assumed.** `_record_unconfirmed_commit`'s concern does not appear in this project's log — live *or* archived: compaction never deletes, it writes `backups/archive-*.jsonl`, and all 2,351 events since 2026-08-06 were searched. So "compaction bounds the lookback" was the wrong excuse; the lookback is complete for this project. The absence still means little, for two better reasons. The recorder only speaks when **no** candidate matched, so a scan that works leaves no trace — a live path and a dead one look identical in the log. And the concern **has** fired elsewhere: another clone of this repo's SMM archive carries it twice (2026-07-25, 2026-07-27), both on a shell-variable path, one of them naming a live teammate worktree — the exact shape the scan recovers. Both predate the v5.1.0 refusal, so they do not show the path is live for a non-`xp-` agent today; they do show the variable-form commit is a shape agents actually produce, which is the half of reachability that was in doubt.
 
 ---
 
