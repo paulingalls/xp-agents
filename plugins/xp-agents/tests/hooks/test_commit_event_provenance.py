@@ -79,6 +79,47 @@ class TestAmbiguousHeadIsNotClaimed(_RebuildTestCase):
         # Claimed, so no head-moved trace: one observation per commit.
         self.assertEqual(self.concerns(), [])
 
+    def test_a_fast_forward_onto_a_merge_commit_claims_nothing(self):
+        """A fast-forward creates NO commit, and every other guard passes.
+
+        The trap the merge arm walked into: `%gs` spells this `merge X:
+        Fast-forward`, and the action is read as everything before the colon —
+        so it has the same leading word as a real merge. Landing on a merge
+        commit (2 parents, and origin tips very often are one) routes it INTO
+        the merge arm rather than vetoing, and a tip pushed minutes ago is
+        fresh. Recording here claims another clone's hash, message and files as
+        this command's work, and honors that body's trailers against real ids.
+
+        Reproduced on the back-merge that found it: only the 5-minute freshness
+        bound stood between the flow `teammate pushes a story-close merge, lead
+        merges` and a fabricated event.
+        """
+        self.commit("feat: mainline")
+        base = self.git("rev-parse", "HEAD")
+        self.git("checkout", "-q", "-b", "theirs")
+        self.commit("feat: their work", path="src/theirs.py")
+        self.git("checkout", "-q", "-b", "side", base)
+        self.commit("feat: side work", path="src/side.py")
+        self.git("checkout", "-q", "theirs")
+        self.git("merge", "-q", "--no-ff", "-m", "Merge side into theirs", "side")
+        their_tip = self.head()
+
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--ff-only", "theirs")
+        # State the two facts that make every other guard pass, so a later
+        # reader sees this is not refused for being stale or single-parent.
+        self.assertEqual(self.head(), their_tip, "setup did not fast-forward")
+        self.assertEqual(len(self.git("show", "-s", "--format=%P").split()), 2)
+        action = self.git("reflog", "-1", "--format=%gs")
+        self.assertTrue(action.startswith("merge "), f"unexpected reflog: {action!r}")
+
+        self.run_hook("git merge --ff-only theirs")
+
+        self.assertEqual(self.commit_events(), [], "claimed another clone's merge")
+        # The trace still fires: HEAD moved with nothing recorded, which is a
+        # real observation. Refusing must not also silence it.
+        self.assertEqual(len(self.concerns()), 1)
+
     def test_merge_head_with_no_readable_reflog_is_refused(self):
         """A merge HEAD is claimed on the reflog, so with the reflog gone it is
         refused — the plain arm's fail-closed posture on absence. It no longer

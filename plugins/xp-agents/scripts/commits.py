@@ -213,7 +213,7 @@ def get_head_commit_hash(cwd: str) -> str | None:
 
 
 def head_landing_facts(cwd: str, rev: str) -> tuple[int, int, str | None] | None:
-    """How `rev` came to be: ``(committer ts, parent count, reflog action)``.
+    """How `rev` came to be: ``(committer ts, parent count, reflog subject)``.
 
     One question — "did a commit just land here?" — so one reader, even
     though it takes two git calls. None when git cannot describe `rev` at all.
@@ -222,13 +222,15 @@ def head_landing_facts(cwd: str, rev: str) -> tuple[int, int, str | None] | None
     while the committer date is when this history actually appeared. `%P`
     gives parents, so >1 marks a merge.
 
-    The reflog action is `%gs`'s leading word, lowercased — `commit`,
-    `commit (amend)`, `rebase (pick)`, `merge side`, `reset` — the only signal
-    telling committing apart from the other ways HEAD reaches a young
-    single-parent commit. None means UNAVAILABLE (no reflog, or its newest
-    entry names another object) — never *permitted*: its one caller vetoes on
-    absence, because allowing there fabricated events for commits the command
-    never made. Do not restore the draft that called absence NO OPINION.
+    The third element is the WHOLE `%gs`, lowercased — the only signal telling
+    committing apart from the other ways HEAD reaches a young commit, and whole
+    rather than cut at the colon because cutting there shipped a fabrication:
+    `merge X: merge made by …` and `merge X: fast-forward` differ ONLY after it.
+
+    None means UNAVAILABLE (no reflog, or its newest entry names another
+    object) — never *permitted*: its one caller vetoes on absence, because
+    allowing there fabricated events for commits the command never made. Do
+    not restore the draft that called absence NO OPINION.
     """
     out = _run_git(["git", "show", "-s", "--format=%ct%x1f%P", rev], cwd)
     if not out:
@@ -240,8 +242,7 @@ def head_landing_facts(cwd: str, rev: str) -> tuple[int, int, str | None] | None
         return None
     entry = _run_git(["git", "reflog", "-1", "--format=%H%x1f%gs"], cwd) or ""
     logged_rev, _, subject = entry.partition("\x1f")
-    action = subject.split(":", 1)[0].strip().lower() if logged_rev == rev else None
-    return (*facts, action or None)
+    return (*facts, subject.strip().lower() or None if logged_rev == rev else None)
 
 
 def merged_range_bodies(cwd: str, merge_hash: str) -> str:

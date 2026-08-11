@@ -65,16 +65,25 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/close_cycle_stop_gate.py": 163,
     "plugins/xp-agents/scripts/close_gate_commands.py": 149,
     "plugins/xp-agents/scripts/commit_command.py": 272,
-    # Re-measured 173 -> 187 and 145 -> 166 at the back-merge that brought this
-    # table onto the commit-path branch. The table was measured on a tree that
-    # did not contain that branch's work, so both numbers are the FIRST
-    # measurement of these two files, not a raised one — and both grew for the
-    # reason this ratchet's docstring says it still moves against: a close
+    # Re-measured 173 -> 187 -> 192 and 145 -> 166 at the back-merge that
+    # brought this table onto the commit-path branch. The table was measured on
+    # a tree that did not contain that branch's work, so 187 and 166 were the
+    # FIRST measurement of these two files, not raised ones — and both grew for
+    # the reason this ratchet's docstring says it still moves against: a close
     # review demanded the longer true claim (why a reflog action is matched as a
     # leading word and not by equality; why only a lock ACQUIRE is wrapped and
     # never the body). `coordination.py` also shed two duplicated raw-`fcntl`
     # blocks for one helper, so its prose rose while its code fell.
-    "plugins/xp-agents/scripts/commit_emit.py": 187,
+    #
+    # 187 -> 192 is a SECOND re-record of the same file in the same branch, and
+    # that is the shape to be suspicious of. What earned it: dogfooding the
+    # back-merge found the leading-word match above claiming a fast-forward as a
+    # merge, recording another clone's commit as ours. The fix turns on a design
+    # decision (allowlist the reflog detail, never denylist it) that has to sit
+    # next to the constant it governs. The comment was cut three times to fit
+    # 189 first; a fourth pass would have been deleting the reason, which is
+    # what the docstring above says this measure must not buy.
+    "plugins/xp-agents/scripts/commit_emit.py": 192,
     "plugins/xp-agents/scripts/commit_event.py": 167,
     "plugins/xp-agents/scripts/commit_handling.py": 161,
     "plugins/xp-agents/scripts/commits.py": 175,

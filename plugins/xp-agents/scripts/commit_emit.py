@@ -74,14 +74,22 @@ _UNEXPANDED_RE = re.compile(r"\$[({\w]|`")
 # by means this path cannot describe. `merge` has its own arm below.
 _COMMIT_REFLOG_ACTIONS = frozenset({"commit", "commit (initial)"})
 
-# Matched as a LEADING WORD, never by equality: `%gs` spells it `merge side: …`
-# and `head_landing_facts` keeps everything before the colon, so an equality test
-# matches nothing and — this path failing closed — records nothing while looking
-# correct. `commit (merge)` — a conflict finished by hand — is the same landing,
-# matched EXACTLY (`commit (amend)` on a merge is another object). Both pinned in
-# `test_manual_merge_commit_event.py`.
+# Matched as a LEADING WORD, never by equality: `%gs` spells it `merge side: …`,
+# so an equality test matches nothing and — this path failing closed — records
+# nothing while looking correct. `commit (merge)` — a conflict finished by hand —
+# is the same landing, matched EXACTLY (`commit (amend)` on a merge is another
+# object). Both pinned in `test_manual_merge_commit_event.py`.
 _MERGE_REFLOG_ACTION = "merge"
 _CONFLICT_FINISH_REFLOG_ACTION = "commit (merge)"
+
+# The leading word alone is NOT sufficient, and assuming it was shipped a
+# fabrication: a fast-forward creates no commit yet spells itself `merge X:
+# fast-forward`, and lands on a merge often enough that the parent arm routes it
+# here. So the DETAIL decides, as an ALLOWLIST — anything but git announcing a
+# created merge falls to the trace, as before the merge arm, so it costs nothing
+# new. A denylist would enumerate every other non-creating spelling forever,
+# failing OPEN on a miss; `test_commit_event_provenance.py` holds what it took.
+_MERGE_CREATED_DETAIL_PREFIX = "merge made by"
 
 # Spelled as a type, like `in_place_marker._State`: the caller compares the kind
 # to a bare string, and a typo there fails closed and silently.
@@ -231,21 +239,24 @@ def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> _LandingKind | No
 
     * **Fresh.** An old HEAD means the command failed on top of history
       someone else wrote.
-    * **Parent count picks the ARM rather than vetoing.** A merge HEAD is a
-      landed commit that is not a PLAIN one, so `>1` routes to the merge arm,
-      which sets the `is_merge` tag that keeps it out of the denominator.
-    * **Reflog says `commit`.** Freshness and parent count both pass for a
-      `rebase (pick)`, a `commit --amend` and a `reset` onto a young commit,
-      none of which this command produced. Only the reflog separates them, so
-      its ABSENCE vetoes rather than letting the first two signals stand alone
-      — see the fail-closed reasoning at the return below. An earlier draft did
-      degrade to allow there, and that was the widest remaining fabrication
-      path.
+    * **Parent count picks the ARM rather than vetoing.** `>1` routes to the
+      merge arm, which sets the `is_merge` tag keeping it out of the
+      denominator. It does not prove a merge LANDED — a fast-forward onto one
+      counts two parents too — so that arm reads the detail as well.
+    * **Reflog announces a commit or a created merge.** Freshness and parent
+      count both pass for a `rebase (pick)`, an amend, a `reset` onto a young
+      commit and a fast-forward, none of which this command produced. Only the
+      reflog separates them, so its ABSENCE vetoes rather than letting the
+      other two stand alone — an earlier draft degraded to allow there, and
+      that was the widest remaining fabrication path.
     """
     facts = commits.head_landing_facts(cwd, commit_hash)
     if facts is None:
         return None
-    committer_ts, parent_count, reflog_action = facts
+    committer_ts, parent_count, reflog_subject = facts
+    # The action names HOW head moved, the detail whether that made a commit.
+    action, _, detail = (reflog_subject or "").partition(":")
+    action, detail = action.strip(), detail.strip()
     # Bounded at BOTH ends. `now - ts > MAX` alone reads a FUTURE committer date
     # as maximally fresh, so clock skew on the committing host would defeat this
     # guard outright rather than trip it. The housekeeping gate bounds the same
@@ -254,15 +265,12 @@ def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> _LandingKind | No
     age = time.time() - committer_ts
     if not 0 <= age <= HEAD_REBUILD_MAX_AGE_SECONDS:
         return None
-    # A fast-forward leaves this same action with ONE parent and creates no
-    # commit, so neither signal decides alone.
     if parent_count > 1:
-        action = reflog_action or ""
-        landed_by_merging = (
-            action.split(maxsplit=1)[:1] == [_MERGE_REFLOG_ACTION]
-            or action == _CONFLICT_FINISH_REFLOG_ACTION
-        )
-        return "merge" if landed_by_merging else None
+        if action == _CONFLICT_FINISH_REFLOG_ACTION:
+            return "merge"
+        if action.split(maxsplit=1)[:1] != [_MERGE_REFLOG_ACTION]:
+            return None
+        return "merge" if detail.startswith(_MERGE_CREATED_DETAIL_PREFIX) else None
     # Absence VETOES rather than degrading to allow. Degrading left the widest
     # residual fabrication path: with `core.logAllRefUpdates` off, an amend or a
     # reset/ff-merge onto a fresh unrecorded commit, then a failed unreadable
@@ -271,7 +279,7 @@ def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> _LandingKind | No
     # evidence. Vetoing costs those repos only the trace they already got before
     # this story, so it is not a regression there; the asymmetry is lopsided.
     # Matches the recorded fail-closed doctrine for an unresolvable `git -C`.
-    return "plain" if reflog_action in _COMMIT_REFLOG_ACTIONS else None
+    return "plain" if action in _COMMIT_REFLOG_ACTIONS else None
 
 
 def rebuild_at_head(
