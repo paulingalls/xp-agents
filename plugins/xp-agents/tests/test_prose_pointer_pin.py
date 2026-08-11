@@ -64,6 +64,17 @@ _PLACEHOLDERS: dict[str, str] = {
 
 
 @functools.cache
+def _known() -> frozenset[str]:
+    """Every `.py` path in the repo, indexed once.
+
+    Cached here rather than in `_test_pointer_detect` for the same reason
+    `_pointers` is: the detection module holds matchers and finders, no state.
+    Three callers, one immutable tree, and the index rglobs the whole repo.
+    """
+    return frozenset(index_python_files(_REPO_ROOT))
+
+
+@functools.cache
 def _pointers() -> tuple[tuple[str, int, str], ...]:
     """Every `(surface, line, token)` pointer in the shipped tree.
 
@@ -87,7 +98,7 @@ def _pointers() -> tuple[tuple[str, int, str], ...]:
 
 class TestEveryShippedPointerResolves(unittest.TestCase):
     def test_no_pointer_names_a_missing_test_file(self):
-        known = index_python_files(_REPO_ROOT)
+        known = _known()
         dead = [
             f"{surface}:{lineno} points at {token}, which does not exist"
             for surface, lineno, token in _pointers()
@@ -104,7 +115,7 @@ class TestEveryShippedPointerResolves(unittest.TestCase):
     def test_every_placeholder_is_still_unresolvable(self):
         """A placeholder that starts resolving is no longer a placeholder, and
         its entry would then exempt a real pointer from the check above."""
-        known = index_python_files(_REPO_ROOT)
+        known = _known()
         resolving = sorted(t for t in _PLACEHOLDERS if resolves(t, known))
 
         self.assertEqual(resolving, [])
@@ -183,7 +194,7 @@ class TestTheMatchersThemselves(unittest.TestCase):
         """scripts/test_parsing.py is shipped code, and prose names it — the
         resolver searches the whole repo so it is not reported dead."""
         self.assertTrue(is_test_shaped("test_parsing.py"))
-        self.assertTrue(resolves("test_parsing.py", index_python_files(_REPO_ROOT)))
+        self.assertTrue(resolves("test_parsing.py", _known()))
 
     def test_a_comment_inside_a_string_literal_is_not_read_as_prose(self):
         source = 'X = "# see test_ghost.py"\n# see test_real.py\n'

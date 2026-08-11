@@ -8,9 +8,9 @@ when it LAUNCHES the workflow, so:
   - close_cycle_stop_gate defers during the async review window (review_mid_cycle
     True), and
   - the xp-quality-review preload emits MODE=consume-findings for the findings.
-The flag is keyed via identity.review_cycle_agent_id, and so is every other
-read, write and clear of the cycle. The first class below pins that agreement
-across the writer, the reader and the clear.
+The flag is keyed via identity.review_flags_key, and so is every other read,
+write and clear of the flags. The first class below pins that agreement across
+the writer, the reader and the clear.
 """
 
 import sys

@@ -7,6 +7,7 @@ Split from test_markers.py — core marker CRUD stays there.
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -124,6 +125,56 @@ class TestReviewWatermark(_HookTestCase):
         review_records.clear_review_flags(self.smm_dir, "main")
         self.assertEqual(
             review_records.read_review_watermark(self.smm_dir, "main"), "abc123"
+        )
+
+
+class TestEndingTheCycleAtACommit(_HookTestCase):
+    """One commit, two files — so a failure between them has a direction.
+
+    The pair used to be a single atomic marker write. Two files cannot be
+    written atomically, so the only thing left to choose is the ORDER, and the
+    two partial states are not equally bad: flags-cleared + stale watermark
+    arms the gate and over-counts (one extra review), while advanced-watermark
+    + stale `quality_review_done` disarms it entirely. Both callers reach the
+    partial state — merge_commit_event catches and deliberately continues.
+    """
+
+    def test_it_advances_the_watermark_and_clears_the_flags(self):
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+
+        review_records.end_review_cycle(self.smm_dir, "main", "main", "landed-sha")
+
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), "landed-sha"
+        )
+        self.assertFalse(
+            review_records.read_review_flags(self.smm_dir, "main")[
+                "quality_review_done"
+            ]
+        )
+
+    def test_a_failure_partway_leaves_the_gate_armed_not_disarmed(self):
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        review_records.write_review_watermark(self.smm_dir, "main", "old-sha")
+
+        with (
+            patch.object(
+                review_records,
+                "write_review_watermark",
+                side_effect=OSError("read-only"),
+            ),
+            self.assertRaises(OSError),
+        ):
+            review_records.end_review_cycle(self.smm_dir, "main", "main", "landed-sha")
+
+        self.assertFalse(
+            review_records.read_review_flags(self.smm_dir, "main")[
+                "quality_review_done"
+            ],
+            "the flags must already be cleared when the watermark write fails",
+        )
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), "old-sha"
         )
 
 

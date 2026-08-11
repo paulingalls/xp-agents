@@ -142,8 +142,7 @@ def append_merge_commit_event(
     # don't abort the chain (leaving the source merged-but-unpushed would
     # force the user into a manual cleanup that re-merge can't redo).
     try:
-        review_records.write_review_watermark(smm_dir, watermark_key, commit_hash)
-        review_records.clear_review_flags(smm_dir, flags_key)
+        review_records.end_review_cycle(smm_dir, watermark_key, flags_key, commit_hash)
     except (OSError, ValueError) as exc:
         sys.stderr.write(
             f"warn: failed to reset review cycle after merge ({exc}); "

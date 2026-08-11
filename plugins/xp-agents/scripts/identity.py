@@ -11,8 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Own the smm/ insert rather than relying on the importer, per the convention
-# test_session_markers.py pins.
+# `append_validation` is imported at module load (below), so this module owns
+# the insert rather than depending on an importer having run one first.
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import append_validation
@@ -209,12 +209,11 @@ def in_place_teammate_name(smm_dir: Path | None = None) -> str | None:
         from smm_dir_resolve import follow_migration_pointer
 
         smm_dir = follow_migration_pointer(Path(env_dir))
-    # Deferred import: identity carries no sys.path shim of its own (its
-    # module-level imports are stdlib-only) — a top-level `import _common`
-    # would resolve only by the side effect of some other module having
-    # already inserted smm/ onto sys.path. _common.py:13 does that insert
-    # itself, and every caller of this function already imports identity
-    # after running that shim.
+    # Deferred for the same reason as `_recorded_user_namespace`'s imports,
+    # not for path reasons — the shim at the top of this module already
+    # resolves smm/. identity is imported by nearly every hook, and `_common`
+    # pulls the SMM engine in behind it; only the callers that reach this
+    # branch should pay for that.
     import _common
 
     resolved_smm_dir = _common.try_validate_smm_dir(smm_dir)

@@ -25,7 +25,7 @@ marker_names.CLOSE_CYCLE_ID).
 
 Defers on ASKING_USER so AskUserQuestion dialogues complete cleanly.
 Also defers during the close /code-review's async Step 4b window —
-`markers.review_mid_cycle`, under the key `identity.review_flags_key`
+`review_records.review_mid_cycle`, under the key `identity.review_flags_key`
 gives every writer of the flag (simplify_done set when the workflow launched,
 quality_review_done not yet set when /xp-quality-review consumes its
 findings). Pushing xp-close-reviewer there would run Step 4.5 BEFORE the
@@ -268,8 +268,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # Once it ages past the threshold the mid-cycle flag is stuck — a
         # /xp-quality-review consume that never set quality_review_done — so
         # an unbounded defer would silently abandon the close forever. Fall
-        # through to the block; the next stop_hook_active bypass then consumes
-        # the aged marker and records the abandonment concern.
+        # through to the block, which is where the surfacing happens: while
+        # this session is the marker's live owner, no bypass will record or
+        # consume anything (that is the owner rule, and it is right — the
+        # session IS still running). The record lands once the owner stops,
+        # from the SessionStart sweep.
         mid_cycle = review_records.review_mid_cycle(
             smm_dir, identity.review_flags_key(input_data.get("cwd", ""))
         )

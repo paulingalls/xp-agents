@@ -12,7 +12,7 @@ behavior and the hooks.json registration check.
 Mirrors sprint_stop_gate.py shape but with a single block trigger:
 the CLOSE_CYCLE_ACTIVE marker. ASKING_USER deferral preserves
 AskUserQuestion dialogue flow; the review-mid-cycle deferral applies
-only inside the close /code-review's Step 4b window (markers.review_mid_cycle)
+only inside the close /code-review's Step 4b window (review_records.review_mid_cycle)
 so the close-reviewer nudge waits for the async workflow — otherwise the
 close cycle wants to block mid-cycle. Teammates deferral is NOT applied.
 """
@@ -255,10 +255,15 @@ class TestCloseCycleMidCycleAgeGate(_HookTestCase):
     never sets quality_review_done (interrupted/errored consume), review_mid_cycle
     stays True on every Stop and the unbounded defer silently abandons the close
     (CLOSE_CYCLE_ACTIVE stuck, security-review + close-reviewer never run). Bound
-    the defer to the same age threshold _record_bypass uses: once the marker is
-    older than the threshold the consume is stuck — block instead of defer, so the
-    next stop_hook_active bypass consumes the marker and records the abandonment
-    concern.
+    the defer to its own window: once the marker is older than that, the consume
+    is stuck — block instead of defer, so the close is surfaced rather than
+    silently dropped.
+
+    `_arm_mid_cycle` arms with an owner id nothing heartbeats, which is the
+    older-version / unresolvable-session case: the one where age still decides.
+    A marker armed by `arm_close_cycle` in a LIVE session is never recorded
+    against however old it is — `test_close_cycle_owner_liveness.py` owns both
+    directions of that rule.
     """
 
     def _arm_mid_cycle(self) -> dict:
@@ -295,9 +300,11 @@ class TestCloseCycleMidCycleAgeGate(_HookTestCase):
         self.assertIn("xp-close-reviewer", result)
 
     def test_aged_mid_cycle_then_bypass_unsticks(self):
-        """Full unstick: aged marker + mid-cycle blocks, then the NEXT Stop
-        (stop_hook_active latched) consumes the now-aged marker AND records the
-        abandonment concern — the gate doesn't just block every Stop forever."""
+        """Full unstick for an UNOWNED marker: aged + mid-cycle blocks, then the
+        NEXT Stop (stop_hook_active latched) consumes the now-aged marker AND
+        records the abandonment concern — the gate doesn't block every Stop
+        forever. An owned marker whose session still answers is the other rule;
+        see the class docstring."""
         import close_cycle_stop_gate
         import markers
 

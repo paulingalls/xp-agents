@@ -22,7 +22,6 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 from markers import (
     REVIEW_CYCLE,
@@ -44,8 +43,10 @@ _WATERMARK_FIELD = "last_review_commit"
 def read_review_flags(smm_dir: Path, agent_id: str) -> dict:
     """Read the review flags, returning defaults if missing.
 
-    A record written before the split carries a `last_review_commit` key too;
-    it is inert here, and the first commit in that checkout stops writing it.
+    A record written before the split carries a `last_review_commit` key too.
+    It is not a flag and never becomes one here; `read_review_watermark` is
+    what still reads it, until the first commit in that checkout writes the
+    watermark's own record.
     """
     data = marker_read(smm_dir, REVIEW_CYCLE, agent_id)
     if not isinstance(data, dict):
@@ -77,20 +78,43 @@ def set_review_flag(
 def read_review_watermark(smm_dir: Path, agent_id: str) -> str:
     """The commit the last review measured from, or "" when there is none.
 
-    A sha from any other repo makes the gate's `{sha}..HEAD` diff fail, and
-    the changed-file count then collapses silently to the staged set — the
-    gate stops firing rather than firing wrongly.
+    A sha from any other repo makes the gate's `{sha}..HEAD` diff fail; the
+    count then degrades to the legs that did answer rather than to zero, which
+    is `commits.get_code_files_for_review`'s rule and pinned there.
+
+    Falls back to the PRE-SPLIT record, where every install that upgrades
+    across the split still holds its sha. The flags kept their file and
+    migrated for free; without this the watermark would read "" once per
+    checkout, drop the `{sha}..HEAD` leg, and let through the commit the old
+    record would have blocked. Pinned in test_review_record_owners.py.
     """
-    data = marker_read(smm_dir, REVIEW_WATERMARK, agent_id)
-    if not isinstance(data, dict):
-        return ""
-    value = data.get(_WATERMARK_FIELD, "")
-    return value if isinstance(value, str) else ""
+    for marker in (REVIEW_WATERMARK, REVIEW_CYCLE):
+        data = marker_read(smm_dir, marker, agent_id)
+        if isinstance(data, dict):
+            value = data.get(_WATERMARK_FIELD, "")
+            if isinstance(value, str) and value:
+                return value
+    return ""
 
 
 def write_review_watermark(smm_dir: Path, agent_id: str, commit_hash: str) -> None:
     """Advance the target repo's watermark to a commit that just landed."""
     marker_write(smm_dir, REVIEW_WATERMARK, {_WATERMARK_FIELD: commit_hash}, agent_id)
+
+
+def end_review_cycle(
+    smm_dir: Path, watermark_key: str, flags_key: str, commit_hash: str
+) -> None:
+    """What a landed commit does to both records — the three commit sites' one door.
+
+    Two files, so no write is atomic across them, and the ORDER is the whole
+    reason this is one function: clearing the flags FIRST means an interrupted
+    pair leaves the gate armed against a stale watermark (over-counts by one
+    review), never advanced against a stale `quality_review_done` (counts
+    nothing and blocks nothing). Pinned in test_markers_review.py.
+    """
+    clear_review_flags(smm_dir, flags_key)
+    write_review_watermark(smm_dir, watermark_key, commit_hash)
 
 
 def review_mid_cycle(smm_dir: Path, agent_id: str) -> bool:

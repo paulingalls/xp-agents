@@ -318,10 +318,10 @@ def rebuild_at_head(
     # skips it: recording the commit is always right, but mutating cycle state
     # under a wrong identity is not.
     if not is_xp_agent_leak:
-        review_records.write_review_watermark(
-            smm_dir, identity.review_watermark_key(cwd), commit_hash
-        )
-        review_records.clear_review_flags(
-            smm_dir, identity.review_flags_key(session_cwd)
+        review_records.end_review_cycle(
+            smm_dir,
+            identity.review_watermark_key(cwd),
+            identity.review_flags_key(session_cwd),
+            commit_hash,
         )
     return True

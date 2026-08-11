@@ -253,13 +253,25 @@ class TestScriptsProseStaysUnderItsCeilings(unittest.TestCase):
         state is proved on the real tree at its real distance from the ceiling:
         one line past the allowance, in every governed file, must fail.
 
-        EVERY one, not merely some: a count short of the population means some
+        EVERY one, not merely some: a file short of the population means its
         ceiling absorbed the extra line, which is the amnesty this asserts
-        against."""
+        against. There are exactly two ways to be short, and the message names
+        the files because they need opposite fixes — a ceiling raised above
+        measurement+slack, or prose that SHRANK below its measurement and was
+        never re-recorded, which is the same unbanked deletion
+        `test_no_ceiling_outlives_the_file_shrinking_below_the_floor` refuses
+        below the floor."""
         governed = self._governed()
         grown = {path: n + PROSE_SLACK_LINES + 1 for path, n in governed.items()}
+        flagged = {v.split(" ")[0] for v in _prose_violations(grown, prose_ceilings())}
 
-        self.assertEqual(len(_prose_violations(grown, prose_ceilings())), len(governed))
+        self.assertEqual(
+            sorted(set(governed) - flagged),
+            [],
+            "these files' prose no longer sits at its recorded measurement — "
+            "re-record them in _prose_baseline.PROSE_MEASURED so the deletion "
+            "is banked and cannot be undone",
+        )
 
 
 class TestTheDeclaredSlack(unittest.TestCase):

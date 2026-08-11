@@ -11,7 +11,7 @@ evidence-based release and the age-bounded Step 4b mid-cycle defer.
 Mirrors sprint_stop_gate.py shape but with a single block trigger:
 the CLOSE_CYCLE_ACTIVE marker. ASKING_USER deferral preserves
 AskUserQuestion dialogue flow; the review-mid-cycle deferral applies
-only inside the close /code-review's Step 4b window (markers.review_mid_cycle)
+only inside the close /code-review's Step 4b window (review_records.review_mid_cycle)
 so the close-reviewer nudge waits for the async workflow — otherwise the
 close cycle wants to block mid-cycle. Teammates deferral is NOT applied.
 """

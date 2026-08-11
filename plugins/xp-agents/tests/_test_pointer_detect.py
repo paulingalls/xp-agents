@@ -19,6 +19,7 @@ import ast
 import io
 import re
 import tokenize
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 
 _DOCSTRING_NODES = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
@@ -128,7 +129,7 @@ def index_python_files(repo_root: Path) -> set[str]:
     }
 
 
-def resolves(token: str, known: set[str]) -> bool:
+def resolves(token: str, known: AbstractSet[str]) -> bool:
     """True when some indexed path IS the token or ends with it.
 
     Suffix matching, not a `tests/`-rooted lookup: `scripts/test_attribution.py`

@@ -8,7 +8,7 @@ event that hook produces gets set on its own. The close skill calls this CLI
 when it LAUNCHES the workflow so:
 
   - close_cycle_stop_gate defers during the async review window
-    (markers.review_mid_cycle True),
+    (review_records.review_mid_cycle True),
   - the xp-quality-review preload emits MODE=consume-findings for the findings,
     and
   - retro_metrics still counts the close-time review — the CLI emits the same

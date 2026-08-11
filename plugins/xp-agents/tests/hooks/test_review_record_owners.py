@@ -24,6 +24,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -34,7 +35,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import append_validation
 import bash_post_tool
+import commits
 import identity
+import markers
 import pre_tool_bash_commit_gates
 import review_cycle_done
 import review_records
@@ -121,9 +124,9 @@ class TestTheFlagsFollowTheSession(_TwoCheckoutCase):
 
 class TestTheWatermarkFollowsTheRepo(_TwoCheckoutCase):
     def test_the_gate_measures_from_the_target_repos_watermark(self):
-        """The sha is only resolvable in the repo whose history holds it —
-        `_run_git` fails on a foreign one and the count silently drops to
-        zero, disabling the gate."""
+        """The sha is only resolvable in the repo whose history holds it: a
+        foreign one fails `_run_git` and drops its whole leg from the count,
+        so the gate measures from the staged set alone."""
         review_records.write_review_watermark(
             self.smm_dir, _TEAMMATE_KEY, "teammate-sha"
         )
@@ -139,6 +142,28 @@ class TestTheWatermarkFollowsTheRepo(_TwoCheckoutCase):
             )
 
         self.assertEqual(spy.call_args.args[1], "teammate-sha")
+
+    @patch("commits.subprocess.run")
+    def test_a_watermark_that_does_not_resolve_still_counts_the_staged_set(
+        self, mock_run
+    ):
+        """The other half of the same trip: once a foreign sha IS in a
+        checkout's record, `{sha}..HEAD` is `fatal: bad object` on every commit
+        there afterward. Discarding the staged names already collected would
+        count changed code files as 0 and disarm the gate for good — the one
+        direction it must never fail in."""
+
+        def side_effect(cmd, **_kwargs):
+            if "--cached" in cmd:
+                return SimpleNamespace(returncode=0, stdout="src/a.py\0src/b.py\0")
+            return SimpleNamespace(returncode=128, stdout="")
+
+        mock_run.side_effect = side_effect
+
+        self.assertEqual(
+            commits.get_code_files_for_review(_LEAD_CWD, "foreign-sha"),
+            ["src/a.py", "src/b.py"],
+        )
 
     def test_a_commit_stamps_the_repo_it_landed_in_and_clears_the_session(self):
         """One commit, two records: the watermark advances in the target repo,
@@ -167,6 +192,52 @@ class TestTheWatermarkFollowsTheRepo(_TwoCheckoutCase):
                 "quality_review_done"
             ],
             "the commit ends the review cycle of the session that ran it",
+        )
+
+
+class TestTheWatermarkSurvivesTheSplit(_HookTestCase):
+    """An install upgrading across the split holds its sha in the OLD record.
+
+    The FLAGS kept their file, so they migrated for free; the watermark got a
+    new one, and every checkout that reviewed before the upgrade has nothing in
+    it. Reading only the new record answers "" there, which drops the
+    `{sha}..HEAD` leg entirely — the gate measures from the staged set alone
+    and lets through exactly the commit the old record would have blocked. Once
+    per checkout, in the fail-open direction, which is why the read migrates.
+    """
+
+    def test_a_pre_split_record_still_answers_the_watermark(self):
+        markers.marker_write(
+            self.smm_dir,
+            markers.REVIEW_CYCLE,
+            {"last_review_commit": "old-sha", "quality_review_done": True},
+            _LEAD_KEY,
+        )
+
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, _LEAD_KEY), "old-sha"
+        )
+
+    def test_the_new_record_wins_wherever_it_exists(self):
+        """The migration is a fallback, not a merge: the first commit after the
+        upgrade writes the new record, and the stale field beside the flags
+        must not resurrect the sha it replaced."""
+        markers.marker_write(
+            self.smm_dir,
+            markers.REVIEW_CYCLE,
+            {"last_review_commit": "old-sha"},
+            _LEAD_KEY,
+        )
+        review_records.write_review_watermark(self.smm_dir, _LEAD_KEY, "new-sha")
+
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, _LEAD_KEY), "new-sha"
+        )
+
+    def test_neither_record_is_still_no_watermark(self):
+        """Non-vacuity: a fresh checkout must not read a sha out of nowhere."""
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, _LEAD_KEY), ""
         )
 
 

@@ -316,10 +316,12 @@ def _handle_commit(
         # commit landed in, and the review cycle ends for the session that ran
         # the review. A commit into someone else's checkout does not end
         # THEIR cycle — they have not reviewed anything.
-        review_records.write_review_watermark(
-            smm_dir, identity.review_watermark_key(effective_cwd), commit_hash
+        review_records.end_review_cycle(
+            smm_dir,
+            identity.review_watermark_key(effective_cwd),
+            identity.review_flags_key(cwd),
+            commit_hash,
         )
-        review_records.clear_review_flags(smm_dir, identity.review_flags_key(cwd))
 
     return _check_qr_linkage(
         events, agent_id, has_code=has_code, cadence=review_cadence

@@ -270,14 +270,14 @@ def get_code_files_for_review(
 ) -> list[str]:
     """Get deduplicated code files changed since last review + staged.
 
-    Combines staged filenames with git diff --name-only {last_review_commit}..HEAD
-    (if a prior commit exists). Filters through code_files.is_code_file().
-    Returns empty list on git failure.
+    A failed STAGED read leaves nothing to count. A failed WIDENING leg
+    (`{sha}..HEAD` — `fatal: bad object` for a watermark sha from another
+    repo — or the unstaged read a `git add` adds) drops only itself, because
+    the gate must not undercount to zero. Pinned in
+    test_review_record_owners.py.
 
-    When ``staged_diff`` is provided (the unified-diff text from
-    ``get_staged_diff``), the staged filenames are parsed from that text
-    rather than re-shelling — for callers that already hold the cached
-    diff and want to avoid an extra subprocess fork.
+    ``staged_diff`` is ``get_staged_diff``'s text, for a caller that already
+    holds it: the staged names are parsed from it instead of re-shelling.
     """
     all_files: set[str] = set()
 
@@ -306,7 +306,7 @@ def get_code_files_for_review(
     for cmd in extra_commands:
         out = _run_git(cmd, cwd)
         if out is None:
-            return []
+            continue
         all_files.update(_nul_paths(out))
 
     return [f for f in sorted(all_files) if code_files.is_code_file(f)]
