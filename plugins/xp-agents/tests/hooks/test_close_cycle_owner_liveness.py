@@ -254,36 +254,20 @@ class TestTheStopGateBypassFollowsTheOwnerToo(_OwnerCase):
     owner check that makes it.
     """
 
-    def test_bypass_follows_a_live_owner_over_the_marker_age(self):
-        """The rule the two tests above never reach.
-
-        Both arm with session `"1"`, which has no heartbeat, so
-        `owner_session_is_live` returns None and only the AGE fallback runs —
-        they pin the fallback while their names claim the bypass decision.
-        Age has not been the primary rule since the owner check landed: an
-        owner that is answering keeps its cycle no matter how old the marker
-        is. Arm with a session that HAS a heartbeat and the age is not
-        consulted at all.
-        """
-        import os
-
-        import close_cycle_abandonment
+    def bypass_stop(self) -> None:
+        """Drive the gate down its stop_hook_active bypass path."""
         import close_cycle_stop_gate
-        import hook_liveness
-        import markers
-
-        owner = "live-owner-session"
-        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, owner)
-        hook_liveness.write_heartbeat(self.smm_dir, session_id=owner)
-        marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        backdate = close_cycle_abandonment.ABANDONMENT_MIN_AGE_SEC + 60
-        old_mtime = marker_path.stat().st_mtime - backdate
-        os.utime(marker_path, (old_mtime, old_mtime))
 
         close_cycle_stop_gate.run(
-            _make_stop_input(stop_hook_active=True),
-            smm_dir=self.smm_dir,
+            _make_stop_input(stop_hook_active=True), smm_dir=self.smm_dir
         )
+
+    def test_bypass_follows_a_live_owner_over_the_marker_age(self):
+        """An owner that is answering keeps its cycle however old the marker."""
+        self.arm_owned(aged=True)
+        self.beat()
+
+        self.bypass_stop()
 
         self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
@@ -294,25 +278,10 @@ class TestTheStopGateBypassFollowsTheOwnerToo(_OwnerCase):
 
     def test_bypass_records_a_dead_owner_even_on_a_young_marker(self):
         """The other direction, and the one the age rule got backwards."""
-        import close_cycle_stop_gate
-        import hook_liveness
-        import markers
+        self.arm_owned()
+        self.beat(stale=True)
 
-        owner = "dead-owner-session"
-        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, owner)
-        hook_liveness.write_heartbeat(self.smm_dir, session_id=owner)
-        beat = markers.marker_path(self.smm_dir, hook_liveness.heartbeat_marker(owner))
-        stopped = beat.stat().st_mtime - hook_liveness.STALE_AFTER_SECONDS - 60
-        markers.marker_write(
-            self.smm_dir,
-            hook_liveness.heartbeat_marker(owner),
-            {"written_at": stopped},
-        )
-
-        close_cycle_stop_gate.run(
-            _make_stop_input(stop_hook_active=True),
-            smm_dir=self.smm_dir,
-        )
+        self.bypass_stop()
 
         self.assertFalse(
             markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),

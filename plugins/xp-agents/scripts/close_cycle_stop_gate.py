@@ -204,22 +204,17 @@ def reviewer_completed_this_cycle(
 
 
 def _record_bypass(smm_dir: Path, input_data: dict) -> None:
-    """Record an abandonment concern and consume the marker — AGED markers only.
+    """Record an abandonment concern and consume the marker — dead cycles only.
 
-    A young marker is a legitimately in-flight close (e.g. the agent yielded
-    during the async Step 4b `/code-review` wait, with `stop_hook_active`
-    already latched session-wide by an unrelated earlier hook). That is NOT
-    abandonment — the workflow-completion notification re-wakes the agent and
-    the close finishes. Recording a high-severity "close abandoned" concern
-    there is a false positive (the bug this guard fixes), so the recorder does
-    nothing: no stderr, no concern, no consume; the SessionStart sweep is the
-    backstop once that cycle ages out.
+    A cycle whose owning session still heartbeats is legitimately in flight
+    (e.g. the agent yielded during the async Step 4b `/code-review` wait, with
+    `stop_hook_active` already latched session-wide by an unrelated earlier
+    hook), however old its marker is. Recording a high-severity "close
+    abandoned" concern there is a false positive, so the recorder does nothing:
+    no stderr, no concern, no consume; the SessionStart sweep is the backstop.
+    Only where the owner cannot be named or read does age decide.
 
-    Once the marker ages past the threshold the cycle is truly stuck/abandoned:
-    the shared recorder appends the high-severity concern and consumes the
-    marker so subsequent Stops don't re-fire.
-
-    The age decision, the record and the consume all belong to
+    That decision, the record and the consume all belong to
     close_cycle_abandonment — all three detectors face the same live-vs-dead
     question and would drift apart deciding it separately. What stays here is
     the stderr line, and it is written only when the recorder says a concern
@@ -273,8 +268,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # same predicate sprint_stop_gate uses, read under BOTH key
         # resolutions (see _review_mid_cycle_under_either_key).
         #
-        # Age-bound the defer (same threshold _record_bypass uses): defer
-        # ONLY while the marker is young (workflow plausibly still running).
+        # Age-bound the defer on its own window (shorter than the abandonment
+        # age): defer ONLY while the marker is young (workflow plausibly
+        # still running).
         # Once it ages past the threshold the mid-cycle flag is stuck — a
         # /xp-quality-review consume that never set quality_review_done — so
         # an unbounded defer would silently abandon the close forever. Fall

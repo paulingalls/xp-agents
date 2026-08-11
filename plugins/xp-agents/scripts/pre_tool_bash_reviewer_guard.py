@@ -18,7 +18,7 @@ Scope is deliberately narrow, because a guard that false-refuses is its own
 failure mode:
 
 - Only the agents with incidents are guarded (count pinned in
-  test_pre_tool_bash_reviewer_guard.py). The rest are left alone on purpose:
+  test_reviewer_guard_scope.py). The rest are left alone on purpose:
   `agents/xp-system-analyzer.md` prescribes `git branch -a` and `git config
   user.email`, and a subcommand-level allowlist cannot pass `branch -a` while
   refusing `branch -D`. Keeping the set small is what lets the allowlist stay

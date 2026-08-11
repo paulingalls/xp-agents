@@ -50,7 +50,7 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/branch_resolution.py": 207,
     "plugins/xp-agents/scripts/branching.py": 180,
     "plugins/xp-agents/scripts/close_cycle_abandonment.py": 137,
-    "plugins/xp-agents/scripts/close_cycle_stop_gate.py": 164,
+    "plugins/xp-agents/scripts/close_cycle_stop_gate.py": 160,
     "plugins/xp-agents/scripts/close_gate_commands.py": 149,
     "plugins/xp-agents/scripts/commit_command.py": 272,
     "plugins/xp-agents/scripts/commit_emit.py": 169,
