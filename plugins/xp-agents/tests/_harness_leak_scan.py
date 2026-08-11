@@ -23,6 +23,7 @@ bodies and the text inside `echo`/`printf` literals.
 """
 
 import re
+from pathlib import Path
 
 # The harnesses this plugin targets. Word-boundary matched so `claude` does not
 # fire inside a longer identifier that survived the exclusions.
@@ -49,17 +50,24 @@ _HATCH_RE = re.compile(r"harness-ok:\s*(?P<reason>[^\->]*)")
 
 # Shell prose: what a human reads. Comment bodies, and the insides of echo and
 # printf literals.
+#
+# EVERY quoted run after the emitting word counts, not just the first. The
+# tree's dominant printf shape is `printf '%s\n' "<payload>"`, where the first
+# quoted run is the format string — a rule reading one run per line would scan
+# `%s\n` and never the sentence beside it, which is the exact shape of the leak
+# this scanner exists to catch.
 _SH_COMMENT = re.compile(r"#(?P<body>.*)$")
-_SH_ECHOED = re.compile(r"""\b(?:echo|printf)\b[^\n]*?(["'])(?P<body>.*?)\1""")
+_SH_EMITTER = re.compile(r"\b(?:echo|printf)\b")
+_SH_QUOTED = re.compile(r"""(["'])(?P<body>.*?)\1""")
 
 
-def shipped_prose_files(plugin_root) -> list:
+def shipped_prose_files(plugin_root: Path) -> list[Path]:
     """Every shipped prose file the pin judges.
 
     Tests and the throwaway spike rig are excluded: neither is shipped, and the
     spike's whole purpose was to name one harness concretely.
     """
-    found = []
+    found: list[Path] = []
     for suffix in (".md", ".sh"):
         for path in plugin_root.rglob(f"*{suffix}"):
             if "tests" in path.parts or "spike" in path.parts:
@@ -94,6 +102,14 @@ def markdown_prose(text: str) -> list[tuple[int, str]]:
     return out
 
 
+def _echoed_bodies(line: str) -> list[str]:
+    """Every quoted run on *line* from the first `echo`/`printf` onward."""
+    emitter = _SH_EMITTER.search(line)
+    if not emitter:
+        return []
+    return [m.group("body") for m in _SH_QUOTED.finditer(line, emitter.end())]
+
+
 def shell_prose(text: str) -> list[tuple[int, str]]:
     """(1-based line, prose) for a shell file.
 
@@ -103,7 +119,7 @@ def shell_prose(text: str) -> list[tuple[int, str]]:
     """
     out: list[tuple[int, str]] = []
     for number, line in enumerate(text.splitlines(), 1):
-        pieces = [match.group("body") for match in _SH_ECHOED.finditer(line)]
+        pieces = _echoed_bodies(line)
         comment = _SH_COMMENT.search(line)
         if comment:
             pieces.append(comment.group("body"))

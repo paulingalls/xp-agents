@@ -18,10 +18,27 @@ These fixture rows come first because the scanner's exclusions are the whole
 design: 216 of ~230 harness mentions in shipped prose are excluded structurally,
 so an exclusion even slightly too greedy produces a green pin over a leaky tree.
 The positive controls exist to make that failure loud.
+
+LIMITS — READ THIS BEFORE TRUSTING THE GREEN CHECK. A guardrail that overclaims
+is itself a green check certifying something untrue. What this pin does NOT see:
+
+* Anything inside a backtick span, including a harness's binary name used as a
+  noun rather than as a command to type — `skills/xp-assign/SKILL.md` says a
+  headless `claude -p` session, and that stays invisible here. Accurate today
+  (the spawn script runs exactly one harness); it becomes a leak the day the
+  spawn is neutral, and this pin will not be what catches it.
+* Shell prose bound to a variable instead of echoed — `_preload_liveness.sh`
+  assigns a whole user-facing sentence to `_liveness_reason`. Scanning every
+  string literal in every shell file would reach it, at the cost of judging
+  command arguments as English.
+* A documentation URL, which `_PATHY` blanks along with real dotfile paths.
+  Both harnesses' readers get pointed at one harness's docs, and neither name
+  can be rewritten without naming nothing.
 """
 
 import sys
 import unittest
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -40,6 +57,16 @@ class TestProseIsFound(unittest.TestCase):
     def test_a_shell_echo_body_is_prose(self):
         """The measured leak's own shape: advice inside an echoed string."""
         text = 'echo "Run the test command (look in CLAUDE.md)"\n'
+        self.assertEqual(scan.find_harness_mentions(text, ".sh"), [(1, "claude")])
+
+    def test_a_printf_payload_is_prose_not_just_its_format_string(self):
+        """`printf '%s\\n' "<payload>"` is the tree's dominant printf shape.
+
+        A rule reading only the first quoted run scans the format string and
+        never the sentence beside it — the same class of miss as the leak this
+        pin was built from, hidden in the emitter the preload helpers use most.
+        """
+        text = """printf '%s\\n' "Look in CLAUDE.md for the test command"\n"""
         self.assertEqual(scan.find_harness_mentions(text, ".sh"), [(1, "claude")])
 
     def test_a_shell_comment_body_is_prose(self):
@@ -135,8 +162,12 @@ class TestAHatchCannotOutliveItsProse(unittest.TestCase):
 
 # The scan must actually cover the tree. A glob that matched nothing would
 # report zero leaks and read as clean, which is the failure this whole file is
-# built to make loud. Floor taken from the tree as it stands.
-_MIN_FILES_SCANNED = 40
+# built to make loud. Floored PER SUFFIX, as the sibling pin floors per glob
+# group: the two suffixes are two different prose models over two different
+# surfaces, and a tree-wide total cannot see one of them empty out. Every skill
+# preload could vanish and a total of 40 would still clear. Floors from the tree
+# as it stands (31 `.md`, 25 `.sh`).
+_MIN_FILES_BY_SUFFIX = {".md": 28, ".sh": 22}
 
 
 class TestTheShippedTreeIsClean(unittest.TestCase):
@@ -152,12 +183,21 @@ class TestTheShippedTreeIsClean(unittest.TestCase):
 
     def test_the_scan_actually_covers_the_tree(self):
         """Non-vacuity: an empty scan reports zero leaks and looks green."""
-        self.assertGreaterEqual(
-            len(self.files),
-            _MIN_FILES_SCANNED,
-            f"only {len(self.files)} shipped prose files matched — a glob that "
-            "matches nothing reports no leaks and reads as clean",
+        counts = Counter(path.suffix for path in self.files)
+        self.assertEqual(
+            set(counts),
+            set(_MIN_FILES_BY_SUFFIX),
+            "a prose model was added or dropped without a floor",
         )
+        for suffix, floor in sorted(_MIN_FILES_BY_SUFFIX.items()):
+            with self.subTest(suffix=suffix):
+                self.assertGreaterEqual(
+                    counts[suffix],
+                    floor,
+                    f"the {suffix} surface scans {counts[suffix]} files, below "
+                    f"its floor of {floor} — a glob stopped matching, and a "
+                    "surface that matches nothing reports no leaks",
+                )
 
     def test_no_unmarked_harness_mention_survives(self):
         offenders = []
@@ -222,26 +262,49 @@ class TestTheGuidesAndPreloadNeedNoExcuse(unittest.TestCase):
                 self.assertEqual(found, [])
 
 
-class TestDeferredLeaksStayReported(unittest.TestCase):
-    """AC#5 — a leak deferred as debt is PRINTED, not silenced.
+# Every file carrying a `DEFERRED AS DEBT` marker, and nothing else. Pinned by
+# FILE, not by line, so inserting a paragraph does not red-light the commit —
+# but adding or dropping a deferral has to be a deliberate edit here, which is
+# what makes the roster an assertion rather than a printout.
+#
+# No debt id is pinned, and none appears in the markers: shipped agent prose is
+# separately pinned to carry no 12-hex ids. The marker says it is a deferral in
+# words; the debt event carries the file, which is the join key.
+_DEBT_DEFERRED_FILES = {"agents/xp-system-analyzer.md"}
 
-    A marker whose reason carries a debt id is an admission, not an excuse: the
-    marker keeps the pin green so the suite stays usable, and the debt event is
-    the actual record. Printing them every run is what keeps the two honest.
+
+class TestDeferredLeaksStayReported(unittest.TestCase):
+    """AC#5 — a leak deferred as debt is declared, not silenced.
+
+    A marker reading DEFERRED AS DEBT is an admission, not an excuse: it keeps
+    the pin green so the suite stays usable, and a debt event is the actual
+    record. A roster that has to be edited is what keeps the two honest — a
+    printed list nobody asserts on grows a deferral silently.
     """
 
-    def test_debt_deferred_sites_are_listed_with_their_ids(self):
-        deferred = []
-        for path in scan.shipped_prose_files(_PLUGIN_ROOT):
-            for index, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(), 1
-            ):
-                if "harness-ok:" in line and "DEFERRED AS DEBT" in line:
-                    deferred.append(f"{path.relative_to(_PLUGIN_ROOT)}:{index}")
-        print("\nharness leaks deferred as debt: " + (", ".join(deferred) or "none"))
-        for site in deferred:
-            with self.subTest(site=site):
-                self.assertTrue(site)
+    def test_the_deferred_roster_is_exactly_what_is_declared(self):
+        deferred = {
+            str(path.relative_to(_PLUGIN_ROOT))
+            for path in scan.shipped_prose_files(_PLUGIN_ROOT)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if "harness-ok:" in line and "DEFERRED AS DEBT" in line
+        }
+        self.assertEqual(
+            deferred,
+            _DEBT_DEFERRED_FILES,
+            "the set of harness leaks deferred as debt changed. Adding one is "
+            "allowed — record the debt event, then add the file here so the "
+            "deferral is declared rather than accumulated",
+        )
+
+    def test_a_deferral_marker_still_excuses_a_real_mention(self):
+        """A deferral that stopped covering a leak is a marker excusing nothing,
+        and would otherwise sit in the roster looking like live cover."""
+        for name in sorted(_DEBT_DEFERRED_FILES):
+            path = _PLUGIN_ROOT / name
+            with self.subTest(file=name):
+                text = path.read_text(encoding="utf-8")
+                self.assertEqual(scan.hatches_without_mentions(text, path.suffix), [])
 
 
 if __name__ == "__main__":
