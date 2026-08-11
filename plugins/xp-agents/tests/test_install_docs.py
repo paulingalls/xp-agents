@@ -31,21 +31,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from _paths import _PLUGIN_ROOT
-
 # Imported, not copied. These carry the harness's stdout contract and the
 # isolation guarantee; a second copy would put the contract most likely to
-# change under the harness in two places at once. The repo already imports
-# across test modules this way — see test_lefthook_commit_gate importing from
-# test_lefthook_perf_gate.
-from test_marketplace_install import (
+# change under the harness in two places at once. Taken from `_codex_harness`,
+# which owns them, rather than from `test_marketplace_install`, which merely
+# re-exports them by virtue of importing them itself — that indirection breaks
+# the day that suite stops needing one of these names.
+from _codex_harness import (
     _HARNESS,
     _PLUGIN_ID,
     _REPO_ROOT,
     _harness,
     _installed_root,
     _isolated_home,
+    assert_module_skips_without_harness,
 )
+from _paths import _PLUGIN_ROOT
 
 _README = _REPO_ROOT / "README.md"
 
@@ -200,6 +201,26 @@ def _documented_local_commands() -> list[str]:
     ]
 
 
+class TestTheDocumentedSequenceIsExtractable(unittest.TestCase):
+    """Non-vacuity guard for the extraction itself.
+
+    Ungated deliberately, though the row it protects is not: reading the README
+    needs no harness, and gating this behind one would retire the guard on the
+    machines least able to notice — the extraction could start matching nothing
+    and the install row it feeds would skip rather than report zero commands.
+    """
+
+    def test_the_extraction_finds_the_whole_sequence(self):
+        commands = _documented_local_commands()
+        self.assertEqual(
+            len(commands),
+            2,
+            f"expected the register+install pair, extracted {commands}",
+        )
+        self.assertTrue(commands[0].startswith(f"{_HARNESS} plugin marketplace add"))
+        self.assertIn(_PLUGIN_ID, commands[1])
+
+
 @unittest.skipUnless(
     shutil.which(_HARNESS), f"{_HARNESS} not on PATH — install-dependent rows skip"
 )
@@ -211,21 +232,6 @@ class TestTheDocumentedSequenceActuallyWorks(unittest.TestCase):
     rather than implied to be proven — the same honesty the version-floor rows
     enforce.
     """
-
-    def test_the_extraction_finds_the_whole_sequence(self):
-        """Non-vacuity guard for the extraction itself.
-
-        A regex that matched nothing would run zero commands and report green,
-        so the count is asserted before anything is executed.
-        """
-        commands = _documented_local_commands()
-        self.assertEqual(
-            len(commands),
-            2,
-            f"expected the register+install pair, extracted {commands}",
-        )
-        self.assertTrue(commands[0].startswith(f"{_HARNESS} plugin marketplace add"))
-        self.assertIn(_PLUGIN_ID, commands[1])
 
     def test_running_the_documented_commands_installs_a_loadable_plugin(self):
         env, home = _isolated_home()
@@ -266,6 +272,25 @@ class TestTheDocumentedSequenceActuallyWorks(unittest.TestCase):
         shipped_skills = sorted(p.name for p in (_PLUGIN_ROOT / "skills").iterdir())
         self.assertTrue(shipped_skills, "no skills shipped to compare against")
         self.assertEqual(installed_skills, shipped_skills)
+
+
+_GATED_CLASSES = (TestTheDocumentedSequenceActuallyWorks,)
+
+
+class TestTheSkipPathIsClean(unittest.TestCase):
+    """With no harness on PATH the row above SKIPS — it does not pass.
+
+    The probe lives in `_codex_harness`, parameterized on the module and its
+    gated classes: `_GATED_CLASSES` names a class local to THIS file, so the skip
+    floor can only be derived from what is passed.
+    """
+
+    def test_the_module_skips_cleanly_without_the_harness(self):
+        assert_module_skips_without_harness(
+            self,
+            module_path=Path(__file__),
+            gated_classes=_GATED_CLASSES,
+        )
 
 
 if __name__ == "__main__":
