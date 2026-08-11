@@ -2,6 +2,90 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.13.0 — The conversions were not the point
+
+This release set out to turn checkable claims in shipped docstrings into tests
+that go red when the claim stops holding, and to measure whether doing that at
+scale is worth it. The measurement came back 24.8%, and the conversions turned
+out to be the least valuable thing the work produced.
+
+### What a claim costs when nobody checks it
+
+Triaging ten long docstrings across the close-gate cluster found 128 claims —
+105 a machine could check, 26 of them unpinned. That is the headline number,
+and it argues against funding more sweeps: the cluster was chosen precisely
+because it measured the *thinnest* existing coverage, so 24.8% is the optimistic
+end.
+
+What the same reading found instead was four false claims, shipped, in the two
+modules the cluster's behaviour actually turns on. `close_cycle_stop_gate`
+described its `stop_hook_active` bypass as age-gated and named a constant as the
+mechanism; the owning session has decided it since the liveness check landed,
+and the repo's own tests falsify the age story in both directions. The constant
+it named was read by nothing — it survived only in prose and in tests that used
+it as a backdate value. The same docstring claimed the gate blocks whenever the
+marker is present, omitting the evidence-release path.
+`close_cycle_abandonment` said the marker is released only when the reviewer
+completes, contradicted 190 lines below by its own recorder.
+
+Two more turned up in the tests themselves, including a remedial message naming
+a call site that does not exist.
+
+None of that comes out of a conversion pass. It comes out of reading claims
+against the code they describe, which is a reviewer's work — the same lesson
+this project already recorded as "stale prose is caught by diff review, not by
+sweeping unchanged code".
+
+### A ratio moves against the work that corrects it
+
+The `scripts/` prose ratchet compared the whole root against one recorded ratio
+over a hand-kept file set. That shape has two failure modes, and both had fired.
+A true claim is usually longer than the false short one it replaces, so
+correcting prose RAISED the number the ratchet watches — it moved against
+exactly the work it was installed to protect. And a sum lets one file's honest
+deletion pay for another's regrowth.
+
+It now measures per file, in absolute lines, against a table generated from the
+scan rather than hand-typed. The tree drives the comparison and the table only
+supplies numbers, so a file above the floor with no recorded entry is a
+violation rather than an exemption — which closes the other half of the old
+design, where a file added after the set was recorded stayed unmeasured
+indefinitely. Two were.
+
+Measurement and slack stay separate, and only the ceiling is exposed, so no
+caller can compare against the raw number and rediscover a zero-headroom gate.
+
+### A pointer is not a promise
+
+Converting a claim leaves a pointer where the claim was: "pinned in
+`test_x.py`". Nothing checked that the named file existed. Two pointers in the
+tree were already dead — both killed by file *splits* rather than renames, which
+is the case a rename-aware habit misses. One of them justified an otherwise
+unused import by naming the tests that patch through it.
+
+A new pin now resolves every test file named in shipped Python and shell prose.
+It matches file-shaped tokens only: shipped code carries `test_passed` and
+`test_count` as event fields and `TestLayout` as a domain type, and a
+bare-identifier matcher reports all of them dead. It states plainly what it
+cannot do — it proves a named file exists, never that the file still asserts the
+claim pointing at it.
+
+### Two gates that failed open
+
+`owner_session_is_live` compared a heartbeat's age against a staleness threshold
+with no lower bound, so a timestamp recorded in milliseconds, or written across
+a backwards clock step, aged negative and read as a live owner. Live is the
+dangerous verdict: it suppresses the age fallback, leaving the close-cycle Stop
+gate armed with nothing able to release it while the next close overwrites the
+marker it should have recorded.
+
+Separately, the review-cycle flag had three writers across two `agent_id`
+resolutions. A Stop payload carrying a platform agent id sent the close gate
+looking for a key the Step 4b CLI never wrote, so it blocked an agent
+mid-review. No resolver swap fixes that — changing either side moves the
+mismatch onto the other pair — so the gate reads under both keys, which fails in
+the safe direction: a spurious defer only delays a block.
+
 ## v5.12.0 — A name is not the thing it names
 
 Both fixes here are the same mistake in different clothes: something read a
