@@ -11,7 +11,9 @@ OTHER because they are keyed on different checkouts:
     on the repo a commit lands in (`identity.review_watermark_key`).
 
 Held in one file, every site that touched both had to pick one owner for both.
-The four commit sites picked the repo, the seven flag sites picked the session,
+The four sites that READ or WRITE both picked the repo (three of them land a
+commit and now share `end_review_cycle`; the fourth is the gate), the seven
+flag-only sites picked the session,
 and they agree only while a session commits into its own checkout. `git -C
 <other-repo> commit` is when they do not, and there the gate read a record
 /xp-quality-review never writes — a block no rerun could clear, because every
@@ -60,8 +62,22 @@ def write_review_flags(smm_dir: Path, agent_id: str, data: dict) -> None:
 
 
 def clear_review_flags(smm_dir: Path, agent_id: str) -> None:
-    """End the session's review cycle: every flag back to False."""
-    write_review_flags(smm_dir, agent_id, dict(_DEFAULT_REVIEW_FLAGS))
+    """End the session's review cycle: every flag back to False.
+
+    Carries a PRE-SPLIT record's sha across the reset. `read_review_watermark`
+    still falls back to it, and the two keys are not the same checkout — under
+    `git -C <other>` this clears one while the watermark is stamped on another,
+    so writing the bare defaults would drop the only sha an upgrading install
+    has and leave the fallback nothing to find. Inert once that checkout's own
+    watermark record exists, since the new record is read first.
+    """
+    data = dict(_DEFAULT_REVIEW_FLAGS)
+    existing = marker_read(smm_dir, REVIEW_CYCLE, agent_id)
+    if isinstance(existing, dict):
+        carried = existing.get(_WATERMARK_FIELD, "")
+        if isinstance(carried, str) and carried:
+            data[_WATERMARK_FIELD] = carried
+    write_review_flags(smm_dir, agent_id, data)
 
 
 def set_review_flag(

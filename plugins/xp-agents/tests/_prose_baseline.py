@@ -46,7 +46,11 @@ deleted line can come back to the old number with nothing red. The pin requires
 the entry to go, which banks the deletion as the new bound.
 """
 
-# Prose lines per file as measured on 2026-08-10, at the open of sprint-003.
+# Prose lines per file, re-measured on 2026-08-11 during sprint-003's close —
+# NOT a pre-sprint baseline. Several entries absorbed this sprint's own growth,
+# which is what a re-record is for and also its weakness: nothing here refuses
+# an upward one, so each regeneration renews the slack below. Recorded as debt
+# rather than hidden.
 # Recorded separately from the allowance below so a reader sees the observation
 # and the tolerance as two numbers, not one fudged one. GENERATED from
 # `_prose_scan`, never hand-typed: a hand-edited number is indistinguishable

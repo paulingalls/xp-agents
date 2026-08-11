@@ -74,7 +74,8 @@ tree were already dead — both killed by file *splits* rather than renames, whi
 is the case a rename-aware habit misses. One of them justified an otherwise
 unused import by naming the tests that patch through it.
 
-A new pin now resolves every test file named in shipped Python and shell prose.
+A new pin now resolves every test file named in shipped Python, shell and
+Markdown prose.
 It matches file-shaped tokens only: shipped code carries `test_passed` and
 `test_count` as event fields and `TestLayout` as a domain type, and a
 bare-identifier matcher reports all of them dead. It states plainly what it

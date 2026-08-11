@@ -29,7 +29,8 @@ ${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/
 ├── .coordination.json        ← per-agent working_on for O(1) conflict detection
 ├── .needs-kickoff                    ← gate marker, cleared by /xp-kickoff
 ├── .plan-awaiting-review             ← plan review gate marker, cleared by plan reviewer preload
-├── .review-cycle-{agent_id}.json     ← commit-gated review cycle state (per-agent)
+├── .review-cycle-{agent_id}.json     ← review flags, keyed on the REVIEWING SESSION's checkout
+├── .review-watermark-{agent_id}.json ← the sha the last review measured from, keyed on the TARGET REPO
 ├── events.lock                       ← flock for atomic appends
 └── retrospectives/                   ← Keep/Fix/Try session artifacts (.json)
 ```

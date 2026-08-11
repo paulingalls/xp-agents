@@ -234,6 +234,39 @@ class TestTheWatermarkSurvivesTheSplit(_HookTestCase):
             review_records.read_review_watermark(self.smm_dir, _LEAD_KEY), "new-sha"
         )
 
+    def test_ending_a_cycle_elsewhere_does_not_erase_the_only_watermark(self):
+        """The migration's own window is where it can be lost.
+
+        `end_review_cycle` clears the flags before writing the watermark, and
+        under `git -C <other>` those are DIFFERENT keys — so the first
+        post-upgrade commit clears this checkout's flags while stamping
+        another's watermark. A clear that wrote only the defaults dropped the
+        pre-split sha with them, permanently, and the fallback then had nothing
+        to fall back to: the `{sha}..HEAD` leg goes away for good and the gate
+        measures from the staged set alone. Fail-open, once, silently.
+        """
+        markers.marker_write(
+            self.smm_dir,
+            markers.REVIEW_CYCLE,
+            {"last_review_commit": "old-sha", "quality_review_done": True},
+            _LEAD_KEY,
+        )
+
+        review_records.end_review_cycle(
+            self.smm_dir, _TEAMMATE_KEY, _LEAD_KEY, "landed-elsewhere"
+        )
+
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, _LEAD_KEY), "old-sha"
+        )
+        self.assertFalse(
+            review_records.read_review_flags(self.smm_dir, _LEAD_KEY)[
+                "quality_review_done"
+            ],
+            "the cycle still has to END — preserving the sha must not keep the "
+            "review flags alive",
+        )
+
     def test_neither_record_is_still_no_watermark(self):
         """Non-vacuity: a fresh checkout must not read a sha out of nowhere."""
         self.assertEqual(

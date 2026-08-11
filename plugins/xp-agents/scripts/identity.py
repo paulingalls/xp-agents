@@ -11,9 +11,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-# `append_validation` is imported at module load (below), so this module owns
-# the insert rather than depending on an importer having run one first.
-sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
+# APPEND, where every sibling inserts at 0. They own their smm/ imports the
+# same way, but this module is imported by nearly every hook, so putting smm/
+# ahead of scripts/ here would reorder resolution for all of them to reuse one
+# regex. Appended, scripts/ still wins and the reach is additive only.
+sys.path.append(str(Path(__file__).parent.parent / "smm"))
 
 import append_validation
 
