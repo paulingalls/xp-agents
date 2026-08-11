@@ -76,30 +76,10 @@ _FILE_FLAG_RE = re.compile(
 def _without_heredoc_bodies(command: str) -> str:
     """*command* with every stdin-heredoc span removed.
 
-    Exists so the simple `-m` search cannot read a message out of a heredoc
-    BODY. A body is prose the shell hands to git as data — a commit message,
-    most often — so a runner flag mentioned in one (`ran pytest -m "slow"`) is
-    not an argument to anything. Reading it as one supplied that text as the
-    message, and the damage was not a wrong string: the recovered text then
-    failed to match HEAD's subject, so no commit event was written at all, a
-    `Resolves-Event:` trailer never linked, and an escape-hatch prefix in the
-    real subject stayed invisible to the branch guard.
-
-    Subtractive rather than "prefer the `-F` branch when its flag is present",
-    which carries the mirror of the same bug: `git commit -m "real" && tool -F -`
-    would then take its message from the wrong source.
-
-    Uses THIS module's spans, deliberately, not `git_commits.strip_heredocs`.
-    That helper terminates at the delimiter word wherever it appears, while
-    these patterns require the delimiter to own its line — so a body discussing
-    its own delimiter (`Discussed the MSG format; ran pytest -m "slow"`) would
-    still leak everything after the mention. Borrowing the looser spelling would
-    also point the shared-rule argument the wrong way: the stricter, correct one
-    already lives here.
-
-    The two patterns are mutually exclusive per occurrence (a literal `<<-`
-    cannot satisfy the plain pattern's `\\w+` right after `<<`), so the order
-    below is immaterial.
+    THIS module's spans, not `git_commits.strip_heredocs`: that one terminates at
+    the delimiter word wherever it appears, and these require the delimiter to
+    own its line. That hole, and the rejected "prefer `-F` when present"
+    alternative, are pinned in `test_commit_message_forms.py`.
     """
     return _STDIN_HEREDOC_RE.sub("", _STDIN_HEREDOC_DASH_RE.sub("", command))
 
@@ -149,10 +129,8 @@ def recover_commit_message(command: str) -> tuple[str | None, bool]:
     HEAD's body is the only signal that the commit actually landed. Parsing
     only `-m` silently dropped every `-F`-bodied commit from the event log.
     """
-    # `_HEREDOC_MSG_RE` reads the ORIGINAL command, and that ordering is
-    # load-bearing: it is itself a heredoc form (`-m "$(cat <<EOF …)"`), so
-    # subtracting bodies first would delete the very body it captures. Only the
-    # simple-`-m` search below runs against stripped text.
+    # Ordering is load-bearing: this pattern is itself a heredoc form, so
+    # subtracting bodies first would delete the body it captures.
     heredoc = _HEREDOC_MSG_RE.search(command)
     if heredoc:
         return heredoc.group("body"), not heredoc.group("mq")

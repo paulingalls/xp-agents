@@ -69,18 +69,13 @@ _UNEXPANDED_RE = re.compile(r"\$[({\w]|`")
 # an ordinary commit `commit` and a repo's first one `commit (initial)`, while
 # an amend is `commit (amend)` — a DIFFERENT commit object whose predecessor
 # may already carry an event — and `rebase`/`reset`/`cherry-pick` reach a HEAD
-# by means this path cannot describe.
-#
-# `merge` is not in here and is not excluded either: it has its own arm below,
-# because a merge HEAD is a landed commit that simply is not a PLAIN one.
+# by means this path cannot describe. `merge` has its own arm below.
 _COMMIT_REFLOG_ACTIONS = frozenset({"commit", "commit (initial)"})
 
-# The reflog action a merge leaves. Matched as a LEADING WORD, never by equality:
-# `%gs` spells it `merge side: Merge made by the 'ort' strategy.` and
-# `head_landing_facts` keeps everything before the colon, so the action is
-# `merge side` — the source branch rides along. An equality test against "merge"
-# matches nothing, and because this whole path fails closed it would record
-# nothing while looking correct.
+# Matched as a LEADING WORD, never by equality: `%gs` spells it `merge side: …`
+# and `head_landing_facts` keeps everything before the colon, so an equality test
+# matches nothing and — this path failing closed — records nothing while looking
+# correct. Pinned in `test_manual_merge_commit_event.py`.
 _MERGE_REFLOG_ACTION = "merge"
 
 
@@ -127,9 +122,8 @@ def build_commit_event(
     an id the resolver cannot see. That advisory belongs to the body, not to
     the caller, which is why it moved in here with the rest of the sequence.
 
-    `is_merge` forwards to the shared builder, where it excludes the event from
-    the resolves-link-rate denominator. Defaults False so every existing caller
-    is unchanged; only the rebuild's merge arm passes it.
+    `is_merge` forwards to the shared builder, which excludes the event from the
+    resolves-link-rate denominator. Only the rebuild's merge arm passes it.
     """
     if not raw_body:
         return None
@@ -218,9 +212,8 @@ def _message_unreadable_from_command(command: str) -> bool:
 def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> str | None:
     """How HEAD landed a moment ago: ``"plain"``, ``"merge"``, or None.
 
-    Returns the KIND rather than a yes/no because the caller has to tag a merge
-    event as one, and the answer is already in hand here — asking again would
-    mean a second `git show` + `git reflog` on the synchronous PostToolUse path.
+    The KIND, not a yes/no: the caller must tag a merge, and re-asking would cost
+    a second `git show` + `git reflog` on the synchronous PostToolUse path.
 
     Deliberately NOT "did this command make it" — that is what the hook
     cannot prove on this branch. Three signals, all required, because the
@@ -229,15 +222,9 @@ def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> str | None:
 
     * **Fresh.** An old HEAD means the command failed on top of history
       someone else wrote.
-    * **Parent count picks the ARM, and no longer vetoes.** A merge HEAD is a
-      landed commit; it is simply not a PLAIN one, and recording it as plain
-      would take the whole merged branch as `files` with no `is_merge` tag,
-      straight into the resolves-link-rate denominator. So `>1` parent routes
-      to the merge arm — which sets that tag, and the tag is exactly what
-      keeps the event out of the denominator — rather than refusing outright.
-      Refusing was what left a hand-run merge unrecorded while
-      `merge_commit_event` closed the same hole for the close cycle's own
-      merges.
+    * **Parent count picks the ARM rather than vetoing.** A merge HEAD is a
+      landed commit that is not a PLAIN one, so `>1` routes to the merge arm,
+      which sets the `is_merge` tag that keeps it out of the denominator.
     * **Reflog says `commit`.** Freshness and parent count both pass for a
       `rebase (pick)`, a `commit --amend` and a `reset` onto a young commit,
       none of which this command produced. Only the reflog separates them, so
@@ -258,10 +245,8 @@ def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> str | None:
     age = time.time() - committer_ts
     if not 0 <= age <= HEAD_REBUILD_MAX_AGE_SECONDS:
         return None
-    # Leading word, not equality: the action is `merge <source>`. A merge that
-    # FAST-FORWARDED leaves this same action with ONE parent and creates no
-    # commit, so the parent count is what separates the two — neither signal
-    # decides alone.
+    # A fast-forward leaves this same action with ONE parent and creates no
+    # commit, so neither signal decides alone.
     if parent_count > 1:
         first_word = (reflog_action or "").split(maxsplit=1)[:1]
         return "merge" if first_word == [_MERGE_REFLOG_ACTION] else None
@@ -326,9 +311,6 @@ def rebuild_at_head(
         committed_files=committed_files,
         code_file_count=code_files.count_code_files(committed_files),
         review_cadence=markers.read_review_cadence(smm_dir),
-        # The tag is load-bearing, not descriptive: it is what excludes the
-        # event from the resolves-link-rate denominator, so a merge carrying no
-        # authored trailer cannot dilute a rate it was never party to.
         is_merge=kind == "merge",
     )
     if event is None:
