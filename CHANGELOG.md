@@ -2,6 +2,98 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.13.1 — An abort is not a commit, and a fast-forward is not a merge
+
+Four defects on the commit path, all of one shape: a command that moved HEAD
+without committing, or committed without being read correctly, and a gate that
+believed it anyway. The most instructive one was introduced by this release's
+own fix and caught by dogfooding it.
+
+### A command that undoes work was arming the gates that guard work
+
+`git merge --abort` and `git merge --quit` create no commit. Both were
+classified as commit-producing, which armed the whole PreToolUse stack — review
+cycle, secret scan, staged lint, trailer check — against a command that ends by
+throwing changes away, and left a commit event recorded for a commit nobody
+made.
+
+The narrowing is SUBTRACTIVE, not an early return, and the distinction is the
+whole fix: `git commit -m x && git merge --abort` still contains a real commit,
+so an early return on seeing `--abort` would have disarmed four gates for any
+command willing to append seven characters. The non-committing forms are
+removed from the scan target and the question is asked again of what remains.
+
+### A lock that killed the hook holding it
+
+`update_coordination` armed `SIGALRM` and then took a blocking `flock`. Under
+contention — two teammates committing at once — the alarm fired inside the
+blocked call with the default handler installed, and the signal terminated the
+hook process. The failure mode was a hook that died silently mid-write, seen as
+`returncode -14`.
+
+`flock_with_timeout` now takes an explicit `timeout_s`, and coordination passes
+2 seconds rather than the event log's 10: `.coordination.json` is advisory, every
+reader degrades without it, and every write is on a synchronous hook path, so
+blocking a hook for ten seconds on it is worse than the stale entry a give-up
+leaves. A give-up is LOGGED, never swallowed. Only the acquire is wrapped, never
+the caller's body — wrapping the body would report a full disk as a lock failure.
+
+`XP_LOCK_TIMEOUT_SECONDS` still outranks the caller's budget, which is what lets
+a cross-process test narrow it.
+
+### A commit message read out of the message's own body
+
+`git commit -F -` fed from a heredoc had its `-m`-looking text scavenged out of
+the BODY. A body containing `pytest -m "slow"` — ordinary prose, and this
+repo's history is full of it — became the recovered message, which then failed
+to match HEAD, so the success path never fired and **no commit event was written
+at all**. Every `Resolves-Event:` id the author named stayed silently open.
+
+Honest scope: this was pitched as covering seven recorded incidents and it
+covers one or two. `-m "$(cat <<'EOF' … )"`, the other spelling that looks
+identical in a transcript, parses correctly and always did. The heredoc body is
+now stripped before the simple-`-m` scan, and the heredoc form is tried FIRST
+because it is itself a heredoc.
+
+A hand-run `git merge` also records an event now, tagged `is_merge` so it stays
+out of the resolves-link-rate denominator — including a conflict finished by
+hand, which git spells `commit (merge)` rather than `merge`.
+
+### The fix that claimed another clone's commit
+
+That merge arm matched the reflog action by leading word, because `%gs` spells a
+merge `merge side: Merge made by the 'ort' strategy.` and an equality test
+against `merge` is inert. But `head_landing_facts` cut `%gs` at the colon — and
+a fast-forward, which creates no commit at all, spells itself `merge X:
+Fast-forward`. Same leading word. Fast-forwarding onto a merge commit counts two
+parents, and origin tips very often ARE merge commits, so the parent-count guard
+routed it into the merge arm instead of vetoing. Freshness was all that stood
+left, and a tip pushed minutes ago is fresh.
+
+Reproduced: a commit event carrying another clone's hash, message and files,
+tagged as our merge, with any `Resolves-Event:` in that body live against real
+ids. The trigger is an ordinary two-person day — a teammate pushes a merge, a
+lead merges within five minutes.
+
+`head_landing_facts` now returns the whole `%gs`; the truncation threw away the
+one signal that distinguished the two. The merge arm ALLOWLISTS the detail —
+git announcing a created merge, nothing else. A `fast-forward` denylist would
+have to enumerate every other non-creating spelling forever and fail OPEN on the
+first miss, while an allowlist falls back to the trace, which is what this path
+did before the merge arm existed.
+
+It escaped four close reviews and a green sprint. What found it was running the
+plugin's own back-merge and reading the two traces it left.
+
+### Also
+
+- The commit-target worktree scan was reviewed for retirement and KEPT. The
+  concern it raises has fired twice in another clone's archive, so the
+  suspicion that it was noise was itself the thing that could not be verified.
+- An end-to-end pin for the composition of the classifier and the message
+  recovery, which no single suite reached: each was green alone while the seam
+  between them could break.
+
 ## v5.13.0 — The conversions were not the point
 
 This release set out to turn checkable claims in shipped docstrings into tests
