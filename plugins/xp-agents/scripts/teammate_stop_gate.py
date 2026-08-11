@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _common
 import identity
 import markers
+import review_records
 
 
 def _has_uncommitted_changes(cwd: str) -> bool:
@@ -57,12 +58,15 @@ def run(
     if cadence == "story":
         return "You have uncommitted changes. Commit them before stopping."
 
-    agent_id = identity.resolve_agent_id(input_data)
-    cycle = markers.read_review_cycle(smm_dir, agent_id) if agent_id else {}
+    # No `if agent_id` guard: the key falls back to "main" for any cwd, so the
+    # empty branch was unreachable and its {} silently read as "unreviewed".
+    flags = review_records.read_review_flags(
+        smm_dir, identity.review_flags_key(input_data.get("cwd", ""))
+    )
 
     # Per-increment review is /xp-quality-review only — the xp-code-reviewer it
     # spawns self-finds correctness; the workflow /code-review runs at close.
-    if not cycle.get("quality_review_done"):
+    if not flags.get("quality_review_done"):
         return "You have uncommitted changes. Run /xp-quality-review before stopping."
 
     return "Review cycle complete. Commit your changes before stopping."

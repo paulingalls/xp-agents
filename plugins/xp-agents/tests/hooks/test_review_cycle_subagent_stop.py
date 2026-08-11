@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import markers
+import review_records
 import subagent_stop
 from conftest import _HookTestCase
 
@@ -41,7 +41,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input("task-1", agent_type="code-review"),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
     def test_quality_review_agent_type_sets_flag(self):
@@ -50,7 +50,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input("task-2", agent_type="xp-quality-review"),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertTrue(cycle["quality_review_done"])
 
     def test_code_review_agent_id_sets_flag(self):
@@ -59,7 +59,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input("code-review-reuse-1", agent_type=""),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
     def test_other_plugin_qualified_code_review_does_not_set_flag(self):
@@ -71,7 +71,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input("o-1", agent_type="otherplugin:code-review"),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
 
     def test_xp_code_reviewer_agent_does_not_set_flag(self):
@@ -84,7 +84,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input("rev-1", agent_type="xp-code-reviewer"),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
 
     def test_qualified_xp_code_reviewer_does_not_set_flag(self):
@@ -93,7 +93,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input("rev-2", agent_type="xp-agents:xp-code-reviewer"),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
 
     def test_xp_quality_review_helper_does_not_set_flag(self):
@@ -106,7 +106,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input("h-1", agent_type="xp-quality-review-helper"),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["quality_review_done"])
 
     def test_xp_quality_reviewer_helper_does_not_set_flag(self):
@@ -119,14 +119,14 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input("helper-1", agent_type="xp-quality-reviewer-helper"),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["quality_review_done"])
         # Same guard must hold for agent_id-driven matches.
         subagent_stop.run(
             self._stop_input("xp-quality-reviewer-helper-9", agent_type=""),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["quality_review_done"])
 
     def test_legacy_simplify_agent_type_no_longer_sets_flag(self):
@@ -135,7 +135,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input("task-9", agent_type="simplify"),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
 
     def test_regular_subagent_no_flag(self):
@@ -144,7 +144,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input("task-3", agent_type="task"),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
 
@@ -154,7 +154,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input("plan-1", agent_type="Plan"),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
 
@@ -169,7 +169,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             ),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "worktree-story-001")
+        cycle = review_records.read_review_flags(self.smm_dir, "worktree-story-001")
         self.assertTrue(cycle["simplify_done"])
 
     def test_null_cwd_does_not_raise_and_falls_back_to_main(self):
@@ -180,7 +180,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input("task-1", agent_type="code-review", cwd=None),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
 

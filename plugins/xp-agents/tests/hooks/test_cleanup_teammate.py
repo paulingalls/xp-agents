@@ -10,6 +10,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
@@ -250,7 +252,7 @@ class TestCleanup(_IntegrationTestCase):
         _merge_branch(self.tmpdir, name)
 
         # Create agent-scoped markers
-        markers.write_review_cycle(self.smm_dir, name, {"simplify_done": True})
+        review_records.write_review_flags(self.smm_dir, name, {"simplify_done": True})
         tdd_path = markers.marker_path(self.smm_dir, markers.TDD_TRACKER, name)
         markers.marker_write(
             self.smm_dir,

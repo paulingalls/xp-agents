@@ -95,7 +95,7 @@ def marker_age_seconds(now: float, written_at: object) -> float | None:
 # running, and (once the sweep started recording) files a high-severity
 # abandonment concern against it, which that close's own Step 6 count then
 # reads as a reason to abort. `close_cycle_abandonment.record_abandonment` owns
-# it instead, on the same age rule the other two detectors use.
+# it instead, on the same live-vs-dead rule the other two detectors use.
 #
 # CLOSE_CYCLE_ID is the one entry that is session-SCOPED, and it is here for a
 # different reason from the rest. Scoping already stops a previous session's id
@@ -145,10 +145,10 @@ def sweep_stale_session_markers(smm_dir: Path) -> None:
     learn a close cycle died — the reviewer that releases the marker never ran
     — so deleting it silently threw away the only evidence anyone would ever
     have. `close_cycle_abandonment.record_abandonment` owns every condition:
-    absent (the normal case, every session) and still young (a close running in
-    another window, or in this one before a `/clear`) both record nothing and
-    consume nothing. It never raises, so a failed append cannot break a session
-    start.
+    absent (the normal case, every session), and a marker whose OWNING session
+    still heartbeats at any age (a close running in another window, or in this
+    one before a `/clear`), both record nothing and consume nothing. It never
+    raises, so a failed append cannot break a session start.
     """
     import close_cycle_abandonment
 

@@ -28,8 +28,8 @@ import _common
 import event_schema
 import hook_liveness
 import identity
-import markers
 import plugin_loader
+import review_records
 import target_routing
 
 # Canonical target names; mapped from skill/agent names by _detect_target.
@@ -185,7 +185,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     flag = _TARGET_FLAG.get(target)
     if flag:
-        markers.set_review_flag(smm_dir, agent_id, flag)
+        # The FLAG is keyed on the checkout, not on this payload's agent_id —
+        # identity.review_flags_key owns that rule for every site. The
+        # event below keeps agent_id: it records who ran the review.
+        review_records.set_review_flag(
+            smm_dir,
+            identity.review_flags_key(input_data.get("cwd", "")),
+            flag,
+        )
 
     lifecycle = _TARGET_LIFECYCLE.get(target)
     if lifecycle is not None:

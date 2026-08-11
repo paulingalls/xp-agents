@@ -19,6 +19,7 @@ import coordination
 import identity
 import marker_names
 import markers
+import review_records
 import sprint_state
 import sprint_status
 import target_routing
@@ -113,8 +114,8 @@ def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
         flag = "quality_review_done"
 
     if flag is not None:
-        agent_id = identity.resolve_agent_id_from_cwd(input_data.get("cwd", ""))
-        markers.set_review_flag(smm_dir, agent_id, flag)
+        agent_id = identity.review_flags_key(input_data.get("cwd", ""))
+        review_records.set_review_flag(smm_dir, agent_id, flag)
 
 
 def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:

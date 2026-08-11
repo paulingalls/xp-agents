@@ -12,13 +12,12 @@ xp-work-selection, and xp-accept. After writing sprint.json it:
   acceptance flow: an iteration completes via `update-story`, which never
   reaches this module. Do not add accept-flow side effects here.
 
-Library only — no CLI entrypoint, deliberately. `sprint_cli.py create` is the
-sole way to write a whole sprint, because the re-slice preserve
-(sprint_cli_mutate._preserve_branch_names) runs at that layer: a second
-`python3 sprint_save.py < payload` door would reach run() without it and
-silently re-drop every recorded branch_name on a same-id re-create — the exact
-bug story-005 closed. Callers import run() (structural mutations) or save()
-(side-effect-free write).
+Library only, deliberately: the re-slice preserve
+(sprint_cli_mutate._preserve_branch_names) runs at the CLI layer, so a second
+door into run() would silently re-drop every recorded branch_name on a same-id
+re-create — the exact bug story-005 closed. Pinned in
+tests/engine/test_sprint_save_single_writer.py. Callers import run()
+(structural mutations) or save() (side-effect-free write).
 """
 
 import contextlib

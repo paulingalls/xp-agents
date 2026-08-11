@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """One owner of the "a close cycle died mid-flight" record.
 
-The close-cycle marker is armed at close START and released only when
-xp-close-reviewer completes, so EVERY exit before that reviewer leaves it
-behind — a Step 0 gate refusal, a pre-flight/push/PR failure, an interrupt
-anywhere in the middle. Three separate components can be the first to find the
-survivor, and each of them used to have the option of just deleting it:
+The close-cycle marker is armed at close START, and the happy path releases it
+when xp-close-reviewer completes — so EVERY exit before that reviewer leaves it
+behind: a Step 0 gate refusal, a pre-flight/push/PR failure, an interrupt
+anywhere in the middle. (Recording below releases it too; that is this module's
+whole job.) Three separate components can be the first to find the survivor,
+and each of them used to have the option of just deleting it:
 
   - `close_cycle_stop_gate` — an aged marker on a Stop the platform's
     re-entry flag has already latched (the gate ALLOWS that stop, deliberately;
@@ -22,10 +23,10 @@ over-budget concern fails schema validation and never lands, which is a real
 prior outage on this exact record. `metadata.detector` is what tells the three
 apart in the log.
 
-They also share the AGE rule (`ABANDONMENT_MIN_AGE_SEC`), which is what makes
-the record mean anything: bare marker existence cannot tell an abandoned cycle
-from one that is still running, and two of the three detectors routinely see
-the latter.
+They also share the decision itself, because bare marker existence cannot tell
+an abandoned cycle from a running one and two of the three routinely see the
+latter. The OWNING SESSION decides it; `ABANDONMENT_MIN_AGE_SEC` is the shared
+fallback for an owner that cannot be named or read, not the primary rule.
 
 Recording CONSUMES the marker, so a cycle recorded by one detector is normally
 invisible to the next. That is a narrow window, not an interlock — the three
@@ -111,9 +112,16 @@ def owner_session_is_live(smm_dir: Path, session_id: str) -> bool | None:
 
     Returns None for "cannot tell" — no id recorded (a marker armed by an
     older version), or a heartbeat that is absent, symlinked or unageable.
-    Callers fall back to the age rule there rather than guessing, because the
-    two mistakes are not symmetric: a false record breaks a healthy close,
-    while a missed one is only the silent loss that predates this module.
+    Callers fall back to age there: for an owner nobody can name, a false
+    record breaks a healthy close while a missed one only loses a signal.
+
+    A heartbeat FURTHER AHEAD than the skew grace is unageable in that same
+    sense, not fresh — `session_markers.marker_age_seconds` hands a future
+    timestamp back as a negative number and leaves the bound to its callers.
+    That leg does NOT inherit the asymmetry: "live" there is PERMANENT (every
+    negative age is under the stale threshold), so nothing ever consumes the
+    marker and the gate blocks every Stop for good — worse than one concern an
+    operator resolves. Pinned in test_close_cycle_owner_liveness.py.
     """
     if not session_id:
         return None
@@ -121,7 +129,7 @@ def owner_session_is_live(smm_dir: Path, session_id: str) -> bool | None:
     if not isinstance(data, dict):
         return None
     age = session_markers.marker_age_seconds(time.time(), data.get("written_at"))
-    if age is None:
+    if age is None or age < -hook_liveness.FUTURE_SKEW_GRACE_SECONDS:
         return None
     return age < hook_liveness.STALE_AFTER_SECONDS
 

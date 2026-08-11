@@ -32,6 +32,7 @@ import branching
 import coordination
 import identity
 import markers
+import review_records
 import sprint_review_flight
 import sprint_state
 import worktree
@@ -79,9 +80,11 @@ def _deferred(smm_dir: Path, agent_id: str, cwd: str) -> bool:
         return True
     # Defer only while a review is mid-flight (simplify_done set,
     # quality_review_done not yet). The predicate — incl. the self-find
-    # invariant — lives in markers.review_mid_cycle, shared with
-    # close_cycle_stop_gate so the rule has one home.
-    if markers.review_mid_cycle(smm_dir, agent_id):
+    # invariant — lives in review_records.review_mid_cycle, shared with
+    # close_cycle_stop_gate so the rule has one home; the KEY comes from
+    # identity.review_flags_key for the same reason, and is not the
+    # agent_id the teammate checks below use.
+    if review_records.review_mid_cycle(smm_dir, identity.review_flags_key(cwd)):
         return True
     if coordination.has_active_teammates(smm_dir, agent_id):
         return True
