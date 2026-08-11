@@ -68,9 +68,20 @@ _UNEXPANDED_RE = re.compile(r"\$[({\w]|`")
 # Reflog actions that mean "this HEAD was produced by committing". `%gs` spells
 # an ordinary commit `commit` and a repo's first one `commit (initial)`, while
 # an amend is `commit (amend)` — a DIFFERENT commit object whose predecessor
-# may already carry an event — and `rebase`/`merge`/`reset`/`cherry-pick` are
-# not this command's work at all.
+# may already carry an event — and `rebase`/`reset`/`cherry-pick` reach a HEAD
+# by means this path cannot describe.
+#
+# `merge` is not in here and is not excluded either: it has its own arm below,
+# because a merge HEAD is a landed commit that simply is not a PLAIN one.
 _COMMIT_REFLOG_ACTIONS = frozenset({"commit", "commit (initial)"})
+
+# The reflog action a merge leaves. Matched as a LEADING WORD, never by equality:
+# `%gs` spells it `merge side: Merge made by the 'ort' strategy.` and
+# `head_landing_facts` keeps everything before the colon, so the action is
+# `merge side` — the source branch rides along. An equality test against "merge"
+# matches nothing, and because this whole path fails closed it would record
+# nothing while looking correct.
+_MERGE_REFLOG_ACTION = "merge"
 
 
 def parse_commit_body(raw_body: str | None) -> tuple[list[str], str, bool]:
@@ -102,6 +113,7 @@ def build_commit_event(
     committed_files: list[str],
     code_file_count: int,
     review_cadence: str,
+    is_merge: bool = False,
 ) -> dict | None:
     """Turn a commit body into a type=commit event. None when there is no body.
 
@@ -114,6 +126,10 @@ def build_commit_event(
     Side effect: appends the unlinkable-trailer concern when the trailer names
     an id the resolver cannot see. That advisory belongs to the body, not to
     the caller, which is why it moved in here with the rest of the sequence.
+
+    `is_merge` forwards to the shared builder, where it excludes the event from
+    the resolves-link-rate denominator. Defaults False so every existing caller
+    is unchanged; only the rebuild's merge arm passes it.
     """
     if not raw_body:
         return None
@@ -164,6 +180,7 @@ def build_commit_event(
         has_resolves_trailer=has_trailer,
         is_free_session=is_free_session,
         review_cadence=review_cadence,
+        is_merge=is_merge,
     )
 
 
@@ -198,8 +215,12 @@ def _message_unreadable_from_command(command: str) -> bool:
     return expands and bool(_UNEXPANDED_RE.search(message))
 
 
-def _head_is_a_freshly_landed_commit(cwd: str, commit_hash: str) -> bool:
-    """Is HEAD a plain commit that landed a moment ago?
+def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> str | None:
+    """How HEAD landed a moment ago: ``"plain"``, ``"merge"``, or None.
+
+    Returns the KIND rather than a yes/no because the caller has to tag a merge
+    event as one, and the answer is already in hand here — asking again would
+    mean a second `git show` + `git reflog` on the synchronous PostToolUse path.
 
     Deliberately NOT "did this command make it" — that is what the hook
     cannot prove on this branch. Three signals, all required, because the
@@ -208,11 +229,15 @@ def _head_is_a_freshly_landed_commit(cwd: str, commit_hash: str) -> bool:
 
     * **Fresh.** An old HEAD means the command failed on top of history
       someone else wrote.
-    * **One parent.** A manual `git merge` emits no event of its own, so a
-      young merge HEAD is also unrecorded — and it is NOT a plain commit.
-      Recording it as one would take the whole merged branch as `files`,
-      with no `is_merge` tag and no authored trailer, straight into the
-      resolves-link-rate denominator this story exists to improve.
+    * **Parent count picks the ARM, and no longer vetoes.** A merge HEAD is a
+      landed commit; it is simply not a PLAIN one, and recording it as plain
+      would take the whole merged branch as `files` with no `is_merge` tag,
+      straight into the resolves-link-rate denominator. So `>1` parent routes
+      to the merge arm — which sets that tag, and the tag is exactly what
+      keeps the event out of the denominator — rather than refusing outright.
+      Refusing was what left a hand-run merge unrecorded while
+      `merge_commit_event` closed the same hole for the close cycle's own
+      merges.
     * **Reflog says `commit`.** Freshness and parent count both pass for a
       `rebase (pick)`, a `commit --amend` and a `reset` onto a young commit,
       none of which this command produced. Only the reflog separates them, so
@@ -223,7 +248,7 @@ def _head_is_a_freshly_landed_commit(cwd: str, commit_hash: str) -> bool:
     """
     facts = commits.head_landing_facts(cwd, commit_hash)
     if facts is None:
-        return False
+        return None
     committer_ts, parent_count, reflog_action = facts
     # Bounded at BOTH ends. `now - ts > MAX` alone reads a FUTURE committer date
     # as maximally fresh, so clock skew on the committing host would defeat this
@@ -232,9 +257,14 @@ def _head_is_a_freshly_landed_commit(cwd: str, commit_hash: str) -> bool:
     # heartbeat a false refusal costs only the trace we recorded before.
     age = time.time() - committer_ts
     if not 0 <= age <= HEAD_REBUILD_MAX_AGE_SECONDS:
-        return False
+        return None
+    # Leading word, not equality: the action is `merge <source>`. A merge that
+    # FAST-FORWARDED leaves this same action with ONE parent and creates no
+    # commit, so the parent count is what separates the two — neither signal
+    # decides alone.
     if parent_count > 1:
-        return False
+        first_word = (reflog_action or "").split(maxsplit=1)[:1]
+        return "merge" if first_word == [_MERGE_REFLOG_ACTION] else None
     # Absence VETOES rather than degrading to allow. Degrading left the widest
     # residual fabrication path: with `core.logAllRefUpdates` off, an amend or a
     # reset/ff-merge onto a fresh unrecorded commit, then a failed unreadable
@@ -243,7 +273,7 @@ def _head_is_a_freshly_landed_commit(cwd: str, commit_hash: str) -> bool:
     # evidence. Vetoing costs those repos only the trace they already got before
     # this story, so it is not a regression there; the asymmetry is lopsided.
     # Matches the recorded fail-closed doctrine for an unresolvable `git -C`.
-    return reflog_action in _COMMIT_REFLOG_ACTIONS
+    return "plain" if reflog_action in _COMMIT_REFLOG_ACTIONS else None
 
 
 def rebuild_at_head(
@@ -279,7 +309,8 @@ def rebuild_at_head(
     """
     if not backgrounded and not _message_unreadable_from_command(command):
         return False
-    if not _head_is_a_freshly_landed_commit(cwd, commit_hash):
+    kind = _freshly_landed_commit_kind(cwd, commit_hash)
+    if kind is None:
         return False
     raw_body = commits.get_commit_message_body(cwd)
     if not raw_body:
@@ -295,6 +326,10 @@ def rebuild_at_head(
         committed_files=committed_files,
         code_file_count=code_files.count_code_files(committed_files),
         review_cadence=markers.read_review_cadence(smm_dir),
+        # The tag is load-bearing, not descriptive: it is what excludes the
+        # event from the resolves-link-rate denominator, so a merge carrying no
+        # authored trailer cannot dilute a rate it was never party to.
+        is_merge=kind == "merge",
     )
     if event is None:
         return False

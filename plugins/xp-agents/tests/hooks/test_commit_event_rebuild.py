@@ -158,9 +158,14 @@ class TestDegradesLoudly(_RebuildTestCase):
 
 
 class TestAmbiguousHeadIsNotClaimed(_RebuildTestCase):
-    """AC-6/AC-7 and the reflog discriminators. Recording here would
+    """AC-6 and the reflog discriminators. Recording an AMBIGUOUS head would
     fabricate a commit this command never made, and honor a trailer from
-    someone else's history — a worse fail-open than the one being fixed."""
+    someone else's history — a worse fail-open than the one being fixed.
+
+    A fresh two-parent merge is no longer one of the ambiguous cases: the
+    reflog says how it landed, and it is recorded as a merge (see below). The
+    ambiguity that still refuses is an OLD head, or a head whose reflog cannot
+    be read at all."""
 
     def test_rejection_atop_old_unrecorded_history(self):
         """AC-6: HEAD is old, so the just-run command did not produce it."""
@@ -178,15 +183,27 @@ class TestAmbiguousHeadIsNotClaimed(_RebuildTestCase):
         self.git("checkout", "-q", "main")
         self.git("merge", "-q", "--no-ff", "-m", "Merge side", "side")
 
-    def test_young_merge_head_is_not_a_plain_commit(self):
-        """AC-7: a manual `git merge` emits no event of its own, so a fresh
-        merge HEAD looks exactly like an unrecorded commit. Recording it
-        would take the WHOLE merged branch as `files`, untagged, into the
-        resolves-link-rate denominator."""
+    def test_young_merge_head_is_recorded_as_a_merge_not_a_plain_commit(self):
+        """SUPERSEDES the earlier AC-7 stance, which refused a merge HEAD
+        outright. Its three stated costs are all measurable here, and none is
+        incurred: `files` is the merge's diff against its FIRST PARENT (one
+        file), not the whole merged branch; the event carries `is_merge`; and
+        that tag is precisely what excludes it from the resolves-link-rate
+        denominator. What the refusal actually bought was a hand-run merge
+        going unrecorded, while `merge_commit_event` closed the same hole for
+        the close cycle's own merges and called it a hole.
+
+        The distinction the old name reached for is real and still holds: a
+        merge HEAD is not a PLAIN commit. It is now recorded AS a merge rather
+        than refused for not being plain."""
         self._merge_a_side_branch()
         self.run_hook(_UNREADABLE_F)
-        self.assertEqual(self.commit_events(), [])
-        self.assertEqual(len(self.concerns()), 1)
+        events = self.commit_events()
+        self.assertEqual(len(events), 1)
+        self.assertTrue(events[0]["metadata"]["is_merge"])
+        self.assertEqual(events[0]["files"], ["src/side.py"])
+        # Claimed, so no head-moved trace: one observation per commit.
+        self.assertEqual(self.concerns(), [])
 
     def test_merge_head_is_refused_on_the_parent_count_alone(self):
         """The parent-count guard, isolated. With a reflog present the case
