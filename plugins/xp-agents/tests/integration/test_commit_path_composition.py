@@ -1,27 +1,34 @@
 #!/usr/bin/env python3
-"""The capstone: story-001's classifier and story-003's recovery, composing.
+"""The commit path's entry condition, driven end to end on a real repo.
 
-Each shipped green alone. They share a seam neither suite touches:
-`is_git_commit` is the ENTRY CONDITION for the PostToolUse path
-(`bash_post_tool.py:173`), and `recover_commit_message` runs ON that path. So a
-narrowing that is correct in isolation can stop the recovery from ever being
-reached, and both sibling suites stay green while it does. That is what this
-file is for — not "is each right" but "does one real commit still traverse
-both".
+`is_git_commit` is the ENTRY CONDITION for both the PreToolUse gate stack and
+the PostToolUse commit-event path, so what it admits decides what every gate
+below it ever sees. Story-001 narrowed it; this file pins the narrowing at the
+two places no sibling suite reaches.
 
-SCOPED TO TWO FIXES, NOT THREE. This was planned as a three-fix capstone
-including story-002's coordination write. There is no such seam:
-`update_coordination` is called only from `post_tool_use.py:88`, registered on
-PostToolUse `Write|Edit|MultiEdit`; `bash_post_tool.py` references coordination
-zero times and `pre_tool_bash.py` documents having no coordination gate. An
-assertion about the coordination file here would pass with story-002 reverted,
-and in a checkout where story-002 never happened.
+What is here, and why it is not covered elsewhere:
 
-EVERY ASSERTION HERE MUST BE ABLE TO FAIL, and that is not rhetorical — the plan
-for this file contained two vacuous assertions before review caught them. The
-sharp edge is Case 1: asserting the gate ADMITS the command proves nothing,
-because below the review threshold it exits 0 whether or not the classifier saw
-a commit at all. Only a BLOCK discriminates.
+* The PRE-tool leg, unmocked. `test_merge_abort_ungated.py` drives the same gate
+  in-process with `get_code_files_for_review` patched and a plain `-m` commit.
+  Here the staged files are real, the hook is a subprocess, and the command is
+  the stdin-heredoc form an agent actually writes.
+* An abort recording NO commit event. Nothing else asserts that negative, and
+  the rebuild path is what makes it non-obvious: it reaches a fresh HEAD without
+  needing the command to have produced it.
+
+What is deliberately NOT here: the post-tool recovery of a heredoc message.
+`test_heredoc_commit_event.py` drives the same hook over the same command and
+goes red on both the classifier narrowing and the recovery regression —
+measured, not assumed. A copy of it here would be a test that cannot fail alone.
+
+Scoped to two fixes, not three. Story-002's coordination write shares no seam
+with this path: `update_coordination` is called only from the PostToolUse
+`Write|Edit|MultiEdit` hook, and `bash_post_tool.py` references coordination
+zero times. An assertion about it here would pass with story-002 reverted.
+
+The sharp edge is the pre-tool case: below the review threshold the gate exits 0
+whether or not `is_git_commit` saw a commit, so asserting admission proves
+nothing. Only a BLOCK discriminates.
 
 Nothing is mocked. The hooks run as subprocesses against a real repo, so the
 tier-1 secret scan and staged-lint gate run for real against the staged bytes —
@@ -29,7 +36,6 @@ staged content is kept trivial and secret-free so a block can only come from the
 review gate, and a temp repo has no linter config so the lint leg skips.
 """
 
-import json
 import subprocess
 import sys
 import unittest
@@ -44,13 +50,16 @@ from conftest import _IntegrationTestCase
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_COMMIT
 
-_SUBJECT = "Render the attribution suffix once"
-# The token story-003 stopped from hijacking the message. Ordinary prose.
-_BODY = f'{_SUBJECT}\n\nVerified with pytest -m "slow" before landing.'
+# The stdin-heredoc form, body and all: the classifier has to reach past a
+# message the shell hands to git as data before it can answer at all.
+_BODY = (
+    "Render the attribution suffix once\n\n"
+    'Verified with pytest -m "slow" before landing.'
+)
 _HEREDOC_COMMIT = f"git commit -F - <<'MSG'\n{_BODY}\nMSG"
 
 
-class TestTheCommitPathComposes(_IntegrationTestCase):
+class TestTheCommitPathEntryCondition(_IntegrationTestCase):
     def setUp(self):
         super().setUp()
         self.repo = self.tmpdir / "repo"
@@ -61,9 +70,9 @@ class TestTheCommitPathComposes(_IntegrationTestCase):
         (self.repo / "README.md").write_text("init")
         self._git("add", "-A")
         self._git("commit", "-q", "-m", "init")
-        # Commit cadence, written into THIS test's SMM dir: the ambient cadence
-        # on disk is `story`, which only advises, and an advisory cannot arm the
-        # block Case 1 needs.
+        # Pinned, not inherited: the block below exists only under commit
+        # cadence, and a suite that leans on `read_review_cadence`'s default
+        # stops testing a block the moment that default changes.
         markers.write_review_cadence(self.smm_dir, "commit")
 
     def _git(self, *args: str, stdin: str | None = None) -> str:
@@ -92,28 +101,25 @@ class TestTheCommitPathComposes(_IntegrationTestCase):
         self._git("add", "-A")
 
     def _run_hook(self, script: str, command: str) -> subprocess.CompletedProcess:
-        payload = {
-            "session_id": "int-test",
-            "tool_name": "Bash",
-            "tool_input": {"command": command},
-            "tool_response": {"stdout": "", "stderr": ""},
-            "cwd": str(self.repo),
-            "agent_id": "main",
-        }
-        return subprocess.run(
-            ["python3", str(self.scripts_dir / script)],
-            input=json.dumps(payload),
-            capture_output=True,
-            text=True,
-            env=self._test_env.copy(),
+        return self._run_script(
+            script,
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": command},
+                "tool_response": {"stdout": "", "stderr": ""},
+                "cwd": str(self.repo),
+                "agent_id": "main",
+            },
+            cwd=self.repo,
         )
 
     def _commit_events(self) -> list[dict]:
         return events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
 
-    # -- Case 1 --------------------------------------------------------------
+    # -- The pre-tool leg ----------------------------------------------------
 
-    def test_the_classifier_admits_the_heredoc_command_as_a_commit(self):
+    def test_a_heredoc_commit_is_routed_into_the_gate_stack(self):
         """A BLOCK is the proof, not an admission.
 
         Below the review threshold the gate exits 0 whether or not
@@ -126,62 +132,40 @@ class TestTheCommitPathComposes(_IntegrationTestCase):
         result = self._run_hook("pre_tool_bash.py", _HEREDOC_COMMIT)
 
         self.assertEqual(result.returncode, 2, f"expected a block: {result.stderr}")
-        self.assertIn("review", result.stderr.lower())
+        # Name the gate. The tier-1 secret scan and the unresolvable-target
+        # refusal also exit 2, and a bare "review" substring is one reworded
+        # message away from matching either of them instead.
+        self.assertIn("/xp-quality-review", result.stderr)
 
     def test_a_non_commit_is_not_routed_into_the_gate_stack(self):
-        """The contrast that makes Case 1 meaningful: the same armed gate lets a
-        `git merge --abort` straight through, because story-001 stopped
-        classifying it as commit-producing."""
+        """The contrast that makes the block above meaningful: the same armed
+        gate lets a `git merge --abort` straight through, because story-001
+        stopped classifying it as commit-producing."""
         self._arm_the_review_gate()
 
         result = self._run_hook("pre_tool_bash.py", "git merge --abort")
 
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    # -- Case 2: the seam ----------------------------------------------------
-
-    def test_the_recovery_is_reached_through_the_entry_condition(self):
-        """The assertion this file exists for.
-
-        Fails if story-001's narrowing ever stops the post-commit path being
-        entered, and fails if story-003's recovery reads the body's `-m` token —
-        two independent regressions, one observable outcome, and no unit test
-        catches the first because each side is green alone.
-        """
-        (self.repo / "src").mkdir(exist_ok=True)
-        (self.repo / "src" / "app.py").write_text("x = 1\n")
-        self._git("add", "-A")
-        self._git("commit", "-q", "-F", "-", stdin=_BODY)
-        head = self._git("rev-parse", "HEAD")
-
-        result = self._run_hook("bash_post_tool.py", _HEREDOC_COMMIT)
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-        events = self._commit_events()
-        self.assertEqual(len(events), 1, f"expected one commit event, got {events}")
-        self.assertIn(_SUBJECT, events[0]["content"])
-        self.assertNotEqual(events[0]["content"].strip(), "slow")
-        self.assertEqual(events[0]["metadata"]["commit_hash"], head)
-
-    # -- Case 3 --------------------------------------------------------------
+    # -- The post-tool leg ---------------------------------------------------
 
     def test_an_abort_claims_no_commit(self):
-        """It produced no commit, so nothing may record one — including the
-        rebuild path, which reaches a merge HEAD but not an unmoved one."""
-        self._arm_the_review_gate()
+        """It produced no commit, so nothing may record one.
+
+        The COUNT, not a property of whatever happens to be recorded: with the
+        non-committing subtraction reverted, the abort reaches the rebuild path,
+        which finds the fresh HEAD this setup just made and records an event for
+        a commit the command did not produce.
+        """
+        (self.repo / "src").mkdir(exist_ok=True)
+        (self.repo / "src" / "delta.py").write_text("x = 1\n")
+        self._git("add", "-A")
         self._git("commit", "-q", "-m", "work that is already recorded")
 
         result = self._run_hook("bash_post_tool.py", "git merge --abort")
         self.assertEqual(result.returncode, 0, result.stderr)
 
-        for event in self._commit_events():
-            self.assertNotEqual(
-                event["content"].strip(), "", "an abort recorded an empty commit"
-            )
-            self.assertFalse(
-                event["metadata"].get("is_merge"),
-                "an abort that created nothing was recorded as a merge",
-            )
+        self.assertEqual(self._commit_events(), [], "an abort recorded a commit")
 
 
 if __name__ == "__main__":
