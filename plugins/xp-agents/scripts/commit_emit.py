@@ -29,6 +29,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from typing import Literal
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
@@ -75,8 +76,15 @@ _COMMIT_REFLOG_ACTIONS = frozenset({"commit", "commit (initial)"})
 # Matched as a LEADING WORD, never by equality: `%gs` spells it `merge side: …`
 # and `head_landing_facts` keeps everything before the colon, so an equality test
 # matches nothing and — this path failing closed — records nothing while looking
-# correct. Pinned in `test_manual_merge_commit_event.py`.
+# correct. `commit (merge)` — a conflict finished by hand — is the same landing,
+# matched EXACTLY (`commit (amend)` on a merge is another object). Both pinned in
+# `test_manual_merge_commit_event.py`.
 _MERGE_REFLOG_ACTION = "merge"
+_CONFLICT_FINISH_REFLOG_ACTION = "commit (merge)"
+
+# Spelled as a type, like `in_place_marker._State`: the caller compares the kind
+# to a bare string, and a typo there fails closed and silently.
+_LandingKind = Literal["plain", "merge"]
 
 
 def parse_commit_body(raw_body: str | None) -> tuple[list[str], str, bool]:
@@ -209,7 +217,7 @@ def _message_unreadable_from_command(command: str) -> bool:
     return expands and bool(_UNEXPANDED_RE.search(message))
 
 
-def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> str | None:
+def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> _LandingKind | None:
     """How HEAD landed a moment ago: ``"plain"``, ``"merge"``, or None.
 
     The KIND, not a yes/no: the caller must tag a merge, and re-asking would cost
@@ -248,8 +256,12 @@ def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> str | None:
     # A fast-forward leaves this same action with ONE parent and creates no
     # commit, so neither signal decides alone.
     if parent_count > 1:
-        first_word = (reflog_action or "").split(maxsplit=1)[:1]
-        return "merge" if first_word == [_MERGE_REFLOG_ACTION] else None
+        action = reflog_action or ""
+        landed_by_merging = (
+            action.split(maxsplit=1)[:1] == [_MERGE_REFLOG_ACTION]
+            or action == _CONFLICT_FINISH_REFLOG_ACTION
+        )
+        return "merge" if landed_by_merging else None
     # Absence VETOES rather than degrading to allow. Degrading left the widest
     # residual fabrication path: with `core.logAllRefUpdates` off, an amend or a
     # reset/ff-merge onto a fresh unrecorded commit, then a failed unreadable

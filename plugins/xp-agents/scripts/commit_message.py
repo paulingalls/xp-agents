@@ -77,9 +77,9 @@ def _without_heredoc_bodies(command: str) -> str:
     """*command* with every stdin-heredoc span removed.
 
     THIS module's spans, not `git_commits.strip_heredocs`: that one terminates at
-    the delimiter word wherever it appears, and these require the delimiter to
-    own its line. That hole, and the rejected "prefer `-F` when present"
-    alternative, are pinned in `test_commit_message_forms.py`.
+    the delimiter word wherever it appears, and these require the delimiter to own
+    its line — the hole `test_commit_message_forms.py` pins. Subtraction only: a
+    `-m` outside every body (or in an unterminated one) still outranks a `-F -`.
     """
     return _STDIN_HEREDOC_RE.sub("", _STDIN_HEREDOC_DASH_RE.sub("", command))
 

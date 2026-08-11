@@ -185,17 +185,19 @@ class TestAmbiguousHeadIsNotClaimed(_RebuildTestCase):
 
     def test_young_merge_head_is_recorded_as_a_merge_not_a_plain_commit(self):
         """SUPERSEDES the earlier AC-7 stance, which refused a merge HEAD
-        outright. Its three stated costs are all measurable here, and none is
-        incurred: `files` is the merge's diff against its FIRST PARENT (one
-        file), not the whole merged branch; the event carries `is_merge`; and
-        that tag is precisely what excludes it from the resolves-link-rate
-        denominator. What the refusal actually bought was a hand-run merge
-        going unrecorded, while `merge_commit_event` closed the same hole for
-        the close cycle's own merges and called it a hole.
+        outright. Two of its three costs are gone — the event carries
+        `is_merge`, which is exactly what excludes it from the
+        resolves-link-rate denominator. The third stands: `files` is the
+        FIRST-PARENT diff, every file the merged branch touched (one here only
+        because the side branch is one commit), which is also the file set
+        `merge_commit_event` already records for close-cycle merges, where
+        `is_merge` likewise keeps the breadth out of the metrics. What the
+        refusal bought was a hand-run merge going unrecorded, while that
+        emitter called the same hole a hole.
 
-        The distinction the old name reached for is real and still holds: a
-        merge HEAD is not a PLAIN commit. It is now recorded AS a merge rather
-        than refused for not being plain."""
+        The distinction the old name reached for still holds: a merge HEAD is
+        not a PLAIN commit. It is now recorded AS a merge instead of refused
+        for not being plain."""
         self._merge_a_side_branch()
         self.run_hook(_UNREADABLE_F)
         events = self.commit_events()
@@ -205,12 +207,11 @@ class TestAmbiguousHeadIsNotClaimed(_RebuildTestCase):
         # Claimed, so no head-moved trace: one observation per commit.
         self.assertEqual(self.concerns(), [])
 
-    def test_merge_head_is_refused_on_the_parent_count_alone(self):
-        """The parent-count guard, isolated. With a reflog present the case
-        above is vetoed by the `merge` action before parent count is ever
-        load-bearing — deleting the parent check left that test green. Take
-        the reflog away (the degrade-to-allow path) and the count is the
-        ONLY signal separating a two-parent merge from a landed commit."""
+    def test_merge_head_with_no_readable_reflog_is_refused(self):
+        """A merge HEAD is claimed on the reflog, so with the reflog gone it is
+        refused — the plain arm's fail-closed posture on absence. It no longer
+        isolates the parent count: the case above RECORDS, so that test is what
+        fails if the parent-count arm is deleted (measured)."""
         self._merge_a_side_branch()
         self.erase_reflog()
         self.run_hook(_UNREADABLE_F)

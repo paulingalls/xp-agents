@@ -22,6 +22,7 @@ records nothing and, because this path fails closed, looks correct. The shared
 fixture's own `erase_reflog` docstring measured the same string.
 """
 
+import os
 import subprocess
 import sys
 import unittest
@@ -53,13 +54,23 @@ class _MergeCase(_RebuildTestCase):
             content="main",
         )
 
-    def merge(self, *args: str) -> subprocess.CompletedProcess:
-        """Run a merge that is ALLOWED to fail (a conflict is a test case)."""
+    def merge(
+        self, *args: str, env_extra: dict | None = None
+    ) -> subprocess.CompletedProcess:
+        """Run a merge that is ALLOWED to fail (a conflict is a test case).
+
+        `env_extra` backdates the merge it creates — see the stale case, which
+        cannot use `commit --amend` for that without changing the reflog action.
+        """
+        env = os.environ.copy()
+        if env_extra:
+            env.update(env_extra)
         return subprocess.run(
             ["git", "merge", *args],
             cwd=self.repo,
             capture_output=True,
             text=True,
+            env=env,
         )
 
     def parent_count(self) -> int:
@@ -109,6 +120,28 @@ class TestAMergeCommitIsRecorded(_MergeCase):
         self.run_hook("git merge --no-ff side")
         self.assertEqual(len(self.commit_events()), 1)
 
+    def test_a_conflict_finished_by_hand_is_recorded_as_a_merge_too(self):
+        """The other spelling, and the landing with the STRONGEST attribution:
+        the operator resolved a conflict and finished the merge with
+        `git commit`, so the command really is what produced HEAD. git spells
+        that reflog `commit (merge)` (`merge --continue` measured the same), a
+        leading word of `commit` the merge test above cannot see — while
+        `git_commits` keeps `merge --continue` gated as commit-producing."""
+        self.diverge(same_file=True)
+        self.assertNotEqual(self.merge("side").returncode, 0, "expected a conflict")
+        (self.repo / "src" / "side.py").write_text("resolved\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "--no-edit")
+        self.assertEqual(self.parent_count(), 2, "expected a real merge commit")
+        action = self.git("reflog", "-1", "--format=%gs")
+        self.assertTrue(action.startswith("commit (merge)"), f"reflog: {action!r}")
+
+        self.run_hook("git commit --no-edit")
+
+        events = self.commit_events()
+        self.assertEqual(len(events), 1, f"expected one commit event, got {events}")
+        self.assertTrue(events[0]["metadata"].get("is_merge"))
+
 
 class TestTheCasesThatMustClaimNothing(_MergeCase):
     def test_a_conflicted_merge_records_no_commit_event(self):
@@ -144,35 +177,43 @@ class TestTheCasesThatMustClaimNothing(_MergeCase):
         self.assertEqual(self.merge_events(), [])
 
     def test_a_stale_merge_head_records_no_commit_event(self):
+        """The freshness bound, ISOLATED — it is what stops the hook claiming
+        history someone else wrote. Backdating with `commit --amend` would not
+        isolate it: that rewrites the reflog action to `commit (amend)`, which
+        the merge arm refuses anyway, so the case stayed green with the age
+        bound deleted. A merge CREATED with old dates still reflogs
+        `merge side` (measured), leaving age as the only signal left to refuse.
+        """
         self.diverge()
-        self.merge("--no-ff", "side", "-m", "Merge side")
-        # Rewrite the merge with an old committer date; the freshness bound is
-        # what stops claiming history someone else wrote.
-        self.git(
-            "commit",
-            "--amend",
-            "--no-edit",
-            "-q",
-            env_extra={
-                "GIT_COMMITTER_DATE": "1000000000 +0000",
-                "GIT_AUTHOR_DATE": "1000000000 +0000",
-            },
+        stamp = "1000000000 +0000"
+        result = self.merge(
+            "--no-ff",
+            "side",
+            "-m",
+            "Merge side",
+            env_extra={"GIT_COMMITTER_DATE": stamp, "GIT_AUTHOR_DATE": stamp},
         )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        action = self.git("reflog", "-1", "--format=%gs")
+        self.assertTrue(action.startswith("merge "), f"reflog: {action!r}")
 
         self.run_hook("git merge --no-ff side")
         self.assertEqual(self.merge_events(), [])
 
 
 class TestThePlainCommitPathIsUnchanged(_MergeCase):
-    def test_a_single_parent_commit_still_takes_the_ordinary_arm(self):
-        """The merge arm must not swallow the case the veto was protecting: a
-        young single-parent HEAD reached by something other than committing."""
+    def test_a_single_parent_commit_is_recorded_without_the_merge_tag(self):
+        """The POSITIVE control for the plain arm: the same unreadable command
+        over a one-parent HEAD still records, and the event carries no
+        `is_merge`. Asserting only "nothing was tagged a merge" would also pass
+        on an empty log — which is how a broken plain arm reads. The
+        reset/amend-reached HEADs the old veto protected are refused on the
+        reflog action, and `test_commit_event_rebuild` pins each of them."""
         self.commit("feat: ordinary work")
-        self.git("reset", "-q", "--hard", "HEAD")
         self.run_hook('git commit -m "$UNREADABLE"')
         events = self.commit_events()
-        for event in events:
-            self.assertFalse(event["metadata"].get("is_merge"))
+        self.assertEqual(len(events), 1, f"expected one commit event, got {events}")
+        self.assertNotIn("is_merge", events[0]["metadata"])
 
 
 if __name__ == "__main__":
