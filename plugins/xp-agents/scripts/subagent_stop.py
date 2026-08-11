@@ -8,8 +8,6 @@ Appends a minimal status event and checks for structural conflicts
 import sys
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -21,6 +19,7 @@ import coordination
 import identity
 import marker_names
 import markers
+import review_records
 import sprint_state
 import sprint_status
 import target_routing

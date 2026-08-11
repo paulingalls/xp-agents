@@ -21,14 +21,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import resolution
+import review_records
 from event_schema import EVENT_TYPE_COMMIT
 from merge_commit_event import append_merge_commit_event
 

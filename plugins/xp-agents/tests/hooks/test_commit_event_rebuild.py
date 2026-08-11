@@ -26,14 +26,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import review_records
 from _commit_repo_case import _RebuildTestCase
 from conftest import compute_resolutions, make_event
 from event_schema import EVENT_TYPE_COMMIT, EVENT_TYPE_CONCERN

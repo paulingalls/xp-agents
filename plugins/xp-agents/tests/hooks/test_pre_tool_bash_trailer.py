@@ -5,8 +5,6 @@ import sys
 import unittest
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -16,6 +14,7 @@ from unittest.mock import patch
 
 import _common
 import pre_tool_bash
+import review_records
 from conftest import _HookTestCase, _make_bash_input
 
 _COMMIT_CMD = "git commit -m 'test'"

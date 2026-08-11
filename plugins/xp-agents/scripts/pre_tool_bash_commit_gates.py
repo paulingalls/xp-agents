@@ -21,8 +21,6 @@ call site stays a one-liner regardless of what this module grows into.
 import sys
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent))
 # Nothing below imports from smm/, but this module is imported by pre_tool_bash
 # BEFORE its own smm-side imports resolve. Inserting scripts/ alone would leave
@@ -37,6 +35,7 @@ import commits
 import git_commits
 import identity
 import markers
+import review_records
 import security_patterns
 import security_scanner
 import staged_lint

@@ -17,14 +17,13 @@ import sys
 import unittest
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import _common
 import markers
 import review_flag_cli
+import review_records
 from conftest import _HookTestCase, _make_stop_input
 from event_schema import STATUS_ACTION_SIMPLIFY_COMPLETE, event_action
 

@@ -24,8 +24,6 @@ blocked mid-cycle.
 import sys
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -34,6 +32,7 @@ import branching
 import coordination
 import identity
 import markers
+import review_records
 import sprint_review_flight
 import sprint_state
 import worktree

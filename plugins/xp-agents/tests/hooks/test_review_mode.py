@@ -14,8 +14,6 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(
     0,
@@ -26,6 +24,7 @@ sys.path.insert(
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import review_mode
+import review_records
 from conftest import _SMMTestCase
 
 _WT = "/proj/.claude/worktrees/worktree-story-001"

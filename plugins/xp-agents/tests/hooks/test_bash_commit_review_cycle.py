@@ -11,13 +11,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import bash_post_tool
+import review_records
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, make_event
 from event_helpers import events_of_type

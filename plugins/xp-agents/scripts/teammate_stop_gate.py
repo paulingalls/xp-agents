@@ -10,13 +10,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
 import identity
 import markers
+import review_records
 
 
 def _has_uncommitted_changes(cwd: str) -> bool:

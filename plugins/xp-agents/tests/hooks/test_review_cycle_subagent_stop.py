@@ -13,12 +13,11 @@ import sys
 import unittest
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import review_records
 import subagent_stop
 from conftest import _HookTestCase
 

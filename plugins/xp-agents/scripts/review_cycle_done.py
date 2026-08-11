@@ -21,8 +21,6 @@ teammate-appropriate task shapes.
 import sys
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -31,6 +29,7 @@ import event_schema
 import hook_liveness
 import identity
 import plugin_loader
+import review_records
 import target_routing
 
 # Canonical target names; mapped from skill/agent names by _detect_target.

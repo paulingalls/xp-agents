@@ -8,7 +8,14 @@ Detects CLI teammates by worktree directory prefix.
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
+
+# Own the smm/ insert rather than relying on the importer, per the convention
+# test_session_markers.py pins.
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
+
+import append_validation
 
 # Single source of truth for the LEGACY in-repo worktree directory under each
 # project root. Consumed by hooks (pre_tool_bash matcher), worktree path
@@ -274,8 +281,17 @@ def resolve_agent_id_from_cwd(cwd: str) -> str:
     """Resolve agent_id from a cwd path — worktree name or 'main' fallback.
 
     For skill-invoked scripts that have cwd but no hook input_data.
+
+    The result is always a usable marker key: a path segment is wider than the
+    allowlist behind `MarkerDef.filename`, and a commit command's own `-C`
+    target reaches here, so an unrepresentable one would raise out of an
+    advisory gate. Falls back to the default, as it already does for any
+    non-worktree path. Pinned in test_review_record_owners.py.
     """
-    return extract_worktree_name(cwd) or "main"
+    name = extract_worktree_name(cwd)
+    if name and append_validation.is_valid_agent_id(name):
+        return name
+    return "main"
 
 
 def review_flags_key(session_cwd: str) -> str:
@@ -292,8 +308,7 @@ def review_watermark_key(repo_cwd: str) -> str:
     """Key for the review WATERMARK: the repo a commit lands in.
 
     A different checkout from the one above whenever a commit names its target
-    (`git -C <path> commit`), which is the form the close skills prescribe for
-    a fix in someone else's worktree. Pinned in test_review_record_owners.py.
+    (`git -C <path> commit`). Pinned in test_review_record_owners.py.
     """
     return resolve_agent_id_from_cwd(repo_cwd)
 

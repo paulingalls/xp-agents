@@ -27,8 +27,6 @@ needs it verbatim, and copying it is how the merge emitter drifted.
 import sys
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -40,6 +38,7 @@ import commits
 import identity
 import lint_resolution
 import markers
+import review_records
 from event_schema import METADATA_KEY_COMMIT_HASH
 from pre_tool_write import is_test_file
 from verify_deferred import (

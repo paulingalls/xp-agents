@@ -8,8 +8,6 @@ merge-gap rationale and metadata shape. Stdlib-only.
 import sys
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -19,6 +17,7 @@ import code_files
 import commit_handling
 import commits
 import identity
+import review_records
 import sprint_store
 from event_schema import METADATA_KEY_COMMIT_HASH
 

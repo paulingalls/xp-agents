@@ -26,17 +26,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import append_validation
 import bash_post_tool
+import identity
 import pre_tool_bash_commit_gates
 import review_cycle_done
+import review_records
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input
 
@@ -167,6 +168,53 @@ class TestTheWatermarkFollowsTheRepo(_TwoCheckoutCase):
             ],
             "the commit ends the review cycle of the session that ran it",
         )
+
+
+class TestAKeyDerivedFromAPathIsAlwaysUsable(_TwoCheckoutCase):
+    """A path the commit COMMAND names now decides a marker filename, and a
+    path is a much wider input than the hook payload it replaced there.
+
+    `extract_worktree_name` returns whatever segment starts with the teammate
+    prefix, and the marker layer validates that against an allowlist and raises
+    on a miss. The gate does not catch ValueError — `pre_tool_bash` catches only
+    BlockedError — so an unrepresentable segment took the PreToolUse hook down
+    with a traceback and skipped every advisory below it. Falling back to the
+    default key is the same answer this resolver already gives any path that is
+    not one of ours, and no checkout this project creates can reach it: worktree
+    names are built from story ids.
+    """
+
+    def _key_for(self, segment: str) -> str:
+        path = Path(self._tmp.name) / segment
+        path.mkdir(exist_ok=True)
+        return identity.review_watermark_key(str(path))
+
+    def test_a_worktree_segment_the_marker_layer_rejects_falls_back(self):
+        key = self._key_for("worktree-story-a.b")
+
+        append_validation.validate_agent_id(key)
+        self.assertEqual(key, _LEAD_KEY)
+
+    def test_a_representable_worktree_segment_is_still_its_own_key(self):
+        """Non-vacuity: the fallback must not swallow every worktree, which
+        would merge two checkouts' records — the collision this split removed."""
+        self.assertEqual(self._key_for("worktree-story-042"), "worktree-story-042")
+
+    def test_the_gate_survives_a_commit_into_such_a_path(self):
+        """End to end: the hook must degrade, not raise."""
+        self.commit_cmd = (
+            f"git -C {Path(self._tmp.name) / 'worktree-story-a.b'} commit -m 'fix'"
+        )
+        Path(self._tmp.name, "worktree-story-a.b").mkdir(exist_ok=True)
+        self.lead_runs_quality_review()
+
+        with (
+            patch("commits.get_staged_files", return_value=[]),
+            patch("commits.get_code_files_for_review", return_value=[]),
+        ):
+            pre_tool_bash_commit_gates.commit_gate_parts(
+                self.smm_dir, self.commit_cmd, _LEAD_CWD
+            )
 
 
 if __name__ == "__main__":

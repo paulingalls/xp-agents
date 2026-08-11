@@ -52,8 +52,6 @@ three detectors face it; see close_cycle_abandonment.
 import sys
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -62,6 +60,7 @@ import close_cycle_abandonment
 import event_schema
 import identity
 import markers
+import review_records
 import target_routing
 
 # Two distinct timescales, previously sharing one knob:

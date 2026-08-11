@@ -70,7 +70,7 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/dash_c_tokens.py": 129,
     "plugins/xp-agents/scripts/framework_detect.py": 122,
     "plugins/xp-agents/scripts/hook_liveness.py": 196,
-    "plugins/xp-agents/scripts/identity.py": 221,
+    "plugins/xp-agents/scripts/identity.py": 228,
     "plugins/xp-agents/scripts/in_place_marker.py": 291,
     "plugins/xp-agents/scripts/lead_gates.py": 166,
     "plugins/xp-agents/scripts/lint_runners.py": 177,

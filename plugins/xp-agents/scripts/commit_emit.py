@@ -30,8 +30,6 @@ import sys
 import time
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -43,6 +41,7 @@ import commits
 import identity
 import markers
 import resolution
+import review_records
 
 __all__ = [
     "HEAD_REBUILD_MAX_AGE_SECONDS",

@@ -34,14 +34,13 @@ import argparse
 import sys
 from pathlib import Path
 
-import review_records
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import _common
 import event_schema
 import identity
+import review_records
 
 # The flags this CLI can set, each paired with the lifecycle event
 # review_cycle_done emits for the equivalent completed review. Keys double as
