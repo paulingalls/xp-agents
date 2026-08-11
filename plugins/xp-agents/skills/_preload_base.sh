@@ -283,8 +283,8 @@ emit_hook_guidance() {
         echo ""
         echo "### HOOK_GUIDANCE"
         echo "PRE_COMMIT_HOOK=absent — the Step 7 merge fires no project"
-        echo "tests. Run the project's test command (look in CLAUDE.md)"
-        echo "before confirming the merge."
+        echo "tests. Run the project's test command (its agent instructions"
+        echo "file records it) before confirming the merge."
     fi
 }
 

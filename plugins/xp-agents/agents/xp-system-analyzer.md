@@ -22,6 +22,7 @@ The preload provides `SMM_DIR=<path>` and `MODE=create|update`.
 
 ### Step 1: Read Existing Documentation
 
+<!-- harness-ok: DEFERRED AS DEBT, not a true statement — names one harness's instructions file while the other reads a different one; the debt event records this file -->
 Read `CLAUDE.md` in the project root (if it exists). Reference CLAUDE.md where appropriate rather than duplicating its content.
 
 ### Step 2: Scan Project Structure

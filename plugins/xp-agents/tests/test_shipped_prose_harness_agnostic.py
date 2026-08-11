@@ -27,6 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _harness_leak_scan as scan
+from _paths import _PLUGIN_ROOT
 
 
 class TestProseIsFound(unittest.TestCase):
@@ -130,6 +131,117 @@ class TestAHatchCannotOutliveItsProse(unittest.TestCase):
     def test_a_hatch_doing_real_work_is_not_reported(self):
         text = "<!-- harness-ok: a live reason -->\nA Claude Code setting.\n"
         self.assertEqual(scan.hatches_without_mentions(text, ".md"), [])
+
+
+# The scan must actually cover the tree. A glob that matched nothing would
+# report zero leaks and read as clean, which is the failure this whole file is
+# built to make loud. Floor taken from the tree as it stands.
+_MIN_FILES_SCANNED = 40
+
+
+class TestTheShippedTreeIsClean(unittest.TestCase):
+    """No shipped prose names a harness without an at-site reason.
+
+    This row was run RED against the unfixed preload before the wording change
+    landed — it reported `skills/_preload_base.sh:286`, which is the behaviour
+    proof for this story's only production edit.
+    """
+
+    def setUp(self):
+        self.files = scan.shipped_prose_files(_PLUGIN_ROOT)
+
+    def test_the_scan_actually_covers_the_tree(self):
+        """Non-vacuity: an empty scan reports zero leaks and looks green."""
+        self.assertGreaterEqual(
+            len(self.files),
+            _MIN_FILES_SCANNED,
+            f"only {len(self.files)} shipped prose files matched — a glob that "
+            "matches nothing reports no leaks and reads as clean",
+        )
+
+    def test_no_unmarked_harness_mention_survives(self):
+        offenders = []
+        for path in self.files:
+            text = path.read_text(encoding="utf-8")
+            for line, name in scan.find_harness_mentions(text, path.suffix):
+                offenders.append(f"{path.relative_to(_PLUGIN_ROOT)}:{line} [{name}]")
+        self.assertEqual(
+            offenders,
+            [],
+            "shipped prose names a harness with no `harness-ok:` reason at the "
+            "site:\n  " + "\n  ".join(offenders),
+        )
+
+    def test_no_marker_has_outlived_its_prose(self):
+        """AC#3 — the residue an at-site marker can still leave behind."""
+        stale = []
+        for path in self.files:
+            text = path.read_text(encoding="utf-8")
+            for line in scan.hatches_without_mentions(text, path.suffix):
+                stale.append(f"{path.relative_to(_PLUGIN_ROOT)}:{line}")
+        self.assertEqual(
+            stale,
+            [],
+            "a `harness-ok:` marker excuses nothing:\n  " + "\n  ".join(stale),
+        )
+
+
+class TestTheGuidesAndPreloadNeedNoExcuse(unittest.TestCase):
+    """AC#4 — the guides and the shared preload are clean, not excused.
+
+    Stated as its own claim rather than left to follow from the tree-wide row:
+    those three files being green *without a marker* is what the story owes, and
+    a tree-wide pass would also be satisfied by marking them.
+    """
+
+    def test_they_carry_no_harness_marker(self):
+        targets = [
+            _PLUGIN_ROOT / "PROCESS_GUIDE.md",
+            _PLUGIN_ROOT / "TEAMMATE_GUIDE.md",
+            _PLUGIN_ROOT / "skills" / "_preload_base.sh",
+        ]
+        marked = [
+            str(p.relative_to(_PLUGIN_ROOT))
+            for p in targets
+            if "harness-ok:" in p.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(
+            marked,
+            [],
+            f"these should need no excuse, but carry one: {marked}",
+        )
+
+    def test_and_they_report_no_leak(self):
+        names = ("PROCESS_GUIDE.md", "TEAMMATE_GUIDE.md", "skills/_preload_base.sh")
+        for name in names:
+            path = _PLUGIN_ROOT / name
+            with self.subTest(file=name):
+                found = scan.find_harness_mentions(
+                    path.read_text(encoding="utf-8"), path.suffix
+                )
+                self.assertEqual(found, [])
+
+
+class TestDeferredLeaksStayReported(unittest.TestCase):
+    """AC#5 — a leak deferred as debt is PRINTED, not silenced.
+
+    A marker whose reason carries a debt id is an admission, not an excuse: the
+    marker keeps the pin green so the suite stays usable, and the debt event is
+    the actual record. Printing them every run is what keeps the two honest.
+    """
+
+    def test_debt_deferred_sites_are_listed_with_their_ids(self):
+        deferred = []
+        for path in scan.shipped_prose_files(_PLUGIN_ROOT):
+            for index, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), 1
+            ):
+                if "harness-ok:" in line and "DEFERRED AS DEBT" in line:
+                    deferred.append(f"{path.relative_to(_PLUGIN_ROOT)}:{index}")
+        print("\nharness leaks deferred as debt: " + (", ".join(deferred) or "none"))
+        for site in deferred:
+            with self.subTest(site=site):
+                self.assertTrue(site)
 
 
 if __name__ == "__main__":

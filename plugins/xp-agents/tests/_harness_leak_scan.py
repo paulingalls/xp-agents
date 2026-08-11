@@ -53,6 +53,21 @@ _SH_COMMENT = re.compile(r"#(?P<body>.*)$")
 _SH_ECHOED = re.compile(r"""\b(?:echo|printf)\b[^\n]*?(["'])(?P<body>.*?)\1""")
 
 
+def shipped_prose_files(plugin_root) -> list:
+    """Every shipped prose file the pin judges.
+
+    Tests and the throwaway spike rig are excluded: neither is shipped, and the
+    spike's whole purpose was to name one harness concretely.
+    """
+    found = []
+    for suffix in (".md", ".sh"):
+        for path in plugin_root.rglob(f"*{suffix}"):
+            if "tests" in path.parts or "spike" in path.parts:
+                continue
+            found.append(path)
+    return sorted(found)
+
+
 def _strip_identifiers(text: str) -> str:
     """Blank out every identifier class, leaving prose in place."""
     for pattern in (_ENV_VAR, _PATHY, _CODE_SPAN):
