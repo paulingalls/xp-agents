@@ -11,13 +11,15 @@ Schema pins alone would not carry the claim. `marketplace add` was measured
 returning zero against this repo while the catalog did not exist at all, so
 registration proves nothing on its own — the load is asserted from the listing,
 and the install from reading the plugin back out of the tree it produced.
+
+The harness plumbing lives in `_codex_harness`, shared with the Milestone 8
+capstone that installs from this same catalog. Its docstrings carry the measured
+traps (the `source.path`-compares-a-directory-with-itself one especially); a
+second copy here would be a second thing to keep true.
 """
 
 import json
-import os
-import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -25,73 +27,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from _codex_harness import (
+    _HARNESS,
+    _PLUGIN_ID,
+    _REPO_ROOT,
+    _harness,
+    _installed_entry,
+    _installed_root,
+    _isolated_home,
+    assert_module_skips_without_harness,
+)
 from _paths import _PLUGIN_ROOT
-
-_HARNESS = "codex"
-_PLUGIN_ID = "xp-agents@xp-agents"
-
-_REPO_ROOT = _PLUGIN_ROOT.parents[1]
-
-# Every harness call is bounded. An unbounded one already cost a 600s run once
-# (the skip probe, before its recursion guard): with no timeout a wedged child
-# hangs the whole suite instead of failing one row.
-_HARNESS_TIMEOUT = 120
-_INNER_RUN_TIMEOUT = 300
-
-
-def _isolated_home() -> tuple[dict, Path]:
-    """An environment whose harness state is a fresh temp directory.
-
-    Every harness invocation in this file runs under one of these. The user's
-    real config already carries a marketplace registered against this very repo
-    (left by the packaging spike), so without isolation a passing install could
-    be satisfied by that standing registration instead of by the catalog under
-    test — and worse, the suite would mutate the developer's own state.
-    """
-    home = Path(tempfile.mkdtemp())
-    env = os.environ.copy()
-    env["CODEX_HOME"] = str(home)
-    return env, home
-
-
-def _harness(env: dict, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [_HARNESS, "plugin", *args],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-        timeout=_HARNESS_TIMEOUT,
-    )
-
-
-def _installed_entry(listed: subprocess.CompletedProcess) -> dict:
-    """The plugin's record in a `--json` listing, or fail loudly.
-
-    `next(...)` over the list would raise StopIteration on an empty install,
-    which surfaces as an opaque error rather than as the assertion the row is
-    actually making.
-    """
-    installed = json.loads(listed.stdout)["installed"]
-    for entry in installed:
-        if entry.get("pluginId") == _PLUGIN_ID:
-            return entry
-    raise AssertionError(f"nothing installed under that id: {installed}")
-
-
-def _installed_root(add_stdout: str) -> Path:
-    """The tree the harness COPIED the plugin into, taken from its own report.
-
-    Not the listing's `source.path`: that is where the plugin was read FROM (the
-    live repo), so a row comparing it against the repo compares a directory with
-    itself and holds whatever the install did. The copy under the temp home is
-    the only tree an install actually produces, and this line is where the
-    harness names it.
-    """
-    match = re.search(r"^Installed plugin root: (.+)$", add_stdout, re.MULTILINE)
-    if not match:
-        raise AssertionError(f"install reported no plugin root: {add_stdout!r}")
-    return Path(match.group(1).strip())
 
 
 @unittest.skipUnless(
@@ -241,73 +187,17 @@ _GATED_CLASSES = (TestRealRegistrationAndInstall, TestWrongSourceFailsTheInstall
 class TestTheSkipPathIsClean(unittest.TestCase):
     """With no harness on PATH the rows above SKIP — they do not pass.
 
-    The claim needs its own check because this machine has the harness, so the
-    skip branch never runs here. A decorator that silently took the pass branch
-    would look identical in a green suite; running the module with the harness
-    stripped from PATH is what tells the two apart.
-
-    The inner run DESELECTS this class by name. Written without that, the probe
-    re-entered its own module and recursed until the run was killed — the guard
-    is load-bearing, not tidiness. It rides on the spawn arguments rather than on
-    an environment sentinel deliberately: a sentinel is inherited, so an outer
-    shell that happened to export it would make this whole probe vanish silently
-    instead of failing.
+    The probe itself lives in `_codex_harness`, parameterized on the module and
+    its gated classes: `_GATED_CLASSES` names classes local to THIS file, so the
+    skip floor cannot be shared as a constant, only derived from what is passed.
     """
 
     def test_the_module_skips_cleanly_without_the_harness(self):
-        empty = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, empty, ignore_errors=True)
-
-        env = os.environ.copy()
-        # An EMPTY PATH rather than one filtered of directories containing the
-        # harness: the harness shares a directory with the test runner here, so
-        # filtering would strip the runner too. The inner run needs no PATH at
-        # all — it is launched through sys.executable.
-        env["PATH"] = str(empty)
-        self.assertIsNone(
-            shutil.which(_HARNESS, path=env["PATH"]),
-            "the harness is still reachable, so the inner run would take the "
-            "RUN branch and prove nothing about skipping",
-        )
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                str(Path(__file__)),
-                "-q",
-                "--no-header",
-                "-k",
-                f"not {type(self).__name__}",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            cwd=_REPO_ROOT,
-            check=False,
-            timeout=_INNER_RUN_TIMEOUT,
-        )
-        tail = result.stdout[-2000:]
-
-        self.assertEqual(result.returncode, 0, tail)
-        # Counted, not merely matched: `\d+ skipped` also matches "0 skipped",
-        # so the number has to be compared against the rows that MUST skip.
-        # Derived from the classes rather than written down, so a row added to
-        # either one raises the bar without anyone remembering to.
-        gated = sum(
-            len(unittest.defaultTestLoader.getTestCaseNames(cls))
-            for cls in _GATED_CLASSES
-        )
-        reported = re.findall(r"(\d+) skipped", result.stdout)
-        self.assertTrue(
-            reported, f"a harness-free run reported no skips at all. stdout: {tail}"
-        )
-        self.assertGreaterEqual(
-            int(reported[0]),
-            gated,
-            f"fewer than the {gated} harness-gated rows reported as skipped — a "
-            f"harness-free run must skip them, never quietly pass. stdout: {tail}",
+        assert_module_skips_without_harness(
+            self,
+            module_path=Path(__file__),
+            gated_classes=_GATED_CLASSES,
+            probe_class_name=type(self).__name__,
         )
 
 
