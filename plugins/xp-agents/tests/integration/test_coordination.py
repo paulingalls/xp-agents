@@ -262,9 +262,33 @@ class TestConcurrentCoordinationWrites(_IntegrationTestCase):
     did to a hook that waited too long.
     """
 
-    _AGENTS = ("agent-a", "agent-b", "agent-c", "agent-d")
+    # Eight, not four: with the lock removed, four writers lost an entry in 3 of
+    # 5 runs and eight in 10 of 10 (measured). Every extra writer widens the
+    # read-modify-write window someone else can land inside, and this case is
+    # only worth its subprocess cost if it actually reddens when the lock goes.
+    _AGENTS = (
+        "agent-a",
+        "agent-b",
+        "agent-c",
+        "agent-d",
+        "agent-e",
+        "agent-f",
+        "agent-g",
+        "agent-h",
+    )
 
-    def _spawn(self, agent_id: str) -> tuple[subprocess.Popen[str], str]:
+    def _spawn(self, agent_id: str) -> subprocess.Popen[str]:
+        """Launch one hook already holding its payload.
+
+        The payload goes in a FILE handed to the child as stdin, not down a pipe
+        this process feeds. `post_tool_use` blocks in `json.load(sys.stdin)`
+        until its input arrives, so a `stdin=PIPE` spawn followed by the obvious
+        `communicate(input=...)` loop unblocks one child at a time and each
+        finishes before the next gets a byte — four strictly SEQUENTIAL writes,
+        a lock never once contended, and a case that passes with
+        `_hold_coordination_lock` deleted outright (measured). Feeding stdin up
+        front makes every child runnable the moment it starts.
+        """
         payload = {
             "session_id": "int-test",
             "tool_name": "Write",
@@ -273,20 +297,24 @@ class TestConcurrentCoordinationWrites(_IntegrationTestCase):
             "cwd": str(self.tmpdir),
             "agent_id": agent_id,
         }
-        return subprocess.Popen(
-            ["python3", str(self.scripts_dir / "post_tool_use.py")],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=self._test_env.copy(),
-        ), json.dumps(payload)
+        payload_path = self.tmpdir / f"payload-{agent_id}.json"
+        payload_path.write_text(json.dumps(payload), encoding="utf-8")
+        with payload_path.open("rb") as stdin_file:
+            return subprocess.Popen(
+                ["python3", str(self.scripts_dir / "post_tool_use.py")],
+                stdin=stdin_file,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=self._test_env.copy(),
+            )
 
     def test_every_concurrent_writer_lands_and_none_dies(self):
         started = [self._spawn(a) for a in self._AGENTS]
+
         results = []
-        for proc, payload in started:
-            out, err = proc.communicate(input=payload, timeout=60)
+        for proc in started:
+            out, err = proc.communicate(timeout=60)
             results.append((proc.returncode, out, err))
 
         for (code, _out, err), agent in zip(results, self._AGENTS, strict=True):

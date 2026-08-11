@@ -187,8 +187,13 @@ def flock_with_timeout(
         try:
             signal.alarm(budget)
             fcntl.flock(lock_fd, mode)
-            signal.alarm(0)
         finally:
+            # Disarm in the FINALLY, not after the acquire: a `flock` error that
+            # is not the alarm's own (ENOLCK/EOPNOTSUPP on a network mount,
+            # EDEADLK) used to return with the alarm still counting and the
+            # process default — TERMINATE — reinstalled below, killing the hook
+            # seconds later with nothing written to `hook_errors.jsonl`.
+            signal.alarm(0)
             signal.signal(signal.SIGALRM, old_handler)
         yield
     finally:

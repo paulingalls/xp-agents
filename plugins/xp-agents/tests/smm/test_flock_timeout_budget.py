@@ -38,6 +38,7 @@ exactly what these cases must prove is no longer consulted.
 import contextlib
 import fcntl
 import os
+import signal
 import sys
 import unittest
 from collections.abc import Iterator
@@ -74,6 +75,52 @@ def _held(lock_path: Path) -> Iterator[None]:
     finally:
         fcntl.flock(holder, fcntl.LOCK_UN)
         holder.close()
+
+
+class TestTheAlarmIsAlwaysDisarmed(_SMMTestCase):
+    """A pending alarm must never outlive the acquire.
+
+    `signal.alarm(0)` sat on the success line, while only the handler restore
+    was in the `finally`. So a `flock` failure that is NOT the alarm's own
+    `LockTimeoutError` — `ENOLCK`/`EOPNOTSUPP` from a network-mounted SMM,
+    `EDEADLK` — returned with the alarm still armed and the process default
+    reinstalled. In a hook process the default action for `SIGALRM` is
+    TERMINATE, so the hook dies seconds later, mid-run, with no
+    `hook_errors.jsonl` entry: the same silent `-14` kill this suite's own
+    module was changed to remove from the coordination path.
+
+    PRE-EXISTING rather than introduced — `main` carries the identical shape —
+    but every append and read routes through here, so it reaches further than
+    the one path that was fixed.
+    """
+
+    def test_a_non_timeout_flock_error_leaves_no_alarm_pending(self):
+        lock_path = self.smm_dir / "events.lock"
+        fired: list[str] = []
+
+        def _record(signum, frame):
+            fired.append("alarm")
+
+        previous = signal.signal(signal.SIGALRM, _record)
+        try:
+            with (
+                mock.patch.dict(os.environ, _env(), clear=True),
+                mock.patch.object(
+                    _append_impl.fcntl, "flock", side_effect=OSError(37, "ENOLCK")
+                ),
+                contextlib.suppress(OSError),
+                _append_impl.flock_with_timeout(lock_path, timeout_s=1),
+            ):
+                pass
+            # The acquire is over. Nothing it armed may still be counting down:
+            # `alarm(0)` returns the seconds left on any pending alarm, so a
+            # non-zero answer IS the leak, observed without waiting for it.
+            self.assertEqual(signal.alarm(0), 0, "an alarm outlived the acquire")
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous)
+
+        self.assertEqual(fired, [], "the alarm fired after the acquire returned")
 
 
 class TestAnExplicitBudgetIsUsed(_SMMTestCase):

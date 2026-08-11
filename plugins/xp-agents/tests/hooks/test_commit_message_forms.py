@@ -223,6 +223,83 @@ class TestAHeredocBodyDoesNotSupplyTheMessage(unittest.TestCase):
         message, _ = commit_message.recover_commit_message(command)
         self.assertEqual(message, self._SUBJECT)
 
+    def test_every_quoted_delimiter_form_protects_its_body(self):
+        """A quoted delimiter is `'EOF'`, `"EOF"` OR `\\EOF` — bash treats all
+        three the same, and admitting only the first left the fixed defect alive
+        one keystroke away: the body's `-m` supplied the message again.
+
+        Also asserts the expansion flag, which every quoted form sets to False:
+        the shell hands a quoted-delimiter body on verbatim, so a `$` in it is a
+        literal and NOT a sign the hook is reading a pre-expansion string.
+        """
+        for delimiter in ("'MSG'", '"MSG"', "\\MSG"):
+            with self.subTest(delimiter=delimiter):
+                command = (
+                    f"git commit -F - <<{delimiter}\n"
+                    f'{self._SUBJECT}\n\nRan pytest -m "slow" to check.\nMSG'
+                )
+                message, expands = commit_message.recover_commit_message(command)
+                self.assertTrue((message or "").startswith(self._SUBJECT))
+                self.assertNotEqual(message, "slow")
+                self.assertFalse(expands)
+
+
+class TestAMessageMayDiscussHeredocs(unittest.TestCase):
+    """The mirror of the class above, and the direction its fix overshot.
+
+    Subtracting every heredoc-shaped span before the `-m` scan deleted spans
+    found INSIDE the `-m` value, so a commit whose message talks about heredocs
+    — this repo writes them constantly — had its middle removed. The recovered
+    subject then failed to match HEAD, and because the mangled string is still
+    readable and `$`-free, `_message_unreadable_from_command` returned False and
+    the rebuild refused too: no commit event, trailer closes nothing. Exactly
+    the loss the sibling class exists to prevent, arrived at from the other side.
+
+    The rule that holds both: a `-m` INSIDE a heredoc body is data. One outside
+    every body is an argument, whatever its value happens to contain.
+    """
+
+    def test_a_message_containing_a_whole_heredoc_survives_intact(self):
+        body = (
+            "docs: explain the <<EOF form\n\nBefore:\n<<EOF\nbody\nEOF\nafter the fix"
+        )
+        command = f'git commit -m "{body}"'
+
+        message, expands = commit_message.recover_commit_message(command)
+
+        self.assertEqual(message, body)
+        self.assertTrue(expands)
+
+    def test_a_single_quoted_message_may_also_discuss_heredocs(self):
+        """No apostrophe in the body, deliberately: a single quote inside a
+        single-quoted argument ENDS it, so a body containing `<<'EOF'` is not a
+        thing bash can hand git as one argument. Using a bare delimiter keeps
+        the case about heredoc spans rather than about quoting."""
+        body = "fix: stop <<EOF from eating the body\n\n<<EOF\nx\nEOF\ndone"
+        command = f"git commit -m '{body}'"
+
+        message, expands = commit_message.recover_commit_message(command)
+
+        self.assertEqual(message, body)
+        self.assertFalse(expands)
+
+    def test_a_real_stdin_body_still_outranks_a_mention_inside_it(self):
+        """The discrimination, in one command: the `-m` here is inside the body,
+        so it stays data even though the body also looks like prose about a
+        heredoc. Without this the fix above would simply undo story-003."""
+        command = (
+            "git commit -F - <<'MSG'\n"
+            "Real subject here\n"
+            "\n"
+            'Discussed <<EOF and ran pytest -m "slow".\n'
+            "MSG"
+        )
+
+        message, _ = commit_message.recover_commit_message(command)
+
+        self.assertTrue((message or "").startswith("Real subject here"))
+        self.assertNotEqual(message, "slow")
+
 
 class TestTheOrdinaryFormsAreUnchanged(unittest.TestCase):
     """The regression guard for the subtraction's ORDER.
