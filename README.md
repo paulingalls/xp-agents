@@ -127,6 +127,24 @@ recommendation. Without it, `exec_command` opens a persistent shell and
 commit gate, the tier-1 secret scan, staged-lint and branch protection. The flag
 removes that channel and substitutes `shell_command`, which is gated.
 
+**The per-commit review gate has no automatic release on Codex yet**, and it
+will block your commits until you move the review. The gate itself fires
+normally: at two or more changed code files, `git commit` stops with "Run
+/xp-quality-review before committing". What clears it does not run there — the
+flag is written by a hook matched on Claude Code's own tool names, and the
+reviewer it spawns is a Claude Code subagent. So the block has no reachable exit
+on Codex. Until harness parity lands, move the review to story close, which
+turns that block into a visible advisory:
+
+```bash
+cd /path/to/your/project
+PLUGIN=~/.codex/plugins/cache/xp-agents/xp-agents/<version>
+python3 "$PLUGIN/scripts/cadence_cli.py" --smm-dir "$("$PLUGIN/smm/init.sh")" write story
+```
+
+This defers the review; it does not disable the gate. The tier-1 secret scan,
+the staged-lint check and branch protection stay unconditional either way.
+
 **No minimum Codex version is claimed.** The plugin was exercised on `0.146.0`
 and nothing older was ever installed, so there is no measured floor to state — a
 version that works tells you nothing about where support began. This is an

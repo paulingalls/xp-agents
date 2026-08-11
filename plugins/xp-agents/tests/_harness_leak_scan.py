@@ -40,13 +40,25 @@ _PATHY = re.compile(r"[~.]?/?\.(?:claude|codex)[\w./-]*")
 
 # Fenced blocks and inline spans. A command a reader types carries the harness's
 # own binary name, and making it generic would make the instruction wrong.
-_FENCE = re.compile(r"^\s*```")
+#
+# The opening run's LENGTH is captured because a closing fence must be at least
+# as long as its opener and carry no info string. Toggling a boolean on every
+# fence line instead reads the inner ``` of a four-backtick block as a close and
+# its close as a new opening — from there every remaining line of the file scans
+# as fenced, and the pin reports zero offenders over prose it never read.
+_FENCE = re.compile(r"^\s*(?P<ticks>`{3,})(?P<info>.*)$")
 _CODE_SPAN = re.compile(r"`[^`]*`")
 
 # The escape hatch, mirroring the sibling prose pin's `lang-ok` shape with its
 # own keyword so the two guardrails cannot silence each other. A reason that is
 # absent or blank reads as NO hatch — an excuse that says nothing is not one.
-_HATCH_RE = re.compile(r"harness-ok:\s*(?P<reason>[^\->]*)")
+#
+# The reason runs to the HTML comment's close, or to the end of the line. It was
+# once a class excluding `-`, which read every reason OPENING with a CLI flag as
+# blank — and this branch's prose names `--disable unified_exec` and
+# `--dangerously-bypass-hook-trust` routinely, so the natural excuse silently
+# failed the pin and the natural repair was deleting accurate prose.
+_HATCH_RE = re.compile(r"harness-ok:\s*(?P<reason>.*?)\s*(?:-->|$)")
 
 # Shell prose: what a human reads. Comment bodies, and the insides of echo and
 # printf literals.
@@ -83,23 +95,48 @@ def _strip_identifiers(text: str) -> str:
     return text
 
 
-def markdown_prose(text: str) -> list[tuple[int, str]]:
-    """(1-based line, prose) for a Markdown file, fenced blocks removed.
+def _markdown_scan(text: str) -> tuple[list[tuple[int, str]], int | None]:
+    """Prose lines, plus the line of a fence left OPEN at end of file.
 
     Fenced blocks are dropped rather than blanked line-by-line because a fence
-    can open on one line and close many lines later; tracking the toggle is what
-    keeps a command inside a block from being read as prose.
+    can open on one line and close many lines later; tracking the block is what
+    keeps a command inside it from being read as prose.
+
+    A fence closes only on a run at least as long as its opener and carrying no
+    info string — the rule the format itself uses, and what lets a four-backtick
+    block quote inner three-backtick ones without the inner run ending it.
+
+    The open-fence line is reported rather than swallowed: a file whose fences
+    do not balance scans as prose up to the stray marker and as code forever
+    after, which is a guardrail that reads nothing while reporting nothing.
     """
     out: list[tuple[int, str]] = []
-    in_fence = False
+    opened_at = 0
+    open_len = 0
     for number, line in enumerate(text.splitlines(), 1):
-        if _FENCE.match(line):
-            in_fence = not in_fence
+        fence = _FENCE.match(line)
+        if fence:
+            ticks = len(fence.group("ticks"))
+            if not open_len:
+                open_len, opened_at = ticks, number
+                continue
+            if ticks >= open_len and not fence.group("info").strip():
+                open_len = 0
             continue
-        if in_fence:
+        if open_len:
             continue
         out.append((number, _strip_identifiers(line)))
-    return out
+    return out, opened_at if open_len else None
+
+
+def markdown_prose(text: str) -> list[tuple[int, str]]:
+    """(1-based line, prose) for a Markdown file, fenced blocks removed."""
+    return _markdown_scan(text)[0]
+
+
+def unterminated_fence(text: str) -> int | None:
+    """1-based line of a Markdown fence that never closes, or None."""
+    return _markdown_scan(text)[1]
 
 
 def _echoed_bodies(line: str) -> list[str]:

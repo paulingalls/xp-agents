@@ -42,6 +42,27 @@ pre-commit:
       priority: 2
       run: ruff format {staged_files}
       stage_fixed: true
+    # The two DERIVED manifests are regenerated and staged whenever any JSON in
+    # the plugin is staged. Nothing invoked the emitters before: their docstrings
+    # were the only instruction, so a version bump or a hooks edit shipped a
+    # desynchronized derived half until the full suite ran at PUSH — twice in one
+    # day, two commits spent repairing it.
+    #
+    # Regenerate-and-stage rather than fail-and-tell, matching the ruff commands
+    # above: neither derived file is ever hand-edited, so the emitter's output is
+    # the only correct content and a human retyping the command adds nothing. It
+    # carries ruff's `stage_fixed` residual too — regeneration reads the WORKING
+    # TREE source, so a partially staged manifest stages a derived file matching
+    # the unstaged half.
+    #
+    # Glob on JSON, not on the two source paths: a third manifest, or a source
+    # renamed, keeps firing this rather than silently stopping.
+    derived-manifests:
+      glob: "plugins/xp-agents/**/*.json"
+      run: |
+        make manifests
+        git add plugins/xp-agents/hooks/hooks.codex.json \
+                plugins/xp-agents/.codex-plugin/plugin.json
     shellcheck:
       glob: "*.sh"
       run: shellcheck -x -e SC1091 {staged_files}

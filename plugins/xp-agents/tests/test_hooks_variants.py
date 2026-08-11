@@ -89,11 +89,16 @@ class TestUnrecognisedEventsDropped(unittest.TestCase):
     edit has to be argued for.
 
     Provenance of the split: measured in the dual-target spike, one run, one
-    harness version. Six registered events never fired and are recorded as
-    unrecognised; unknown names are ignored SILENTLY there, so nothing in the
-    host would report the mistake if this list were wrong. That is exactly why
-    it is pinned rather than left implicit — see assumption 1b57219c9598, which
-    records that a harness later recognising one of these keeps being stripped.
+    harness version. Four registered events are recorded as unrecognised;
+    unknown names are ignored SILENTLY there, so nothing in the host would
+    report the mistake if this list were wrong — see assumption 1b57219c9598,
+    which records that a harness later recognising one keeps being stripped.
+
+    The compaction pair sits in RECOGNISED on purpose. Neither fired in the
+    spike — no run compacted — but the host emitted its own warning NAMING
+    them, which is proof it knows the names. Reading "never fired" as
+    "unrecognised" there dropped the event-log backup and the compaction pass
+    from every session that compacts, filed as a limit nobody measured.
     """
 
     RECOGNISED: ClassVar[set[str]] = {
@@ -105,10 +110,10 @@ class TestUnrecognisedEventsDropped(unittest.TestCase):
         "SubagentStart",
         "SubagentStop",
         "Stop",
-    }
-    UNRECOGNISED: ClassVar[set[str]] = {
         "PreCompact",
         "PostCompact",
+    }
+    UNRECOGNISED: ClassVar[set[str]] = {
         "PostToolUseFailure",
         "TeammateIdle",
         "TaskCompleted",
@@ -162,18 +167,18 @@ def _all_hook_objects(manifest: dict) -> list[tuple[str, dict]]:
 class TestNoTimeoutInTheVariant(unittest.TestCase):
     """The variant ships no `timeout` value at all.
 
-    NOT because absence is safe. Removing the key selects the harness's
-    DEFAULT, and that default is equally unmeasured — this is a choice between
-    two unknowns, not the removal of a risk. What was measured is only that a
-    SessionEnd timeout drew a clamp warning, and two readings fit it: the
-    harness caps SessionEnd at 3s regardless, or it reads the number as
-    SECONDS, in which case every timeout in a manifest is off by 1000x. Those
-    were the only two timeout values exercised, so nothing distinguishes them.
+    Not because absence is safe — removing the key selects the harness's
+    default. Because the UNIT differs, measured on an installed copy:
+    `timeout: 2000` let a 3s handler run to completion (milliseconds would have
+    killed it at 2s) and `timeout: 1` killed the same handler mid-run. Seconds,
+    and enforced. The source declares MILLISECONDS, so carrying a value across
+    literally asks for 2500 seconds where 2.5 was meant. That also retires the
+    older reading of the SessionEnd clamp warning: it fired on 2500 and 1500
+    because both are seconds meeting that event's 3s cap.
 
-    Shipping a number would encode a guess about which reading is right. The
-    milestone constraint therefore says ship none until one run tells them
-    apart. Harmless today because nothing executes on that harness yet — the
-    honesty matters when it does.
+    Restoring a bound is therefore a conversion — with sub-second bounds
+    unrepresentable as integers — which a later milestone owns, not a value to
+    copy back into this transform.
     """
 
     def setUp(self):
@@ -360,11 +365,16 @@ class TestEmitterRunsAsASubprocess(unittest.TestCase):
     entry point, the argument parsing, or the shebang — the form a human or a
     CI step actually uses. An import-only suite would stay green with `main()`
     broken.
+
+    The target directory is deliberately one that does NOT exist yet: both
+    emitters document the same `--out-dir` contract, the sibling manifest
+    emitter creates its target, and this one died with FileNotFoundError on
+    `--out-dir build/hooks` while its documented twin succeeded.
     """
 
     def test_cli_emits_a_valid_manifest_into_a_target_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
-            out_dir = Path(tmp)
+            out_dir = Path(tmp) / "build" / "hooks"
             result = subprocess.run(
                 [
                     sys.executable,

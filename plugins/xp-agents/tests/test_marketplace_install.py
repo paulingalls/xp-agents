@@ -49,8 +49,7 @@ class TestRealRegistrationAndInstall(unittest.TestCase):
 
     def _registered_home(self) -> dict:
         """A fresh home with this repo registered, cleaned up with the test."""
-        env, home = _isolated_home()
-        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        env = _isolated_home(self.addCleanup)
         added = _harness(env, "marketplace", "add", str(_REPO_ROOT))
         self.assertEqual(added.returncode, 0, added.stderr)
         return env
@@ -63,8 +62,7 @@ class TestRealRegistrationAndInstall(unittest.TestCase):
         The exit code is asserted first: a listing that FAILED also prints no
         marketplace, and would pass an absence check while proving nothing.
         """
-        env, home = _isolated_home()
-        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        env = _isolated_home(self.addCleanup)
 
         listed = _harness(env, "marketplace", "list")
         self.assertEqual(listed.returncode, 0, listed.stderr)
@@ -144,8 +142,7 @@ class TestWrongSourceFailsTheInstall(unittest.TestCase):
     """
 
     def test_a_source_path_naming_no_directory_fails_rather_than_installs(self):
-        env, home = _isolated_home()
-        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        env = _isolated_home(self.addCleanup)
         fixture = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, fixture, ignore_errors=True)
 

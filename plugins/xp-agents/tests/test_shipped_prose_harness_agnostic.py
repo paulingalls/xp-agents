@@ -119,6 +119,38 @@ class TestIdentifiersAreExcluded(unittest.TestCase):
         text = "```bash\ncodex a\ncodex b\ncodex c\n```\n"
         self.assertEqual(scan.find_harness_mentions(text, ".md"), [])
 
+    def test_a_nested_fence_does_not_blank_the_rest_of_the_file(self):
+        """The failure that reads as CLEAN, which is why it gets its own row.
+
+        A four-backtick block quoting an inner three-backtick one is how this
+        tree shows a fenced example inside a fenced example. Toggling on every
+        fence line reads the inner opener as the outer's close and the inner
+        close as a new opening, so every later line scans as fenced — the pin
+        then reports zero offenders over prose it never read, and the per-suffix
+        file-count floor cannot see it because the file still counts as scanned.
+        """
+        text = (
+            "````markdown\n"
+            "```bash\n"
+            "codex plugin add x\n"
+            "```\n"
+            "````\n"
+            "\n"
+            "Codex is the only harness.\n"
+        )
+        self.assertEqual(scan.find_harness_mentions(text, ".md"), [(7, "codex")])
+
+    def test_an_unterminated_fence_is_reported_rather_than_swallowed(self):
+        """A stray opener makes the rest of the file invisible to every rule
+        here. Nothing can tell that apart from a genuinely code-only tail, so
+        the imbalance itself is the finding."""
+        text = "Fine prose.\n\n```bash\ncodex plugin add x\n"
+        self.assertEqual(scan.unterminated_fence(text), 3)
+
+    def test_a_balanced_file_reports_no_open_fence(self):
+        text = "Fine prose.\n\n```bash\ncodex plugin add x\n```\n\nMore prose.\n"
+        self.assertIsNone(scan.unterminated_fence(text))
+
 
 class TestTheHatch(unittest.TestCase):
     """A marker excuses its line; an empty one excuses nothing."""
@@ -140,6 +172,23 @@ class TestTheHatch(unittest.TestCase):
     def test_a_shell_hatch_uses_the_comment_form(self):
         text = '# harness-ok: that flag is only on that CLI\necho "Claude only"\n'
         self.assertEqual(scan.find_harness_mentions(text, ".sh"), [])
+
+    def test_a_reason_that_opens_with_a_cli_flag_is_a_hatch(self):
+        """The reason a leak most often HAS is the flag it names, and the shipped
+        install prose names `--disable unified_exec` and
+        `--dangerously-bypass-hook-trust`. A reason stopping at the first hyphen
+        captured nothing, reported the line as unexcused while a reason sat
+        visibly beside it, and made deleting accurate prose the obvious repair.
+        """
+        text = "A Claude Code flag. <!-- harness-ok: --disable is that CLI's -->\n"
+        self.assertEqual(scan.find_harness_mentions(text, ".md"), [])
+
+    def test_such_a_reason_is_visible_to_the_staleness_check_too(self):
+        """Both readers share `_HATCH_RE`, so a reason invisible to one is
+        invisible to the other: the line escapes the leak report AND the stale-
+        marker report, which is the state no row can see."""
+        text = "<!-- harness-ok: --disable is that CLI's -->\nNo harness named.\n"
+        self.assertEqual(scan.hatches_without_mentions(text, ".md"), [1])
 
 
 class TestAHatchCannotOutliveItsProse(unittest.TestCase):
@@ -210,6 +259,26 @@ class TestTheShippedTreeIsClean(unittest.TestCase):
             [],
             "shipped prose names a harness with no `harness-ok:` reason at the "
             "site:\n  " + "\n  ".join(offenders),
+        )
+
+    def test_no_shipped_markdown_leaves_a_fence_open(self):
+        """Non-vacuity, per file: an open fence hides every line after it.
+
+        The floor above counts files, not lines, so a file scanned down to a
+        stray opener and skipped from there still counts as covered.
+        """
+        open_fences = []
+        for path in self.files:
+            if path.suffix != ".md":
+                continue
+            line = scan.unterminated_fence(path.read_text(encoding="utf-8"))
+            if line is not None:
+                open_fences.append(f"{path.relative_to(_PLUGIN_ROOT)}:{line}")
+        self.assertEqual(
+            open_fences,
+            [],
+            "a fenced block is never closed, so everything after it is invisible "
+            "to this pin:\n  " + "\n  ".join(open_fences),
         )
 
     def test_no_marker_has_outlived_its_prose(self):

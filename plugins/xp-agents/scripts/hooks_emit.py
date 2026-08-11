@@ -27,6 +27,13 @@ _SOURCE_NAME = "hooks.json"
 # Event names the second harness does not recognise. Measured in the dual-target
 # spike: each was registered deliberately and never fired in any run.
 #
+# NOT-OBSERVED IS NOT UNRECOGNISED, and the difference is what this set turns on.
+# The compaction events also never fired — no run compacted — yet the host named
+# them in its own per-event warning, which is proof it knows them. They stay in
+# the variant, because dropping them would leave a compacting session with no
+# event-log backup and no compaction at all, mislabelled as a harness limit.
+# Only the four the spike records as unrecognised are dropped.
+#
 # Unknown event names are ignored SILENTLY there, so leaving these in would cost
 # nothing at runtime — dropping them is what makes the variant say only what is
 # true of the harness it targets. The cost is carried elsewhere and recorded, not
@@ -39,8 +46,6 @@ _SOURCE_NAME = "hooks.json"
 # has to be argued for rather than absorbed.
 _UNRECOGNISED_EVENTS = frozenset(
     {
-        "PreCompact",
-        "PostCompact",
         "PostToolUseFailure",
         "TeammateIdle",
         "TaskCompleted",
@@ -48,16 +53,19 @@ _UNRECOGNISED_EVENTS = frozenset(
     }
 )
 
-# Per-hook keys the variant does not carry. The two are dropped for OPPOSITE
+# Per-hook keys the variant does not carry. The two are dropped for different
 # reasons, and conflating them would lose the distinction that matters:
 #
-#   timeout — dropped because we cannot say what a number MEANS there. A
-#     SessionEnd timeout drew a clamp warning, and two readings fit: the
-#     harness caps SessionEnd at 3s regardless, or it reads the value as
-#     SECONDS (making every timeout off by 1000x). Those were the only two
-#     values exercised, so nothing separates them. Dropping is NOT the safe
-#     choice — it selects a default that is equally unmeasured. It is the
-#     honest one: shipping a number would encode a guess.
+#   timeout — dropped because the UNIT differs. Measured on an installed copy:
+#     `timeout: 2000` let a 3s handler run to completion (milliseconds would
+#     have killed it at 2s) and `timeout: 1` killed the same handler mid-sleep,
+#     so the second harness reads SECONDS and does enforce them. The source
+#     declares MILLISECONDS, so carrying a value across literally would ask for
+#     2500 seconds where 2.5 was meant — off by 1000x, and worse than no bound.
+#     The same measurement retires the old SessionEnd puzzle: the clamp warning
+#     fired on 2500 and 1500 because both are seconds meeting that event's 3s
+#     cap. Re-establishing a bound is a CONVERSION (ms -> s, with sub-second
+#     bounds unrepresentable as integers), which a later milestone owns.
 #
 #   async — dropped because it buys nothing. Measured: `async: true` on
 #     SessionEnd is not skipped, it runs SYNCHRONOUSLY with a warning per
@@ -106,6 +114,7 @@ def emit(source: Path | None = None, out_dir: Path | None = None) -> Path:
     out_dir = out_dir or default_out_dir()
     data = json.loads(source.read_text(encoding="utf-8"))
     target = out_dir / _VARIANT_NAME
+    out_dir.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(transform(data), indent=2) + "\n", encoding="utf-8")
     return target
 

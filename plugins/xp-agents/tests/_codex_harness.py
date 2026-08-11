@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 
 from _paths import _PLUGIN_ROOT
@@ -34,7 +35,7 @@ _HARNESS_TIMEOUT = 120
 _INNER_RUN_TIMEOUT = 300
 
 
-def _isolated_home() -> tuple[dict, Path]:
+def _isolated_home(register_cleanup: Callable[..., object]) -> dict:
     """An environment whose harness state is a fresh temp directory.
 
     Every harness invocation runs under one of these. The user's real config
@@ -42,11 +43,17 @@ def _isolated_home() -> tuple[dict, Path]:
     packaging spike), so without isolation a passing install could be satisfied
     by that standing registration instead of by the catalog under test — and
     worse, the suite would mutate the developer's own state.
+
+    Removal is the helper's job, not the caller's: pass `self.addCleanup` or
+    `cls.addClassCleanup`. Handing back an unregistered directory put the same
+    two-line pairing at five sites across three suites, and one caller forgetting
+    it leaves a whole plugin install in the system temp dir on every run.
     """
     home = Path(tempfile.mkdtemp())
+    register_cleanup(shutil.rmtree, home, ignore_errors=True)
     env = os.environ.copy()
     env["CODEX_HOME"] = str(home)
-    return env, home
+    return env
 
 
 def _harness(env: dict, *args: str) -> subprocess.CompletedProcess:

@@ -136,6 +136,43 @@ class TestTheMandatorySpawnFlagIsDocumented(unittest.TestCase):
                 self.assertIn(gate, text)
 
 
+class TestTheUnreleasableReviewGateIsDocumented(unittest.TestCase):
+    """A gate a reader cannot clear must be documented WITH its way out.
+
+    The commit gate ships in the second harness's variant, but everything that
+    clears it — the flag written on a Claude-Code-only tool match, and the
+    reviewer subagent that match spawns — does not run there. A reader who
+    installs per the section above and edits two code files hits a block with no
+    reachable exit and nothing on the page about it.
+
+    Pinned by consequence and by remedy, the same shape as the trust step above:
+    naming the limitation without the escape leaves the reader stuck, and naming
+    the escape without the limitation reads as an optional preference.
+    """
+
+    def test_the_block_is_named_as_having_no_automatic_release(self):
+        self.assertRegex(_readme(), r"no automatic release on Codex")
+
+    def test_the_escape_is_a_command_the_reader_can_run(self):
+        text = _readme()
+        self.assertIn("cadence_cli.py", text)
+        self.assertIn("write story", text)
+
+    def test_the_escape_is_not_described_as_disabling_the_gate(self):
+        """Deferring the review is not turning the gate off, and a reader who
+        believes it is has been told the secret scan stopped too."""
+        text = _readme()
+        self.assertIn("does not disable the gate", text)
+        for unconditional in ("secret scan", "branch protection"):
+            with self.subTest(gate=unconditional):
+                self.assertIn(unconditional, text)
+
+    def test_the_escape_names_the_script_that_ships(self):
+        """The documented path must exist in the tree it is documenting."""
+        self.assertTrue((_PLUGIN_ROOT / "scripts" / "cadence_cli.py").is_file())
+        self.assertTrue((_PLUGIN_ROOT / "smm" / "init.sh").is_file())
+
+
 class TestNoUnmeasuredVersionFloor(unittest.TestCase):
     """No minimum version is claimed, AND the docs say why.
 
@@ -234,8 +271,7 @@ class TestTheDocumentedSequenceActuallyWorks(unittest.TestCase):
     """
 
     def test_running_the_documented_commands_installs_a_loadable_plugin(self):
-        env, home = _isolated_home()
-        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        env = _isolated_home(self.addCleanup)
         repo_root = str(_REPO_ROOT)
 
         commands = _documented_local_commands()

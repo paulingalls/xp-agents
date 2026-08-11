@@ -93,7 +93,7 @@ def _fixture_plugin_root(case: unittest.TestCase) -> Path:
                     }
                 ],
                 # Recognised by the first harness only; the emitter subtracts it.
-                "PreCompact": [
+                "TeammateIdle": [
                     {"hooks": [{"type": "command", "command": "python3 z.py"}]}
                 ],
             }
@@ -167,8 +167,8 @@ class TestTheManifestNamesTheFileTheEmitterProduces(unittest.TestCase):
     def test_the_named_file_parses_as_a_hooks_manifest(self):
         """AC#2's second clause: it names a hooks manifest, not merely a file.
 
-        No event COUNT is asserted. Eight is the shipped variant's number (14
-        source events less the 6 unrecognised), unreachable from a hand-built
+        No event COUNT is asserted. Ten is the shipped variant's number (14
+        source events less the 4 unrecognised), unreachable from a hand-built
         fixture; writing it would either force this fixture to mirror the shipped
         source — breaking the capstone whenever a hook event is added — or bake in
         a number that means nothing here. The subset relation is derived from the

@@ -52,9 +52,8 @@ class _FixtureRootTestCase(unittest.TestCase):
     """Builds a plugin root under a directory named for the executing version.
 
     The root's own directory name is the version-keyed path segment, mirroring
-    the shipped cache layout (`.../xp-agents/xp-agents/5.12.0`) without
-    asserting the segment's position — the production code scans components
-    rather than indexing them.
+    the shipped cache layout on both hosts (`.../xp-agents/xp-agents/5.12.0`),
+    where the plugin root IS the version-keyed directory.
     """
 
     def _root(self, segment: str) -> Path:
@@ -201,30 +200,58 @@ class TestEveryShippedManifestIsRead(_FixtureRootTestCase):
         self.assertEqual(self._version_at(root), "5.12.0")
 
 
-class TestMultipleVersionShapedComponents(_FixtureRootTestCase):
-    """The component that MATCHES decides, wherever it sits among shaped siblings.
+class TestOnlyTheRootsOwnComponentIsTheCacheKey(_FixtureRootTestCase):
+    """A version-shaped ANCESTOR is somebody else's version, not this copy's key.
 
-    Reading only the first version-shaped component passes every other row in
-    this file, and answers unknown for any host whose version-keyed directory
-    happens to sit under a second version-shaped one.
+    Position is the whole evidence separating "the host keyed this copy by
+    version" from "this checkout happens to live under a versioned directory",
+    and both hosts were measured installing to `.../<plugin>/<version>/` — the
+    plugin root IS the keyed directory. Judging every component instead reported
+    unknown for every copy under `/opt/python/3.11.9/`, a `1.0.0/` release
+    directory or a versioned sync folder, with both manifests readable and
+    agreeing. These rows cover that FALSE-POSITIVE direction, which every
+    fixture built directly under a temp dir leaves untested.
     """
 
-    def test_a_matching_component_outranks_an_earlier_unmatched_one(self):
-        root = self._root("1.0.0/9.9.9")
-        _write_manifest(root, ".claude-plugin", {"version": "9.9.9"})
+    def test_a_version_shaped_ancestor_does_not_suppress_agreeing_manifests(self):
+        root = self._root("3.11.9/src/xp-agents/plugins/xp-agents")
+        _write_manifest(root, ".claude-plugin", {"version": "5.13.1"})
+        _write_manifest(root, ".codex-plugin", {"version": "5.13.1"})
+
+        self.assertEqual(self._version_at(root), "5.13.1")
+
+    def test_a_version_keyed_root_still_decides_under_such_an_ancestor(self):
+        """The ancestor must not win, and must not disarm attribution either."""
+        root = self._root("3.11.9/xp-agents/9.9.9")
+        _write_manifest(root, ".claude-plugin", {"version": "1.0.0"})
+        _write_manifest(root, ".codex-plugin", {"version": "9.9.9"})
 
         self.assertEqual(self._version_at(root), "9.9.9")
 
+    def test_an_ancestor_matching_a_manifest_is_still_not_the_answer(self):
+        """The sharpest row: the ancestor names a DECLARED version and the root's
+        own key names none. Reading components would answer 5.5.0 confidently
+        while the copy executes from a directory keyed 7.7.7."""
+        root = self._root("5.5.0/xp-agents/7.7.7")
+        _write_manifest(root, ".claude-plugin", {"version": "5.5.0"})
+        _write_manifest(root, ".codex-plugin", {"version": "5.5.0"})
+
+        self.assertEqual(self._version_at(root), _UNKNOWN)
+
 
 class TestUnreadableManifests(_FixtureRootTestCase):
-    """A manifest that exists but cannot be read is a failure to report.
+    """An unreadable manifest contributes nothing; it does not silence its
+    siblings.
 
-    Dropping it and using a readable sibling would silently change today's
-    answer for a malformed primary from unknown to some other number — a
-    regression in honesty dressed as robustness. So an unreadable manifest makes
-    the survey incomplete, which blocks the agreement shortcut but not path
-    attribution, since attribution rests on positive evidence from a manifest
-    that WAS read.
+    A corrupt manifest is a tree-integrity failure, and the question this read
+    answers is which copy is EXECUTING — which any manifest that was read still
+    answers. Letting the corrupt one suppress the readable one turned an
+    interrupted regeneration of the derived manifest — or any truncated copy of
+    it — into a permanent `?` for a tree whose own manifest was intact.
+
+    Unknown stays the answer where the evidence genuinely conflicts or is
+    absent: no readable manifest at all, readable manifests disagreeing, or a
+    version-keyed root naming none of them.
     """
 
     def test_a_sole_malformed_manifest_gives_the_unknown_marker(self):
@@ -239,11 +266,25 @@ class TestUnreadableManifests(_FixtureRootTestCase):
 
         self.assertEqual(self._version_at(root), _UNKNOWN)
 
-    def test_malformed_primary_blocks_the_agreement_shortcut(self):
-        """Incomplete survey plus no path signal: refuse rather than substitute."""
+    def test_one_malformed_manifest_does_not_hide_a_readable_sibling(self):
+        """The regression row. One manifest truncated, the other intact and
+        declaring 9.9.9: the tree names exactly one version, so reporting `?`
+        withholds the only answer there is — and the corruption it reports is
+        not the corruption that happened."""
         root = self._root("checkout")
         _write_manifest(root, ".claude-plugin", "{not valid json")
         _write_manifest(root, ".codex-plugin", {"version": "9.9.9"})
+
+        self.assertEqual(self._version_at(root), "9.9.9")
+
+    def test_readable_manifests_that_disagree_still_give_the_unknown_marker(self):
+        """The line that keeps the row above from becoming "prefer any number":
+        two readable manifests naming two versions is conflicting evidence, and
+        a third unreadable one does not break the tie."""
+        root = self._root("checkout")
+        _write_manifest(root, ".claude-plugin", {"version": "1.0.0"})
+        _write_manifest(root, ".codex-plugin", {"version": "9.9.9"})
+        _write_manifest(root, ".future-plugin", "{not valid json")
 
         self.assertEqual(self._version_at(root), _UNKNOWN)
 

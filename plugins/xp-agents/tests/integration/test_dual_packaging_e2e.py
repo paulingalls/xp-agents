@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import plugin_loader
-from _bases import _PLUGIN_ROOT
+from _bases import _PLUGIN_ROOT, _AssertNotNoneMixin
 from _codex_harness import (
     _HARNESS,
     _PLUGIN_ID,
@@ -92,7 +92,7 @@ def _version_from_inside(installed_root: Path, env: dict) -> str:
 @unittest.skipUnless(
     shutil.which(_HARNESS), f"{_HARNESS} not on PATH — install-dependent rows skip"
 )
-class TestTheInstalledCopyReportsItsOwnVersion(unittest.TestCase):
+class TestTheInstalledCopyReportsItsOwnVersion(_AssertNotNoneMixin, unittest.TestCase):
     """Links two and three: the catalog installs, and the copy names itself.
 
     Installed in setUpClass rather than per row — an install is a real subprocess
@@ -104,9 +104,7 @@ class TestTheInstalledCopyReportsItsOwnVersion(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        env, home = _isolated_home()
-        cls.addClassCleanup(shutil.rmtree, home, ignore_errors=True)
-        cls.env = env
+        cls.env = env = _isolated_home(cls.addClassCleanup)
 
         registered = _harness(env, "marketplace", "add", str(_REPO_ROOT))
         assert registered.returncode == 0, registered.stderr
@@ -183,17 +181,16 @@ class TestTheInstalledCopyReportsItsOwnVersion(unittest.TestCase):
         that component, the row above would keep passing on the weaker branch and
         nobody would know.
         """
-        components = plugin_loader._version_shaped_components(self.installed_root)
-
-        self.assertTrue(
-            components,
-            f"{self.installed_root} carries no version-shaped component, so the "
+        key = self._assert_not_none(
+            plugin_loader._version_key_component(self.installed_root),
+            f"{self.installed_root} is not a version-keyed directory, so the "
             "weaker agreement branch answered and this chain no longer covers "
             "path attribution",
         )
-        self.assertIn(
+
+        self.assertEqual(
             self.reported,
-            [component.removeprefix("v") for component in components],
+            key.removeprefix("v"),
             "the reported version is not the one the executing path names",
         )
 

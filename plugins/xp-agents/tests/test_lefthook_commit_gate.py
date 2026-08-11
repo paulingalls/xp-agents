@@ -36,6 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from _paths import _SCRIPTS_DIR
 from test_lefthook_perf_gate import REPO_ROOT, _command_body, _hook
 
 
@@ -363,6 +364,86 @@ class TestGateSelectsTheRightTargets(unittest.TestCase):
         )
         self.assertEqual(argv, [])
         self.assertEqual(rc, 0, "a deleted staged test must not refuse the commit")
+
+
+class TestDerivedManifestsAreRegeneratedOnCommit(unittest.TestCase):
+    """Something must RUN the emitters, or the derived manifests rot.
+
+    Both derived packaging manifests are generated from a hand-edited source,
+    and both had regeneration pins from the day they landed — but those pins run
+    in the full suite, which is PUSH. Between a version bump and the next push
+    the tree shipped a desynchronized pair, and the repair cost two commits in
+    one day. Nothing referenced either emitter: not the Makefile, not lefthook,
+    not the release docs, only the modules' own docstrings.
+
+    The Makefile half is pinned here rather than in `test_dev_setup.py`, which
+    owns whether the gate exists at all: this target exists to serve this gate,
+    and splitting the two halves across files is how one gets edited without the
+    other.
+    """
+
+    MAKEFILE = REPO_ROOT / "Makefile"
+    DERIVED = (
+        "plugins/xp-agents/hooks/hooks.codex.json",
+        "plugins/xp-agents/.codex-plugin/plugin.json",
+    )
+
+    def setUp(self):
+        self.cmd = _command_body(_hook("pre-commit"), "derived-manifests")
+        self.assertTrue(self.cmd, "pre-commit must define a derived-manifests command")
+        self.makefile = self.MAKEFILE.read_text(encoding="utf-8")
+
+    def test_the_gate_regenerates_through_the_make_target(self):
+        self.assertIn(
+            "make manifests",
+            self.cmd,
+            "the gate must call the same target a human does — two spellings of "
+            "the regeneration drift apart, and only one of them is documented",
+        )
+
+    def test_the_gate_stages_every_derived_manifest(self):
+        for path in self.DERIVED:
+            with self.subTest(path=path):
+                self.assertIn(
+                    path,
+                    self.cmd,
+                    "regenerating without staging records the stale copy in the "
+                    "commit and leaves the fresh one loose in the working tree",
+                )
+
+    def test_the_make_target_is_declared_phony(self):
+        """A file named `manifests` would otherwise make the target a no-op."""
+        phony = [
+            line for line in self.makefile.splitlines() if line.startswith(".PHONY:")
+        ]
+        self.assertTrue(
+            any("manifests" in line for line in phony),
+            f".PHONY must list `manifests`; found {phony}",
+        )
+
+    def test_every_emitter_script_is_wired_into_the_target(self):
+        """The roster is derived, not typed: a third emitter is covered the day
+        it lands rather than silently left unrun, which is exactly the state
+        both of today's emitters shipped in.
+
+        Derived from the `default_out_dir` CLI contract the packaging emitters
+        share, not from the `*_emit.py` name — `commit_emit.py` appends a runtime
+        event and generates no artifact, so the name alone selects the wrong set.
+        """
+        body = self.makefile.split("manifests:", 1)[1].split("\n\n", 1)[0]
+        emitters = sorted(
+            path.name
+            for path in _SCRIPTS_DIR.glob("*.py")
+            if "def default_out_dir(" in path.read_text(encoding="utf-8")
+        )
+        self.assertTrue(emitters, "no emitter scripts found — the contract moved")
+        missing = [name for name in emitters if name not in body]
+        self.assertEqual(
+            missing,
+            [],
+            f"`make manifests` never runs {missing}, so whatever they generate "
+            "desynchronizes until the full suite runs at push",
+        )
 
 
 if __name__ == "__main__":

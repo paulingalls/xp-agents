@@ -45,42 +45,44 @@ def resolve_plugin_root() -> Path:
     return Path(__file__).parent.parent
 
 
-def _manifest_versions(root: Path) -> tuple[list[str], bool]:
-    """Versions declared under `root`, and whether the survey was COMPLETE.
+def _manifest_versions(root: Path) -> list[str]:
+    """Every version DECLARED by a manifest under `root`.
 
-    `complete` is False when a manifest exists but could not be parsed or
-    declares no version. Such a file is a failure to report, not a candidate to
-    drop: substituting a readable sibling's number is exactly how a version
-    stops identifying the copy that is running. It blocks the agreement shortcut
-    in `plugin_version` without blocking path attribution, which rests on
-    positive evidence from a manifest that WAS read.
+    A manifest that exists but cannot be parsed, or declares no version,
+    contributes nothing rather than suppressing its readable siblings: it is a
+    tree-integrity failure, and the question here is which copy is executing —
+    which a manifest that WAS read still answers. Suppressing on it turned an
+    interrupted regeneration of a derived manifest into a permanent unknown for
+    a copy whose own manifest was perfectly readable.
     """
     versions: list[str] = []
-    complete = True
     try:
         found = sorted(root.glob(_MANIFEST_GLOB))
     except OSError:
-        return [], False
+        return []
     for path in found:
         try:
             declared = json.loads(path.read_text(encoding="utf-8")).get("version")
         except (OSError, json.JSONDecodeError, ValueError, AttributeError):
-            complete = False
             continue
         if not declared:
-            complete = False
             continue
         versions.append(str(declared))
-    return versions, complete
+    return versions
 
 
-def _version_shaped_components(root: Path) -> list[str]:
-    """Path components of `root` that look like a version key.
+def _version_key_component(root: Path) -> str | None:
+    """The host's version key for this copy: `root`'s OWN final component.
 
-    Components, not an index: which position carries the version is the host's
-    business and differs between them, so nothing here assumes it sits last.
+    Position is the evidence, not decoration. Measured on both hosts, an install
+    lands at `.../<plugin>/<version>/` and the plugin root IS the version-keyed
+    directory. Judging every component instead reads any unrelated version-shaped
+    ANCESTOR — `/opt/python/3.11.9/...`, a `1.0.0/` release directory, a
+    versioned sync folder — as a cache key that names no manifest, and answers
+    unknown for the ordinary checkout sitting under it.
     """
-    return [part for part in root.parts if _VERSION_SHAPED.match(part)]
+    last = root.parts[-1] if root.parts else ""
+    return last if _VERSION_SHAPED.match(last) else None
 
 
 def plugin_version() -> str:
@@ -96,28 +98,25 @@ def plugin_version() -> str:
     manifests now ship and agree by construction, so the signal is agreement
     between a manifest and the PATH being executed:
 
-    - a version-shaped path component matching a declared version -> that
+    - the root is a version-keyed directory naming a declared version -> that
       version, the executing copy;
-    - a version-shaped component matching NO manifest -> unknown. This is the
+    - a version-keyed root naming NO manifest -> unknown. This is the
       cache-bumped-in-place state, and reporting it is the point: a confident
       wrong number is worse than a visible '?';
-    - no version-shaped component (an ordinary checkout) and one agreed version
-      across a complete survey -> that version;
+    - an ordinary checkout (no version key) and one agreed version among the
+      manifests that could be read -> that version;
     - anything else -> unknown, rather than preferring a candidate for which
       there is no evidence.
     """
     root = resolve_plugin_root()
-    versions, complete = _manifest_versions(root)
+    versions = _manifest_versions(root)
     if not versions:
         return _UNKNOWN
-    shaped = _version_shaped_components(root)
-    if shaped:
-        for component in shaped:
-            for declared in versions:
-                if declared == component.removeprefix("v"):
-                    return declared
-        return _UNKNOWN
-    if complete and len(set(versions)) == 1:
+    key = _version_key_component(root)
+    if key is not None:
+        declared = key.removeprefix("v")
+        return declared if declared in versions else _UNKNOWN
+    if len(set(versions)) == 1:
         return versions[0]
     return _UNKNOWN
 
