@@ -19,6 +19,10 @@ lookups, because the discriminators the rebuild leans on — committer
 timestamp, parent count, reflog action — are properties of git's own history
 that a stub would let us assert into existence. The fixture itself lives in
 `_commit_repo_case.py`.
+
+Scope: what the rebuild DOES once it has decided the head in front of it is
+one it may claim. Whether it may — the three discriminators above, and every
+head shape that must be refused — is `test_commit_event_provenance.py`.
 """
 
 import sys
@@ -33,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import review_records
-from _commit_repo_case import _RebuildTestCase
+from _commit_repo_case import UNREADABLE_F, UNREADABLE_VAR, _RebuildTestCase
 from conftest import compute_resolutions, make_event
 from event_schema import EVENT_TYPE_COMMIT, EVENT_TYPE_CONCERN
 
@@ -51,14 +55,11 @@ _CAPPED_FILES = (
     _SCRIPTS_DIR / "commits.py",
     Path(__file__).resolve(),
     Path(__file__).resolve().parent / "_commit_repo_case.py",
+    # The provenance split, capped alongside its origin for the same reason the
+    # fixture is: uncapped, it would be somewhere to move code to rather than a
+    # place the code belongs.
+    Path(__file__).resolve().parent / "test_commit_event_provenance.py",
 )
-
-# Two shapes of "the hook cannot expand this message". `-F <path>` yields no
-# message at all; `"$MSG"` yields the literal variable name, which never
-# matches HEAD. Both are real: the recorded incident used a command
-# substitution, and `-F -` with a heredoc is the other common spelling.
-_UNREADABLE_F = "git commit -F {repo}/.git/MSG-ALREADY-GONE"
-_UNREADABLE_VAR = 'git commit -m "$MSG"'
 
 
 class TestRebuildFromGit(_RebuildTestCase):
@@ -66,7 +67,7 @@ class TestRebuildFromGit(_RebuildTestCase):
 
     def test_unreadable_message_still_records_a_commit_event(self):
         head = self.commit("feat: the subject git kept\n\nwhy it was done")
-        self.run_hook(_UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
         events = self.commit_events()
         self.assertEqual(len(events), 1)
         self.assertIn("feat: the subject git kept", events[0]["content"])
@@ -74,25 +75,25 @@ class TestRebuildFromGit(_RebuildTestCase):
 
     def test_shell_variable_message_also_rebuilds(self):
         self.commit("feat: hidden behind a variable")
-        self.run_hook(_UNREADABLE_VAR)
+        self.run_hook(UNREADABLE_VAR)
         self.assertEqual(len(self.commit_events()), 1)
 
     def test_rebuilt_event_carries_the_committed_files(self):
         self.commit("feat: x", path="src/foo.py")
-        self.run_hook(_UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
         self.assertEqual(self.commit_events()[0]["files"], ["src/foo.py"])
 
     def test_recording_suppresses_the_trace(self):
         """One observation per commit: the trace exists for the case the
         rebuild could NOT cover, so firing both would double-report."""
         self.commit("feat: x")
-        self.run_hook(_UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
         self.assertEqual(self.concerns(), [])
 
     def test_second_run_on_the_same_head_does_not_duplicate(self):
         self.commit("feat: x")
-        self.run_hook(_UNREADABLE_F)
-        self.run_hook(_UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
         self.assertEqual(len(self.commit_events()), 1)
 
 
@@ -104,19 +105,19 @@ class TestTrailerActuallyResolves(_RebuildTestCase):
     def test_rebuilt_trailer_closes_the_named_concern(self):
         concern_id = self.seed_concern()
         self.commit(f"fix: close it\n\nResolves-Event: {concern_id}")
-        self.run_hook(_UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
         resolutions = compute_resolutions(self._read_events())
         self.assertIn(concern_id, resolutions["resolved_concern_ids"])
 
     def test_trailer_is_stripped_from_the_recorded_body(self):
         concern_id = self.seed_concern()
         self.commit(f"fix: close it\n\nResolves-Event: {concern_id}")
-        self.run_hook(_UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
         self.assertNotIn("Resolves-Event", self.commit_events()[0]["content"])
 
     def test_co_authored_by_is_stripped_like_the_success_path(self):
         self.commit("feat: x\n\nCo-Authored-By: Someone <s@example.com>")
-        self.run_hook(_UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
         self.assertNotIn("Co-Authored-By", self.commit_events()[0]["content"])
 
 
@@ -139,7 +140,7 @@ class TestNoDoubleRecording(_RebuildTestCase):
             "git commit -m 'feat: parsed subject'",
             stdout="[main 1234567] feat: parsed subject\n 1 file changed",
         )
-        self.run_hook(_UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
         self.assertEqual(len(self.commit_events()), 1)
 
 
@@ -149,122 +150,12 @@ class TestDegradesLoudly(_RebuildTestCase):
     def test_body_read_failure_falls_back_to_the_trace(self):
         head = self.commit("feat: x")
         with patch("commits.get_commit_message_body", return_value=None):
-            self.run_hook(_UNREADABLE_F)
+            self.run_hook(UNREADABLE_F)
         self.assertEqual(self.commit_events(), [])
         concerns = self.concerns()
         self.assertEqual(len(concerns), 1)
         self.assertEqual(concerns[0]["metadata"]["commit_hash"], head)
         self.assertEqual(concerns[0]["severity"], "low")
-
-
-class TestAmbiguousHeadIsNotClaimed(_RebuildTestCase):
-    """AC-6/AC-7 and the reflog discriminators. Recording here would
-    fabricate a commit this command never made, and honor a trailer from
-    someone else's history — a worse fail-open than the one being fixed."""
-
-    def test_rejection_atop_old_unrecorded_history(self):
-        """AC-6: HEAD is old, so the just-run command did not produce it."""
-        self.commit("feat: yesterday's work", age_seconds=6 * 3600)
-        self.run_hook(_UNREADABLE_F)
-        self.assertEqual(self.commit_events(), [])
-        self.assertEqual(len(self.concerns()), 1)
-
-    def _merge_a_side_branch(self) -> None:
-        """Leave HEAD on a fresh two-parent `--no-ff` merge commit."""
-        self.commit("feat: mainline")
-        base = self.git("rev-parse", "HEAD~1")
-        self.git("checkout", "-q", "-b", "side", base)
-        self.commit("feat: side work", path="src/side.py")
-        self.git("checkout", "-q", "main")
-        self.git("merge", "-q", "--no-ff", "-m", "Merge side", "side")
-
-    def test_young_merge_head_is_not_a_plain_commit(self):
-        """AC-7: a manual `git merge` emits no event of its own, so a fresh
-        merge HEAD looks exactly like an unrecorded commit. Recording it
-        would take the WHOLE merged branch as `files`, untagged, into the
-        resolves-link-rate denominator."""
-        self._merge_a_side_branch()
-        self.run_hook(_UNREADABLE_F)
-        self.assertEqual(self.commit_events(), [])
-        self.assertEqual(len(self.concerns()), 1)
-
-    def test_merge_head_is_refused_on_the_parent_count_alone(self):
-        """The parent-count guard, isolated. With a reflog present the case
-        above is vetoed by the `merge` action before parent count is ever
-        load-bearing — deleting the parent check left that test green. Take
-        the reflog away (the degrade-to-allow path) and the count is the
-        ONLY signal separating a two-parent merge from a landed commit."""
-        self._merge_a_side_branch()
-        self.erase_reflog()
-        self.run_hook(_UNREADABLE_F)
-        self.assertEqual(self.commit_events(), [])
-        self.assertEqual(len(self.concerns()), 1)
-
-    def test_amended_head_is_not_a_fresh_commit(self):
-        """`commit (amend)` rewrites HEAD to a new hash whose predecessor
-        may already carry an event. The timestamp cannot tell them apart;
-        the reflog can."""
-        self.commit("feat: x")
-        self.git("commit", "-q", "--amend", "-m", "feat: x amended")
-        self.run_hook(_UNREADABLE_F)
-        self.assertEqual(self.commit_events(), [])
-        self.assertEqual(len(self.concerns()), 1)
-
-    def test_reset_to_a_young_commit_is_not_a_commit(self):
-        """HEAD young, single-parent, and still not produced by committing."""
-        self.commit("feat: a")
-        target = self.head()
-        self.commit("feat: b")
-        self.git("reset", "-q", "--hard", target)
-        self.run_hook(_UNREADABLE_F)
-        self.assertEqual(self.commit_events(), [])
-
-    def test_readable_message_that_missed_is_evidence_against_recording(self):
-        """The hole a whole-suite run found. A plain `-m 'subject'` the hook
-        CAN read, which did not match HEAD, is positive evidence this command
-        did not make HEAD — a rejection on top of recent history, or a
-        commit-msg hook rewrite. HEAD here is fresh, single-parent and
-        reflogged as `commit`, so those three guards all pass and only the
-        readable-message check stands between us and fabricating an event
-        (and honoring the older commit's trailer) off someone else's work."""
-        self.commit("feat: history that predates this command")
-        self.run_hook("git commit -m 'a subject that never landed'")
-        self.assertEqual(self.commit_events(), [])
-        self.assertEqual(len(self.concerns()), 1)
-
-    def test_missing_reflog_vetoes_the_rebuild(self):
-        """`core.logAllRefUpdates` can be off (bare repos, and anyone who set
-        it), and `git reflog expire` empties the log. Absence VETOES.
-
-        Degrading to allow was the widest residual fabrication path: with no
-        reflog, an amend or a reset/ff-merge onto a fresh unrecorded commit
-        followed by a failed unreadable commit satisfies freshness, parent count
-        and unreadability, and records an event for a commit this command did
-        not make — whose trailer then resolves real ids on false evidence.
-
-        Vetoing costs a reflog-less repo only the trace it already got before
-        this story existed, so it is not a regression there. The asymmetry is
-        lopsided, and it matches the recorded fail-closed doctrine for an
-        unresolvable `git -C` target.
-
-        NOT a fresh clone, which does have a reflog: `git clone` writes a
-        `clone: from <url>` HEAD entry, so that case is vetoed on the action."""
-        self.commit("feat: x")
-        self.erase_reflog()
-        self.run_hook(_UNREADABLE_F)
-        self.assertEqual(len(self.commit_events()), 0)
-
-    def test_future_committer_date_is_not_maximally_fresh(self):
-        """A future committer timestamp must not read as fresh.
-
-        `now - ts > MAX` alone is one-sided: a clock-skewed committing host
-        yields a negative age, which compares under any positive bound and so
-        defeats the freshness guard outright rather than tripping it. Bounding
-        at both ends (`0 <= age <= MAX`) is how the housekeeping gate reads the
-        same helper. Negative `age_seconds` forward-dates the commit."""
-        self.commit("feat: x", age_seconds=-7200)
-        self.run_hook(_UNREADABLE_F)
-        self.assertEqual(len(self.commit_events()), 0)
 
 
 class TestBackgroundedCommitIsNotEvidence(_RebuildTestCase):
@@ -362,7 +253,7 @@ class TestRebuildGateIsHashOnly(_RebuildTestCase):
                 metadata={"commit_hash": head},
             ),
         )
-        self.run_hook(_UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
         self.assertEqual(len(self.commit_events()), 1)
 
     def test_already_recorded_hash_is_left_alone(self):
@@ -375,7 +266,7 @@ class TestRebuildGateIsHashOnly(_RebuildTestCase):
                 metadata={"commit_hash": head, "action": "commit_success"},
             ),
         )
-        self.run_hook(_UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
         self.assertEqual(len(self.commit_events()), 1)
         self.assertEqual(self.concerns(), [])
 
@@ -389,7 +280,7 @@ class TestReviewCycleReset(_RebuildTestCase):
     def test_rebuild_resets_the_review_cycle(self):
         review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         head = self.commit("feat: x")
-        self.run_hook(_UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
         cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["quality_review_done"])
         self.assertEqual(
@@ -401,7 +292,7 @@ class TestReviewCycleReset(_RebuildTestCase):
         we did not claim must not mutate state either."""
         review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         self.commit("feat: yesterday's work", age_seconds=6 * 3600)
-        self.run_hook(_UNREADABLE_F)
+        self.run_hook(UNREADABLE_F)
         self.assertTrue(
             review_records.read_review_flags(self.smm_dir, "main")[
                 "quality_review_done"
@@ -414,7 +305,7 @@ class TestReviewCycleReset(_RebuildTestCase):
         clear main's flags."""
         review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         self.commit("feat: x")
-        self.run_hook(_UNREADABLE_F, agent_type="xp-leaked")
+        self.run_hook(UNREADABLE_F, agent_type="xp-leaked")
         self.assertEqual(len(self.commit_events()), 1)
         self.assertTrue(
             review_records.read_review_flags(self.smm_dir, "main")[

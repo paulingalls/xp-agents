@@ -343,18 +343,18 @@ def make_commit_event(
 ) -> dict:
     """Build a type=commit event from the shared metadata shape.
 
-    Single canonical builder for both regular `git commit` emissions
-    (``_handle_commit``) and close-cycle merge emissions
-    (``merge_commit_event.append_merge_commit_event``). When either side
-    adds a metadata field, this builder is the one place to update —
-    eliminates the drift risk two parallel builders would carry.
+    Single canonical builder for every emitter: regular `git commit`
+    (``_handle_commit``), the HEAD rebuild (``commit_emit.rebuild_at_head``),
+    and close-cycle merges (``merge_commit_event``). When any of them adds a
+    metadata field, this builder is the one place to update — eliminates the
+    drift risk parallel builders would carry.
 
     Optional kwargs:
       - ``resolves`` / ``has_resolves_trailer``: bash-commit only
         (parsed from the commit message body)
-      - ``is_merge``: close-cycle merge only (excludes the event from
-        ``retro_metrics._compute_resolves_link_rate`` denominator so a
-        merge HEAD doesn't dilute the rate without a meaningful trailer)
+      - ``is_merge``: a merge HEAD (close cycle, or the rebuild's merge arm)
+        — excludes the event from ``retro_metrics._compute_resolves_link_rate``
+        denominator so a merge HEAD doesn't dilute the rate without a trailer
       - ``is_free_session``: commit emitted on a free branch
         (``branching.is_free_branch(...)`` True). Honored by
         ``retro_metrics`` as a CONDITIONAL exclusion — the commit drops

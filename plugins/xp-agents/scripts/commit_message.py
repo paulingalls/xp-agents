@@ -64,13 +64,46 @@ _STDIN_FLAG_RE = re.compile(r"(?:^|\s)(?:-F|--file)(?:=|\s+)-(?=\s|$)")
 # (2)=delimiter, (3)=body in both, matching bash's own termination rules
 # measured directly: plain `<<` terminates only at column 0 (no leading
 # whitespace tolerated); `<<-` terminates on leading TABS only, never spaces.
-_STDIN_HEREDOC_RE = re.compile(r"<<\s*('?)(\w+)'?[^\n]*\n(.*?)\n\2(?=\n|$)", re.DOTALL)
+# `['\"\\\\]?` because bash disables expansion for ALL of `<<'EOF'`, `<<"EOF"`
+# and `<<\EOF`, so admitting only the apostrophe left the body's `-m` supplying
+# the message again one keystroke away. Group 1 stays truthy for every quoted
+# form, which is what the expansion flag reads.
+_STDIN_HEREDOC_RE = re.compile(
+    r"<<\s*(['\"\\]?)(\w+)['\"]?[^\n]*\n(.*?)\n\2(?=\n|$)", re.DOTALL
+)
 _STDIN_HEREDOC_DASH_RE = re.compile(
-    r"<<-\s*('?)(\w+)'?[^\n]*\n(.*?)\n\t*\2(?=\n|$)", re.DOTALL
+    r"<<-\s*(['\"\\]?)(\w+)['\"]?[^\n]*\n(.*?)\n\t*\2(?=\n|$)", re.DOTALL
 )
 _FILE_FLAG_RE = re.compile(
     r"""(?:^|\s)(?:-F|--file)(?:=|\s+)(?!-\s|-$)(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"""
 )
+
+
+def _simple_msg_outside_a_body(command: str) -> re.Match[str] | None:
+    """The first `-m` in *command* that is not inside a stdin-heredoc BODY.
+
+    A `-m` inside a body is prose; one outside is an argument, whatever its
+    value contains. Both halves are load-bearing and each was a shipped defect:
+    scanning the raw command let a body's runner flag supply the message, and
+    DELETING every body first — the first fix — deleted spans found inside the
+    `-m` value too, mangling any message that discussed a heredoc.
+
+    THIS module's spans, not `git_commits.strip_heredocs`: that one terminates at
+    the delimiter word wherever it appears, while these require the delimiter to
+    own its line. An UNterminated body yields no span, so a `-m` inside one is
+    still taken — deliberate, and what keeps a `-F -` from outranking it.
+    """
+    bodies = [
+        match.span(3)
+        for pattern in (_STDIN_HEREDOC_DASH_RE, _STDIN_HEREDOC_RE)
+        for match in pattern.finditer(command)
+    ]
+    pos = 0
+    while (match := _SIMPLE_MSG_RE.search(command, pos)) is not None:
+        if not any(start <= match.start() < end for start, end in bodies):
+            return match
+        pos = match.end()
+    return None
 
 
 def _find_stdin_heredoc_body(command: str, start: int) -> tuple[str, bool] | None:
@@ -118,10 +151,14 @@ def recover_commit_message(command: str) -> tuple[str | None, bool]:
     HEAD's body is the only signal that the commit actually landed. Parsing
     only `-m` silently dropped every `-F`-bodied commit from the event log.
     """
+    # Ordering is load-bearing, though not for the reason an earlier draft gave
+    # (nothing is subtracted any more): this pattern's own `-m` sits OUTSIDE the
+    # heredoc body it wraps, so the general scan below would accept it and hand
+    # back the whole `$(cat …)` expression as the message.
     heredoc = _HEREDOC_MSG_RE.search(command)
     if heredoc:
         return heredoc.group("body"), not heredoc.group("mq")
-    m = _SIMPLE_MSG_RE.search(command)
+    m = _simple_msg_outside_a_body(command)
     if m:
         if m.group(1) is not None:
             return m.group(1), True
