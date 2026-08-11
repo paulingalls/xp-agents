@@ -2,6 +2,93 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.14.0 — One repo, two harnesses, and a generated file nobody generated
+
+Milestone 8. The plugin now installs on Codex alongside Claude Code from a
+single repo: a second plugin manifest, a second marketplace catalog, a hooks
+variant generated for that host, install and trust docs, and a version read that
+names the copy actually executing.
+
+### Generated, not hand-maintained — in both directions
+
+`hooks/hooks.codex.json` is derived from `hooks/hooks.json` by SUBTRACTION and
+`.codex-plugin/plugin.json` from `.claude-plugin/plugin.json` by ADDITION.
+Neither emitter writes its own source, so the first harness's files are
+byte-identical by construction and a release edits one file. The manifest
+emitter needs a guard its sibling does not: source and target share the basename
+`plugin.json` and differ only by directory, so `--out-dir .claude-plugin` would
+overwrite the hand-edited primary. It refuses, by device+inode comparison rather
+than by path — `resolve()` preserves case, and a case-insensitive filesystem
+would otherwise let `.Claude-Plugin` through.
+
+**The emitters had no caller.** No make target, no hook, no release step — only
+a docstring. The derived manifest drifted twice in one day and was repaired by
+hand both times before anyone asked why it wasn't automatic. There is now a
+`make manifests` target and a commit-gate step that regenerates and stages both
+derived files whenever a plugin JSON is staged, joined with `&&` so a failing
+emitter cannot leave stale output behind a passing gate.
+
+### A version that names the copy that is running
+
+Reading one fixed manifest was the original defect: a session reported one
+number while executing from a cache directory keyed to another. The read now
+takes the executing path as evidence — the plugin root's own final component,
+matched against what the shipped manifests declare — and answers `?` rather than
+guessing when they disagree.
+
+Two ways it went wrong, both found at close and both reproduced first. Scanning
+every path component, not just the root's own, meant any checkout under a
+version-shaped ancestor (`/opt/python/3.11.9/…`, a `1.0.0/` release directory)
+reported `?` forever. And an unreadable SECOND manifest suppressed the version
+even when the executing copy's own manifest was perfectly readable — an
+interrupted regeneration was enough to cause it. Both are fixed, with regression
+rows covering the false-positive direction the original tests could not reach.
+
+### Not-observed is not unrecognised
+
+The hooks variant strips event names the host does not know. Two compaction
+events were on that list because they never fired during the spike — but the
+host names both in its own warnings, which is proof it knows them. They never
+fired because no run compacted. Stripping them left a compacting session with no
+event-log backup and no compaction at all, mislabelled as a harness limit.
+Restored.
+
+**Hook timeouts stay stripped, and now for a measured reason.** The unit differs:
+`timeout: 2000` let a three-second handler run to completion where milliseconds
+would have killed it at two, and `timeout: 1` killed the same handler mid-sleep.
+Codex reads seconds and enforces them. The source declares milliseconds, so
+carrying a value across literally would ask for 2500 seconds where 2.5 was
+meant. Re-establishing a bound is a conversion, and a later milestone owns it.
+
+### Shipped prose that names one host
+
+Text injected into agent context is read on both harnesses, so naming one as
+though it were the only one is wrong for half its readers. A pin now scans
+shipped Markdown and shell for harness names, excluding environment variables,
+real paths and code spans structurally rather than by allowlist, with an at-site
+`harness-ok:` marker for the cases that are genuinely host-specific.
+
+Its own limits are documented rather than implied, because a guardrail that
+overclaims is a green check certifying something untrue. The largest gap is that
+shipped Python is not scanned at all — and a live leak was sitting there, a
+banner naming one host's uninstall command while being injected on both. It was
+caught by a human reading the diff, not by the pin.
+
+### Known limits
+
+The milestone's claim is that one repo installs on either harness. That is
+measured for **Codex only**: registration, install into an isolated home, and
+the version read back out of the installed copy. The Claude Code install rests
+on byte-identity pins plus daily dogfooding — there is no install row for it
+anywhere in the suite, and this release added files to the shipped tree that
+such an install would have to copy. Recorded as debt rather than implied by the
+headline.
+
+No minimum Codex version is claimed; the work was exercised on `0.146.0` and
+nothing older was installed. The per-commit review gate has no automatic release
+on that host yet — moving the review to story close turns the block into an
+advisory, and that marker is session-scoped, so it must be set each session.
+
 ## v5.13.1 — An abort is not a commit, and a fast-forward is not a merge
 
 Four defects on the commit path, all of one shape: a command that moved HEAD
