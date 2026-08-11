@@ -145,6 +145,14 @@ python3 "$PLUGIN/scripts/cadence_cli.py" --smm-dir "$("$PLUGIN/smm/init.sh")" wr
 This defers the review; it does not disable the gate. The tier-1 secret scan,
 the staged-lint check and branch protection stay unconditional either way.
 
+**Re-run it every session.** The cadence marker is session-scoped: a fresh
+start (a new session, or `/clear`) resets it to the careful per-commit default,
+deliberately, so one session's choice never leaks into the next. That reset runs
+on Codex too — `SessionStart` is registered in the generated hooks variant. So
+the command above buys you the session you run it in and no more; the next one
+begins blocked again. Treat it as something you type at the start of a session,
+not once at install time.
+
 **No minimum Codex version is claimed.** The plugin was exercised on `0.146.0`
 and nothing older was ever installed, so there is no measured floor to state — a
 version that works tells you nothing about where support began. This is an

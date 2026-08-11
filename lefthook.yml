@@ -59,8 +59,12 @@ pre-commit:
     # renamed, keeps firing this rather than silently stopping.
     derived-manifests:
       glob: "plugins/xp-agents/**/*.json"
+      # `&&`, not two statements: the command's exit status is the LAST one's,
+      # so a newline here would let a failing emitter leave stale derived
+      # manifests staged while the gate reported success — the same silent
+      # no-op this gate exists to stop.
       run: |
-        make manifests
+        make manifests && \
         git add plugins/xp-agents/hooks/hooks.codex.json \
                 plugins/xp-agents/.codex-plugin/plugin.json
     shellcheck:

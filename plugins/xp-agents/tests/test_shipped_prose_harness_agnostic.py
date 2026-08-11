@@ -34,6 +34,15 @@ is itself a green check certifying something untrue. What this pin does NOT see:
 * A documentation URL, which `_PATHY` blanks along with real dotfile paths.
   Both harnesses' readers get pointed at one harness's docs, and neither name
   can be rewritten without naming nothing.
+* SHIPPED PYTHON, ENTIRELY — the largest gap, and the one this list previously
+  omitted while reading exhaustive. `shipped_prose_files` walks `.md` and `.sh`
+  only, so every user-facing string in `scripts/` and `smm/` is unjudged. That
+  is not theoretical: `session_start_banner.py` shipped a banner naming one
+  harness's uninstall command, injected on BOTH harnesses, and it was found by
+  a human reading the diff rather than by this pin. A Python prose model would
+  have to tell a user-facing string from a subprocess argument, which is the
+  same judgement the shell model makes and no harder — it is unbuilt, not
+  impossible.
 """
 
 import sys

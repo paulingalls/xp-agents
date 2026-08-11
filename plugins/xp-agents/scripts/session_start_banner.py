@@ -38,9 +38,13 @@ def _is_fresh_start(source: str) -> bool:
     return source in ("startup", "clear")
 
 
+# Harness-neutral by necessity: this banner is injected on every host, so
+# naming one host's uninstall command states something false for the readers on
+# the other. Both hosts delete that root on a plugin uninstall; which command
+# spells it is the reader's to know.
 _AT_RISK_PREFIX = (
     "NOTE: the shared mental model still lives under the host-managed plugin "
-    "data root, which 'claude plugin uninstall' deletes by default."
+    "data root, which uninstalling this plugin deletes by default."
 )
 
 # One per migration_lock.LockState arm, named for its REMEDY.
