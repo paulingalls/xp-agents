@@ -1,0 +1,19 @@
+{
+  "name": "xp-agents",
+  "interface": {
+    "displayName": "XP Agents"
+  },
+  "plugins": [
+    {
+      "name": "xp-agents",
+      "source": {
+        "source": "local",
+        "path": "./plugins/xp-agents"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

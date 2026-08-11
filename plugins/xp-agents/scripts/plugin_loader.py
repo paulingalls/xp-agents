@@ -20,7 +20,21 @@ in-process caller.
 
 import json
 import os
+import re
 from pathlib import Path
+
+_UNKNOWN = "?"
+
+# Every shipped manifest, without naming a single host. A literal directory name
+# here would put harness-specific vocabulary into shipped resolution logic, and
+# a third manifest would silently go unread the day it appears.
+_MANIFEST_GLOB = ".*-plugin/plugin.json"
+
+# What a version-keyed path component looks like. Deliberately NARROW: the job
+# is to tell "this path names a version" from "this path names nothing of the
+# kind", and a looser shape would read an ordinary directory like `2` or `1.0`
+# as a cache key and answer unknown for an ordinary checkout.
+_VERSION_SHAPED = re.compile(r"^v?\d+\.\d+\.\d+$")
 
 
 def resolve_plugin_root() -> Path:
@@ -31,18 +45,80 @@ def resolve_plugin_root() -> Path:
     return Path(__file__).parent.parent
 
 
+def _manifest_versions(root: Path) -> list[str]:
+    """Every version DECLARED by a manifest under `root`.
+
+    A manifest that exists but cannot be parsed, or declares no version,
+    contributes nothing rather than suppressing its readable siblings: it is a
+    tree-integrity failure, and the question here is which copy is executing —
+    which a manifest that WAS read still answers. Suppressing on it turned an
+    interrupted regeneration of a derived manifest into a permanent unknown for
+    a copy whose own manifest was perfectly readable.
+    """
+    versions: list[str] = []
+    try:
+        found = sorted(root.glob(_MANIFEST_GLOB))
+    except OSError:
+        return []
+    for path in found:
+        try:
+            declared = json.loads(path.read_text(encoding="utf-8")).get("version")
+        except (OSError, json.JSONDecodeError, ValueError, AttributeError):
+            continue
+        if not declared:
+            continue
+        versions.append(str(declared))
+    return versions
+
+
+def _version_key_component(root: Path) -> str | None:
+    """The host's version key for this copy: `root`'s OWN final component.
+
+    Position is the evidence, not decoration. Measured on both hosts, an install
+    lands at `.../<plugin>/<version>/` and the plugin root IS the version-keyed
+    directory. Judging every component instead reads any unrelated version-shaped
+    ANCESTOR — `/opt/python/3.11.9/...`, a `1.0.0/` release directory, a
+    versioned sync folder — as a cache key that names no manifest, and answers
+    unknown for the ordinary checkout sitting under it.
+    """
+    last = root.parts[-1] if root.parts else ""
+    return last if _VERSION_SHAPED.match(last) else None
+
+
 def plugin_version() -> str:
-    """Version string from the plugin manifest, or '?' if unreadable.
+    """Version of the plugin copy that is EXECUTING, or '?' when unknowable.
 
     Lives here rather than in a hook entry point: a library module must not
     import a hook, so every reader that is not session_start would otherwise
     copy this.
+
+    Reading one fixed manifest was the measured defect — a session reported one
+    number while the version-keyed cache directory it executed from held
+    another, hiding the only value that says which cached copy is running. Two
+    manifests now ship and agree by construction, so the signal is agreement
+    between a manifest and the PATH being executed:
+
+    - the root is a version-keyed directory naming a declared version -> that
+      version, the executing copy;
+    - a version-keyed root naming NO manifest -> unknown. This is the
+      cache-bumped-in-place state, and reporting it is the point: a confident
+      wrong number is worse than a visible '?';
+    - an ordinary checkout (no version key) and one agreed version among the
+      manifests that could be read -> that version;
+    - anything else -> unknown, rather than preferring a candidate for which
+      there is no evidence.
     """
-    try:
-        path = resolve_plugin_root() / ".claude-plugin" / "plugin.json"
-        return str(json.loads(path.read_text(encoding="utf-8")).get("version", "?"))
-    except (OSError, json.JSONDecodeError, ValueError):
-        return "?"
+    root = resolve_plugin_root()
+    versions = _manifest_versions(root)
+    if not versions:
+        return _UNKNOWN
+    key = _version_key_component(root)
+    if key is not None:
+        declared = key.removeprefix("v")
+        return declared if declared in versions else _UNKNOWN
+    if len(set(versions)) == 1:
+        return versions[0]
+    return _UNKNOWN
 
 
 def expand_plugin_root(text: str) -> str:

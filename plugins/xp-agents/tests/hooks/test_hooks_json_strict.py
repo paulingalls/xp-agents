@@ -3,7 +3,7 @@
 
 Claude Code rejects non-strict JSON (trailing commas, comments) in hook
 manifests. `ruff format` reformats JSON files and can introduce trailing
-commas, so ruff.toml carries `extend-exclude = ["**/hooks.json"]` plus
+commas, so ruff.toml excludes every JSON file via `extend-exclude` plus
 `force-exclude = true` as defense-in-depth against ad-hoc invocations
 like `ruff format .`. This pin catches the symptom if those guards are
 ever relaxed.

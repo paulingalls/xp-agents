@@ -1,4 +1,19 @@
-.PHONY: setup
+.PHONY: setup manifests
+
+# Regenerates the two DERIVED packaging manifests from their hand-edited
+# sources: hooks/hooks.codex.json from hooks/hooks.json, and
+# .codex-plugin/plugin.json from .claude-plugin/plugin.json. Neither derived
+# file is ever hand-edited, so running this is always safe and idempotent.
+#
+# It exists because nothing invoked the emitters. Their own docstrings were the
+# only instruction, so a version bump or a hooks edit desynchronized the derived
+# half until the full suite ran at push — which happened twice in one day and
+# cost two repair commits. The commit gate now calls this target (lefthook's
+# `derived-manifests`), and the regeneration pins in tests/test_manifest_pins.py
+# and tests/test_hooks_variants.py remain the backstop.
+manifests:
+	python3 plugins/xp-agents/scripts/hooks_emit.py
+	python3 plugins/xp-agents/scripts/manifest_emit.py
 
 # Wires up the gates: verifies pytest -n auto actually works (the CAPABILITY
 # that matters, however it got installed — pipx is only the recommended

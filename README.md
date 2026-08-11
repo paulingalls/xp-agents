@@ -83,6 +83,87 @@ claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 
 Each person installs individually. The marketplace entry is just discovery.
 
+### Installing on Codex
+
+Everything above this heading describes Claude Code. Codex reads its own
+marketplace catalog and its own plugin manifest, both shipped in this repo beside
+the Claude ones. Register the marketplace, then install:
+
+From a local checkout — this is the sequence the test suite executes:
+
+```bash
+codex plugin marketplace add /path/to/xp-agents
+codex plugin add xp-agents@xp-agents
+```
+
+From the published repo — the same commands, with the source given as
+`owner/repo`:
+
+```bash
+codex plugin marketplace add paulingalls/xp-agents
+codex plugin add xp-agents@xp-agents
+```
+
+The local form is listed first because it is the one the suite actually runs. The
+published form's syntax is documented by `codex plugin marketplace add`, but
+whether a fresh clone resolves the catalog's relative plugin path has not been
+measured here — treat it as untested, not as broken.
+
+**You must review the hooks, or nothing is enforced.** Codex will not run
+plugin-bundled hooks until you trust them, and this is the part worth reading
+twice:
+
+- **Interactive:** run `/hooks` and approve. Approval is per *content hash*, so
+  it must be repeated after every plugin update.
+- **Headless:** pass `--dangerously-bypass-hook-trust`.
+- **If you skip it, nothing tells you.** Untrusted hooks are skipped **silently** —
+  the hooks file is demonstrably read, yet no handler runs and no error appears.
+  The session looks completely normal while every XP gate is absent: no commit
+  gate, no TDD gate, no stop gates, no secret scan.
+
+**`--disable unified_exec` is required on every Codex spawn**, not a
+recommendation. Without it, `exec_command` opens a persistent shell and
+`write_stdin` sends work into it that the command hook never sees — bypassing the
+commit gate, the tier-1 secret scan, staged-lint and branch protection. The flag
+removes that channel and substitutes `shell_command`, which is gated.
+
+**The per-commit review gate has no automatic release on Codex yet**, and it
+will block your commits until you move the review. The gate itself fires
+normally: at two or more changed code files, `git commit` stops with "Run
+/xp-quality-review before committing". What clears it does not run there — the
+flag is written by a hook matched on Claude Code's own tool names, and the
+reviewer it spawns is a Claude Code subagent. So the block has no reachable exit
+on Codex. Until harness parity lands, move the review to story close, which
+turns that block into a visible advisory:
+
+```bash
+cd /path/to/your/project
+PLUGIN=~/.codex/plugins/cache/xp-agents/xp-agents/<version>
+python3 "$PLUGIN/scripts/cadence_cli.py" --smm-dir "$("$PLUGIN/smm/init.sh")" write story
+```
+
+This defers the review; it does not disable the gate. The tier-1 secret scan,
+the staged-lint check and branch protection stay unconditional either way.
+
+**Re-run it every session.** The cadence marker is session-scoped: a fresh
+start (a new session, or `/clear`) resets it to the careful per-commit default,
+deliberately, so one session's choice never leaks into the next. That reset runs
+on Codex too — `SessionStart` is registered in the generated hooks variant. So
+the command above buys you the session you run it in and no more; the next one
+begins blocked again. Treat it as something you type at the start of a session,
+not once at install time.
+
+**No minimum Codex version is claimed.** The plugin was exercised on `0.146.0`
+and nothing older was ever installed, so there is no measured floor to state — a
+version that works tells you nothing about where support began. This is an
+unknown, not an assurance that every version works: an older Codex that runs the
+skills while ignoring the hooks would be unenforced in exactly the silent way
+described above.
+
+The scope and team-discovery notes above are Claude Code's. `codex plugin add`
+takes no scope flag, and no `.claude/settings.json` equivalent for sharing the
+marketplace with a team was measured here — each person registers it themselves.
+
 ---
 
 ## What Happens When You Use It
