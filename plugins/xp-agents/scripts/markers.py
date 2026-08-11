@@ -93,6 +93,13 @@ HOOK_HEARTBEAT = MarkerDef(marker_names.HOOK_HEARTBEAT, "json")
 HOUSEKEEPING_IN_FLIGHT = MarkerDef(marker_names.HOUSEKEEPING_IN_FLIGHT, "json")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
 REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=True)
+# Separate from REVIEW_CYCLE because the two are keyed on DIFFERENT checkouts:
+# the flags on the session that ran the review, this on the repo the commit
+# lands in. One file forced every site to pick one owner for both, and the two
+# only coincide while the session commits into its own checkout.
+REVIEW_WATERMARK = MarkerDef(
+    ".review-watermark-{agent_id}.json", "json", agent_scoped=True
+)
 QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=True)
 
 
@@ -220,65 +227,6 @@ def warn_once(
 
 
 # ---------------------------------------------------------------------------
-# Review cycle convenience functions (API surface for M2)
-# ---------------------------------------------------------------------------
-
-_DEFAULT_REVIEW_CYCLE: dict = {
-    "last_review_commit": "",
-    "simplify_done": False,
-    "quality_review_done": False,
-}
-
-_REVIEW_FLAGS = frozenset({"simplify_done", "quality_review_done"})
-
-
-def read_review_cycle(smm_dir: Path, agent_id: str) -> dict:
-    """Read review cycle marker, returning defaults if missing."""
-    data = marker_read(smm_dir, REVIEW_CYCLE, agent_id)
-    if not isinstance(data, dict):
-        return dict(_DEFAULT_REVIEW_CYCLE)
-    return data
-
-
-def write_review_cycle(smm_dir: Path, agent_id: str, data: dict) -> None:
-    """Write review cycle marker."""
-    marker_write(smm_dir, REVIEW_CYCLE, data, agent_id)
-
-
-def reset_review_cycle(smm_dir: Path, agent_id: str, commit_hash: str) -> None:
-    """Reset review cycle: new commit hash, all flags cleared."""
-    data = dict(_DEFAULT_REVIEW_CYCLE)
-    data["last_review_commit"] = commit_hash
-    write_review_cycle(smm_dir, agent_id, data)
-
-
-def set_review_flag(
-    smm_dir: Path, agent_id: str, flag: str, value: bool = True
-) -> None:
-    """Set a single review flag (read-modify-write)."""
-    if flag not in _REVIEW_FLAGS:
-        raise ValueError(f"Invalid review cycle flag: {flag!r}")
-    data = read_review_cycle(smm_dir, agent_id)
-    data[flag] = value
-    write_review_cycle(smm_dir, agent_id, data)
-
-
-def review_mid_cycle(smm_dir: Path, agent_id: str) -> bool:
-    """True when a review cycle is mid-flight for ``agent_id``.
-
-    Mid-cycle = /code-review (or /simplify) has set ``simplify_done`` but
-    /xp-quality-review has not yet set ``quality_review_done``. One home for
-    the predicate, so the Stop gates that defer on it cannot drift apart.
-
-    Load-bearing invariant: a standalone self-find review sets
-    ``quality_review_done`` WITHOUT ``simplify_done`` — that is a COMPLETED
-    review, not mid-cycle, so it returns False.
-    """
-    cycle = read_review_cycle(smm_dir, agent_id)
-    return bool(cycle.get("simplify_done")) and not cycle.get("quality_review_done")
-
-
-# ---------------------------------------------------------------------------
 # Review cadence convenience functions (session-scoped: commit | story)
 # ---------------------------------------------------------------------------
 
@@ -358,6 +306,7 @@ def write_teammate_config(smm_dir: Path, token: str) -> None:
 _AGENT_SCOPED_MARKERS: tuple[MarkerDef, ...] = (
     TDD_TRACKER,
     REVIEW_CYCLE,
+    REVIEW_WATERMARK,
     QUESTION_NUDGED,
 )
 

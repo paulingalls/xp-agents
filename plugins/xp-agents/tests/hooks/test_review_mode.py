@@ -14,6 +14,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(
     0,
@@ -23,7 +25,6 @@ sys.path.insert(
 )
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
-import markers
 import review_mode
 from conftest import _SMMTestCase
 
@@ -42,19 +43,21 @@ class TestReviewMode(_SMMTestCase):
         self.assertEqual(self._run("."), "self-find")
 
     def test_fresh_code_review_is_consume_findings(self):
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
         self.assertEqual(self._run("."), "consume-findings")
 
     def test_quality_review_alone_is_self_find(self):
         """A standalone self-find review sets quality_review_done WITHOUT
         simplify_done — still self-find (no /code-review findings to consume)."""
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         self.assertEqual(self._run("."), "self-find")
 
     def test_worktree_cwd_resolves_agent_id(self):
         """simplify_done under the worktree id + worktree cwd => consume-findings;
         proves the helper resolves agent_id from cwd (not bare 'main')."""
-        markers.set_review_flag(self.smm_dir, "worktree-story-001", "simplify_done")
+        review_records.set_review_flag(
+            self.smm_dir, "worktree-story-001", "simplify_done"
+        )
         self.assertEqual(self._run(_WT), "consume-findings")
         # The 'main' scope is untouched, so a '.' cwd still reads self-find.
         self.assertEqual(self._run("."), "self-find")

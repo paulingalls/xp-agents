@@ -25,7 +25,7 @@ marker_names.CLOSE_CYCLE_ID).
 
 Defers on ASKING_USER so AskUserQuestion dialogues complete cleanly.
 Also defers during the close /code-review's async Step 4b window —
-`markers.review_mid_cycle`, under the key `identity.review_cycle_agent_id`
+`markers.review_mid_cycle`, under the key `identity.review_flags_key`
 gives every writer of the flag (simplify_done set when the workflow launched,
 quality_review_done not yet set when /xp-quality-review consumes its
 findings). Pushing xp-close-reviewer there would run Step 4.5 BEFORE the
@@ -51,6 +51,8 @@ three detectors face it; see close_cycle_abandonment.
 
 import sys
 from pathlib import Path
+
+import review_records
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
@@ -259,7 +261,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # (review mid-cycle). Defer the close-reviewer nudge until the
         # workflow returns and /xp-quality-review consumes its findings —
         # same predicate sprint_stop_gate uses, under the same key
-        # identity.review_cycle_agent_id gives every writer of the flag.
+        # identity.review_flags_key gives every writer of the flag.
         #
         # Age-bound the defer on its own window (shorter than the abandonment
         # age): defer ONLY while the marker is young (workflow plausibly
@@ -269,8 +271,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # an unbounded defer would silently abandon the close forever. Fall
         # through to the block; the next stop_hook_active bypass then consumes
         # the aged marker and records the abandonment concern.
-        mid_cycle = markers.review_mid_cycle(
-            smm_dir, identity.review_cycle_agent_id(input_data.get("cwd", ""))
+        mid_cycle = review_records.review_mid_cycle(
+            smm_dir, identity.review_flags_key(input_data.get("cwd", ""))
         )
         if mid_cycle and _marker_age_under(smm_dir, _CLOSE_CYCLE_DEFER_WINDOW_SEC):
             return None

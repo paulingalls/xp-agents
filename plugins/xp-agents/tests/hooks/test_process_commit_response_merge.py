@@ -3,9 +3,9 @@
 
 A `--no-ff` merge commit lands via `close_common.cmd_merge()` →
 `append_merge_commit_event()`. The merge appends a commit event but
-previously did NOT call `markers.reset_review_cycle()` — the parent
+previously did NOT call `review_records.clear_review_flags()` — the parent
 Bash PreToolUse hook only matches top-level `git commit` shells, so
-the per-commit `commit_handling.py:reset_review_cycle()` was bypassed.
+the per-commit `commit_handling.py`'s own clear was bypassed.
 The prior commit's `quality_review_done=True` marker persisted across
 the merge, latching the review gate for the next solo commit on the
 sprint branch.
@@ -21,12 +21,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
-import markers
 import resolution
 from event_schema import EVENT_TYPE_COMMIT
 from merge_commit_event import append_merge_commit_event
@@ -106,16 +107,12 @@ class TestMergeCommitResetsReviewCycle(unittest.TestCase):
         """
         agent_id = "main"
         # Arrange: prior cycle is dirty — quality_review_done=True.
-        markers.write_review_cycle(
+        review_records.write_review_flags(
             self.smm,
             agent_id,
-            {
-                "last_review_commit": "deadbeefcafe",
-                "simplify_done": True,
-                "quality_review_done": True,
-            },
+            {"simplify_done": True, "quality_review_done": True},
         )
-        prior = markers.read_review_cycle(self.smm, agent_id)
+        prior = review_records.read_review_flags(self.smm, agent_id)
         self.assertTrue(prior["quality_review_done"])
 
         # Act: append a merge commit event the same way cmd_merge does.
@@ -123,13 +120,13 @@ class TestMergeCommitResetsReviewCycle(unittest.TestCase):
             str(self.repo), self.smm, "paulingalls/story-A-something"
         )
 
-        # Assert: the review cycle is reset; last_review_commit now points
-        # at the merge HEAD; quality_review_done is False (or absent).
-        cycle = markers.read_review_cycle(self.smm, agent_id)
+        # Assert: the flags are cleared and the watermark advances to the
+        # merge HEAD — two records, both written by the merge.
+        cycle = review_records.read_review_flags(self.smm, agent_id)
         self.assertEqual(
-            cycle.get("last_review_commit"),
+            review_records.read_review_watermark(self.smm, agent_id),
             self.head_sha,
-            "merge HEAD must become the new last_review_commit",
+            "merge HEAD must become the new watermark",
         )
         self.assertFalse(
             cycle.get("quality_review_done", False),
@@ -147,14 +144,10 @@ class TestMergeCommitResetsReviewCycle(unittest.TestCase):
         itself must still land (commit_handling.make_commit_event shape).
         """
         agent_id = "main"
-        markers.write_review_cycle(
+        review_records.write_review_flags(
             self.smm,
             agent_id,
-            {
-                "last_review_commit": "deadbeefcafe",
-                "simplify_done": True,
-                "quality_review_done": True,
-            },
+            {"simplify_done": True, "quality_review_done": True},
         )
 
         append_merge_commit_event(
@@ -183,35 +176,33 @@ class TestMergeCommitResetsReviewCycle(unittest.TestCase):
         runs in the orchestrator cwd ("main"); a teammate's cycle must
         not be inadvertently cleared.
         """
-        markers.write_review_cycle(
+        review_records.write_review_flags(
             self.smm,
             "main",
-            {
-                "last_review_commit": "deadbeefcafe",
-                "simplify_done": True,
-                "quality_review_done": True,
-            },
+            {"simplify_done": True, "quality_review_done": True},
         )
-        markers.write_review_cycle(
+        review_records.write_review_flags(
             self.smm,
             "worktree-story-zzz",
-            {
-                "last_review_commit": "feedface1111",
-                "simplify_done": True,
-                "quality_review_done": True,
-            },
+            {"simplify_done": True, "quality_review_done": True},
+        )
+        review_records.write_review_watermark(
+            self.smm, "worktree-story-zzz", "feedface1111"
         )
 
         append_merge_commit_event(str(self.repo), self.smm, "paulingalls/story-A-thing")
 
         # main reset
         self.assertFalse(
-            markers.read_review_cycle(self.smm, "main")["quality_review_done"]
+            review_records.read_review_flags(self.smm, "main")["quality_review_done"]
         )
         # teammate untouched
-        teammate = markers.read_review_cycle(self.smm, "worktree-story-zzz")
+        teammate = review_records.read_review_flags(self.smm, "worktree-story-zzz")
         self.assertTrue(teammate["quality_review_done"])
-        self.assertEqual(teammate["last_review_commit"], "feedface1111")
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm, "worktree-story-zzz"),
+            "feedface1111",
+        )
 
 
 class TestMergeCommitRelinksResolvesEvent(unittest.TestCase):

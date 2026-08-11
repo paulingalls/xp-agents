@@ -21,6 +21,8 @@ teammate-appropriate task shapes.
 import sys
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -28,7 +30,6 @@ import _common
 import event_schema
 import hook_liveness
 import identity
-import markers
 import plugin_loader
 import target_routing
 
@@ -186,11 +187,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     flag = _TARGET_FLAG.get(target)
     if flag:
         # The FLAG is keyed on the checkout, not on this payload's agent_id —
-        # identity.review_cycle_agent_id owns that rule for every site. The
+        # identity.review_flags_key owns that rule for every site. The
         # event below keeps agent_id: it records who ran the review.
-        markers.set_review_flag(
+        review_records.set_review_flag(
             smm_dir,
-            identity.review_cycle_agent_id(input_data.get("cwd", "")),
+            identity.review_flags_key(input_data.get("cwd", "")),
             flag,
         )
 

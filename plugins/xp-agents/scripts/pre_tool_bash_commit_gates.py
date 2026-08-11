@@ -21,6 +21,8 @@ call site stays a one-liner regardless of what this module grows into.
 import sys
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent))
 # Nothing below imports from smm/, but this module is imported by pre_tool_bash
 # BEFORE its own smm-side imports resolve. Inserting scripts/ alone would leave
@@ -174,15 +176,18 @@ def commit_gate_parts(smm_dir: Path, command: str, cwd: str) -> list[str]:
 
     parts.extend(staged_lint.staged_lint_gate(staged, effective_cwd))
 
-    # Keyed on the repo the commit lands in — the same key the flag's writers
-    # and the post-commit reset use (identity.review_cycle_agent_id), not the
-    # caller's agent_id.
-    cycle = markers.read_review_cycle(
-        smm_dir, identity.review_cycle_agent_id(effective_cwd)
-    )
+    # Two records, two checkouts. The watermark is a sha, and the diff below
+    # resolves it inside `effective_cwd`; the flags belong to the session that
+    # ran the review, which is where every writer of them runs. Reading both
+    # under one key blocks any `git -C <other-repo> commit` on a review the
+    # session did run — and no rerun clears it, because the writers keep
+    # writing the other record.
+    flags = review_records.read_review_flags(smm_dir, identity.review_flags_key(cwd))
     code_files = commits.get_code_files_for_review(
         effective_cwd,
-        cycle.get("last_review_commit", ""),
+        review_records.read_review_watermark(
+            smm_dir, identity.review_watermark_key(effective_cwd)
+        ),
         command,
         staged_diff=diff,
     )
@@ -198,7 +203,7 @@ def commit_gate_parts(smm_dir: Path, command: str, cwd: str) -> list[str]:
                 f"since last review). /xp-quality-review runs at story "
                 f"close."
             )
-        elif not cycle.get("quality_review_done"):
+        elif not flags.get("quality_review_done"):
             # Per-increment review is /xp-quality-review only — the
             # xp-code-reviewer it spawns self-finds correctness. The
             # workflow /code-review runs once at sprint/plan/free close.

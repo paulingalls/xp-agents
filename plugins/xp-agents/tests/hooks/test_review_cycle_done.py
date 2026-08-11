@@ -13,12 +13,13 @@ import sys
 import unittest
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
-import markers
 import review_cycle_done
 from conftest import _HookTestCase, _make_agent_input, _make_skill_input
 from event_schema import EVENT_TYPE_STATUS, event_action
@@ -31,21 +32,21 @@ class TestReviewCycleDone(_HookTestCase):
 
     def test_code_review_sets_flag(self):
         review_cycle_done.run(_make_skill_input("code-review"), smm_dir=self.smm_dir)
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
     def test_legacy_simplify_no_longer_sets_flag(self):
         """Cutover: the renamed-away /simplify name is inert — only /code-review
         clears the gate now."""
         review_cycle_done.run(_make_skill_input("simplify"), smm_dir=self.smm_dir)
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
 
     def test_quality_review_sets_flag(self):
         review_cycle_done.run(
             _make_skill_input("xp-quality-review"), smm_dir=self.smm_dir
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertTrue(cycle["quality_review_done"])
 
     def _action_events(self, action: str) -> list[dict]:
@@ -113,7 +114,7 @@ class TestReviewCycleDone(_HookTestCase):
         input_data = _make_skill_input("code-review", agent_type="xp-test")
         result = review_cycle_done.run(input_data, smm_dir=self.smm_dir)
         self.assertIsNone(result)
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         emitted = self._action_events("simplify_complete")
         self.assertEqual(len(emitted), 0)
@@ -127,7 +128,7 @@ class TestReviewCycleDone(_HookTestCase):
         falsely clears the commit gate before /code-review ever ran."""
         input_data = _make_agent_input("xp-agents:xp-code-reviewer", agent_type="")
         review_cycle_done.run(input_data, smm_dir=self.smm_dir)
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertEqual(len(self._action_events("simplify_complete")), 0)
 
@@ -148,12 +149,12 @@ class TestReviewCycleDone(_HookTestCase):
         review_cycle_done.run(
             _make_skill_input("xp-agents:code-review"), smm_dir=self.smm_dir
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
     def test_ignores_other_skills(self):
         review_cycle_done.run(_make_skill_input("xp-kickoff"), smm_dir=self.smm_dir)
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
 
@@ -179,7 +180,7 @@ class TestReviewCycleDone(_HookTestCase):
     def test_plan_review_does_not_set_review_flags(self):
         """Plan review is not part of the commit review cycle."""
         review_cycle_done.run(_make_skill_input("xp-review-plan"), smm_dir=self.smm_dir)
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
 
@@ -209,7 +210,7 @@ class TestReviewCycleDone(_HookTestCase):
     def test_assign_does_not_set_review_flags(self):
         """Assign is not part of the commit review cycle."""
         review_cycle_done.run(_make_skill_input("xp-assign"), smm_dir=self.smm_dir)
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
 
@@ -240,7 +241,7 @@ class TestReviewCycleDone(_HookTestCase):
     def test_housekeeper_does_not_set_review_flags(self):
         """Housekeeper is not part of the commit review cycle."""
         review_cycle_done.run(_make_agent_input("xp-housekeeper"), smm_dir=self.smm_dir)
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
 
@@ -252,9 +253,9 @@ class TestReviewCycleDone(_HookTestCase):
             cwd="/proj/.claude/worktrees/worktree-story-001",
         )
         review_cycle_done.run(inp, smm_dir=self.smm_dir)
-        cycle = markers.read_review_cycle(self.smm_dir, "worktree-story-001")
+        cycle = review_records.read_review_flags(self.smm_dir, "worktree-story-001")
         self.assertTrue(cycle["simplify_done"])
-        main_cycle = markers.read_review_cycle(self.smm_dir, "main")
+        main_cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(main_cycle.get("simplify_done", False))
 
 

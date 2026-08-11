@@ -22,6 +22,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -244,7 +246,7 @@ class TestCloseCycleStopGate(_HookTestCase):
         input_data = _make_stop_input()
         agent_id = identity.resolve_agent_id(input_data)
         markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
-        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+        review_records.set_review_flag(self.smm_dir, agent_id, "simplify_done")
 
         result = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
         self.assertIsNone(result)
@@ -260,7 +262,7 @@ class TestCloseCycleStopGate(_HookTestCase):
         input_data = _make_stop_input()
         agent_id = identity.resolve_agent_id(input_data)
         markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
-        markers.write_review_cycle(
+        review_records.write_review_flags(
             self.smm_dir,
             agent_id,
             {
@@ -288,7 +290,7 @@ class TestCloseCycleStopGate(_HookTestCase):
         # quality_review_done WITHOUT simplify_done is a completed self-find
         # review, not mid-cycle — must NOT suppress (the load-bearing invariant
         # shared with sprint_stop_gate).
-        markers.set_review_flag(self.smm_dir, agent_id, "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, agent_id, "quality_review_done")
 
         result = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
         result = self._assert_not_none(result)
@@ -309,7 +311,7 @@ class TestCloseCycleStopGate(_HookTestCase):
         input_data = _make_stop_input(stop_hook_active=True)
         agent_id = identity.resolve_agent_id(input_data)
         markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
-        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+        review_records.set_review_flag(self.smm_dir, agent_id, "simplify_done")
 
         result = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
         self.assertIsNone(result)

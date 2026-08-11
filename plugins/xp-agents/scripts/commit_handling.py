@@ -27,6 +27,8 @@ needs it verbatim, and copying it is how the merge emitter drifted.
 import sys
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -200,6 +202,7 @@ def _handle_commit(
                     command,
                     head,
                     events=events,
+                    session_cwd=cwd,
                     is_xp_agent_leak=is_xp_agent_leak,
                     backgrounded=backgrounded,
                 )
@@ -310,11 +313,14 @@ def _handle_commit(
     )
 
     if commit_hash:
-        # Keyed on the repo the commit landed in, matching the flag's writers
-        # and the pre-commit gate's read — see identity.review_cycle_agent_id.
-        markers.reset_review_cycle(
-            smm_dir, identity.review_cycle_agent_id(effective_cwd), commit_hash
+        # One commit, two records: the watermark advances in the repo the
+        # commit landed in, and the review cycle ends for the session that ran
+        # the review. A commit into someone else's checkout does not end
+        # THEIR cycle — they have not reviewed anything.
+        review_records.write_review_watermark(
+            smm_dir, identity.review_watermark_key(effective_cwd), commit_hash
         )
+        review_records.clear_review_flags(smm_dir, identity.review_flags_key(cwd))
 
     return _check_qr_linkage(
         events, agent_id, has_code=has_code, cadence=review_cadence

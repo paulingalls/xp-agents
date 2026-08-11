@@ -10,6 +10,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -51,7 +53,7 @@ class TestPreToolBashReviewCycle(_HookTestCase):
 
         simplify_done no longer satisfies the per-commit gate; only
         quality_review_done clears it."""
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
         with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
             with self.assertRaises(_common.BlockedError) as ctx:
                 pre_tool_bash.run(
@@ -62,7 +64,7 @@ class TestPreToolBashReviewCycle(_HookTestCase):
     def test_above_threshold_passes_quality_review_only(self):
         """quality_review_done=True alone -> commit allowed (simplify_done
         not required)."""
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
             pre_tool_bash.run(
                 _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
@@ -93,10 +95,10 @@ class TestPreToolBashReviewCycle(_HookTestCase):
             )
 
     def test_uses_last_review_commit(self):
-        """Gate reads last_review_commit from marker."""
-        markers.reset_review_cycle(self.smm_dir, "main", "abc123")
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        """Gate reads the watermark from its own marker."""
+        review_records.write_review_watermark(self.smm_dir, "main", "abc123")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         with patch(
             self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]
         ) as mock:

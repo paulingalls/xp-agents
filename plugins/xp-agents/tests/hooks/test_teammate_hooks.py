@@ -5,6 +5,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
@@ -214,11 +216,10 @@ class TestTeammateStopGate(_HookTestCase):
 
     def _set_review_flags(self, **flags):
         """Set review cycle marker flags for teammate-1."""
-        import markers
 
-        data = markers.read_review_cycle(self.smm_dir, "worktree-story-1")
+        data = review_records.read_review_flags(self.smm_dir, "worktree-story-1")
         data.update(flags)
-        markers.write_review_cycle(self.smm_dir, "worktree-story-1", data)
+        review_records.write_review_flags(self.smm_dir, "worktree-story-1", data)
 
     def test_non_teammate_skips(self):
         """Non-teammate agent_type exits cleanly."""
@@ -309,10 +310,9 @@ class TestTeammateStopGate(_HookTestCase):
 
         quality_review_done set under the worktree id → the gate reads that
         marker and advances to the commit message, proving id resolution."""
-        import markers
         import teammate_stop_gate
 
-        markers.set_review_flag(
+        review_records.set_review_flag(
             self.smm_dir, "worktree-story-abc12345", "quality_review_done"
         )
         inp = {
@@ -351,10 +351,9 @@ class TestTeammateStopGate(_HookTestCase):
 
     def test_cli_teammate_resolves_agent_id_for_markers(self):
         """CLI teammate uses resolve_agent_id for marker scoping."""
-        import markers
         import teammate_stop_gate
 
-        markers.set_review_flag(
+        review_records.set_review_flag(
             self.smm_dir, "worktree-story-001", "quality_review_done"
         )
         inp = {
@@ -451,11 +450,7 @@ class TestTeammateStopGate(_HookTestCase):
         # Story cadence with no review done
         markers.write_review_cadence(self.smm_dir, "story")
         # Clear the quality_review_done flag to test story cadence path
-        import markers as m
-
-        data = m.read_review_cycle(self.smm_dir, "worktree-story-1")
-        data.pop("quality_review_done", None)
-        m.write_review_cycle(self.smm_dir, "worktree-story-1", data)
+        review_records.clear_review_flags(self.smm_dir, "worktree-story-1")
         story_msg = teammate_stop_gate.run(
             _make_teammate_stop_input(),
             smm_dir=self.smm_dir,

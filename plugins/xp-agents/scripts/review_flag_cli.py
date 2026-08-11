@@ -15,10 +15,11 @@ when it LAUNCHES the workflow so:
     STATUS_ACTION_*_COMPLETE event review_cycle_done would (retro_metrics counts
     it via _ACTION_TO_COUNTER; without it the close /code-review is invisible).
 
-The flag is keyed via identity.review_cycle_agent_id, which every other
-review-cycle site also calls — that function documents why the key is the
-checkout and not the payload's agent_id, and test_review_flag_cli.py pins this
-CLI's write against close_cycle_stop_gate's read.
+The flag is keyed via identity.review_flags_key, which every other writer,
+reader and clear of the flags also calls — that function documents why the key
+is the reviewing SESSION's checkout and not the payload's agent_id, and
+test_review_flag_cli.py pins this CLI's write against close_cycle_stop_gate's
+read.
 
 In every close mode that runs Step 4b — sprint/plan/free-close — there is no
 closing-story worktree, so ${TEAMMATE_CWD:-.} resolves to the orchestrator
@@ -33,13 +34,14 @@ import argparse
 import sys
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import _common
 import event_schema
 import identity
-import markers
 
 # The flags this CLI can set, each paired with the lifecycle event
 # review_cycle_done emits for the equivalent completed review. Keys double as
@@ -67,8 +69,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     smm_dir = Path(args.smm_dir)
-    agent_id = identity.review_cycle_agent_id(args.cwd)
-    markers.set_review_flag(smm_dir, agent_id, args.flag)
+    agent_id = identity.review_flags_key(args.cwd)
+    review_records.set_review_flag(smm_dir, agent_id, args.flag)
 
     action, content = _FLAG_LIFECYCLE[args.flag]
     event = _common.make_event(

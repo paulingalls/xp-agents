@@ -30,6 +30,8 @@ import sys
 import time
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -254,10 +256,15 @@ def rebuild_at_head(
     commit_hash: str,
     *,
     events: list[dict],
+    session_cwd: str,
     is_xp_agent_leak: bool = False,
     backgrounded: bool = False,
 ) -> bool:
     """Record the commit event for an unrecorded HEAD. True if one landed.
+
+    `cwd` is the repo HEAD was probed in; `session_cwd` is the caller's own
+    checkout. They differ under `git -C`, and the two review records below
+    want different ones — see `identity.review_watermark_key`.
 
     Reached when both commit-success signals went blind — stdout truncated
     past git's `[branch hash] msg` line, and an `-m`/`-F` argument the hook
@@ -312,7 +319,10 @@ def rebuild_at_head(
     # skips it: recording the commit is always right, but mutating cycle state
     # under a wrong identity is not.
     if not is_xp_agent_leak:
-        markers.reset_review_cycle(
-            smm_dir, identity.review_cycle_agent_id(cwd), commit_hash
+        review_records.write_review_watermark(
+            smm_dir, identity.review_watermark_key(cwd), commit_hash
+        )
+        review_records.clear_review_flags(
+            smm_dir, identity.review_flags_key(session_cwd)
         )
     return True

@@ -21,12 +21,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import bash_post_tool
-import markers
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input
 from event_helpers import events_of_type
@@ -116,14 +117,14 @@ class TestCommitRecordingDespiteXpAgentType(_HookTestCase):
 
     def test_xp_agent_type_does_not_reset_main_review_cycle(self):
         """Leaked agent_type must not reset main's review-cycle flags."""
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
 
         with self._patch_commit_lookups():
             result = self._run_leaked_commit()
 
         # Side effect blocked: review-cycle flags unchanged.
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
         self.assertTrue(cycle["quality_review_done"])
         # No QR-warning leakage to the (leaked) caller.

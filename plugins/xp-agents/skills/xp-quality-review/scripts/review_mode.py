@@ -7,7 +7,7 @@ quality-review preload sees it, /code-review just ran and its JSON findings are
 in the agent's context => consume-findings. Otherwise no /code-review ran
 (per-increment path) => the xp-code-reviewer self-finds correctness.
 
-agent_id comes from identity.review_cycle_agent_id(--cwd) — the one key every
+agent_id comes from identity.review_flags_key(--cwd) — the one key every
 writer, reader and clearer of the cycle uses, documented there. The preload
 passes --cwd "${TEAMMATE_CWD:-.}" (the closing-story worktree at story-close,
 else the main checkout).
@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 
 import identity
-import markers
+import review_records
 
 CONSUME_FINDINGS = "consume-findings"
 SELF_FIND = "self-find"
@@ -32,9 +32,9 @@ def main() -> None:
     parser.add_argument("--cwd", default=".")
     args = parser.parse_args()
 
-    agent_id = identity.review_cycle_agent_id(args.cwd)
-    cycle = markers.read_review_cycle(Path(args.smm_dir), agent_id)
-    print(CONSUME_FINDINGS if cycle.get("simplify_done") else SELF_FIND)
+    agent_id = identity.review_flags_key(args.cwd)
+    flags = review_records.read_review_flags(Path(args.smm_dir), agent_id)
+    print(CONSUME_FINDINGS if flags.get("simplify_done") else SELF_FIND)
 
 
 if __name__ == "__main__":

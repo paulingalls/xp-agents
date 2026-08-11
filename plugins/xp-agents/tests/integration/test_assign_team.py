@@ -10,6 +10,8 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -60,7 +62,6 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
         workflow /code-review runs once at sprint/plan/free close, and LLM
         /security-review runs at the close-skill Step 4 (cumulative diff).
         """
-        import markers
         import teammate_stop_gate
 
         inp = self._stop_input()
@@ -70,7 +71,9 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
         self.assertIn("/xp-quality-review", result)
         self.assertNotIn("/code-review", result)
 
-        markers.set_review_flag(self.smm_dir, "worktree-story-1", "quality_review_done")
+        review_records.set_review_flag(
+            self.smm_dir, "worktree-story-1", "quality_review_done"
+        )
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         assert result is not None
         self.assertIn("commit", result.lower())
@@ -175,7 +178,7 @@ class TestCleanupTeammateE2E(_IntegrationTestCase):
             check=True,
         )
 
-        markers.write_review_cycle(self.smm_dir, name, {"simplify_done": True})
+        review_records.write_review_flags(self.smm_dir, name, {"simplify_done": True})
         report = self.smm_dir / f".teammate-report-{name}.txt"
         report.write_text("E2E report")
 

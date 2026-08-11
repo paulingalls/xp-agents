@@ -11,12 +11,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import bash_post_tool
-import markers
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, make_event
 from event_helpers import events_of_type
@@ -31,8 +32,8 @@ class TestBashPostToolReviewCycle(_HookTestCase):
 
     def test_commit_resets_review_cycle(self):
         """After commit, review cycle marker has new hash and cleared flags."""
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         with (
             patch("commits.get_committed_files", return_value=["a.py"]),
             patch("commits.get_head_commit_hash", return_value="newcommit123"),
@@ -44,14 +45,15 @@ class TestBashPostToolReviewCycle(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
-        self.assertEqual(cycle["last_review_commit"], "newcommit123")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
+        watermark = review_records.read_review_watermark(self.smm_dir, "main")
+        self.assertEqual(watermark, "newcommit123")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
 
     def test_commit_no_hash_skips_reset(self):
         """If git rev-parse fails, no marker written (no crash)."""
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
         with (
             patch("commits.get_committed_files", return_value=["a.py"]),
             patch("commits.get_head_commit_hash", return_value=None),
@@ -63,23 +65,23 @@ class TestBashPostToolReviewCycle(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
     def test_non_commit_no_reset(self):
         """Non-commit bash commands don't touch review cycle marker."""
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
         bash_post_tool.run(
             _make_bash_input(command="echo hello", stdout="hello"),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
     def test_failed_commit_preserves_review_cycle(self):
         """Pre-commit hook failure must not reset review flags."""
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         with patch("commits.get_head_commit_hash", return_value="prevhash"):
             bash_post_tool.run(
                 _make_bash_input(
@@ -88,19 +90,19 @@ class TestBashPostToolReviewCycle(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
         self.assertTrue(cycle["quality_review_done"])
 
     def test_empty_stdout_preserves_markers(self):
         """Content-agnostic guard: any non-success stdout short-circuits effects."""
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
         with patch("commits.get_head_commit_hash", return_value="prevhash"):
             bash_post_tool.run(
                 _make_bash_input(command="git commit -m 'test'", stdout=""),
                 smm_dir=self.smm_dir,
             )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
 
@@ -110,8 +112,8 @@ class TestBashPostToolWorktreeAgentId(_HookTestCase):
     def test_commit_resets_worktree_scoped_markers(self):
         """After commit, worktree-scoped markers are reset."""
         agent_id = "worktree-story-001"
-        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
-        markers.set_review_flag(self.smm_dir, agent_id, "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+        review_records.set_review_flag(self.smm_dir, agent_id, "quality_review_done")
         inp = _make_bash_input(
             command="git commit -m 'test'",
             stdout="[main abc123] test\n 1 file changed",
@@ -126,8 +128,9 @@ class TestBashPostToolWorktreeAgentId(_HookTestCase):
             ),
         ):
             bash_post_tool.run(inp, smm_dir=self.smm_dir)
-        cycle = markers.read_review_cycle(self.smm_dir, agent_id)
-        self.assertEqual(cycle["last_review_commit"], "newcommit123")
+        cycle = review_records.read_review_flags(self.smm_dir, agent_id)
+        watermark = review_records.read_review_watermark(self.smm_dir, agent_id)
+        self.assertEqual(watermark, "newcommit123")
         self.assertFalse(cycle["simplify_done"])
 
 
@@ -339,32 +342,36 @@ class TestBashPostToolMultiCommitSequence(_HookTestCase):
         """Bug 731915a2d4d2: review-cycle markers must reset after EVERY
         successful code commit, not just the first."""
         # Simulate /simplify + /xp-quality-review before commit 1.
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
 
         self._run_commit(
             head_sha="hash1111111111", body="first", files=["scripts/a.py"]
         )
-        cycle1 = markers.read_review_cycle(self.smm_dir, "main")
+        cycle1 = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle1["simplify_done"], "commit 1 must clear simplify_done")
         self.assertFalse(
             cycle1["quality_review_done"], "commit 1 must clear quality_review_done"
         )
-        self.assertEqual(cycle1["last_review_commit"], "hash1111111111")
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), "hash1111111111"
+        )
 
         # Simulate /simplify + /xp-quality-review again before commit 2.
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, "main", "simplify_done")
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
 
         self._run_commit(
             head_sha="hash2222222222", body="second", files=["scripts/b.py"]
         )
-        cycle2 = markers.read_review_cycle(self.smm_dir, "main")
+        cycle2 = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle2["simplify_done"], "commit 2 must clear simplify_done")
         self.assertFalse(
             cycle2["quality_review_done"], "commit 2 must clear quality_review_done"
         )
-        self.assertEqual(cycle2["last_review_commit"], "hash2222222222")
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), "hash2222222222"
+        )
 
 
 if __name__ == "__main__":

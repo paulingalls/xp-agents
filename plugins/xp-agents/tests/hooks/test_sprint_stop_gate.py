@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
@@ -66,12 +68,11 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
 
     def test_review_cycle_active_allows_stop(self):
         """Defer when review cycle is in progress."""
-        import markers
         import sprint_stop_gate
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
-        markers.write_review_cycle(
+        review_records.write_review_flags(
             self.smm_dir,
             "main",
             {
@@ -214,12 +215,11 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
 
     def test_completed_review_cycle_does_not_defer(self):
         """All review flags True means cycle is done — don't defer, block."""
-        import markers
         import sprint_stop_gate
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
-        markers.write_review_cycle(
+        review_records.write_review_flags(
             self.smm_dir,
             "main",
             {
@@ -237,12 +237,11 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         """Self-find per-increment review sets quality_review_done without
         simplify_done. That is a COMPLETED review, not mid-cycle — must NOT
         defer (the old `any and not all` heuristic wrongly deferred it)."""
-        import markers
         import sprint_stop_gate
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
-        markers.write_review_cycle(
+        review_records.write_review_flags(
             self.smm_dir,
             "main",
             {
@@ -352,12 +351,11 @@ class TestSprintStopGateWorktreeAgentId(_HookTestCase):
 
     def test_worktree_cwd_reads_correct_review_cycle(self):
         """Mid-review deferral uses worktree-derived agent_id."""
-        import markers
         import sprint_stop_gate
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
-        markers.write_review_cycle(
+        review_records.write_review_flags(
             self.smm_dir,
             "worktree-story-001",
             {

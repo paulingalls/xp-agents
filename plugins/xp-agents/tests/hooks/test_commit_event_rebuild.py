@@ -26,13 +26,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
-import markers
 from _commit_repo_case import _RebuildTestCase
 from conftest import compute_resolutions, make_event
 from event_schema import EVENT_TYPE_COMMIT, EVENT_TYPE_CONCERN
@@ -330,12 +331,14 @@ class TestBackgroundedCommitIsNotEvidence(_RebuildTestCase):
         """Not to the one this launch will eventually make — that hash does
         not exist yet, and the next commit's gate sizes its review by diffing
         `last_review_commit..HEAD`."""
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         head = self.commit("feat: landed in the background, unobserved")
         self.run_hook(self._STILL_RUNNING, stdout=self._LAUNCH_NOTICE, background=True)
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["quality_review_done"])
-        self.assertEqual(cycle["last_review_commit"], head)
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), head
+        )
 
     def test_the_other_guards_still_stand_when_backgrounded(self):
         """Only the message guard is bypassed. An old HEAD is still someone
@@ -385,33 +388,39 @@ class TestReviewCycleReset(_RebuildTestCase):
     off a review that predates this commit."""
 
     def test_rebuild_resets_the_review_cycle(self):
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         head = self.commit("feat: x")
         self.run_hook(_UNREADABLE_F)
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        cycle = review_records.read_review_flags(self.smm_dir, "main")
         self.assertFalse(cycle["quality_review_done"])
-        self.assertEqual(cycle["last_review_commit"], head)
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), head
+        )
 
     def test_trace_only_path_leaves_the_cycle_alone(self):
         """No event recorded means nothing to gate against — and the branch
         we did not claim must not mutate state either."""
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         self.commit("feat: yesterday's work", age_seconds=6 * 3600)
         self.run_hook(_UNREADABLE_F)
         self.assertTrue(
-            markers.read_review_cycle(self.smm_dir, "main")["quality_review_done"]
+            review_records.read_review_flags(self.smm_dir, "main")[
+                "quality_review_done"
+            ]
         )
 
     def test_leaked_xp_agent_type_records_but_does_not_reset(self):
         """Mirrors the success path's is_xp_agent_leak mode: record the
         commit, mutate nothing else, so a leaked subagent identity cannot
         clear main's flags."""
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         self.commit("feat: x")
         self.run_hook(_UNREADABLE_F, agent_type="xp-leaked")
         self.assertEqual(len(self.commit_events()), 1)
         self.assertTrue(
-            markers.read_review_cycle(self.smm_dir, "main")["quality_review_done"]
+            review_records.read_review_flags(self.smm_dir, "main")[
+                "quality_review_done"
+            ]
         )
 
 

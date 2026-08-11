@@ -21,6 +21,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -266,7 +268,7 @@ class TestCloseCycleMidCycleAgeGate(_HookTestCase):
         input_data = _make_stop_input()
         agent_id = identity.resolve_agent_id(input_data)
         markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
-        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+        review_records.set_review_flag(self.smm_dir, agent_id, "simplify_done")
         return input_data
 
     def _backdate_marker(self) -> None:
@@ -368,7 +370,7 @@ class TestCloseCycleMidCycleAgeGate(_HookTestCase):
 
         input_data = _make_stop_input()
         agent_id = identity.resolve_agent_id(input_data)
-        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+        review_records.set_review_flag(self.smm_dir, agent_id, "simplify_done")
 
         def _selective(_smm_dir, marker, _agent_id=""):
             return marker == markers.CLOSE_CYCLE_ACTIVE

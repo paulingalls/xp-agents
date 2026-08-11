@@ -8,6 +8,8 @@ merge-gap rationale and metadata shape. Stdlib-only.
 import sys
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -17,7 +19,6 @@ import code_files
 import commit_handling
 import commits
 import identity
-import markers
 import sprint_store
 from event_schema import METADATA_KEY_COMMIT_HASH
 
@@ -130,7 +131,11 @@ def append_merge_commit_event(
     # alone, the prior commit's `quality_review_done=True` marker would
     # latch the review gate against the next solo commit on the sprint
     # branch.
-    agent_id = identity.review_cycle_agent_id(cwd)
+    # The merge always runs at orchestrator cwd, so the session and the repo
+    # are the same directory here — named separately anyway, because which one
+    # each record wants is the thing that drifted.
+    watermark_key = identity.review_watermark_key(cwd)
+    flags_key = identity.review_flags_key(cwd)
     # Same fail-open posture as the sprint_store load above: the merge already
     # succeeded on target and the surrounding push/delete/remote-prune chain
     # must continue. A symlinked / unwritable marker path is a SMM-state
@@ -138,7 +143,8 @@ def append_merge_commit_event(
     # don't abort the chain (leaving the source merged-but-unpushed would
     # force the user into a manual cleanup that re-merge can't redo).
     try:
-        markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
+        review_records.write_review_watermark(smm_dir, watermark_key, commit_hash)
+        review_records.clear_review_flags(smm_dir, flags_key)
     except (OSError, ValueError) as exc:
         sys.stderr.write(
             f"warn: failed to reset review cycle after merge ({exc}); "

@@ -8,6 +8,8 @@ Appends a minimal status event and checks for structural conflicts
 import sys
 from pathlib import Path
 
+import review_records
+
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -113,8 +115,8 @@ def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
         flag = "quality_review_done"
 
     if flag is not None:
-        agent_id = identity.review_cycle_agent_id(input_data.get("cwd", ""))
-        markers.set_review_flag(smm_dir, agent_id, flag)
+        agent_id = identity.review_flags_key(input_data.get("cwd", ""))
+        review_records.set_review_flag(smm_dir, agent_id, flag)
 
 
 def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:

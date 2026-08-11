@@ -278,10 +278,24 @@ def resolve_agent_id_from_cwd(cwd: str) -> str:
     return extract_worktree_name(cwd) or "main"
 
 
-def review_cycle_agent_id(cwd: str) -> str:
-    """The one key every review-cycle read, write, clear and reset uses: the
-    CHECKOUT, never a payload agent_id. Why, and the pin: test_review_flag_cli."""
-    return resolve_agent_id_from_cwd(cwd)
+def review_flags_key(session_cwd: str) -> str:
+    """Key for the review FLAGS: the checkout the reviewing session runs in.
+
+    Never a payload agent_id — the hooks that set the flags carry a subagent's
+    id, and a flag set under one id whose clear lands under another stays set
+    for good. Pinned in test_review_flag_cli.py.
+    """
+    return resolve_agent_id_from_cwd(session_cwd)
+
+
+def review_watermark_key(repo_cwd: str) -> str:
+    """Key for the review WATERMARK: the repo a commit lands in.
+
+    A different checkout from the one above whenever a commit names its target
+    (`git -C <path> commit`), which is the form the close skills prescribe for
+    a fix in someone else's worktree. Pinned in test_review_record_owners.py.
+    """
+    return resolve_agent_id_from_cwd(repo_cwd)
 
 
 def _slugify(s: str) -> str:
