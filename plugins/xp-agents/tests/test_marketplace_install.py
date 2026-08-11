@@ -13,9 +13,10 @@ registration proves nothing on its own — the load is asserted from the listing
 and the install from reading the plugin back out of the tree it produced.
 
 The harness plumbing lives in `_codex_harness`, shared with the Milestone 8
-capstone that installs from this same catalog. Its docstrings carry the measured
-traps (the `source.path`-compares-a-directory-with-itself one especially); a
-second copy here would be a second thing to keep true.
+capstone that installs from this same catalog and with `test_install_docs`, which
+drives the documented sequence. Its docstrings carry the measured traps (the
+`source.path`-compares-a-directory-with-itself one especially); a second copy here
+would be a second thing to keep true.
 """
 
 import json
@@ -197,7 +198,6 @@ class TestTheSkipPathIsClean(unittest.TestCase):
             self,
             module_path=Path(__file__),
             gated_classes=_GATED_CLASSES,
-            probe_class_name=type(self).__name__,
         )
 
 

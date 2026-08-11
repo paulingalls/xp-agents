@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Plumbing for tests that shell out to the second harness's CLI.
 
-Two suites need it: `test_marketplace_install.py`, which proves the catalog is a
-shape the harness accepts, and `integration/test_dual_packaging_e2e.py`, which
-installs from that catalog and reads the version back out of the copy. Each
-docstring below records something that was MEASURED, and a second copy of those
-lessons would be a second thing to keep true — which is the whole reason this
-module exists rather than the plumbing being duplicated.
+Three suites need it: `test_marketplace_install.py`, which proves the catalog is
+a shape the harness accepts, `test_install_docs.py`, which drives the documented
+install sequence, and `integration/test_dual_packaging_e2e.py`, which installs
+from that catalog and reads the version back out of the copy. Each docstring
+below records something that was MEASURED, and a second copy of those lessons
+would be a second thing to keep true — which is the whole reason this module
+exists rather than the plumbing being duplicated.
 """
 
 import json
@@ -92,7 +93,6 @@ def assert_module_skips_without_harness(
     case: unittest.TestCase,
     module_path: Path,
     gated_classes: tuple[type, ...],
-    probe_class_name: str,
 ) -> None:
     """Re-run *module_path* with no harness on PATH; its gated rows must SKIP.
 
@@ -101,18 +101,22 @@ def assert_module_skips_without_harness(
     branch would look identical in a green suite; running the module with the
     harness stripped from PATH is what tells the two apart.
 
-    The inner run DESELECTS the calling probe class by name. Written without
-    that, the probe re-entered its own module and recursed until the run was
-    killed — the guard is load-bearing, not tidiness. It rides on the spawn
-    ARGUMENTS rather than on an environment sentinel deliberately: a sentinel is
-    inherited, so an outer shell that happened to export it would make this whole
-    probe vanish silently instead of failing.
+    The inner run DESELECTS the calling probe class, whose name is taken from
+    *case* rather than passed in — a caller naming the wrong class gets a probe
+    that re-enters its own module and recurses until the timeout kills it, so
+    deriving it removes the only way to misuse this helper. Without the deselect
+    at all, that recursion already killed one run: the guard is load-bearing, not
+    tidiness. It rides on the spawn ARGUMENTS rather than on an environment
+    sentinel deliberately: a sentinel is inherited, so an outer shell that
+    happened to export it would make this whole probe vanish silently instead of
+    failing.
 
-    Parameterized rather than copied because `gated_classes` names classes local
-    to each consuming module; the floor is derived from them via
-    `getTestCaseNames`, so a row added to either raises the bar without anyone
-    remembering to.
+    Parameterized on `gated_classes` rather than copied because those classes are
+    local to each consuming module; the floor is derived from them via
+    `getTestCaseNames`, so a row added to any consumer raises the bar without
+    anyone remembering to.
     """
+    probe_class_name = type(case).__name__
     empty = Path(tempfile.mkdtemp())
     case.addCleanup(shutil.rmtree, empty, ignore_errors=True)
 

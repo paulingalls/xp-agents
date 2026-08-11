@@ -16,9 +16,11 @@ path it rebuilds from its own constants to check that a file is there. It never
 reads `codex["hooks"]` to decide WHICH file to look for. So changing the
 emitter's declared path to a typo and updating the expected literal to match —
 the natural way to "fix the failing test" — leaves every pin green while the
-shipped manifest names a file that does not exist. Three independent copies of
-that string exist: in `manifest_emit.transform()`, in `hooks_emit._VARIANT_NAME`,
-and in that test.
+shipped manifest names a file that does not exist. The name is written down
+independently in each emitter — `manifest_emit.transform()` declares the path,
+`hooks_emit._VARIANT_NAME` names the file — with nothing tying the two together,
+and every pin that reads them carries its own literal rather than closing that
+gap.
 
 This module compares two DERIVED values with no literal on either side: the path
 the manifest declares, resolved against its own plugin root, against the path the

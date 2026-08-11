@@ -95,8 +95,11 @@ def _version_from_inside(installed_root: Path, env: dict) -> str:
 class TestTheInstalledCopyReportsItsOwnVersion(unittest.TestCase):
     """Links two and three: the catalog installs, and the copy names itself.
 
-    Installed ONCE for the class — an install is a real subprocess that copies a
-    tree, and every row below reads the same result.
+    Installed in setUpClass rather than per row — an install is a real subprocess
+    that copies a tree, and every row below reads the same result. Not once per
+    RUN: the suite runs under `-n auto`, whose default distribution hands
+    individual rows to different workers, so each worker that draws one pays its
+    own install into its own isolated home.
     """
 
     @classmethod
@@ -119,6 +122,35 @@ class TestTheInstalledCopyReportsItsOwnVersion(unittest.TestCase):
         self.assertTrue(
             self.installed_root.is_relative_to(Path(self.env["CODEX_HOME"]).resolve()),
             f"install landed outside the isolated home: {self.installed_root}",
+        )
+
+    def test_the_installed_manifest_names_a_hooks_file_inside_the_copy(self):
+        """Link one, re-asked of the INSTALLED tree rather than of a fixture.
+
+        The hermetic half proves the manifest and the hooks emitter agree on a
+        name; it proves that in a temp root the harness never touched. Nothing
+        else asks whether an INSTALL carries the file that agreement names, and
+        the two are different questions: a copy that skipped `hooks/` would leave
+        the manifest naming a path that resolves to nothing, with the version read
+        above still green because it reads `.codex-plugin/` instead.
+
+        `is_relative_to` is asserted too, not only `is_file`: a manifest hook path
+        resolves against the plugin root and must stay inside it, so a declared
+        `../` would be a real escape rather than a missing file.
+        """
+        manifest = self.installed_root / ".codex-plugin" / "plugin.json"
+        declared = json.loads(manifest.read_text(encoding="utf-8"))["hooks"]
+        resolved = (self.installed_root / declared).resolve()
+
+        self.assertTrue(
+            resolved.is_relative_to(self.installed_root.resolve()),
+            f"the installed manifest's hooks path escapes the plugin root: "
+            f"{declared!r} resolved to {resolved}",
+        )
+        self.assertTrue(
+            resolved.is_file(),
+            f"the installed manifest names {declared!r}, which the install did "
+            f"not put at {resolved}",
         )
 
     def test_the_copy_reports_the_version_the_catalog_pointed_at(self):
@@ -200,7 +232,6 @@ class TestTheSkipPathIsClean(unittest.TestCase):
             self,
             module_path=Path(__file__),
             gated_classes=_GATED_CLASSES,
-            probe_class_name=type(self).__name__,
         )
 
 
