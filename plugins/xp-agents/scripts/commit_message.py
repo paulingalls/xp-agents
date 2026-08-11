@@ -73,6 +73,17 @@ _FILE_FLAG_RE = re.compile(
 )
 
 
+def _without_heredoc_bodies(command: str) -> str:
+    """*command* with every stdin-heredoc span removed.
+
+    THIS module's spans, not `git_commits.strip_heredocs`: that one terminates at
+    the delimiter word wherever it appears, and these require the delimiter to own
+    its line — the hole `test_commit_message_forms.py` pins. Subtraction only: a
+    `-m` outside every body (or in an unterminated one) still outranks a `-F -`.
+    """
+    return _STDIN_HEREDOC_RE.sub("", _STDIN_HEREDOC_DASH_RE.sub("", command))
+
+
 def _find_stdin_heredoc_body(command: str, start: int) -> tuple[str, bool] | None:
     """The stdin heredoc body introduced at or after `start`, and its expansion.
 
@@ -118,10 +129,12 @@ def recover_commit_message(command: str) -> tuple[str | None, bool]:
     HEAD's body is the only signal that the commit actually landed. Parsing
     only `-m` silently dropped every `-F`-bodied commit from the event log.
     """
+    # Ordering is load-bearing: this pattern is itself a heredoc form, so
+    # subtracting bodies first would delete the body it captures.
     heredoc = _HEREDOC_MSG_RE.search(command)
     if heredoc:
         return heredoc.group("body"), not heredoc.group("mq")
-    m = _SIMPLE_MSG_RE.search(command)
+    m = _SIMPLE_MSG_RE.search(_without_heredoc_bodies(command))
     if m:
         if m.group(1) is not None:
             return m.group(1), True
