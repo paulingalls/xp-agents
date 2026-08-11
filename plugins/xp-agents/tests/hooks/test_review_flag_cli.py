@@ -8,10 +8,9 @@ when it LAUNCHES the workflow, so:
   - close_cycle_stop_gate defers during the async review window (review_mid_cycle
     True), and
   - the xp-quality-review preload emits MODE=consume-findings for the findings.
-The flag is keyed on the cwd-resolved agent_id. review_mode.py reads it that
-way; close_cycle_stop_gate does NOT — it resolves from the hook payload first,
-so it reads under both keys rather than one. That divergence is the contract
-the first class below pins.
+The flag is keyed via identity.review_cycle_agent_id, and so is every other
+read, write and clear of the cycle. The first class below pins that agreement
+across the writer, the reader and the clear.
 """
 
 import sys
@@ -31,25 +30,40 @@ _WATERMARK = "test-review-flag-cli"
 
 
 class TestTheWriterAndTheGateAgreeOnTheKey(_HookTestCase):
-    """The flag this CLI writes must be the flag the close gate reads.
+    """The flag this CLI writes must be the flag the close gate reads — and
+    the flag the review's completion clears.
 
-    They resolve the key differently and neither can simply adopt the other's
-    resolution: the flag has three writers across two resolutions — the two
-    hooks (`subagent_stop`, `review_cycle_done`) go through
-    `resolve_agent_id(input_data)`, this CLI through
-    `resolve_agent_id_from_cwd`, and the quality-review preload reads it the
-    CLI's way while the gate reads it the hooks' way. Swapping either side
-    just moves the mismatch onto the other pair.
+    The cycle has writers with no hook payload to resolve from (this CLI) and
+    writers whose payload agent_id names someone other than the cycle's owner
+    (`subagent_stop`, where it names the subagent). Keying any site off the
+    payload therefore splits one checkout's cycle in two, and the second half
+    of that split is the dangerous one: a set flag whose clear lands on the
+    other record stays set, so the gate's DEFER never ends and the close
+    finishes with no close-reviewer nudge at all.
 
     Nothing tested the pair. The close-gate suites arm the flag by calling the
     READER's own resolver, and `_make_stop_input` supplies `agent_id="main"`,
-    which happens to equal the writer's cwd fallback — so every existing test
-    sits on the coincidence that hides the divergence.
+    which happens to equal the cwd fallback — so every existing test sits on
+    the coincidence that hides the divergence.
     """
 
     def _launch_step_4b(self) -> None:
         review_flag_cli.main(
             ["--smm-dir", str(self.smm_dir), "--cwd", ".", "simplify_done"]
+        )
+
+    def _quality_review_completes(self, agent_id: str) -> None:
+        """The PostToolUse leg that ends Step 4b, under a divergent payload."""
+        import review_cycle_done
+
+        review_cycle_done.run(
+            {
+                "agent_id": agent_id,
+                "cwd": ".",
+                "tool_name": "Skill",
+                "tool_input": {"skill": "xp-quality-review"},
+            },
+            smm_dir=self.smm_dir,
         )
 
     def _stop(self, **kwargs) -> object:
@@ -69,20 +83,31 @@ class TestTheWriterAndTheGateAgreeOnTheKey(_HookTestCase):
         )
 
     def test_the_gate_defers_even_when_the_payload_names_a_platform_agent(self):
-        """The divergence, and why it is not hypothetical.
-
-        `resolve_agent_id` returns any non-empty platform `agent_id` verbatim
-        and never consults cwd, so a Stop payload carrying one sends the gate
-        looking for a key this CLI never wrote. It then BLOCKS mid-review
-        instead of deferring, and the agent has no way forward until the
-        marker ages out.
-        """
+        """A Stop payload carrying a platform agent_id must still find the
+        CLI's flag; missing it BLOCKS the agent mid-review with no way forward
+        until the marker ages out."""
         self._launch_step_4b()
 
         self.assertIsNone(
             self._stop(agent_id="subagent-abc"),
             "the gate must find the CLI's flag whatever agent_id the payload "
             "carries — a missed defer blocks an agent mid-review",
+        )
+
+    def test_the_defer_ends_when_the_review_completes_under_another_agent_id(self):
+        """The clear must land on the record the CLI wrote, not beside it.
+
+        A quality-review completion whose payload names a different agent must
+        still end the cycle. If it writes quality_review_done elsewhere, the
+        CLI's record stays mid-cycle for good and the gate defers away every
+        remaining Stop — the close ends with its reviewer never nudged.
+        """
+        self._launch_step_4b()
+        self._quality_review_completes(agent_id="subagent-abc")
+
+        self.assertIsNotNone(
+            self._stop(agent_id="subagent-abc"),
+            "Step 4b is over — the gate must resume nudging xp-close-reviewer",
         )
 
     def test_a_close_with_no_step_4b_in_flight_still_blocks(self):

@@ -312,5 +312,7 @@ def rebuild_at_head(
     # skips it: recording the commit is always right, but mutating cycle state
     # under a wrong identity is not.
     if not is_xp_agent_leak:
-        markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
+        markers.reset_review_cycle(
+            smm_dir, identity.review_cycle_agent_id(cwd), commit_hash
+        )
     return True

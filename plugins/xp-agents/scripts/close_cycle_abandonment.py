@@ -112,14 +112,16 @@ def owner_session_is_live(smm_dir: Path, session_id: str) -> bool | None:
 
     Returns None for "cannot tell" — no id recorded (a marker armed by an
     older version), or a heartbeat that is absent, symlinked or unageable.
-    Callers fall back to the age rule there rather than guessing, because the
-    two mistakes are not symmetric: a false record breaks a healthy close,
-    while a missed one is only the silent loss that predates this module.
+    Callers fall back to age there: for an owner nobody can name, a false
+    record breaks a healthy close while a missed one only loses a signal.
 
-    A heartbeat dated FURTHER AHEAD than the skew grace is unageable in that
-    same sense, not fresh — see `session_markers.marker_age_seconds`, which
-    hands a future timestamp back as a negative number and leaves the bound to
-    its callers. Pinned in test_close_cycle_owner_liveness.py.
+    A heartbeat FURTHER AHEAD than the skew grace is unageable in that same
+    sense, not fresh — `session_markers.marker_age_seconds` hands a future
+    timestamp back as a negative number and leaves the bound to its callers.
+    That leg does NOT inherit the asymmetry: "live" there is PERMANENT (every
+    negative age is under the stale threshold), so nothing ever consumes the
+    marker and the gate blocks every Stop for good — worse than one concern an
+    operator resolves. Pinned in test_close_cycle_owner_liveness.py.
     """
     if not session_id:
         return None

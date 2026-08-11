@@ -57,7 +57,7 @@ def run(
     if cadence == "story":
         return "You have uncommitted changes. Commit them before stopping."
 
-    agent_id = identity.resolve_agent_id(input_data)
+    agent_id = identity.review_cycle_agent_id(input_data.get("cwd", ""))
     cycle = markers.read_review_cycle(smm_dir, agent_id) if agent_id else {}
 
     # Per-increment review is /xp-quality-review only — the xp-code-reviewer it

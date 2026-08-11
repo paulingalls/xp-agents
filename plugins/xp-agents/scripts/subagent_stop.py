@@ -113,7 +113,7 @@ def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
         flag = "quality_review_done"
 
     if flag is not None:
-        agent_id = identity.resolve_agent_id_from_cwd(input_data.get("cwd", ""))
+        agent_id = identity.review_cycle_agent_id(input_data.get("cwd", ""))
         markers.set_review_flag(smm_dir, agent_id, flag)
 
 

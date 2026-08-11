@@ -278,6 +278,12 @@ def resolve_agent_id_from_cwd(cwd: str) -> str:
     return extract_worktree_name(cwd) or "main"
 
 
+def review_cycle_agent_id(cwd: str) -> str:
+    """The one key every review-cycle read, write, clear and reset uses: the
+    CHECKOUT, never a payload agent_id. Why, and the pin: test_review_flag_cli."""
+    return resolve_agent_id_from_cwd(cwd)
+
+
 def _slugify(s: str) -> str:
     """Lowercase, replace non-alphanumeric with dash, collapse, strip."""
     s = s.lower()

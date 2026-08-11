@@ -87,9 +87,7 @@ def _verify_touch_nudge(
 # ---------------------------------------------------------------------------
 
 
-def commit_gate_parts(
-    smm_dir: Path, command: str, cwd: str, agent_id: str
-) -> list[str]:
+def commit_gate_parts(smm_dir: Path, command: str, cwd: str) -> list[str]:
     """Advisory parts from the commit gates; raises BlockedError on a block.
 
     Returns [] immediately for anything that isn't a recognized `git commit`
@@ -176,7 +174,12 @@ def commit_gate_parts(
 
     parts.extend(staged_lint.staged_lint_gate(staged, effective_cwd))
 
-    cycle = markers.read_review_cycle(smm_dir, agent_id)
+    # Keyed on the repo the commit lands in — the same key the flag's writers
+    # and the post-commit reset use (identity.review_cycle_agent_id), not the
+    # caller's agent_id.
+    cycle = markers.read_review_cycle(
+        smm_dir, identity.review_cycle_agent_id(effective_cwd)
+    )
     code_files = commits.get_code_files_for_review(
         effective_cwd,
         cycle.get("last_review_commit", ""),

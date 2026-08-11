@@ -84,6 +84,18 @@ def _prose_violations(files: dict[str, int], ceilings: dict[str, int]) -> list[s
     return violations
 
 
+def _stale_ceilings(files: dict[str, int], ceilings: dict[str, int]) -> list[str]:
+    """Recorded ceilings whose file has since shrunk below the floor.
+
+    Separate from `_prose_violations` because it is the ratchet's other
+    direction: that one refuses growth past a number, this one refuses KEEPING
+    a number a deletion made obsolete.
+    """
+    return sorted(
+        p for p, prose in files.items() if p in ceilings and prose <= _PROSE_FLOOR
+    )
+
+
 class TestPerFileProseViolations(unittest.TestCase):
     """Per-file absolute, replacing the ratio above.
 
@@ -125,10 +137,29 @@ class TestPerFileProseViolations(unittest.TestCase):
 
     def test_shrinking_to_the_floor_is_allowed_despite_a_higher_ceiling(self):
         """Shrinking leaves the governed population entirely — the early exit,
-        not a comparison. A stale ceiling left behind is inert."""
+        not a comparison. The ceiling left behind is not inert, though: it
+        would re-admit every line back to the old number, so
+        `test_no_ceiling_outlives_the_file_shrinking_below_the_floor` makes
+        retiring it mandatory."""
         self.assertEqual(
             _prose_violations({"a.py": _PROSE_FLOOR}, {"a.py": _PROSE_FLOOR * 3}), []
         )
+
+    def test_a_ceiling_whose_file_shrank_below_the_floor_is_stale(self):
+        self.assertEqual(
+            _stale_ceilings({"a.py": _PROSE_FLOOR}, {"a.py": self._ABOVE}), ["a.py"]
+        )
+
+    def test_a_ceiling_whose_file_is_still_governed_is_not_stale(self):
+        """Non-vacuity: the rule must not fire on every entry."""
+        self.assertEqual(
+            _stale_ceilings({"a.py": self._ABOVE}, {"a.py": self._ABOVE}), []
+        )
+
+    def test_an_ungoverned_small_file_is_not_a_stale_ceiling(self):
+        """Only a RECORDED ceiling can go stale; a small file nobody recorded
+        is the floor's ordinary case, not a deletion to bank."""
+        self.assertEqual(_stale_ceilings({"small.py": 1}, {}), [])
 
     def test_one_files_shrink_cannot_mask_anothers_growth(self):
         """The defect the ratio had: a sum lets a deletion pay for a regrowth."""
@@ -142,15 +173,23 @@ class TestPerFileProseViolations(unittest.TestCase):
 
 
 class TestScriptsProseStaysUnderItsCeilings(unittest.TestCase):
-    def _scanned(self) -> dict[str, int]:
-        root = scan_roots(_PLUGIN_ROOT)["scripts"]
+    """Six tests over one scan of 144 files — parsed once per class, not once
+    per test, because the tree does not change between them."""
 
-        self.assertGreater(len(root.files), 0, "scan found no files in scripts/")
-        self.assertEqual(root.parse_failures, ())
-        return {
+    _files: dict[str, int]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        root = scan_roots(_PLUGIN_ROOT)["scripts"]
+        assert root.files, "scan found no files in scripts/"
+        assert root.parse_failures == (), root.parse_failures
+        cls._files = {
             rel(f.path, _REPO_ROOT): f.docstring_lines + f.comment_lines
             for f in root.files
         }
+
+    def _scanned(self) -> dict[str, int]:
+        return self._files
 
     def test_no_scripts_file_exceeds_its_recorded_ceiling(self):
         self.assertEqual(_prose_violations(self._scanned(), prose_ceilings()), [])
@@ -159,6 +198,22 @@ class TestScriptsProseStaysUnderItsCeilings(unittest.TestCase):
         """A stale entry silently shrinks what the check above covers, and a
         table that drifted to nothing would report clean over an empty set."""
         self.assertEqual(sorted(PROSE_MEASURED.keys() - self._scanned().keys()), [])
+
+    def test_no_ceiling_outlives_the_file_shrinking_below_the_floor(self):
+        """The ratchet's other direction: a real DELETION must be banked.
+
+        Below the floor the per-file comparison never runs, so a file that
+        shrank keeps its old ceiling as a re-entry allowance — it can regrow
+        every deleted line back, silently, and the ratchet that recorded the
+        shrink certifies it. Retiring the entry is what converts the deletion
+        into the new bound.
+        """
+        self.assertEqual(
+            _stale_ceilings(self._scanned(), prose_ceilings()),
+            [],
+            "these files shrank below the floor — delete their entries from "
+            "_prose_baseline.PROSE_MEASURED so the shrink cannot be undone",
+        )
 
     def _governed(self) -> dict[str, int]:
         """The scanned files a ceiling actually governs.

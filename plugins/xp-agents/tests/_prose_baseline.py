@@ -13,8 +13,11 @@ on work that rotted nothing:
   replaces, so correcting prose RAISED the number — the ratio moved against
   exactly the work milestones 1 and 3 exist to produce.
 
-EXTRACTION is gone: an extracted file is measured on its own terms, so it
-cannot move a number recorded on anything else.
+EXTRACTION no longer moves anyone else's number: an extracted file is measured
+on its own terms. It is not free, though. Above the floor it still reddens on
+arrival, because the tree drives the loop and it has no entry yet — but the fix
+is to RECORD the number it arrived at, not to golf prose down to somebody
+else's, which is the part the ratio got wrong.
 
 CLAIM-NARROWING is NOT gone. Any line-counting measure moves against it, and
 this one still does — it is only localised, to the one governed file the
@@ -36,6 +39,11 @@ unmeasured for as long as the set stood, and two were.
 Below the floor a file is ungoverned, but by a uniform rule rather than by
 omission, and it becomes a violation the moment it crosses. So the floor sets
 where explicit ceilings begin, not where enforcement does.
+
+RETIREMENT IS MANDATORY, not tidying. An entry for a file that has since shrunk
+below the floor is a re-entry allowance: the comparison stops running, so every
+deleted line can come back to the old number with nothing red. The pin requires
+the entry to go, which banks the deletion as the new bound.
 """
 
 # Prose lines per file as measured on 2026-08-10, at the open of sprint-003.
@@ -68,7 +76,7 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/lint_runners.py": 177,
     "plugins/xp-agents/scripts/linter_invocation.py": 201,
     "plugins/xp-agents/scripts/linter_tables.py": 290,
-    "plugins/xp-agents/scripts/markers.py": 143,
+    "plugins/xp-agents/scripts/markers.py": 136,
     "plugins/xp-agents/scripts/migration_lock.py": 121,
     "plugins/xp-agents/scripts/result_counts.py": 126,
     "plugins/xp-agents/scripts/retro_metrics.py": 130,

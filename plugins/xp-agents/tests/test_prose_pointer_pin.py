@@ -23,6 +23,7 @@ LIMITS — READ THIS BEFORE TRUSTING THE GREEN CHECK.
   the three surfaces read; `.json` and the manifest are not.
 """
 
+import functools
 import sys
 import unittest
 from pathlib import Path
@@ -62,7 +63,13 @@ _PLACEHOLDERS: dict[str, str] = {
 }
 
 
-def _pointers() -> list[tuple[str, int, str]]:
+@functools.cache
+def _pointers() -> tuple[tuple[str, int, str], ...]:
+    """Every `(surface, line, token)` pointer in the shipped tree.
+
+    Cached: five callers, one immutable tree, and the scan re-reads and
+    re-parses every shipped file each time.
+    """
     hits: list[tuple[str, int, str]] = []
     for paths in shipped_files_by_root(_PLUGIN_ROOT).values():
         for path in paths:
@@ -75,7 +82,7 @@ def _pointers() -> list[tuple[str, int, str]]:
         for path in paths:
             surface = rel(path, _REPO_ROOT)
             hits += find_test_pointers(markdown_prose(path.read_text()), surface)
-    return hits
+    return tuple(hits)
 
 
 class TestEveryShippedPointerResolves(unittest.TestCase):

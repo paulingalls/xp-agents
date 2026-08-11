@@ -3,10 +3,10 @@
 
 Blocks Stop while a close skill is mid-cycle (CLOSE_CYCLE_ACTIVE marker
 present), nudging the agent to invoke xp-close-reviewer next — unless evidence
-of a completed reviewer has landed since the close started, which releases the
-marker instead. The marker is written by the three closes that run
-/security-review — sprint, plan and free — before that review runs, and
-consumed by subagent_stop.py when xp-close-reviewer completes.
+of a completed reviewer has landed since the close started, in which case this
+gate consumes the marker itself. The marker is written by the three closes that
+run /security-review — sprint, plan and free — before that review runs, and
+normally consumed by subagent_stop.py when xp-close-reviewer completes.
 
 xp-story-close is deliberately OUTSIDE this gate, and the asymmetry is not an
 oversight to correct. Two reasons, either sufficient: it skips Step 4 entirely
@@ -25,7 +25,8 @@ marker_names.CLOSE_CYCLE_ID).
 
 Defers on ASKING_USER so AskUserQuestion dialogues complete cleanly.
 Also defers during the close /code-review's async Step 4b window —
-`markers.review_mid_cycle` (simplify_done set when the workflow launched,
+`markers.review_mid_cycle`, under the key `identity.review_cycle_agent_id`
+gives every writer of the flag (simplify_done set when the workflow launched,
 quality_review_done not yet set when /xp-quality-review consumes its
 findings). Pushing xp-close-reviewer there would run Step 4.5 BEFORE the
 background /code-review returns; deferring (return None) lets the agent
@@ -100,22 +101,6 @@ _BYPASS_STDERR = (
     f"CLOSE_CYCLE_ACTIVE marker still set — high-severity concern recorded. "
     f"{_BYPASS_RECOVERY}\n"
 )
-
-
-def _review_mid_cycle_under_either_key(smm_dir: Path, input_data: dict) -> bool:
-    """Is a review in flight under EITHER agent_id the flag may be keyed on?
-
-    Three writers, two resolutions: the hooks key by `resolve_agent_id` (a
-    platform agent_id, verbatim), `review_flag_cli` by cwd. No one resolution
-    serves all three, so reading one misses a writer — and missing the CLI's
-    flag BLOCKS an agent mid-review, while a spurious defer only delays a
-    block. Pinned in test_review_flag_cli.py.
-    """
-    seen = {
-        identity.resolve_agent_id(input_data),
-        identity.resolve_agent_id_from_cwd(input_data.get("cwd", "")),
-    }
-    return any(markers.review_mid_cycle(smm_dir, agent_id) for agent_id in seen)
 
 
 def _marker_age_under(smm_dir: Path, threshold_sec: float) -> bool:
@@ -250,10 +235,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # emit-then-consume, so a crash between them can leave evidence + a lingering
     # marker; if that marker ages out and a stop_hook_active Stop fires,
     # _record_bypass would record a FALSE "reviewer never ran" concern despite
-    # evidence it did. Releasing here closes that path. A genuine no-evidence
-    # abandonment is untouched — no evidence → no early release → the aged
-    # bypass still fires. Fails closed (bad read → no evidence → keep blocking).
+    # evidence it did.
+    #
+    # The consume is what closes that path — allowing the Stop alone would not.
+    # The survivor outlives this session, and the SessionStart sweep asks the
+    # same recorder about it with no evidence check of its own: it would file
+    # the false "close abandoned" concern this branch exists to prevent, and
+    # the next close's own abort count reads it. A genuine no-evidence
+    # abandonment is untouched — no evidence → no release → the aged bypass and
+    # the sweep both still fire. Fails closed (bad read → no evidence → keep
+    # blocking).
     if marker_active and reviewer_completed_this_cycle(smm_dir):
+        markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
         return None
 
     if input_data.get("stop_hook_active"):
@@ -265,8 +258,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # Step 4b window: the close /code-review workflow is in flight
         # (review mid-cycle). Defer the close-reviewer nudge until the
         # workflow returns and /xp-quality-review consumes its findings —
-        # same predicate sprint_stop_gate uses, read under BOTH key
-        # resolutions (see _review_mid_cycle_under_either_key).
+        # same predicate sprint_stop_gate uses, under the same key
+        # identity.review_cycle_agent_id gives every writer of the flag.
         #
         # Age-bound the defer on its own window (shorter than the abandonment
         # age): defer ONLY while the marker is young (workflow plausibly
@@ -276,7 +269,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # an unbounded defer would silently abandon the close forever. Fall
         # through to the block; the next stop_hook_active bypass then consumes
         # the aged marker and records the abandonment concern.
-        mid_cycle = _review_mid_cycle_under_either_key(smm_dir, input_data)
+        mid_cycle = markers.review_mid_cycle(
+            smm_dir, identity.review_cycle_agent_id(input_data.get("cwd", ""))
+        )
         if mid_cycle and _marker_age_under(smm_dir, _CLOSE_CYCLE_DEFER_WINDOW_SEC):
             return None
         return _BLOCK_MESSAGE

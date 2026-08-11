@@ -35,6 +35,7 @@ import code_files
 import commit_command
 import commit_emit
 import commits
+import identity
 import lint_resolution
 import markers
 from event_schema import METADATA_KEY_COMMIT_HASH
@@ -309,7 +310,11 @@ def _handle_commit(
     )
 
     if commit_hash:
-        markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
+        # Keyed on the repo the commit landed in, matching the flag's writers
+        # and the pre-commit gate's read — see identity.review_cycle_agent_id.
+        markers.reset_review_cycle(
+            smm_dir, identity.review_cycle_agent_id(effective_cwd), commit_hash
+        )
 
     return _check_qr_linkage(
         events, agent_id, has_code=has_code, cadence=review_cadence

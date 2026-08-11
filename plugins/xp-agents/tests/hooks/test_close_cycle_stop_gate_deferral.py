@@ -167,6 +167,48 @@ class TestCloseCycleEvidenceRelease(_HookTestCase):
             "evidence release must pre-empt the bypass — no false abandonment concern",
         )
 
+    def test_the_release_consumes_the_marker(self):
+        """Allowing the Stop is not releasing. The marker outlives the session
+        that held the evidence, and the next thing to find it — the
+        SessionStart sweep — asks the shared recorder with no evidence check of
+        its own, so a survivor becomes the false high-severity 'close
+        abandoned' concern this branch exists to prevent."""
+        import close_cycle_stop_gate
+        import markers
+        import session_markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        _seed_status(self.smm_dir, "close_started")
+        _seed_status(self.smm_dir, "subagent_complete", agent_type="xp-close-reviewer")
+
+        self.assertIsNone(
+            close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "the evidence release must consume the marker, not just allow the stop",
+        )
+
+        session_markers.sweep_stale_session_markers(self.smm_dir)
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(
+            concerns, [], "a reviewed cycle must not be swept as abandoned later"
+        )
+
+    def test_a_release_with_no_evidence_leaves_the_marker_for_the_sweep(self):
+        """Non-vacuity for the consume: without evidence nothing is released,
+        so a genuinely abandoned cycle still reaches the sweep."""
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        _seed_status(self.smm_dir, "close_started")
+
+        self.assertIsNotNone(
+            close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        )
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE))
+
     def test_fail_closed_on_corrupt_read_still_blocks(self):
         """AC #5: a failed event read is treated as no-evidence → the gate
         still blocks, never a silent release, never a crash."""

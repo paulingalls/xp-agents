@@ -79,12 +79,32 @@ dangerous verdict: it suppresses the age fallback, leaving the close-cycle Stop
 gate armed with nothing able to release it while the next close overwrites the
 marker it should have recorded.
 
-Separately, the review-cycle flag had three writers across two `agent_id`
-resolutions. A Stop payload carrying a platform agent id sent the close gate
+Separately, the review-cycle flag was written, read and cleared under two
+different `agent_id` resolutions — some sites keying on the hook payload, some
+on the checkout. A Stop payload carrying a platform agent id sent the close gate
 looking for a key the Step 4b CLI never wrote, so it blocked an agent
-mid-review. No resolver swap fixes that — changing either side moves the
-mismatch onto the other pair — so the gate reads under both keys, which fails in
-the safe direction: a spurious defer only delays a block.
+mid-review.
+
+The first attempt widened the gate's READ to accept either key, and that was
+worse than the bug: the writes and clears stayed split, so the checkout-keyed
+record never left mid-cycle and the gate deferred away every Stop for the rest
+of its window — the close ended half-done with no nudge at all, where before it
+at least blocked. Its own release review caught that.
+
+The fix is on the write side. `identity.review_cycle_agent_id` is now the one
+key every review-cycle read, write, clear and reset resolves through, keyed on
+the checkout and never on a payload id, across all eleven sites. There is no
+divergence left to tolerate, which also retires the sibling gate's copy of the
+same hazard.
+
+### A gate that allowed a Stop but kept the marker
+
+`close_cycle_stop_gate`'s evidence-release branch returned without consuming
+`CLOSE_CYCLE_ACTIVE`. Allowing the Stop was never a release: the surviving
+marker reached the SessionStart sweep, which has no evidence check, and became a
+false high-severity "close abandoned" concern against a close whose reviewer
+demonstrably ran — and that false concern then counts toward aborting a healthy
+close. The branch now consumes the marker it was documented as releasing.
 
 ## v5.12.0 — A name is not the thing it names
 

@@ -15,13 +15,10 @@ when it LAUNCHES the workflow so:
     STATUS_ACTION_*_COMPLETE event review_cycle_done would (retro_metrics counts
     it via _ACTION_TO_COUNTER; without it the close /code-review is invisible).
 
-The flag is keyed on the cwd-resolved agent_id via
-identity.resolve_agent_id_from_cwd. The xp-quality-review preload
-(skills/xp-quality-review/scripts/review_mode.py) reads it the same way.
-close_cycle_stop_gate does NOT: resolve_agent_id(input_data) returns a
-platform agent_id verbatim and only falls back to cwd when that is empty, so
-the gate reads under BOTH resolutions rather than betting on the two agreeing.
-That contract is pinned in test_review_flag_cli.py.
+The flag is keyed via identity.review_cycle_agent_id, which every other
+review-cycle site also calls — that function documents why the key is the
+checkout and not the payload's agent_id, and test_review_flag_cli.py pins this
+CLI's write against close_cycle_stop_gate's read.
 
 In every close mode that runs Step 4b — sprint/plan/free-close — there is no
 closing-story worktree, so ${TEAMMATE_CWD:-.} resolves to the orchestrator
@@ -70,7 +67,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     smm_dir = Path(args.smm_dir)
-    agent_id = identity.resolve_agent_id_from_cwd(args.cwd)
+    agent_id = identity.review_cycle_agent_id(args.cwd)
     markers.set_review_flag(smm_dir, agent_id, args.flag)
 
     action, content = _FLAG_LIFECYCLE[args.flag]

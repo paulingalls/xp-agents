@@ -185,7 +185,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     flag = _TARGET_FLAG.get(target)
     if flag:
-        markers.set_review_flag(smm_dir, agent_id, flag)
+        # The FLAG is keyed on the checkout, not on this payload's agent_id —
+        # identity.review_cycle_agent_id owns that rule for every site. The
+        # event below keeps agent_id: it records who ran the review.
+        markers.set_review_flag(
+            smm_dir,
+            identity.review_cycle_agent_id(input_data.get("cwd", "")),
+            flag,
+        )
 
     lifecycle = _TARGET_LIFECYCLE.get(target)
     if lifecycle is not None:

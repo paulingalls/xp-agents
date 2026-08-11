@@ -130,7 +130,7 @@ def append_merge_commit_event(
     # alone, the prior commit's `quality_review_done=True` marker would
     # latch the review gate against the next solo commit on the sprint
     # branch.
-    agent_id = identity.resolve_agent_id_from_cwd(cwd)
+    agent_id = identity.review_cycle_agent_id(cwd)
     # Same fail-open posture as the sprint_store load above: the merge already
     # succeeded on target and the surrounding push/delete/remote-prune chain
     # must continue. A symlinked / unwritable marker path is a SMM-state
