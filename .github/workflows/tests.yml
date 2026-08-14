@@ -26,10 +26,15 @@ jobs:
       matrix:
         # 3.11 is the floor this plugin DECLARES (CLAUDE.md: "Python 3.11+"), so
         # it is the version a PR must be green on — testing only the newer one is
-        # the direction that lets 3.12-only syntax reach users at the floor. main
-        # additionally runs 3.12, which catches the opposite drift a merge later
-        # rather than a merge earlier: main IS the release here, so that row is
-        # accepted as post-merge detection, not as a pre-merge gate.
+        # the direction that lets 3.12-only syntax reach users at the floor.
+        #
+        # main additionally runs 3.12, and that row is NOT a gate on anything:
+        # pushing to main publishes to the marketplace, so post-merge here means
+        # post-PUBLISH. A 3.12-only break is therefore detected after it ships,
+        # never before. Accepted deliberately for the minutes, the gap between
+        # the two versions being narrow and the shipped code stdlib-only.
+        # Revisit trigger: the first 3.12-only break that reaches a release —
+        # then put 3.12 back on pull_request and pay for it.
         # The two versions split August's minutes almost exactly in half
         # (502 / 530 of 1032), so dropping one from PRs halves the larger share.
         python-version: ${{ github.event_name == 'pull_request' && fromJSON('["3.11"]') || fromJSON('["3.11", "3.12"]') }}
