@@ -78,14 +78,3 @@ def merged_range_commits(cwd: str, merge_hash: str) -> list[tuple[str, str]]:
             continue
         pairs.append((commit_hash, body))
     return pairs
-
-
-def merged_range_bodies(cwd: str, merge_hash: str) -> str:
-    """Every incoming body, concatenated — for a caller that wants no per-commit
-    decision. The close-cycle emitter's range is its own story's commits, bounded
-    by construction, so it has nothing to filter on.
-
-    Expressed over `merged_range_commits` rather than its own `git log`: one range
-    definition, so the octopus fix above reaches this caller too.
-    """
-    return "\n".join(body for _, body in merged_range_commits(cwd, merge_hash))

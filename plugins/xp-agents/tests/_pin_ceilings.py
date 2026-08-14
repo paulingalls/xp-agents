@@ -177,7 +177,12 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/scaffold/test_scaffold_plan.py": 455,
     "plugins/xp-agents/tests/engine/test_file_domain_lock.py": 454,
     "plugins/xp-agents/tests/hooks/test_close_common_verify_gate.py": 453,
-    "plugins/xp-agents/tests/hooks/test_commits_git_helpers.py": 452,
+    # 452 -> 459 when the merged-range tests retargeted from `merged_range_bodies`
+    # (deleted — the third emitter's convergence left it callerless) onto the
+    # per-commit reader. The +7 buys two assertions the blob-returning helper could
+    # not express: the incoming COUNT, and that the merge commit itself is filtered
+    # out of its own range. Trimmed the prose first; the remainder is assertions.
+    "plugins/xp-agents/tests/hooks/test_commits_git_helpers.py": 459,
     "plugins/xp-agents/tests/smm/test_append_safety.py": 452,
     "plugins/xp-agents/tests/scaffold/test_scaffold_cli_detect.py": 452,
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_branch_delete.py": 451,

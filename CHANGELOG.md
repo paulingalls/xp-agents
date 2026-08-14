@@ -18,26 +18,26 @@ actually takes** — did neither. So the common case was recorded as a plain com
 counted in the resolves-link-rate denominator, and drawing a
 commit-touches-N-files concern for the whole merged branch.
 
-**TWO of the three converged, not three.** The two hook routes now share one
-decision: `is_merge` is gone as a parameter of `build_commit_event`, which reads
-the parent count itself so neither route can forget it. The close-cycle emitter is
-deliberately NOT converged — it owns close-cycle attribution and the review-cycle
-reset — so it still passes the flag by hand to `make_commit_event`, the event
-constructor all three share, and that constructor still takes it. The title names
-the goal; the shipped scope is two of three, and the third is tracked as an open
-concern. v5.13.1 closed one narrow case; this closes the two hook routes.
+**All three converged.** The two hook routes share one decision — `is_merge` is
+gone as a parameter of `build_commit_event`, which reads the parent count itself so
+neither route can forget it — and the close-cycle emitter now routes its `resolves`
+through the same helper. It still passes `is_merge=True` by hand, because it knows
+structurally that it just made a merge and does not need to ask git; that flag
+remains a parameter of `make_commit_event`, the constructor all three share.
+v5.13.1 closed one narrow case; this closes the rest.
 
-On those two routes `resolves` now UNIONS what the operator wrote with what the
-merged range yields, rather than replacing it. Replacement is safe only when the
-body is a generated `Merge <source>` subject carrying no trailer by construction;
-an operator's `-m`, or an edited conflict-finish message, is not, and replacing
-would silently drop the id they typed. Two things stay authored-only there:
-`has_resolves_trailer`, which credits the discipline of writing a trailer and must
-not be set by a re-parsed id, and the unlinkable-trailer advisory, which over
-derived ids would file concerns naming work a long back-merge closed months ago.
-The close-cycle emitter still does neither — it replaces, and it sets
-`has_resolves_trailer` from re-parsed ids — which is part of what converging it
-would fix.
+`resolves` now UNIONS what the operator wrote with what the merged range yields,
+rather than replacing it. The close-cycle emitter reads its body back from HEAD, so
+"a merge subject never carries a trailer" was never a property the code had —
+replacing dropped whatever the operator typed. `has_resolves_trailer` is
+authored-only everywhere now: it credits the discipline of writing a trailer, and
+taking it from a re-parsed id made every close-cycle merge score as though somebody
+wrote one at merge time. The unlinkable-trailer advisory stays authored-only for the
+same reason — over derived ids it would file concerns naming work a long back-merge
+closed months ago.
+
+`merged_range_bodies` is gone with the convergence: once all three emitters decide
+commit by commit, nothing wanted the whole range as one blob.
 
 **The derivation reads only commits whose own event is in the LIVE log**, and that
 bound is what makes it safe to run on every merge. Re-parsing exists for one case —
@@ -55,6 +55,12 @@ events once their sprint leaves the retention window, so a merge absorbing commi
 older than that — or a rebased branch, whose hashes never match — sees no event and
 re-derives. Narrower than "every already-recorded commit", and tracked rather than
 papered over.
+
+The range framing is `-z`, whose NUL separator a commit object cannot contain. It
+was an ASCII control byte first, which let a commit BODY inject a record — and
+since an injected hash is absent from the log by construction, its trailers walked
+straight past the filter. Validating the hash as 40 hex does not close that; a body
+can spell 40 hex characters too.
 
 A merge is now genuinely **exempt from the commit-too-large concern**. `files` for
 a merge is the first-parent diff — legitimately the whole merged branch — so

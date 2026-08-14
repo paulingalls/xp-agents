@@ -109,6 +109,60 @@ def parse_commit_body(raw_body: str | None) -> tuple[list[str], str, bool]:
     return resolves, _COAUTHOR_TRAILER_RE.sub("", body).strip(), has_trailer
 
 
+def merge_resolves(
+    cwd: str,
+    commit_hash: str,
+    authored: list[str],
+    *,
+    events: list[dict],
+) -> list[str]:
+    """`authored` UNION the trailers of merged-in commits whose event never landed.
+
+    ALL THREE merge emitters route through here, which is the point — this used to
+    be written twice with different answers, and the close-cycle copy still
+    replaced rather than unioned.
+
+    ONLY commits whose own event never landed. That is the entire rationale for
+    re-parsing at all — a teammate's per-commit events can fail to reach the shared
+    log, leaving the merge HEAD the only surviving record of that work — and
+    unfiltered the derivation is catastrophically wider than its rationale. A
+    back-merge (`git merge main` to keep a branch current) has two parents like any
+    other, and its incoming range is EVERY commit the branch had not seen: dozens
+    or hundreds, whose trailers landed with their own commits weeks ago. Unioning
+    those credits one merge with resolving them, and silently closes any that were
+    deliberately left open.
+
+    That range is bounded by the source/target RELATIONSHIP, never structurally, so
+    "the close cycle's range is its own story's commits" was never a property the
+    code had: a story branch that back-merged `main` carries main's commits in its
+    range at close time too.
+
+    UNION, never replace. The authored ids come from a body the operator may have
+    written — a `-m` on a hand merge, an edited conflict-finish message, or a
+    close-cycle body read back from HEAD — and replacing drops what they typed.
+
+    The bound is the LIVE log, NARROWER than "already recorded": compaction
+    archives commit events once their sprint leaves the retention window, and a
+    rebased branch's hashes never match, so either case still re-derives. Recorded
+    rather than implied — reading the archives here would put an unbounded read on
+    a synchronous hook.
+
+    `events` is the caller's already-locked read, so the filter costs no lock.
+    """
+    recorded = {
+        (e.get("metadata") or {}).get("commit_hash")
+        for e in events
+        if e.get("type") == _common.COMMIT
+    }
+    unrecorded = [
+        body
+        for landed, body in commits.merged_range_commits(cwd, commit_hash)
+        if landed not in recorded
+    ]
+    derived, _, _ = commits.extract_resolves_trailer("\n".join(unrecorded))
+    return authored + [rid for rid in derived if rid not in authored]
+
+
 def build_commit_event(
     smm_dir: Path,
     agent_id: str,
@@ -155,41 +209,7 @@ def build_commit_event(
         is_merge = parent_count is not None and parent_count > 1
 
     if is_merge and commit_hash:
-        # ONLY commits whose own event never landed. That is the entire rationale
-        # for re-parsing at all — a teammate's per-commit events can fail to reach
-        # the shared log, leaving this merge HEAD the only surviving record — and
-        # without the filter the derivation is catastrophically wider than the
-        # rationale. A back-merge (`git merge main` to keep a branch current) has
-        # two parents like any other, and its incoming range is EVERY commit on
-        # main the branch had not seen: dozens or hundreds, whose trailers all
-        # landed with their own commits weeks ago. Unioning those would credit
-        # this one merge with resolving them, and silently close any that were
-        # deliberately left open. Filtering on "no recorded event" makes exactly
-        # that case a no-op while still rescuing the case the derivation exists
-        # for. `events` is the caller's already-locked read, so this costs no lock.
-        #
-        # The bound is the LIVE log, which is NARROWER than "already recorded":
-        # compaction archives commit events once their sprint leaves the retention
-        # window, and a rebased branch's hashes never match at all, so either case
-        # re-derives. That residual is recorded rather than implied — reading the
-        # archives here would put an unbounded read on a synchronous hook.
-        #
-        # UNION with the authored ids, never replace: `merge_commit_event` can
-        # replace only because its body is a generated subject with no trailer,
-        # while this one is whatever the operator typed.
-        # `TestWhatTheMergeEventResolves` holds both halves and reddens on either.
-        recorded = {
-            (e.get("metadata") or {}).get("commit_hash")
-            for e in events
-            if e.get("type") == _common.COMMIT
-        }
-        unrecorded = [
-            body
-            for landed, body in commits.merged_range_commits(cwd, commit_hash)
-            if landed not in recorded
-        ]
-        derived, _, _ = commits.extract_resolves_trailer("\n".join(unrecorded))
-        resolves = resolves + [rid for rid in derived if rid not in resolves]
+        resolves = merge_resolves(cwd, commit_hash, resolves, events=events)
 
     # A trailer naming an id absent from the live log resolves nothing.
     # `resolve_prefix` is a lookup over the events it is handed, so an archived

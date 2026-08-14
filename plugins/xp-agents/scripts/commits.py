@@ -374,7 +374,6 @@ from commit_trailers import (  # noqa: E402  intentional mid-file re-export
 # DOWN from here (that module imports `_run_git` back up), so this block must stay
 # below `_run_git`'s definition.
 from merged_range import (  # noqa: E402  intentional mid-file re-export
-    merged_range_bodies,
     merged_range_commits,
 )
 
@@ -400,7 +399,6 @@ __all__ = [
     "head_landing_facts",
     "is_escape_hatch_commit",
     "is_escape_hatch_message",
-    "merged_range_bodies",
     "merged_range_commits",
     "open_issues_matching_commit",
     "parse_commit_message",

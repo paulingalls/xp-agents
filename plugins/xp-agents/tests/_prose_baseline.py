@@ -106,7 +106,12 @@ PROSE_MEASURED: dict[str, int] = {
     # rebased branch never matches — the reviewer found the prose stating the
     # bound unconditionally, which is the exact failure mode this branch keeps
     # repeating.
-    "plugins/xp-agents/scripts/commit_emit.py": 239,
+    # 249 when the THIRD emitter converged onto `merge_resolves`. The helper now
+    # carries the whole argument for the bound, the union and the live-log caveat,
+    # because it is the one place all three routes read it — and the close
+    # emitter's old "a merge subject never carries a trailer" reasoning had to be
+    # written down as false, or converging it looks like a style change.
+    "plugins/xp-agents/scripts/commit_emit.py": 249,
     # 167 -> 170: `is_merge` in the metadata table now says ANY merge HEAD, not
     # "close cycle, or the rebuild's merge arm" — that reading is what produced
     # the story_metrics defect.

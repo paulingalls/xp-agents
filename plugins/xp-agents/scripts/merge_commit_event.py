@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import branching
 import code_files
+import commit_emit
 import commit_handling
 import commits
 import identity
@@ -83,15 +84,21 @@ def append_merge_commit_event(
     files = commits.get_committed_files(cwd)
     body = commits.get_commit_message_body(cwd) or f"Merge {source}"
     code_file_count = code_files.count_code_files(files)
-    # A teammate's per-commit events may never have landed in the shared log
-    # (env-propagation fragility) — this merge HEAD is then the ONLY
-    # surviving commit event for that work. Re-parse the merged-in commits'
-    # own bodies for Resolves-Event trailers so their target concern/debt
-    # still closes; the merge HEAD's own body (the "Merge <source>" subject)
-    # never carries one.
-    resolves, _, has_resolves_trailer = commits.extract_resolves_trailer(
-        commits.merged_range_bodies(cwd, commit_hash)
-    )
+    # AUTHORED first, then the bounded merged-range derivation unioned onto it, via
+    # the same helper both hook routes use. This emitter used to REPLACE with the
+    # derivation and to take `has_resolves_trailer` from it, on the argument that
+    # "the merge HEAD's own body (the `Merge <source>` subject) never carries one".
+    # Two things were wrong with that. `body` above is read back from HEAD, so it is
+    # whatever actually landed rather than the generated subject; and the range was
+    # only ever bounded by the source/target relationship, so a story branch that
+    # back-merged `main` brings main's commits into it at close — the same
+    # unbounded-derivation defect the hook routes were just fixed for.
+    #
+    # `has_resolves_trailer` is AUTHORED-only: it credits the discipline of writing
+    # a trailer, and a re-parsed id is not one. Taking it from the derivation made
+    # every close-cycle merge score as though somebody wrote a trailer at merge time.
+    resolves, _, has_resolves_trailer = commits.extract_resolves_trailer(body)
+    resolves = commit_emit.merge_resolves(cwd, commit_hash, resolves, events=events)
     # Degrade gracefully on a corrupt/schema-invalid sprint.json: the merge
     # itself already succeeded on target, and the surrounding push/delete/
     # remote-prune chain must continue. Matches close_verify_gate's
@@ -99,11 +106,13 @@ def append_merge_commit_event(
     if sprint is _UNSET:
         sprint = sprint_store.load_sprint_fail_open(smm_dir)
     # is_merge=True still excludes this event from resolves_link_rate
-    # accounting: the rate rewards the AUTHORING discipline of writing a
-    # trailer, and a merge event's `resolves` is DERIVED (re-parsed from the
-    # merged-in commits, above) rather than authored on this event's own
-    # body. Counting it in the denominator would credit a trailer nobody
-    # wrote at merge time. Tag merges whose source is a free branch —
+    # accounting: the rate rewards the AUTHORING discipline of writing a trailer,
+    # and a merge event's `resolves` is MOSTLY derived — re-parsed from the
+    # merged-in commits above, not written on this event. It can now also carry an
+    # authored id from HEAD's body, which is exactly what `has_resolves_trailer`
+    # records; the exclusion stays unconditional because the denominator wants one
+    # rule per event kind, not a per-event judgement about how it was populated.
+    # Tag merges whose source is a free branch —
     # honored by retro_metrics alongside is_merge. (A free→primary merge is
     # both: it carries is_merge from this code path AND should be flagged as
     # free for any future metric that wants to bucket free-mode close cycles
