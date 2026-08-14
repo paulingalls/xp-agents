@@ -2,6 +2,46 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.14.1 — The suite CI could not run, and the message that would not say why
+
+v5.14.0 shipped with a red suite. Three tests failed on the runner and passed on
+every developer machine, and the failure they printed was `1 != 0` followed by
+nothing at all.
+
+### A dependency only one launcher supplies
+
+`_codex_harness.assert_module_skips_without_harness` re-runs a module through
+`sys.executable -m pytest` to prove its harness-gated rows SKIP when the harness
+is absent. CI runs the suite under `python3 -m unittest discover` and installed
+only ruff and the clang tools, so that inner run never started. Launch the suite
+*via* pytest and the import is trivially satisfiable; launch it via unittest and
+it is not — which is why the break was invisible locally. The runner now
+installs pytest, and two documents that promised the unittest path needs no
+pytest (README, CLAUDE.md) now say the opposite, because CI proved the opposite.
+
+### The diagnostic that hid it
+
+The assertion reported `result.stdout`. An interpreter that cannot import pytest
+writes its one explanatory line to *stderr* and leaves stdout empty, so the
+message reduced to a bare `1 != 0`. It now reports both streams, stderr last so
+it survives truncation. The helper had three consumers and no test of its own;
+it has one now.
+
+### A row that only failed in parallel
+
+A `subTest` passed a `PosixPath`, which cannot cross execnet's channel, so the
+row failed under `pytest -n auto` — the push gate — while passing sequentially.
+
+### CI cost
+
+Measured from August's 1032 Actions minutes (69% from `pull_request`, split
+502/530 across the two Python versions): pull requests now run the declared
+floor 3.11 alone and main keeps both, since testing only the newer version is
+the direction that lets 3.12-only syntax reach users at the floor. PR runs
+supersede per ref; main runs take a unique concurrency group, because a merely
+PENDING run is cancelled when a newer one joins its group and main is the
+release.
+
 ## v5.14.0 — One repo, two harnesses, and a generated file nobody generated
 
 Milestone 8. The plugin now installs on Codex alongside Claude Code from a

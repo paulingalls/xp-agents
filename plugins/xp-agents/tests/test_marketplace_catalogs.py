@@ -122,7 +122,10 @@ class TestSharedNameMatchesEverywhere(unittest.TestCase):
 
     def test_every_catalog_declares_the_same_marketplace_and_plugin_name(self):
         for path in self._catalogs():
-            with self.subTest(catalog=path.relative_to(_REPO_ROOT)):
+            # str, not Path: under `pytest -n auto` the subtest kwargs cross an
+            # execnet channel, which cannot serialize PosixPath — the row failed
+            # in the parallel run (the push gate) while passing sequentially.
+            with self.subTest(catalog=str(path.relative_to(_REPO_ROOT))):
                 catalog = _load(path)
                 self.assertIn("name", catalog, "catalog declares no marketplace name")
                 self.assertEqual(catalog["name"], "xp-agents")

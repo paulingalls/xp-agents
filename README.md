@@ -442,8 +442,14 @@ You do not need to pre-run the suite yourself — that's what the gate is for. O
 # Run the full suite in parallel (~7,600 tests as of v5.0.0):
 pytest -n auto
 
-# Or sequentially via unittest (no pytest required; much slower than the
-# parallel run above, which itself measured 432s here):
+# Or sequentially via unittest (much slower than the parallel run above,
+# which itself measured 432s here). The interpreter you launch it with must
+# be able to IMPORT pytest: the dual-packaging harness probes re-run a module
+# through `python -m pytest`, and three of them fail on one that cannot.
+# Note the pipx route above deliberately ISOLATES pytest, so plain `python3`
+# is exactly such an interpreter — check first, and if it fails either use
+# pipx's own python or `pip install pytest` into the one you run:
+python3 -m pytest --version
 python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py"
 ```
 
