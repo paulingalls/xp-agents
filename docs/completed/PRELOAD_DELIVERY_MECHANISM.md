@@ -37,13 +37,26 @@ harness.
 | M1b | Does it cross into a **forked** (`context: fork`) skill? | **No.** Hook fired, the *parent* confirmed receiving the payload, the forked subagent reported `TOKEN_ABSENT`. | Parent's own confirmation is the internal control: injection landed, the fork boundary blocked it. |
 | — | Does `PreToolUse:Agent` fire for a forked skill? | **No.** It never fires — a forked skill's subagent is not spawned through the Agent tool. | A direct Agent-tool call **does** fire it, proving the matcher name correct. |
 | — | Does `PreToolUse:Agent` injection reach the **subagent**? | **No.** It reaches the parent. The subagent reported `TOKEN_ABSENT`. | Same run: hook confirmed fired. |
-| M3 | Does the slowest preload fit the enforced bound? | **Yes, with room.** Slowest is `xp-sprint-close` at 1.91s; the governing default is 600s and the pre-fixed rule allowed 300s. | See the timeout finding below — the bound is enforced, measured both directions. |
+| M3 | Does the slowest preload fit the enforced bound **on harness 1**? | **Yes, with room.** Slowest is `xp-sprint-close` at 1.91s; harness 1's default is 600s — taken from documentation, not measured here — and the pre-fixed rule allowed 300s. | See the timeout finding below — that a *declared* bound is enforced, and read as seconds, is measured in both directions. |
 
 **No hook delivers context into a subagent.** That is the single most consequential
 result. A subagent gets state only from what its spawner writes into its prompt.
 
 *M3 caveat:* close preloads compute diffs, so 1.91s is a floor, not a worst case. The
-headroom is large enough (0.6% of the allowance) that this does not change the verdict.
+headroom is large enough (0.6% of harness 1's allowance) that this does not change the
+verdict there.
+
+*M3's second bound is not measured, and is recorded here as such.* Criterion 3 concedes two
+triggers; M3 bounds only the first. Neither injection entry declares a `timeout` in the
+source manifest — `PreToolUse:Skill` and `PreToolUse:Bash` both carry none — and the derived
+variant strips timeouts outright, so each runs at its **harness default**. Harness 1's
+default is quoted above from documentation. Harness 2's default is neither measured nor
+documented here: what was measured there is the *unit* and the *fact* of enforcement, not
+the size of an undeclared default. So the headroom figure covers harness 1 only. If harness
+2's default turns out to be short, a preload whose 1.91s is a floor gets killed mid-run and
+delivers nothing — this milestone's own quiet-failure class, arriving through the bound
+rather than the trigger. Discharging it is one run: a handler with no declared timeout,
+sleeping past each candidate default, with the side channel saying which way it went.
 
 ## Verdict
 
@@ -64,9 +77,10 @@ headroom is large enough (0.6% of the allowance) that this does not change the v
   preserves permanently the two-mechanism cost the customer set out to remove, and buys
   nothing the verdict does not already get.
 - *Hybrid retaining route 1 (in-body substitution) for any class* — disqualified: route 1
-  keeps an env-blind reader, so Milestone 9's constraint 6 (`os.getsid` correlator, required
-  in the same milestone) would still bind, and nothing schedules it. The chosen verdict uses
-  injection for every class it can cover and so never incurs that bill.
+  keeps an env-blind reader, so the constraint Milestone 9 carried before this story's
+  amendment — an `os.getsid` correlator, required in the same milestone — would still bind,
+  and nothing schedules it. The chosen verdict uses injection for every class it can cover
+  and so never incurs that bill.
 
 **Criterion 3, answered honestly:** this is one *mechanism* (hook-side injection of a
 skill's own preload output) on **two triggers** — `PreToolUse:Skill` on harness 1, the
@@ -78,10 +92,21 @@ the verdict does not claim to be.
 instruction-time channel, the one thing able to report a dead hook runtime *because it is
 not itself a hook*. After this change, a dead runtime yields silently stateless skills
 rather than a loud banner. The customer scoped liveness out of this decision deliberately,
-having measured its cost (480 dedicated lines, 18 shipped files, 6 heartbeat write sites,
-394 mentions across 48 test files) against its reachability (second-harness silent
-hook-skipping, and teammate preflight — neither being the daily solo loop). Recorded here
-as a priced cost, not omitted.
+having priced its cost against its reachability. The price, each figure with the count that
+produces it so a reader can re-derive rather than trust it:
+
+| Figure | Basis |
+|---|---|
+| **480** dedicated lines | `wc -l` of `scripts/hook_liveness.py` (433) + `skills/_preload_liveness.sh` (47) |
+| **15** shipped files depend on it | files under `scripts/`, `smm/`, `skills/` matching `import hook_liveness`, `hook_liveness.`, or `_preload_liveness.sh` |
+| **6** heartbeat write sites | `write_heartbeat(` call sites in `scripts/*.py`, excluding the definition |
+| **53** test files touch it | files under `tests/` matching `liveness` or `heartbeat` |
+
+Against that: reachable in two places only — a harness that silently skips untrusted plugin
+hooks while still loading skills, and teammate preflight, where an uninstalled plugin yields
+an unenforced teammate indistinguishable from an enforced one. Neither is the daily solo
+loop, where skills and hooks ship in the same plugin and load together. Recorded here as a
+priced cost, not omitted.
 
 ## The byte-identical constraint: why it existed, and why it is reversed
 
@@ -90,10 +115,13 @@ Milestone 9 carried a constraint that the first harness's preload expansion path
 in writing, because reversing a recorded constraint on the strength of a preference rather
 than evidence is how a plan quietly loses its memory.
 
-**Where it came from.** Nowhere measured. No SMM event records it; it appears only in
-`execution_plan.json` §Milestone 9, authored at plan time, when both candidate routes were
-*Codex-only* remedies. In that framing the constraint is a blast-radius guard: whatever we
-do for the second harness, do not disturb the harness that already works.
+**Where it came from.** Nowhere measured. No SMM event records its origin; it was authored
+at plan time in `execution_plan.json` §Milestone 9 and appeared nowhere else, when both
+candidate routes were *Codex-only* remedies. In that framing the constraint is a
+blast-radius guard: whatever we do for the second harness, do not disturb the harness that
+already works. Milestone 9 has since been amended in this same story, so the constraint is
+no longer in the plan to read — this section is its record, and the reversal is recorded as
+a decision event.
 
 **What it was protecting.** Concretely, the instruction-time channel. `skills/_preload_liveness.sh`
 documents the property in its own header — the check that reports a dead hook runtime
@@ -166,9 +194,12 @@ same way during Milestone 8, with the same result.
 
 **Both harnesses read seconds.** The source manifest declares values intending
 milliseconds (`5000`, `2500`, `10000`, `1500`), so `timeout: 5000` means 83 minutes and
-`10000` means 2.8 hours. The plugin ships with no effective hook bounds on either harness.
-This also falsifies `hooks_emit.py`'s stated reason for dropping timeouts from the derived
-variant: the units do not differ, so the correct fix converts the source rather than
-stripping the variant. Conversion is not a mechanical divide-by-1000 — `2500`ms is 2.5s,
-and sub-second bounds are unrepresentable as integer seconds, so each is a recorded
-judgment.
+`10000` means 2.8 hours. No *declared* bound the plugin ships is effective on either
+harness: harness 1 reads each one 1000x too long, and the derived variant carries none at
+all. Entries that declare nothing — most of them, including both injection triggers — run at
+a harness default instead, which is a real bound on harness 1 and an unmeasured one on
+harness 2. This also undercuts `hooks_emit.py`'s stated reason for dropping timeouts from
+the derived variant: the units do not differ *between harnesses*, both read seconds, so the
+correct fix converts the source rather than stripping the variant. Conversion is not a
+mechanical divide-by-1000 — `2500`ms is 2.5s, and sub-second bounds are unrepresentable as
+integer seconds, so each is a recorded judgment.
