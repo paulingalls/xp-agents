@@ -89,5 +89,37 @@ class TestCommonDefaultResolution(unittest.TestCase):
             skill_preload_map.resolve_preload("xp-accept")
 
 
+class TestOutliers(unittest.TestCase):
+    """The two skills that do NOT use the common default. No name list
+    substitutes the default for either — a hardcoded default would be right
+    on 15 skills and wrong on these two."""
+
+    def test_xp_kickoff_resolves_to_its_own_script_name(self):
+        """xp-kickoff ships check_session_needs.sh, not preload.sh — the
+        glob finds it with no name list involved."""
+        invocation = skill_preload_map.resolve_preload("xp-kickoff")
+        assert invocation is not None
+        self.assertEqual(Path(invocation.argv[0]).name, "check_session_needs.sh")
+        self.assertEqual(invocation.argv[1:], [])
+
+    def test_xp_assign_carries_consume_gate(self):
+        invocation = skill_preload_map.resolve_preload("xp-assign")
+        assert invocation is not None
+        self.assertEqual(Path(invocation.argv[0]).name, "preload.sh")
+        self.assertEqual(invocation.argv[1:], ["--consume-gate"])
+
+    def test_extra_args_table_is_subset_of_discovered_skills(self):
+        """Superset guard: every _EXTRA_ARGS key must name a skill the glob
+        actually discovered. A renamed or deleted skill leaves a loud dead
+        entry here rather than a silently ignored one."""
+        discovered = set(_all_preload_skill_names())
+        extra_args_keys = set(skill_preload_map._EXTRA_ARGS.keys())
+        self.assertTrue(
+            extra_args_keys <= discovered,
+            f"_EXTRA_ARGS names skills the glob no longer finds: "
+            f"{extra_args_keys - discovered}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
