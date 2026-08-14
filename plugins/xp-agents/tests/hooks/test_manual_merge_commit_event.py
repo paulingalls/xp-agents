@@ -55,11 +55,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _commit_repo_case import _MergeCase
 
-sys.path.insert(0, str(Path(__file__).parent))
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
-
 
 class TestAMergeCommitIsRecorded(_MergeCase):
     def _assert_one_merge_event(self) -> dict:

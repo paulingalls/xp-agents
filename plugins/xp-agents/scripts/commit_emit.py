@@ -168,6 +168,12 @@ def build_commit_event(
         # that case a no-op while still rescuing the case the derivation exists
         # for. `events` is the caller's already-locked read, so this costs no lock.
         #
+        # The bound is the LIVE log, which is NARROWER than "already recorded":
+        # compaction archives commit events once their sprint leaves the retention
+        # window, and a rebased branch's hashes never match at all, so either case
+        # re-derives. That residual is recorded rather than implied — reading the
+        # archives here would put an unbounded read on a synchronous hook.
+        #
         # UNION with the authored ids, never replace: `merge_commit_event` can
         # replace only because its body is a generated subject with no trailer,
         # while this one is whatever the operator typed.

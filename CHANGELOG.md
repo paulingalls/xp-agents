@@ -18,23 +18,30 @@ actually takes** — did neither. So the common case was recorded as a plain com
 counted in the resolves-link-rate denominator, and drawing a
 commit-touches-N-files concern for the whole merged branch.
 
-Not three bugs but one policy written three times. `is_merge` is no longer a
-parameter at all — the shared builder reads the parent count itself, so neither
-caller can forget it. v5.13.1 closed one narrow case of this; this closes the rest.
+**TWO of the three converged, not three.** The two hook routes now share one
+decision: `is_merge` is gone as a parameter of `build_commit_event`, which reads
+the parent count itself so neither route can forget it. The close-cycle emitter is
+deliberately NOT converged — it owns close-cycle attribution and the review-cycle
+reset — so it still passes the flag by hand to `make_commit_event`, the event
+constructor all three share, and that constructor still takes it. The title names
+the goal; the shipped scope is two of three, and the third is tracked as an open
+concern. v5.13.1 closed one narrow case; this closes the two hook routes.
 
-`resolves` now UNIONS what the operator wrote with what the merged range yields,
-rather than replacing it. Replacement is safe in the close-cycle emitter only
-because the body it builds from is a generated `Merge <source>` subject that
-carries no trailer by construction; an operator's `-m`, or an edited
-conflict-finish message, is not, and replacing would silently drop the id they
-typed. Two things stay authored-only on purpose: `has_resolves_trailer`, which
-credits the discipline of writing a trailer and must not be set by a re-parsed id,
-and the unlinkable-trailer advisory, which over derived ids would file concerns
-naming work a long back-merge closed months ago.
+On those two routes `resolves` now UNIONS what the operator wrote with what the
+merged range yields, rather than replacing it. Replacement is safe only when the
+body is a generated `Merge <source>` subject carrying no trailer by construction;
+an operator's `-m`, or an edited conflict-finish message, is not, and replacing
+would silently drop the id they typed. Two things stay authored-only there:
+`has_resolves_trailer`, which credits the discipline of writing a trailer and must
+not be set by a re-parsed id, and the unlinkable-trailer advisory, which over
+derived ids would file concerns naming work a long back-merge closed months ago.
+The close-cycle emitter still does neither — it replaces, and it sets
+`has_resolves_trailer` from re-parsed ids — which is part of what converging it
+would fix.
 
-**The derivation reads only commits whose own event never landed**, and that bound
-is what makes it safe to run on every merge. Re-parsing exists for one case — a
-teammate's per-commit events failed to reach the shared log, so the merge HEAD is
+**The derivation reads only commits whose own event is in the LIVE log**, and that
+bound is what makes it safe to run on every merge. Re-parsing exists for one case —
+a teammate's per-commit events failed to reach the shared log, so the merge HEAD is
 the only surviving record. A back-merge (`git merge main`) is two-parent like any
 other, and its incoming range is every commit the branch had not yet seen; without
 the filter, one back-merge would be credited with resolving every trailer in that
@@ -42,6 +49,12 @@ whole history and would silently close any target deliberately left open. Filter
 on "no recorded event" makes that a no-op while still rescuing the case the
 derivation is for. The range is read as `<merge> --not <merge>^1` rather than
 `^1..^2`, so an octopus merge's third parent is covered instead of dropped.
+
+The bound is LIVE-LOG, and that word is load-bearing: compaction archives commit
+events once their sprint leaves the retention window, so a merge absorbing commits
+older than that — or a rebased branch, whose hashes never match — sees no event and
+re-derives. Narrower than "every already-recorded commit", and tracked rather than
+papered over.
 
 A merge is now genuinely **exempt from the commit-too-large concern**. `files` for
 a merge is the first-parent diff — legitimately the whole merged branch — so
@@ -73,7 +86,7 @@ routes, with git's real output captured rather than spelled as a literal.
   a network mount and a 2s timeout into one line turns a diagnosable give-up into
   an unexplained one.
 - Every `env -u` run in `lefthook.yml` now strips the full leaky-env registry; it
-  had been missing five of eleven entries while `CLAUDE.md` asserted the mirror as
+  had been missing five of twelve entries while `CLAUDE.md` asserted the mirror as
   an invariant. A new pin **discovers** those runs by scanning the file rather than
   naming the three that exist today, since enumerating locations is what let them
   drift.

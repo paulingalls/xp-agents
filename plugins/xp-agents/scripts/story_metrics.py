@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import _common
+import identity
 import sprint_store
 import triage
 import work_signals
@@ -28,11 +29,9 @@ extract_file_domain_paths = triage.extract_file_domain_paths
 STORY_PREFIX_RE = re.compile(r"^\s*\[(story-\d+)\]")
 BRACKET_PREFIX_RE = re.compile(r"^\s*\[")
 
-# The agent id `merge_commit_event.append_merge_commit_event` records its event
-# under. That emitter runs only from the close path, which makes this the one
-# reliable "this merge SHIPPED the story" marker — see its use below for why
-# `is_merge` alone is not.
-_CLOSE_CYCLE_AGENT_ID = "close_common"
+# Imported, NOT respelled: the producer (`merge_commit_event`) reads the same
+# constant, so a rename cannot leave this consumer matching a string nothing writes
+# any more. See `event_metadata` for why the id is a discriminator here.
 
 
 def file_matches_domain(file_path: str, domain: set[str]) -> bool:
@@ -148,7 +147,7 @@ def _attribute_commits(
             # merged that was still in progress. `close_common` is the agent id
             # `append_merge_commit_event` writes, and that emitter runs only from
             # the close path, so it is the precise discriminator.
-            if commit.get("agent_id") == _CLOSE_CYCLE_AGENT_ID:
+            if commit.get("agent_id") == identity.CLOSE_CYCLE_AGENT_ID:
                 merged[story_id] = True
                 merge_files[story_id] |= committed_files
             # Any other merge is neither the story shipping nor the story's own

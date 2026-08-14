@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _s, commit_event
+from identity import CLOSE_CYCLE_AGENT_ID
 
 
 def _write_sprint(
@@ -70,7 +71,7 @@ class TestAMergesEmitterDecidesWhatItMeans(unittest.TestCase):
                 ["scripts/auth.py"],
                 story_id="story-001",
                 is_merge=True,
-                agent_id="close_common",
+                agent_id=CLOSE_CYCLE_AGENT_ID,
             ),
         ]
         result = story_metrics._attribute_commits(commits, stories)
@@ -132,7 +133,7 @@ class TestMergeFallbackAttribution(unittest.TestCase):
                 ["scripts/auth.py", "scripts/util.py"],
                 story_id="story-001",
                 is_merge=True,
-                agent_id="close_common",
+                agent_id=CLOSE_CYCLE_AGENT_ID,
             ),
         ]
         result = story_metrics._attribute_commits(commits, stories)
@@ -167,7 +168,7 @@ class TestMergeFallbackAttribution(unittest.TestCase):
                 ["scripts/auth.py"],
                 story_id="story-001",
                 is_merge=True,
-                agent_id="close_common",
+                agent_id=CLOSE_CYCLE_AGENT_ID,
             ),
         ]
         result = story_metrics._attribute_commits(commits, stories)
@@ -191,7 +192,7 @@ class TestMergeFallbackAttribution(unittest.TestCase):
                     story_id="story-001",
                     sprint_id="sprint-001",
                     is_merge=True,
-                    agent_id="close_common",
+                    agent_id=CLOSE_CYCLE_AGENT_ID,
                 ),
             ]
             result = story_metrics.compute_story_analysis(smm_dir, events)

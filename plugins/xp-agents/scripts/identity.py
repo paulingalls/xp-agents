@@ -36,6 +36,18 @@ _XP_TEAMMATE_ENV = "XP_TEAMMATE_NAME"
 # spawn_teammate's worktree names omit it.
 _STORY_BRANCH_RE = re.compile(r"^[^/]+/(story-\d+)(?:-.*)?$")
 
+# The agent id `merge_commit_event.append_merge_commit_event` records its event
+# under, named here because it is read as a DISCRIMINATOR rather than a label.
+# `metadata.is_merge` marks any two-parent HEAD, so it cannot answer "did this
+# merge SHIP a story" — a teammate's mid-story `git merge main` carries the same
+# tag and the same story id. `story_metrics` therefore requires this id, and a
+# rename touching only the producer would silently revert that with the suite
+# green. One definition, imported by producer and consumer both.
+#
+# Here rather than in `event_metadata`: this is an agent IDENTITY, not an event
+# metadata key, and this module is where identities live.
+CLOSE_CYCLE_AGENT_ID = "close_common"
+
 
 def _git_stdout(args: list[str], cwd: str) -> str:
     """Run a git command and return stripped stdout, or empty on failure."""

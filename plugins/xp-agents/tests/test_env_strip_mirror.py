@@ -4,7 +4,7 @@
 CLAUDE.md names `tests/_env_hygiene.py` the single registry of leaky env vars and
 says lefthook must mirror its strip list. Nothing checked that, and it was false:
 lefthook omitted `SMM_DIR`, `XP_AGENTS_DATA`, `XP_FILE_DOMAIN_DRIFT_TOLERANCE`,
-`XP_LOCK_TIMEOUT_SECONDS` and `XP_SMM_MIGRATE` — five of eleven — while the doc
+`XP_LOCK_TIMEOUT_SECONDS` and `XP_SMM_MIGRATE` — five of twelve — while the doc
 asserted an invariant. A documented invariant with no test is a claim.
 
 THE RULE IS NOT SET EQUALITY, and getting that wrong is the trap here. lefthook
@@ -100,6 +100,19 @@ class TestTheScanFindsSomethingToCheck(unittest.TestCase):
 
     def test_the_registry_is_not_empty(self):
         self.assertGreaterEqual(len(STRIPPED_VARS), 5)
+
+    def test_the_registry_size_matches_what_the_prose_claims(self):
+        """This file's docstring and the release notes both say "five of twelve".
+        The twelve was wrong once — written as eleven, because the two session-id
+        vars come in via a splat and are easy to miscount by hand — so the number
+        is asserted rather than trusted. A count in prose with nothing checking it
+        is the same species of claim this whole file exists to stop."""
+        self.assertEqual(
+            len(STRIPPED_VARS),
+            12,
+            "the registry size changed; update the counts in this file's docstring "
+            "and in the CHANGELOG entry that quotes them",
+        )
 
 
 class TestEveryRunMirrorsTheRegistry(unittest.TestCase):

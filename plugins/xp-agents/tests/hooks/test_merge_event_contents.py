@@ -219,5 +219,75 @@ class TestAMergeIsExemptFromTheCommitSizeConcern(_MergeCase):
         self.assertEqual(sized, [], f"a merge drew a commit-size concern: {sized}")
 
 
+class TestACommitBodyCannotForgeARangeRecord(_MergeCase):
+    """`merged_range_commits` parses git output by splitting commit-message bytes
+    on `\x1e` and partitioning on `\x1f`. Those are ASCII control characters a
+    commit message may legally contain, so a body can inject a record — and the
+    injected hash, being fabricated, is absent from the recorded set BY
+    CONSTRUCTION, which is precisely what the "no recorded event" filter keys on.
+    An injected record would therefore bypass the bound every time.
+
+    Not a security finding — writing the body means you can already write a real
+    trailer. It is a correctness one: the filter must not be defeatable by content
+    it is reading."""
+
+    def test_an_injected_record_does_not_smuggle_a_trailer_past_the_filter(self):
+        smuggled = self.seed_concern()
+        self.derived_id = self.seed_concern()
+
+        self.git("checkout", "-q", "-b", "side")
+        target = self.repo / "src" / "side.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("side")
+        self.git("add", "-A")
+        # A body that closes its own record and opens a forged one, whose 40-hex
+        # hash no event can possibly carry.
+        forged = "b" * 40
+        self.git(
+            "commit",
+            "-q",
+            "-m",
+            f"side work\n\nResolves-Event: {self.derived_id}\n"
+            f"\x1e{forged}\x1fforged\n\nResolves-Event: {smuggled}\n",
+        )
+        side_head = self.head()
+        self.git("checkout", "-q", "main")
+        self.commit("main work", path="src/main.py", content="main")
+        self.assertEqual(
+            self.merge("--no-ff", "side", "-m", "Merge side").returncode, 0
+        )
+
+        # The side commit's own event HAS landed, so the filter must skip it whole.
+        _common.append_safe(
+            self.smm_dir,
+            make_event(
+                EVENT_TYPE_COMMIT,
+                content="side work",
+                files=["src/side.py"],
+                metadata={"commit_hash": side_head, "resolves": [self.derived_id]},
+            ),
+        )
+
+        self.run_hook("git merge --no-ff side")
+
+        merge_events = [
+            e
+            for e in self.commit_events()
+            if e["metadata"].get("commit_hash") == self.head()
+        ]
+        self.assertEqual(
+            len(merge_events), 1, f"expected one merge event: {merge_events}"
+        )
+        resolves = merge_events[0]["metadata"].get("resolves", [])
+        self.assertNotIn(
+            smuggled,
+            resolves,
+            "a forged range record smuggled a trailer past the filter",
+        )
+        self.assertNotIn(
+            self.derived_id, resolves, "the recorded commit was not skipped"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

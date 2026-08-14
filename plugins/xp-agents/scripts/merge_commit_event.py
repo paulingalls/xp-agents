@@ -109,7 +109,7 @@ def append_merge_commit_event(
     # free for any future metric that wants to bucket free-mode close cycles
     # separately.)
     event = commit_handling.make_commit_event(
-        "close_common",
+        identity.CLOSE_CYCLE_AGENT_ID,
         body,
         commit_hash=commit_hash,
         files=files,
