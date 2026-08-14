@@ -2,6 +2,59 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## Unreleased
+
+### One merge policy, three emitters
+
+A `type=commit` event for a merge HEAD could be produced by three emitters, and
+they disagreed. The close-cycle emitter tagged `is_merge` and re-derived
+`Resolves-Event:` trailers from the merged range; the HEAD-rebuild arm tagged but
+did not re-derive; the confirmed-success path — **the route an operator's merge
+actually takes** — did neither. So the common case was recorded as a plain commit:
+counted in the resolves-link-rate denominator, and drawing a
+commit-touches-N-files concern for the whole merged branch.
+
+Not three bugs but one policy written three times. `is_merge` is no longer a
+parameter at all — the shared builder reads the parent count itself, so neither
+caller can forget it. v5.13.1 closed one narrow case of this; this closes the rest.
+
+`resolves` now UNIONS what the operator wrote with what the merged range yields,
+rather than replacing it. Replacement is safe in the close-cycle emitter only
+because the body it builds from is a generated `Merge <source>` subject that
+carries no trailer by construction; an operator's `-m`, or an edited
+conflict-finish message, is not, and replacing would silently drop the id they
+typed. Two things stay authored-only on purpose: `has_resolves_trailer`, which
+credits the discipline of writing a trailer and must not be set by a re-parsed id,
+and the unlinkable-trailer advisory, which over derived ids would file concerns
+naming work a long back-merge closed months ago.
+
+The suite that was supposed to cover this had been green on a path production
+rarely takes: it staged a real `-m` merge and a real conflict finish, then drove
+the hook with a *different* command and empty stdout. Each case now runs on both
+routes, with git's real output captured rather than spelled as a literal.
+
+### Also
+
+- **`XP_LOCK_TIMEOUT_SECONDS` may now only shorten a caller's named lock budget,
+  never lengthen it.** Raised to 30s for its documented purpose — a slow event-log
+  lock — it used to inflate the coordination file's deliberate 2s cap to 30s,
+  blocking a synchronous write-path hook for the whole of it. That reverses a
+  recorded decision, deliberately: the lever needs only to shorten, which is all
+  it ever needed.
+- One best-effort flock shape (`try_flock`) replaces two that had drifted apart
+  for the same job. It takes an `on_giveup` callback rather than returning a bare
+  bool, because one of the two callers logs the CAUSE — and flattening `ENOLCK` on
+  a network mount and a 2s timeout into one line turns a diagnosable give-up into
+  an unexplained one.
+- Every `env -u` run in `lefthook.yml` now strips the full leaky-env registry; it
+  had been missing five of eleven entries while `CLAUDE.md` asserted the mirror as
+  an invariant. A new pin **discovers** those runs by scanning the file rather than
+  naming the three that exist today, since enumerating locations is what let them
+  drift.
+- The commit-message parsing half of `commits.py` moved to `commit_trailers.py`,
+  re-exported by identity — text in, text out, and now testable with no git on
+  PATH. Two integration suites stopped hand-rolling the same nested-repo fixture.
+
 ## v5.14.1 — The suite CI could not run, and the message that would not say why
 
 v5.14.0 shipped with a red suite. Three tests failed on the runner and passed on
@@ -200,9 +253,9 @@ merge finished by hand is recognised there too, spelled `commit (merge)`.
 `git commit --no-edit`, both get confirmed the ordinary way (message match, or
 git's `[branch hash]` line), so they take the shared success path, which does not
 pass `is_merge` and records them as plain commits carrying the whole merged
-branch as their files. Threading the tag through that path is the next piece of
-work and is tracked as an open concern. These notes claimed the general case
-until a close review measured both shapes end to end.
+branch as their files. These notes claimed the general case until a close review
+measured both shapes end to end. (Closed after this release — see Unreleased,
+"One merge policy, three emitters".)
 
 ### The fix that claimed another clone's commit
 
@@ -229,6 +282,16 @@ did before the merge arm existed.
 
 It escaped four close reviews and a green sprint. What found it was running the
 plugin's own back-merge and reading the two traces it left.
+
+To be exact about that, because a later note got it wrong: those traces were not
+this bug firing. The hooks running that day were the INSTALLED plugin, v5.12.0,
+whose merge arm vetoed every two-parent HEAD outright — so both traces were that
+veto behaving correctly, and no released version ever had an arm that could
+fabricate. The bug was real and reproduced against the working tree through the
+test fixtures; the traces only prompted the reading that found it. Hook behaviour
+observed while working in this repo comes from the installed copy, not the branch
+being edited, and a claim built on a live trace has to name the version that
+produced it.
 
 ### Also
 
