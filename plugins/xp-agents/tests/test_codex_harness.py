@@ -42,8 +42,38 @@ class TestTheFailureDiagnosticCarriesStderr(unittest.TestCase):
             args=[], returncode=1, stdout="", stderr="No module named pytest\n"
         )
 
+        self.assertIn("No module named pytest", self._message_for(dead))
+
+    def test_both_streams_reach_the_message_stderr_last(self) -> None:
+        """Neither stream alone is enough, and the order is not incidental.
+
+        Asserting only the stderr half would stay green against a regression
+        that narrowed the report to `result.stderr` — and stdout is where an
+        inner run that STARTED and then failed explains itself, which is the
+        common case, not the one that broke CI. The index comparison pins the
+        ordering the truncation depends on: `[-2000:]` keeps the tail, so
+        stderr must come last to survive a large stdout.
+        """
+        both = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="1 failed, 2 passed\n",
+            stderr="the inner run also complained\n",
+        )
+
+        message = self._message_for(both)
+
+        self.assertIn("1 failed, 2 passed", message)
+        self.assertIn("the inner run also complained", message)
+        self.assertLess(
+            message.index("1 failed, 2 passed"),
+            message.index("the inner run also complained"),
+        )
+
+    def _message_for(self, completed: subprocess.CompletedProcess) -> str:
+        """The AssertionError text the helper raises for *completed*."""
         with (
-            mock.patch.object(subprocess, "run", return_value=dead),
+            mock.patch.object(subprocess, "run", return_value=completed),
             self.assertRaises(AssertionError) as raised,
         ):
             assert_module_skips_without_harness(
@@ -51,8 +81,7 @@ class TestTheFailureDiagnosticCarriesStderr(unittest.TestCase):
                 module_path=Path(__file__),
                 gated_classes=(_GatedRow,),
             )
-
-        self.assertIn("No module named pytest", str(raised.exception))
+        return str(raised.exception)
 
 
 if __name__ == "__main__":

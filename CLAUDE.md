@@ -93,9 +93,11 @@ pytest -n auto
 pytest plugins/xp-agents/tests/hooks/test_session_start_core.py
 # Run a single test:
 pytest plugins/xp-agents/tests/hooks/test_session_start_core.py::TestSessionStart::test_clear_source_returns_context
-# Sequential fallback (no pytest RUNNER; pytest must still be importable —
-# the dual-packaging harness probes shell out to `python -m pytest`, and CI
-# proved they fail on an interpreter that cannot import it):
+# Sequential fallback (no pytest RUNNER, but pytest must still be IMPORTABLE
+# by the interpreter you launch: the dual-packaging harness probes shell out
+# to `python -m pytest`, and CI proved three of them fail on one that cannot.
+# The pipx install README recommends isolates pytest, so plain `python3` is
+# such an interpreter — `python3 -m pytest --version` is the check):
 python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py" -v
 ```
 
