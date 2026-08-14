@@ -91,7 +91,14 @@ SKIP_LIVENESS_ENV = "XP_SKIP_LIVENESS_CHECK"
 #   value would either hide the migration tests' subject or drive it past the
 #   very guard those tests exist to pin. The migration suite sets it
 #   explicitly per case.
-for _leaked_var in (
+#
+# A NAMED CONSTANT, not an inline tuple in the loop below. CLAUDE.md calls this
+# module the single registry and requires `lefthook.yml` to mirror it, and a list
+# spelled inline can only be mirrored by hand — which is how it came to be missing
+# five of these entries with nothing to notice. `tests/test_env_strip_mirror.py`
+# reads THIS tuple and scans lefthook for every `env -u` run, so the claim is now
+# checked rather than asserted.
+STRIPPED_VARS: tuple[str, ...] = (
     "GIT_DIR",
     "GIT_WORK_TREE",
     "GIT_COMMON_DIR",
@@ -103,7 +110,9 @@ for _leaked_var in (
     "XP_LOCK_TIMEOUT_SECONDS",
     "XP_SMM_MIGRATE",
     *STRIPPED_SESSION_ID_VARS,
-):
+)
+
+for _leaked_var in STRIPPED_VARS:
     os.environ.pop(_leaked_var, None)
 
 os.environ[PINNED_SESSION_ID_VAR] = TEST_SESSION_ID
