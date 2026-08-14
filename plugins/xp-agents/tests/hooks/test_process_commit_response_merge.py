@@ -272,11 +272,11 @@ class TestMergeCommitRelinksResolvesEvent(unittest.TestCase):
         self.assertEqual(len(commit_events), 1)
         self.assertEqual(commit_events[0]["metadata"].get("resolves"), [debt_id])
         # NOT has_resolves_trailer: this id was RE-PARSED off a merged-in commit,
-        # and that flag credits the discipline of writing a trailer. It used to be
-        # taken from the derivation, so every close-cycle merge scored as though
-        # somebody wrote one at merge time — the same authored-only rule the two
-        # hook routes already follow. `resolves` above is what makes the debt close;
-        # the flag only feeds the link-rate metric.
+        # and that flag records that somebody WROTE a trailer — the same
+        # authored-only rule the two hook routes already follow. Taken from the
+        # derivation it made the merge claim a trailer nobody wrote. No rate moves
+        # (is_merge keeps merge events out of the trailer metrics); `resolves`
+        # above is what makes the debt close, and the flag is the record.
         self.assertFalse(commit_events[0]["metadata"].get("has_resolves_trailer"))
 
         resolved = resolution.compute_resolutions(events)["resolved_debt_ids"]
@@ -408,8 +408,8 @@ class TestMergeCommitRelinksResolvesEvent(unittest.TestCase):
         self.assertNotIn("deadbeef1234", all_resolved)
 
     def test_ff_merge_omits_resolves_without_crashing(self):
-        """A degenerate ff-merge has no `^2` parent; merged_range_bodies must
-        fail safe (empty string) rather than raise into the caller."""
+        """A degenerate ff-merge has no `^2` parent; merged_range_commits must
+        fail safe (empty list) rather than raise into the caller."""
         _git(self.repo, "checkout", "-q", "-b", "story-branch")
         (self.repo / "fix.py").write_text("y = 2\n")
         _git(self.repo, "add", "-A")

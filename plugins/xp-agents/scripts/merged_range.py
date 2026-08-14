@@ -2,8 +2,8 @@
 """What a merge brought in: the commits reachable from it but not from `^1`.
 
 Split from `commits.py`, which crossed its 450-line sub-cap when the per-commit
-reader arrived. One job, two shapes of the same question — asked by both merge
-emitters — so they live together rather than beside every other git read.
+reader arrived. One job, asked by every merge emitter, so it lives here rather
+than beside every other git read.
 
 `<merge> --not <merge>^1`, NOT `^1..^2`. The two agree for an ordinary two-parent
 merge and diverge for an octopus: `^1..^2` sees only the second parent's work, so a

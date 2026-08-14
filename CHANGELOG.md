@@ -21,26 +21,31 @@ commit-touches-N-files concern for the whole merged branch.
 **All three converged.** The two hook routes share one decision — `is_merge` is
 gone as a parameter of `build_commit_event`, which reads the parent count itself so
 neither route can forget it — and the close-cycle emitter now routes its `resolves`
-through the same helper. It still passes `is_merge=True` by hand, because it knows
-structurally that it just made a merge and does not need to ask git; that flag
-remains a parameter of `make_commit_event`, the constructor all three share.
-v5.13.1 closed one narrow case; this closes the rest.
+through the same helper. It still passes `is_merge=True` by hand — that flag remains
+a parameter of `make_commit_event`, the constructor all three share — and this note
+first justified that as safe because the emitter "knows structurally that it just
+made a merge". Not quite: the merge helper also reports success on **"Already up to
+date"**, which creates no commit at all, so HEAD is then the previous one. The
+dedup on `commit_hash` catches that whenever the previous commit already has an
+event, which is the ordinary case; the residual is tracked as an open concern rather
+than argued away. v5.13.1 closed one narrow case; this closes the rest.
 
 `resolves` now UNIONS what the operator wrote with what the merged range yields,
 rather than replacing it. The close-cycle emitter reads its body back from HEAD, so
 "a merge subject never carries a trailer" was never a property the code had —
 replacing dropped whatever the operator typed. `has_resolves_trailer` is
-authored-only everywhere now: it credits the discipline of writing a trailer, and
-taking it from a re-parsed id made every close-cycle merge score as though somebody
-wrote one at merge time. The unlinkable-trailer advisory stays authored-only for the
+authored-only everywhere now: it records that somebody wrote a trailer, and taking
+it from a re-parsed id made every close-cycle merge claim one nobody wrote. No rate
+moves — merge events are excluded from the trailer metrics outright — what was wrong
+was the record. The unlinkable-trailer advisory stays authored-only for the
 same reason — over derived ids it would file concerns naming work a long back-merge
 closed months ago.
 
 `merged_range_bodies` is gone with the convergence: once all three emitters decide
 commit by commit, nothing wanted the whole range as one blob.
 
-**The derivation reads only commits whose own event is in the LIVE log**, and that
-bound is what makes it safe to run on every merge. Re-parsing exists for one case —
+**The derivation reads only commits whose own event is ABSENT from the LIVE log**,
+and that bound is what makes it safe to run on every merge. Re-parsing exists for one case —
 a teammate's per-commit events failed to reach the shared log, so the merge HEAD is
 the only surviving record. A back-merge (`git merge main`) is two-parent like any
 other, and its incoming range is every commit the branch had not yet seen; without

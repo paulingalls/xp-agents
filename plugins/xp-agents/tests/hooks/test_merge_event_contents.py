@@ -220,12 +220,13 @@ class TestAMergeIsExemptFromTheCommitSizeConcern(_MergeCase):
 
 
 class TestACommitBodyCannotForgeARangeRecord(_MergeCase):
-    """`merged_range_commits` parses git output by splitting commit-message bytes
-    on `\x1e` and partitioning on `\x1f`. Those are ASCII control characters a
-    commit message may legally contain, so a body can inject a record — and the
-    injected hash, being fabricated, is absent from the recorded set BY
-    CONSTRUCTION, which is precisely what the "no recorded event" filter keys on.
-    An injected record would therefore bypass the bound every time.
+    """`merged_range_commits` parses git output by framing records on git's own
+    `-z` NUL separator and partitioning each on the FIRST unit-separator byte.
+    Framing on a record-separator byte came first, and a commit message may
+    legally contain one, so a body could inject a record — and the injected hash,
+    being fabricated, is absent from the recorded set BY CONSTRUCTION, which is
+    precisely what the "no recorded event" filter keys on. An injected record
+    would therefore bypass the bound every time.
 
     Not a security finding — writing the body means you can already write a real
     trailer. It is a correctness one: the filter must not be defeatable by content

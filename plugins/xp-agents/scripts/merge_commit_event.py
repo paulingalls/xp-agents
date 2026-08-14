@@ -59,16 +59,17 @@ def append_merge_commit_event(
     events read + ONE sprint load with ``trailer_gate.advisory`` (closes the
     recorded double-read debt). ``events is None`` → read own under flock; a
     passed list (possibly empty) is used as-is. ``sprint is _UNSET`` → load own
-    + fail open; a passed value (including ``None``) is used as-is. The dedup
-    scan needs only PRIOR events, which a pre-append snapshot captures, so
-    sharing is safe.
+    + fail open; a passed value (including ``None``) is used as-is. BOTH readers
+    of ``events`` here — the dedup scan and ``merge_resolves``' recorded-commit
+    filter — need only PRIOR events, which a pre-append snapshot captures (taken
+    after the merge landed), so sharing is safe.
     """
     if smm_dir is None:
         return
     commit_hash = commits.get_head_commit_hash(cwd)
     if not commit_hash:
         return
-    # Read events under shared flock for dedup — we only need the events list
+    # Read under shared flock for dedup and the range filter — we need the list
     # (commit-hash lookup is a linear scan), not the resolution graph. Using
     # load_events_with_resolutions here would pay an O(N) resolution.compute
     # pass on every close-cycle merge and throw the result away. A pre-read from
@@ -94,9 +95,11 @@ def append_merge_commit_event(
     # back-merged `main` brings main's commits into it at close — the same
     # unbounded-derivation defect the hook routes were just fixed for.
     #
-    # `has_resolves_trailer` is AUTHORED-only: it credits the discipline of writing
-    # a trailer, and a re-parsed id is not one. Taking it from the derivation made
-    # every close-cycle merge score as though somebody wrote a trailer at merge time.
+    # `has_resolves_trailer` is AUTHORED-only: it RECORDS that somebody wrote a
+    # trailer, and a re-parsed id is not one. No rate moves either way — the
+    # `is_merge` exclusion below keeps merge events out of every trailer metric —
+    # so what taking it from the derivation cost was the truth of the record, for
+    # anyone reading the log and for any later metric that does not exclude merges.
     resolves, _, has_resolves_trailer = commits.extract_resolves_trailer(body)
     resolves = commit_emit.merge_resolves(cwd, commit_hash, resolves, events=events)
     # Degrade gracefully on a corrupt/schema-invalid sprint.json: the merge

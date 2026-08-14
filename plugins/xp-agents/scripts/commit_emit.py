@@ -46,6 +46,7 @@ import review_records
 __all__ = [
     "HEAD_REBUILD_MAX_AGE_SECONDS",
     "build_commit_event",
+    "merge_resolves",
     "parse_commit_body",
     "rebuild_at_head",
 ]
@@ -118,9 +119,9 @@ def merge_resolves(
 ) -> list[str]:
     """`authored` UNION the trailers of merged-in commits whose event never landed.
 
-    ALL THREE merge emitters route through here, which is the point — this used to
-    be written twice with different answers, and the close-cycle copy still
-    replaced rather than unioned.
+    ALL THREE merge emitters route through here, which is the point — it was
+    written twice with different answers, and the close-cycle copy replaced where
+    the hook routes unioned.
 
     ONLY commits whose own event never landed. That is the entire rationale for
     re-parsing at all — a teammate's per-commit events can fail to reach the shared
