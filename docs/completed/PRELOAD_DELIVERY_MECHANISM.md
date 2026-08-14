@@ -83,6 +83,36 @@ having measured its cost (480 dedicated lines, 18 shipped files, 6 heartbeat wri
 hook-skipping, and teammate preflight — neither being the daily solo loop). Recorded here
 as a priced cost, not omitted.
 
+## The byte-identical constraint: why it existed, and why it is reversed
+
+Milestone 9 carried a constraint that the first harness's preload expansion path stay
+**byte-identical** after the milestone. The verdict reverses it. That deserves its reason
+in writing, because reversing a recorded constraint on the strength of a preference rather
+than evidence is how a plan quietly loses its memory.
+
+**Where it came from.** Nowhere measured. No SMM event records it; it appears only in
+`execution_plan.json` §Milestone 9, authored at plan time, when both candidate routes were
+*Codex-only* remedies. In that framing the constraint is a blast-radius guard: whatever we
+do for the second harness, do not disturb the harness that already works.
+
+**What it was protecting.** Concretely, the instruction-time channel. `skills/_preload_liveness.sh`
+documents the property in its own header — the check that reports a dead hook runtime
+*cannot itself be a hook*, and a preload works as that check precisely because it is an
+instruction-time load that still runs when the thing it tests is broken. Freezing the
+expansion path froze the only detector of a silently unenforced session.
+
+**Why it is reversed.** The framing it was written under no longer holds: the customer's
+direction makes the first harness a *participant* in the new mechanism, not a bystander to
+be shielded. Reversal was ruled explicitly, not assumed, on three grounds — the constraint
+carried no measured backing; the protection it encoded is replaced by a content-level
+delivery pin that survives a mechanism swap, where a byte-identical pin does not; and the
+liveness exposure it guarded was measured for cost against reachability and scoped out
+deliberately (see the priced cost under criterion 4 above).
+
+**What would reinstate it.** Evidence that the inline-skill class cannot take injection —
+which M1 refutes — or a decision to keep liveness detection on the instruction-time channel,
+which would make the `!` lines load-bearing again for a reason other than state delivery.
+
 ## Where the skill→preload mapping lives
 
 Deleting the `!` lines deletes the record of *which command each skill's preload is*. That
