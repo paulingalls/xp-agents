@@ -53,6 +53,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -72,6 +73,7 @@ from conftest import (
 )
 
 _SUITE_PATH = Path(__file__)
+_TABLE_PATH = _SUITE_PATH.parent.parent / "_preload_delivery_fixtures.py"
 
 _HARNESS_BROKEN = (
     "pinned harness broken: git will fire a hook in the fresh temp repo at "
@@ -256,6 +258,88 @@ class TestNoMechanismAssertions(unittest.TestCase):
             "this suite names a delivery mechanism, so swapping the mechanism "
             f"could turn it red on content it still receives: {hits}",
         )
+
+    def test_the_scan_would_be_red_on_the_module_holding_the_terms(self):
+        """The scan above is worth nothing if the terms cannot match anything.
+        The term list lives in a sibling module precisely because a list inside
+        the scanned file is red by construction — so scanning THAT module is
+        the demonstration that the separation is load-bearing, and that the
+        terms are live strings rather than decoration."""
+        hits = mechanism_references(_TABLE_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(
+            len(hits),
+            len(MECHANISM_TERMS),
+            "every term should match the module that spells it; the scan of "
+            f"the suite is only meaningful because they do. Matched: {hits}",
+        )
+
+
+class TestThePinIsNotVacuous(unittest.TestCase):
+    """Demonstrations, not TDD-red: against a correct pin each passes first run.
+
+    Each was proved by TEMPORARILY loosening the pin — `EXACT_LINE` swapped for
+    containment, a marker set emptied — watching the case go red, and
+    reverting. They live here permanently so the loosening cannot come back
+    unnoticed.
+
+    They assert on the failure MESSAGE, never on an exception type: the guards
+    are pure functions returning offender lists, so a pin that silently stopped
+    resolving anything shows up as an empty list rather than passing under an
+    `assertRaises(AssertionError)` that the suite's own asserts would satisfy.
+    """
+
+    def test_suppressing_one_skills_delivery_names_that_skill(self):
+        """AC4, and the only case here that proves the pin watches DELIVERY.
+        Emptying a marker set and loosening a rule both mutate the pin; this
+        mutates what the preload hands back."""
+        target = "xp-schedule"
+        expected = PRELOAD_DELIVERY_MARKERS[target]
+        with patch.object(
+            sys.modules[__name__], "_run_preload", return_value=(b"", "", 0)
+        ):
+            outputs = collect_preload_outputs(skills=(target,))
+        self.assertEqual(outputs, {target: ""})
+
+        failures = delivery_failures(outputs)
+        self.assertEqual(
+            len(failures),
+            len(expected),
+            f"suppressed delivery should fail every recorded marker: {failures}",
+        )
+        joined = "\n".join(failures)
+        self.assertIn(target, joined)
+        for marker in expected:
+            self.assertIn(repr(marker.text), joined)
+
+    def test_the_match_rules_reject_what_containment_would_wave_through(self):
+        """`## XP Values: not found` is `_preload_base.sh`'s FAILURE branch and
+        it contains its own success string, so `assertIn` passes on it. Same
+        shape one level down: a `KEY=` line survives with its value gone.
+
+        This case pins the MATCH RULE, not delivery. Pointing PLUGIN_ROOT at a
+        tree with no XP_VALUES.md is a no-op — `_preload_base.sh` derives that
+        path from BASH_SOURCE and ignores the environment — so no preload run
+        can produce the degraded line here, and building a copied-tree harness
+        to force one would test the copy.
+        """
+        heading = Marker("## XP Values", Rule.EXACT_LINE)
+        degraded = "## XP Values: not found"
+        self.assertIn(heading.text, degraded)  # what containment would accept
+        self.assertFalse(match_marker(heading, [degraded]))
+        self.assertTrue(match_marker(heading, [heading.text]))
+
+        value = Marker("FRONTIER_COUNT", Rule.VALUE_NONEMPTY)
+        tolerated = Marker("FRONTIER_COUNT", Rule.KEY_PRESENT, why="proof")
+        self.assertFalse(match_marker(value, ["FRONTIER_COUNT="]))
+        self.assertTrue(match_marker(value, ["FRONTIER_COUNT=0"]))
+        self.assertTrue(match_marker(tolerated, ["FRONTIER_COUNT="]))
+
+    def test_emptying_a_marker_set_trips_the_content_guard(self):
+        """An entry recording nothing matches any output, including none."""
+        self.assertEqual(empty_marker_sets(), [])
+        with patch.dict(PRELOAD_DELIVERY_MARKERS, {"xp-plan": ()}):
+            self.assertEqual(empty_marker_sets(), ["xp-plan"])
+        self.assertEqual(empty_marker_sets(), [])
 
 
 if __name__ == "__main__":
