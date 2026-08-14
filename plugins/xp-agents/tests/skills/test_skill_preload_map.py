@@ -8,6 +8,7 @@ so both a shell-preload harness and a locator-only harness can run the same
 invocation from one source.
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -119,6 +120,33 @@ class TestOutliers(unittest.TestCase):
             f"_EXTRA_ARGS names skills the glob no longer finds: "
             f"{extra_args_keys - discovered}",
         )
+
+
+class TestEnvironmentContract(unittest.TestCase):
+    """`env` names the variables a consumer must forward, resolved where an
+    ambient value exists. Not a copy of the ambient environment — a
+    sanitized-env consumer (a hook process) is exactly who needs this."""
+
+    def test_invocation_names_claude_plugin_data(self):
+        invocation = skill_preload_map.resolve_preload("xp-accept")
+        assert invocation is not None
+        self.assertIn("CLAUDE_PLUGIN_DATA", invocation.env)
+
+    def test_resolves_ambient_value_when_set(self):
+        with patch.dict(os.environ, {"CLAUDE_PLUGIN_DATA": "/some/data/root"}):
+            invocation = skill_preload_map.resolve_preload("xp-accept")
+        assert invocation is not None
+        self.assertEqual(invocation.env["CLAUDE_PLUGIN_DATA"], "/some/data/root")
+
+    def test_tolerates_empty_claude_plugin_data(self):
+        """Empty is a SUPPORTED state — legacy SMM discovery skips it and
+        falls back to a candidate list; it must not raise."""
+        env = dict(os.environ)
+        env.pop("CLAUDE_PLUGIN_DATA", None)
+        with patch.dict(os.environ, env, clear=True):
+            invocation = skill_preload_map.resolve_preload("xp-accept")
+        assert invocation is not None
+        self.assertEqual(invocation.env["CLAUDE_PLUGIN_DATA"], "")
 
 
 if __name__ == "__main__":
