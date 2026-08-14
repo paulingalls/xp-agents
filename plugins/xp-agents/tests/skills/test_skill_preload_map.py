@@ -9,6 +9,8 @@ invocation from one source.
 """
 
 import os
+import re
+import shlex
 import sys
 import unittest
 from pathlib import Path
@@ -34,6 +36,63 @@ def _all_preload_skill_names() -> list[str]:
     return sorted(
         script.parent.parent.name for script in _SKILLS_DIR.glob("*/scripts/*.sh")
     )
+
+
+# The oracle for the conformance pin below: the `!`...`` invocation line
+# itself, matching the same shape test_preload_wiring.py keys off. This
+# regex is the ONLY line-shaped assumption this module makes — it is a test
+# fixture for reading the plugin's OWN shipped declaration, not language
+# parsing of any user-project code.
+_INVOCATION_LINE_RE = re.compile(r"^!`(.+)`$")
+_ENV_ASSIGNMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=")
+
+
+def _parse_skill_md_invocation(skill_name: str) -> tuple[list[str], list[str]]:
+    """Parse `skill_name`'s `!`...`` line into (required env names, argv
+    tail), where argv tail is [script_filename, *args] — everything the
+    resolver is responsible for reproducing.
+
+    Whole-line parse, not a script-path needle: a needle is blind to
+    exactly the two facts this story exists to get right (a dropped
+    argument, a dropped env name).
+    """
+    skill_md = _SKILLS_DIR / skill_name / "SKILL.md"
+    for line in skill_md.read_text(encoding="utf-8").splitlines():
+        m = _INVOCATION_LINE_RE.match(line)
+        if not m:
+            continue
+        tokens = shlex.split(m.group(1))
+        env_names = []
+        i = 0
+        while i < len(tokens):
+            env_match = _ENV_ASSIGNMENT_RE.match(tokens[i])
+            if not env_match:
+                break
+            env_names.append(env_match.group(1))
+            i += 1
+        argv_tail = tokens[i:]
+        if not argv_tail:
+            continue
+        script_name = Path(argv_tail[0]).name
+        return env_names, [script_name, *argv_tail[1:]]
+    raise AssertionError(f"{skill_name} has no `!`...`` invocation line")
+
+
+def _assert_conforms(skill_name: str) -> None:
+    env_names, argv_tail = _parse_skill_md_invocation(skill_name)
+    invocation = skill_preload_map.resolve_preload(skill_name)
+    assert invocation is not None
+    resolved_argv_tail = [Path(invocation.argv[0]).name, *invocation.argv[1:]]
+    if resolved_argv_tail != argv_tail:
+        raise AssertionError(
+            f"{skill_name}: resolver argv {resolved_argv_tail!r} != "
+            f"SKILL.md line {argv_tail!r}"
+        )
+    if set(invocation.env.keys()) != set(env_names):
+        raise AssertionError(
+            f"{skill_name}: resolver env {sorted(invocation.env)!r} != "
+            f"SKILL.md line {sorted(env_names)!r}"
+        )
 
 
 class TestCommonDefaultResolution(unittest.TestCase):
@@ -173,6 +232,43 @@ class TestAbsenceVsFailure(unittest.TestCase):
     def test_unknown_skill_name_raises_from_resolve_preload(self):
         with self.assertRaises(ValueError):
             skill_preload_map.resolve_preload("xp-does-not-exist")
+
+
+class TestConformancePin(unittest.TestCase):
+    """The resolver must reproduce every shipped `!`...`` invocation line
+    exactly — argv AND env, not just "some script ran".
+
+    Oracle: the `!`...`` line text. The story that deletes those lines
+    (not this one) must retire this pin DELIBERATELY when it does — see
+    skill_preload_map's module docstring.
+    """
+
+    def test_every_preload_skill_conforms_to_its_skill_md_line(self):
+        for name in _all_preload_skill_names():
+            with self.subTest(skill=name):
+                _assert_conforms(name)
+
+    def test_pin_catches_a_dropped_argument(self):
+        """Mutation proof: dropping --consume-gate from the argument table
+        must turn the pin red. Performed via monkeypatch so the mutation is
+        exercised on every run and always reverted."""
+        with (
+            patch.object(skill_preload_map, "_EXTRA_ARGS", {}),
+            self.assertRaises(AssertionError),
+        ):
+            _assert_conforms("xp-assign")
+        # Reverted: the table is unpatched again here, proven by conformance.
+        _assert_conforms("xp-assign")
+
+    def test_pin_catches_a_dropped_env_name(self):
+        """Mutation proof: dropping the required env name must turn the
+        pin red too — a script-name-only check would miss this."""
+        with (
+            patch.object(skill_preload_map, "_REQUIRED_ENV", ()),
+            self.assertRaises(AssertionError),
+        ):
+            _assert_conforms("xp-accept")
+        _assert_conforms("xp-accept")
 
 
 if __name__ == "__main__":
