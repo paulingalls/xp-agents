@@ -59,6 +59,11 @@ _CAPPED_FILES = (
     # fixture is: uncapped, it would be somewhere to move code to rather than a
     # place the code belongs.
     Path(__file__).resolve().parent / "test_commit_event_provenance.py",
+    # The message-parsing half of `commits.py`, capped on arrival for that same
+    # reason. It is far under today, which is exactly when to record it: the cap
+    # exists to force a placement decision, and a file only added once it is
+    # crowded has already had that decision made for it.
+    _SCRIPTS_DIR / "commit_trailers.py",
 )
 
 

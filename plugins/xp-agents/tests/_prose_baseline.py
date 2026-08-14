@@ -86,7 +86,15 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/commit_emit.py": 192,
     "plugins/xp-agents/scripts/commit_event.py": 167,
     "plugins/xp-agents/scripts/commit_handling.py": 161,
-    "plugins/xp-agents/scripts/commits.py": 175,
+    # 175 -> 156, a re-record DOWNWARD after the message-parsing half moved to
+    # `commit_trailers.py`. Nothing forced this: 156 sits under the old
+    # 175 + slack, so the pin was already green. Recorded anyway because the
+    # docstring's own rule for a deletion is to bank it as the new bound — left
+    # at 175 this file would carry 24 lines of silent regrowth allowance, earned
+    # by an extraction rather than by anyone writing a shorter true claim. The
+    # extracted file measures 39 prose lines, below the floor, so it is
+    # ungoverned and gets no entry of its own.
+    "plugins/xp-agents/scripts/commits.py": 156,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     "plugins/xp-agents/scripts/coordination.py": 166,  # see commit_emit.py above
     "plugins/xp-agents/scripts/dash_c_tokens.py": 129,
