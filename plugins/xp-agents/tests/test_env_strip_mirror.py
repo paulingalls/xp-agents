@@ -15,7 +15,7 @@ equality would force `XP_SESSION_ID` into the registry, where it must NOT be —
 `_env_hygiene` PINS that one to a fixed value instead, and stripping a var it
 pins would fight itself.
 
-THE SCAN IS THE POINT. This DISCOVERS every `env -u` occurrence by reading
+THE SCAN IS THE POINT. This DISCOVERS every pytest run by reading
 lefthook.yml, rather than naming the three runs that exist today. Enumerating
 locations is precisely the failure being fixed: a fourth run added later would be
 unmirrored and unnoticed, which is how the first three drifted. It reproduces the
@@ -53,8 +53,14 @@ _LEFTHOOK_ONLY_STRIPS = {
 }
 
 
-def _env_u_runs() -> list[str]:
-    """Every uncommented line in lefthook.yml that invokes `env -u`.
+def _pytest_runs() -> list[str]:
+    """Every uncommented lefthook line that invokes pytest.
+
+    DISCOVERED ON `pytest`, NOT ON `env -u`, and that distinction is the whole
+    value of the scan. Filtering on `env -u` — the first version of this — could
+    only ever find runs that already comply, so the drift it claimed to catch (a
+    new job added WITHOUT the prefix) was exactly the case it could not see. A
+    population defined by the property under test is not a test.
 
     A LIST, deliberately not a set: two runs stripping identical var sets are
     still two runs to check, and de-duplicating them would let one silently stop
@@ -63,7 +69,7 @@ def _env_u_runs() -> list[str]:
     return [
         line
         for line in _uncommented(LEFTHOOK.read_text(encoding="utf-8")).splitlines()
-        if "env -u" in line
+        if "pytest" in line
     ]
 
 
@@ -87,9 +93,9 @@ class TestTheScanFindsSomethingToCheck(unittest.TestCase):
     scan that silently found nothing would make the whole file pass while
     checking nothing — the exact shape of a test that cannot fail."""
 
-    def test_lefthook_declares_env_stripped_runs(self):
+    def test_lefthook_declares_pytest_runs(self):
         self.assertGreaterEqual(
-            len(_env_u_runs()), 3, "the scan found no `env -u` runs to verify"
+            len(_pytest_runs()), 3, "the scan found no pytest runs to verify"
         )
 
     def test_the_registry_is_not_empty(self):
@@ -98,15 +104,18 @@ class TestTheScanFindsSomethingToCheck(unittest.TestCase):
 
 class TestEveryRunMirrorsTheRegistry(unittest.TestCase):
     def test_no_run_omits_a_registry_var(self):
+        """Every pytest run, whether or not it strips anything today. A run with
+        no `env -u` at all reports the whole registry as missing, which is the
+        drift the previous discovery predicate could not see."""
         missing = {
             run.strip()[:60]: sorted(set(STRIPPED_VARS) - _stripped_in(run))
-            for run in _env_u_runs()
+            for run in _pytest_runs()
             if set(STRIPPED_VARS) - _stripped_in(run)
         }
         self.assertEqual(
             missing,
             {},
-            "these `env -u` runs do not strip every var _env_hygiene.py strips: "
+            "these pytest runs do not strip every var _env_hygiene.py strips: "
             f"{missing}",
         )
 
@@ -115,7 +124,7 @@ class TestEveryRunMirrorsTheRegistry(unittest.TestCase):
             run.strip()[:60]: sorted(
                 _stripped_in(run) - set(STRIPPED_VARS) - set(_LEFTHOOK_ONLY_STRIPS)
             )
-            for run in _env_u_runs()
+            for run in _pytest_runs()
             if _stripped_in(run) - set(STRIPPED_VARS) - set(_LEFTHOOK_ONLY_STRIPS)
         }
         self.assertEqual(

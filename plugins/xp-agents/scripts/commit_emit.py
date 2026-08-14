@@ -155,16 +155,34 @@ def build_commit_event(
         is_merge = parent_count is not None and parent_count > 1
 
     if is_merge and commit_hash:
-        # The merged-in commits' events may never have reached the shared log (a
-        # teammate's env-propagation failure), leaving this merge HEAD the only
-        # surviving record of that work — so re-parse the range, as
-        # `merge_commit_event` does. UNION, never replace: that emitter can
+        # ONLY commits whose own event never landed. That is the entire rationale
+        # for re-parsing at all — a teammate's per-commit events can fail to reach
+        # the shared log, leaving this merge HEAD the only surviving record — and
+        # without the filter the derivation is catastrophically wider than the
+        # rationale. A back-merge (`git merge main` to keep a branch current) has
+        # two parents like any other, and its incoming range is EVERY commit on
+        # main the branch had not seen: dozens or hundreds, whose trailers all
+        # landed with their own commits weeks ago. Unioning those would credit
+        # this one merge with resolving them, and silently close any that were
+        # deliberately left open. Filtering on "no recorded event" makes exactly
+        # that case a no-op while still rescuing the case the derivation exists
+        # for. `events` is the caller's already-locked read, so this costs no lock.
+        #
+        # UNION with the authored ids, never replace: `merge_commit_event` can
         # replace only because its body is a generated subject with no trailer,
         # while this one is whatever the operator typed.
-        # `TestWhatTheMergeEventResolves` holds why, and reddens on replacement.
-        derived, _, _ = commits.extract_resolves_trailer(
-            commits.merged_range_bodies(cwd, commit_hash)
-        )
+        # `TestWhatTheMergeEventResolves` holds both halves and reddens on either.
+        recorded = {
+            (e.get("metadata") or {}).get("commit_hash")
+            for e in events
+            if e.get("type") == _common.COMMIT
+        }
+        unrecorded = [
+            body
+            for landed, body in commits.merged_range_commits(cwd, commit_hash)
+            if landed not in recorded
+        ]
+        derived, _, _ = commits.extract_resolves_trailer("\n".join(unrecorded))
         resolves = resolves + [rid for rid in derived if rid not in resolves]
 
     # A trailer naming an id absent from the live log resolves nothing.

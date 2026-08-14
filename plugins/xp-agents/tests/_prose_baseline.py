@@ -93,9 +93,20 @@ PROSE_MEASURED: dict[str, int] = {
     # in `TestWhatTheMergeEventResolves` and proven by mutation there, so the code
     # comment now points at it in one line instead of restating it in seven. That
     # is this table's own rule for a rejected alternative a test already pins.
-    "plugins/xp-agents/scripts/commit_emit.py": 223,
+    # 223 -> 233 for the close review's three confirmed defects. What earned it:
+    # the merged-range derivation had to be bounded to commits whose own event
+    # never landed, and the reason a bare parent count is not that bound — a
+    # back-merge is two-parent too, and its incoming range is everything the
+    # branch had not seen — is the argument a future reader would otherwise
+    # remove the filter for. The size-concern exemption is now real code in
+    # `commit_handling.py` rather than a claim here, so its prose moved to where
+    # the gate is instead of being duplicated.
+    "plugins/xp-agents/scripts/commit_emit.py": 233,
     "plugins/xp-agents/scripts/commit_event.py": 167,
-    "plugins/xp-agents/scripts/commit_handling.py": 161,
+    # 161 -> 168: the commit-size gate now states why a merge is exempt, which
+    # is where that reasoning belongs — it was asserted in commit_emit.py while
+    # no code implemented it.
+    "plugins/xp-agents/scripts/commit_handling.py": 168,
     # 175 -> 156, a re-record DOWNWARD after the message-parsing half moved to
     # `commit_trailers.py`. Nothing forced this: 156 sits under the old
     # 175 + slack, so the pin was already green. Recorded anyway because the
@@ -110,9 +121,11 @@ PROSE_MEASURED: dict[str, int] = {
     # opposite. Measured against the banked 156 this growth is VISIBLE as +14.
     # Left at the old 175 it would have been free, and a reader could not tell
     # the file had grown at all.
-    "plugins/xp-agents/scripts/commits.py": 170,
+    "plugins/xp-agents/scripts/commits.py": 167,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
-    "plugins/xp-agents/scripts/coordination.py": 166,  # see commit_emit.py above
+    # 166 -> 169: the acquire-budget comment said the env override "still
+    # outranks this", which the precedence reversal made false.
+    "plugins/xp-agents/scripts/coordination.py": 169,
     "plugins/xp-agents/scripts/dash_c_tokens.py": 129,
     "plugins/xp-agents/scripts/framework_detect.py": 122,
     "plugins/xp-agents/scripts/hook_liveness.py": 196,

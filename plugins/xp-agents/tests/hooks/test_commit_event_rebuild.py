@@ -64,6 +64,13 @@ _CAPPED_FILES = (
     # exists to force a placement decision, and a file only added once it is
     # crowded has already had that decision made for it.
     _SCRIPTS_DIR / "commit_trailers.py",
+    # The merge-range readers, and the two suites the close review's findings
+    # split out. Capped on arrival for the same reason as everything above: a file
+    # added to this list only once it is crowded has already had its placement
+    # decision made for it.
+    _SCRIPTS_DIR / "merged_range.py",
+    Path(__file__).resolve().parent / "test_manual_merge_commit_event.py",
+    Path(__file__).resolve().parent / "test_merge_event_contents.py",
 )
 
 

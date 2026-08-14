@@ -26,8 +26,9 @@ _COORDINATION_MAX_AGE = 1800  # 30 minutes
 # `.coordination.json` is a best-effort advisory file read by gates that all
 # degrade gracefully without it, and every write happens on the SYNCHRONOUS
 # PostToolUse path — so blocking a hook for ten seconds on it is its own
-# problem, worse than the stale entry a give-up leaves behind. The env override
-# still outranks this, which is what lets a cross-process test narrow it further.
+# problem, worse than the stale entry a give-up leaves behind. `XP_LOCK_TIMEOUT_SECONDS`
+# can SHORTEN this further — which is what lets a cross-process test narrow it —
+# but no longer widen it, so tuning the event log's lock cannot inflate this cap.
 _COORDINATION_LOCK_TIMEOUT_S = 2
 
 

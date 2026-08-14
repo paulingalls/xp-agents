@@ -44,8 +44,6 @@ CAPTURED from the command rather than spelled as a literal — a hardcoded
 the stale-literal problem is what this suite already exists to catch.
 """
 
-import os
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -55,59 +53,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from _commit_repo_case import _RebuildTestCase
+from _commit_repo_case import _MergeCase
 
-
-class _MergeCase(_RebuildTestCase):
-    """A repo with a divergent side branch, ready to merge."""
-
-    def diverge(self, *, same_file: bool = False) -> None:
-        """Create `side` with a commit, and advance `main` too.
-
-        `same_file=True` makes the two edits collide, which is how a conflicted
-        merge is produced — the case where HEAD must NOT move.
-        """
-        self.git("checkout", "-q", "-b", "side")
-        self.commit("side work", path="src/side.py", content="side")
-        self.git("checkout", "-q", "main")
-        self.commit(
-            "main work",
-            path="src/side.py" if same_file else "src/main.py",
-            content="main",
-        )
-
-    def merge(
-        self, *args: str, env_extra: dict | None = None
-    ) -> subprocess.CompletedProcess:
-        """Run a merge that is ALLOWED to fail (a conflict is a test case).
-
-        `env_extra` backdates the merge it creates — see the stale case, which
-        cannot use `commit --amend` for that without changing the reflog action.
-        """
-        env = os.environ.copy()
-        if env_extra:
-            env.update(env_extra)
-        return subprocess.run(
-            ["git", "merge", *args],
-            cwd=self.repo,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
-    def parent_count(self) -> int:
-        return len(self.git("show", "-s", "--format=%P", "HEAD").split())
-
-    def merge_events(self) -> list[dict]:
-        """Commit events claiming a MERGE, which is all these cases assert on.
-
-        Not `commit_events() == []`: the fixture's own setup commits leave a
-        young single-parent HEAD with reflog action `commit`, so the PLAIN
-        rebuild arm legitimately records one. That is pre-existing behaviour and
-        not what any case here is about — the question is only ever whether a
-        merge was claimed.
-        """
-        return [e for e in self.commit_events() if e["metadata"].get("is_merge")]
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 
 class TestAMergeCommitIsRecorded(_MergeCase):
@@ -214,89 +165,6 @@ class TestAMergeCommitIsRecorded(_MergeCase):
         self.run_hook("git commit --no-edit")
 
         self._assert_one_merge_event()
-
-
-class TestWhatTheMergeEventResolves(_MergeCase):
-    """`resolves` UNIONS what the operator wrote with what the range yields.
-
-    A merge HEAD is often the only surviving record of the work it brings in — a
-    teammate's per-commit events can fail to reach the shared log — so the
-    merged-in bodies are re-parsed for trailers those events would have carried.
-    That derivation must ADD to the merge body's own trailer, never replace it.
-    Replacing is safe in `merge_commit_event` only because the body it builds
-    from is a generated `Merge <source>` subject with no trailer by
-    construction; an operator's `-m` is not, and dropping what they typed is the
-    same silent loss the tag exists to prevent.
-
-    Driven through the conflict-finish shape: it confirms on git's
-    `[branch hash]` line rather than on a message match, so the body is free to
-    carry a trailer without the command string having to reproduce it.
-    """
-
-    def _merge_resolving(self, body: str) -> dict:
-        """Finish a conflicted merge with `body`, run the hook, return the event."""
-        self.diverge(same_file=True)
-        self.assertNotEqual(self.merge("side").returncode, 0, "expected a conflict")
-        (self.repo / "src" / "side.py").write_text("resolved\n")
-        self.git("add", "-A")
-        stdout = self.git("commit", "-m", body)
-        self.assertEqual(self.parent_count(), 2, "expected a real merge commit")
-
-        self.run_hook("git commit", stdout)
-
-        events = self.commit_events()
-        self.assertEqual(len(events), 1, f"expected one commit event, got {events}")
-        return events[0]
-
-    def diverge(self, *, same_file: bool = False) -> None:
-        """As the base, but the SIDE commit carries a trailer to be derived."""
-        self.derived_id = self.seed_concern()
-        self.git("checkout", "-q", "-b", "side")
-        target = self.repo / "src" / "side.py"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("side")
-        self.git("add", "-A")
-        self.git(
-            "commit", "-q", "-m", f"side work\n\nResolves-Event: {self.derived_id}"
-        )
-        self.git("checkout", "-q", "main")
-        self.commit(
-            "main work",
-            path="src/side.py" if same_file else "src/main.py",
-            content="main",
-        )
-
-    def test_a_trailer_on_the_merge_body_survives_the_derivation(self):
-        """The case replacement would have broken: both ids present."""
-        authored_id = self.seed_concern()
-        event = self._merge_resolving(
-            f"Merge branch 'side'\n\nResolves-Event: {authored_id}"
-        )
-
-        resolves = event["metadata"]["resolves"]
-        self.assertIn(authored_id, resolves, "the operator's own trailer was dropped")
-        self.assertIn(self.derived_id, resolves, "the merged range was not re-parsed")
-
-    def test_a_derived_id_is_not_credited_as_an_authored_trailer(self):
-        """`has_resolves_trailer` measures AUTHORING discipline, so a re-parsed
-        id must not set it — otherwise every merge scores as if somebody wrote
-        the trailer at merge time, and the metric flatters itself."""
-        event = self._merge_resolving("Merge branch 'side'")
-
-        self.assertIn(self.derived_id, event["metadata"]["resolves"])
-        self.assertFalse(
-            event["metadata"].get("has_resolves_trailer"),
-            "a derived id was counted as an authored trailer",
-        )
-
-    def test_an_authored_trailer_is_credited(self):
-        """The contrast that keeps the case above from passing vacuously."""
-        authored_id = self.seed_concern()
-        event = self._merge_resolving(
-            f"Merge branch 'side'\n\nResolves-Event: {authored_id}"
-        )
-
-        self.assertTrue(event["metadata"].get("has_resolves_trailer"))
 
 
 class TestTheCasesThatMustClaimNothing(_MergeCase):

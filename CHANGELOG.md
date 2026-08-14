@@ -32,6 +32,28 @@ credits the discipline of writing a trailer and must not be set by a re-parsed i
 and the unlinkable-trailer advisory, which over derived ids would file concerns
 naming work a long back-merge closed months ago.
 
+**The derivation reads only commits whose own event never landed**, and that bound
+is what makes it safe to run on every merge. Re-parsing exists for one case — a
+teammate's per-commit events failed to reach the shared log, so the merge HEAD is
+the only surviving record. A back-merge (`git merge main`) is two-parent like any
+other, and its incoming range is every commit the branch had not yet seen; without
+the filter, one back-merge would be credited with resolving every trailer in that
+whole history and would silently close any target deliberately left open. Filtering
+on "no recorded event" makes that a no-op while still rescuing the case the
+derivation is for. The range is read as `<merge> --not <merge>^1` rather than
+`^1..^2`, so an octopus merge's third parent is covered instead of dropped.
+
+A merge is now genuinely **exempt from the commit-too-large concern**. `files` for
+a merge is the first-parent diff — legitimately the whole merged branch — so
+"consider smaller commits" is advice about work already committed in the small.
+This release originally claimed that exemption in four places while nothing
+implemented it; the gate exists now.
+
+`story_metrics` no longer reads `is_merge` alone as "the story shipped". It
+requires the close-cycle emitter's own agent id, because once every two-parent HEAD
+carries the tag, a mid-story back-merge would otherwise mark the story merged and
+drop its commit from the count.
+
 The suite that was supposed to cover this had been green on a path production
 rarely takes: it staged a real `-m` merge and a real conflict finish, then drove
 the hook with a *different* command and empty stdout. Each case now runs on both

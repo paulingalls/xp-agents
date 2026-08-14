@@ -196,23 +196,6 @@ def head_parent_count(cwd: str, rev: str) -> int | None:
     return len(out.split())
 
 
-def merged_range_bodies(cwd: str, merge_hash: str) -> str:
-    """Concatenated `%B` bodies of the commits a `--no-ff` merge brought in.
-
-    A `--no-ff` merge always has two parents: `^1` is the target branch tip
-    (already accounted for), `^2` is the merged-in source tip. Used by the
-    merge-fallback commit-event builder to re-derive `Resolves-Event:`
-    trailers that a teammate's per-commit events never recorded.
-
-    Fails safe: a degenerate ff-merge (no `^2`) or any other git error
-    returns "" rather than raising into the caller.
-    """
-    out = _run_git(
-        ["git", "log", "--format=%B", f"{merge_hash}^1..{merge_hash}^2"], cwd
-    )
-    return out or ""
-
-
 def get_code_files_for_review(
     cwd: str,
     last_review_commit: str,
@@ -384,6 +367,17 @@ from commit_trailers import (  # noqa: E402  intentional mid-file re-export
     parse_commit_message,
 )
 
+# -------------------------------------------------------------------
+# A merge's incoming commits — re-exported from merged_range
+# -------------------------------------------------------------------
+# Moved out when the per-commit reader took this file over its sub-cap. Imported
+# DOWN from here (that module imports `_run_git` back up), so this block must stay
+# below `_run_git`'s definition.
+from merged_range import (  # noqa: E402  intentional mid-file re-export
+    merged_range_bodies,
+    merged_range_commits,
+)
+
 __all__ = [
     "REVIEW_CYCLE_THRESHOLD",
     "commit_repo_candidates",
@@ -407,6 +401,7 @@ __all__ = [
     "is_escape_hatch_commit",
     "is_escape_hatch_message",
     "merged_range_bodies",
+    "merged_range_commits",
     "open_issues_matching_commit",
     "parse_commit_message",
     "parse_effective_cwd",

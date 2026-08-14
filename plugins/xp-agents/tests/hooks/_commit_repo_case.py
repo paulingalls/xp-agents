@@ -148,3 +148,55 @@ class _RebuildTestCase(_HookTestCase):
 
     def concerns(self) -> list[dict]:
         return events_of_type(self._read_events(), EVENT_TYPE_CONCERN)
+
+
+class _MergeCase(_RebuildTestCase):
+    """A repo with a divergent side branch, ready to merge."""
+
+    def diverge(self, *, same_file: bool = False) -> None:
+        """Create `side` with a commit, and advance `main` too.
+
+        `same_file=True` makes the two edits collide, which is how a conflicted
+        merge is produced — the case where HEAD must NOT move.
+        """
+        self.git("checkout", "-q", "-b", "side")
+        self.commit("side work", path="src/side.py", content="side")
+        self.git("checkout", "-q", "main")
+        self.commit(
+            "main work",
+            path="src/side.py" if same_file else "src/main.py",
+            content="main",
+        )
+
+    def merge(
+        self, *args: str, env_extra: dict | None = None
+    ) -> subprocess.CompletedProcess:
+        """Run a merge that is ALLOWED to fail (a conflict is a test case).
+
+        `env_extra` backdates the merge it creates — see the stale case, which
+        cannot use `commit --amend` for that without changing the reflog action.
+        """
+        env = os.environ.copy()
+        if env_extra:
+            env.update(env_extra)
+        return subprocess.run(
+            ["git", "merge", *args],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def parent_count(self) -> int:
+        return len(self.git("show", "-s", "--format=%P", "HEAD").split())
+
+    def merge_events(self) -> list[dict]:
+        """Commit events claiming a MERGE, which is all these cases assert on.
+
+        Not `commit_events() == []`: the fixture's own setup commits leave a
+        young single-parent HEAD with reflog action `commit`, so the PLAIN
+        rebuild arm legitimately records one. That is pre-existing behaviour and
+        not what any case here is about — the question is only ever whether a
+        merge was claimed.
+        """
+        return [e for e in self.commit_events() if e["metadata"].get("is_merge")]
