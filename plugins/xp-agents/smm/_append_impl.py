@@ -175,9 +175,9 @@ def flock_with_timeout(
     ``timeout_s`` names this caller's own budget — for a best-effort advisory
     file, where blocking a synchronous hook for the event log's 10s is its own
     problem. Omit it and the budget is ``LOCK_TIMEOUT_SECONDS`` exactly as
-    before; ``XP_LOCK_TIMEOUT_SECONDS`` outranks both. See
-    ``_effective_lock_timeout_seconds`` for why the precedence runs that way
-    and why the default is a ``None`` sentinel rather than the global itself.
+    before. ``XP_LOCK_TIMEOUT_SECONDS`` replaces the global outright, but may only
+    SHORTEN a named ``timeout_s`` — see ``_effective_lock_timeout_seconds`` for
+    why, and for why the default is a ``None`` sentinel rather than the global.
 
     Raises ``LockTimeoutError`` if the lock cannot be acquired within
     the budget; raises ``OSError`` if ``lock_path`` is a symlink.
