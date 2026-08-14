@@ -2,6 +2,109 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.15.0 — One merge policy, three emitters
+
+Minor rather than patch. Most of it is defect fixes, but two changes are ones a
+consumer can observe: a merge HEAD's recorded event changes shape (it now carries
+`is_merge` and a wider `resolves` on the routes an operator actually uses), and
+`XP_LOCK_TIMEOUT_SECONDS` no longer means what it meant — it can shorten a
+caller's named lock budget but not lengthen it, which reverses a recorded decision.
+
+A `type=commit` event for a merge HEAD could be produced by three emitters, and
+they disagreed. The close-cycle emitter tagged `is_merge` and re-derived
+`Resolves-Event:` trailers from the merged range; the HEAD-rebuild arm tagged but
+did not re-derive; the confirmed-success path — **the route an operator's merge
+actually takes** — did neither. So the common case was recorded as a plain commit:
+counted in the resolves-link-rate denominator, and drawing a
+commit-touches-N-files concern for the whole merged branch.
+
+**All three converged.** The two hook routes share one decision — `is_merge` is
+gone as a parameter of `build_commit_event`, which reads the parent count itself so
+neither route can forget it — and the close-cycle emitter now routes its `resolves`
+through the same helper. It still passes `is_merge=True` by hand — that flag remains
+a parameter of `make_commit_event`, the constructor all three share — and this note
+first justified that as safe because the emitter "knows structurally that it just
+made a merge". Not quite: the merge helper also reports success on **"Already up to
+date"**, which creates no commit at all, so HEAD is then the previous one. The
+dedup on `commit_hash` catches that whenever the previous commit already has an
+event, which is the ordinary case; the residual is tracked as an open concern rather
+than argued away. v5.13.1 closed one narrow case; this closes the rest.
+
+`resolves` now UNIONS what the operator wrote with what the merged range yields,
+rather than replacing it. The close-cycle emitter reads its body back from HEAD, so
+"a merge subject never carries a trailer" was never a property the code had —
+replacing dropped whatever the operator typed. `has_resolves_trailer` is
+authored-only everywhere now: it records that somebody wrote a trailer, and taking
+it from a re-parsed id made every close-cycle merge claim one nobody wrote. No rate
+moves — merge events are excluded from the trailer metrics outright — what was wrong
+was the record. The unlinkable-trailer advisory stays authored-only for the
+same reason — over derived ids it would file concerns naming work a long back-merge
+closed months ago.
+
+`merged_range_bodies` is gone with the convergence: once all three emitters decide
+commit by commit, nothing wanted the whole range as one blob.
+
+**The derivation reads only commits whose own event is ABSENT from the LIVE log**,
+and that bound is what makes it safe to run on every merge. Re-parsing exists for one case —
+a teammate's per-commit events failed to reach the shared log, so the merge HEAD is
+the only surviving record. A back-merge (`git merge main`) is two-parent like any
+other, and its incoming range is every commit the branch had not yet seen; without
+the filter, one back-merge would be credited with resolving every trailer in that
+whole history and would silently close any target deliberately left open. Filtering
+on "no recorded event" makes that a no-op while still rescuing the case the
+derivation is for. The range is read as `<merge> --not <merge>^1` rather than
+`^1..^2`, so an octopus merge's third parent is covered instead of dropped.
+
+The bound is LIVE-LOG, and that word is load-bearing: compaction archives commit
+events once their sprint leaves the retention window, so a merge absorbing commits
+older than that — or a rebased branch, whose hashes never match — sees no event and
+re-derives. Narrower than "every already-recorded commit", and tracked rather than
+papered over.
+
+The range framing is `-z`, whose NUL separator a commit object cannot contain. It
+was an ASCII control byte first, which let a commit BODY inject a record — and
+since an injected hash is absent from the log by construction, its trailers walked
+straight past the filter. Validating the hash as 40 hex does not close that; a body
+can spell 40 hex characters too.
+
+A merge is now genuinely **exempt from the commit-too-large concern**. `files` for
+a merge is the first-parent diff — legitimately the whole merged branch — so
+"consider smaller commits" is advice about work already committed in the small.
+This release originally claimed that exemption in four places while nothing
+implemented it; the gate exists now.
+
+`story_metrics` no longer reads `is_merge` alone as "the story shipped". It
+requires the close-cycle emitter's own agent id, because once every two-parent HEAD
+carries the tag, a mid-story back-merge would otherwise mark the story merged and
+drop its commit from the count.
+
+The suite that was supposed to cover this had been green on a path production
+rarely takes: it staged a real `-m` merge and a real conflict finish, then drove
+the hook with a *different* command and empty stdout. Each case now runs on both
+routes, with git's real output captured rather than spelled as a literal.
+
+### Also
+
+- **`XP_LOCK_TIMEOUT_SECONDS` may now only shorten a caller's named lock budget,
+  never lengthen it.** Raised to 30s for its documented purpose — a slow event-log
+  lock — it used to inflate the coordination file's deliberate 2s cap to 30s,
+  blocking a synchronous write-path hook for the whole of it. That reverses a
+  recorded decision, deliberately: the lever needs only to shorten, which is all
+  it ever needed.
+- One best-effort flock shape (`try_flock`) replaces two that had drifted apart
+  for the same job. It takes an `on_giveup` callback rather than returning a bare
+  bool, because one of the two callers logs the CAUSE — and flattening `ENOLCK` on
+  a network mount and a 2s timeout into one line turns a diagnosable give-up into
+  an unexplained one.
+- Every `env -u` run in `lefthook.yml` now strips the full leaky-env registry; it
+  had been missing five of twelve entries while `CLAUDE.md` asserted the mirror as
+  an invariant. A new pin **discovers** those runs by scanning the file rather than
+  naming the three that exist today, since enumerating locations is what let them
+  drift.
+- The commit-message parsing half of `commits.py` moved to `commit_trailers.py`,
+  re-exported by identity — text in, text out, and now testable with no git on
+  PATH. Two integration suites stopped hand-rolling the same nested-repo fixture.
+
 ## v5.14.1 — The suite CI could not run, and the message that would not say why
 
 v5.14.0 shipped with a red suite. Three tests failed on the runner and passed on
@@ -200,9 +303,9 @@ merge finished by hand is recognised there too, spelled `commit (merge)`.
 `git commit --no-edit`, both get confirmed the ordinary way (message match, or
 git's `[branch hash]` line), so they take the shared success path, which does not
 pass `is_merge` and records them as plain commits carrying the whole merged
-branch as their files. Threading the tag through that path is the next piece of
-work and is tracked as an open concern. These notes claimed the general case
-until a close review measured both shapes end to end.
+branch as their files. These notes claimed the general case until a close review
+measured both shapes end to end. (Closed in v5.15.0, "One merge policy, three
+emitters".)
 
 ### The fix that claimed another clone's commit
 
@@ -229,6 +332,16 @@ did before the merge arm existed.
 
 It escaped four close reviews and a green sprint. What found it was running the
 plugin's own back-merge and reading the two traces it left.
+
+To be exact about that, because a later note got it wrong: those traces were not
+this bug firing. The hooks running that day were the INSTALLED plugin, v5.12.0,
+whose merge arm vetoed every two-parent HEAD outright — so both traces were that
+veto behaving correctly, and no released version ever had an arm that could
+fabricate. The bug was real and reproduced against the working tree through the
+test fixtures; the traces only prompted the reading that found it. Hook behaviour
+observed while working in this repo comes from the installed copy, not the branch
+being edited, and a claim built on a live trace has to name the version that
+produced it.
 
 ### Also
 

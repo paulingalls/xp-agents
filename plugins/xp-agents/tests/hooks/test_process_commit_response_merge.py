@@ -271,10 +271,104 @@ class TestMergeCommitRelinksResolvesEvent(unittest.TestCase):
         commit_events = [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
         self.assertEqual(len(commit_events), 1)
         self.assertEqual(commit_events[0]["metadata"].get("resolves"), [debt_id])
-        self.assertTrue(commit_events[0]["metadata"].get("has_resolves_trailer"))
+        # NOT has_resolves_trailer: this id was RE-PARSED off a merged-in commit,
+        # and that flag records that somebody WROTE a trailer — the same
+        # authored-only rule the two hook routes already follow. Taken from the
+        # derivation it made the merge claim a trailer nobody wrote. No rate moves
+        # (is_merge keeps merge events out of the trailer metrics); `resolves`
+        # above is what makes the debt close, and the flag is the record.
+        self.assertFalse(commit_events[0]["metadata"].get("has_resolves_trailer"))
 
         resolved = resolution.compute_resolutions(events)["resolved_debt_ids"]
         self.assertIn(debt_id, resolved, "merge backstop did not resolve the debt")
+
+    def test_a_trailer_on_the_merge_body_is_kept_alongside_the_derived_one(self):
+        """The union, on the third emitter. `body` is read back from HEAD, so a
+        close-cycle merge body CAN carry an authored trailer — this emitter used to
+        replace `resolves` with the derivation outright and drop it."""
+        authored = self._append_debt("the operator's own target")
+        derived = self._append_debt("the merged-in commit's target")
+
+        _git(self.repo, "checkout", "-q", "-b", "story-branch")
+        (self.repo / "fix.py").write_text("y = 2\n")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", f"fix\n\nResolves-Event: {derived}")
+        _git(self.repo, "checkout", "-q", "main")
+        _git(
+            self.repo,
+            "merge",
+            "-q",
+            "--no-ff",
+            "-m",
+            f"Merge story-branch\n\nResolves-Event: {authored}",
+            "story-branch",
+        )
+
+        append_merge_commit_event(str(self.repo), self.smm, "paulingalls/story-branch")
+
+        meta = next(
+            e for e in self._read_events() if e.get("type") == EVENT_TYPE_COMMIT
+        )["metadata"]
+        self.assertIn(authored, meta["resolves"], "the operator's trailer was dropped")
+        self.assertIn(derived, meta["resolves"], "the merged range was not re-parsed")
+        self.assertTrue(
+            meta.get("has_resolves_trailer"),
+            "an authored trailer on the merge body must still be credited",
+        )
+
+    def test_a_merged_in_commit_whose_event_landed_is_not_re_derived(self):
+        """The bound, on the third emitter. Its range was only ever bounded by the
+        source/target relationship — a story branch that back-merged `main` carries
+        main's commits into it at close, and replacing/unioning their trailers
+        credits this merge with work that closed weeks ago."""
+        already = self._append_debt("closed by its own commit")
+
+        _git(self.repo, "checkout", "-q", "-b", "story-branch")
+        (self.repo / "fix.py").write_text("y = 2\n")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", f"fix\n\nResolves-Event: {already}")
+        side_head = _git(self.repo, "rev-parse", "HEAD")
+        _git(self.repo, "checkout", "-q", "main")
+        _git(
+            self.repo,
+            "merge",
+            "-q",
+            "--no-ff",
+            "-m",
+            "Merge story-branch",
+            "story-branch",
+        )
+        # Recorded AFTER the merge, purely for fixture hygiene: setUp's `add -A`
+        # tracks `.smm/`, so writing an event before a checkout dirties a tracked
+        # file and git refuses to switch. The filter reads `events` when
+        # `append_merge_commit_event` runs, so the ordering is immaterial to it.
+        _common.append_safe(
+            self.smm,
+            _common.make_event(
+                EVENT_TYPE_COMMIT,
+                "main",
+                "fix",
+                files=["fix.py"],
+                metadata={"commit_hash": side_head, "resolves": [already]},
+            ),
+        )
+
+        append_merge_commit_event(str(self.repo), self.smm, "paulingalls/story-branch")
+
+        merge_events = [
+            e
+            for e in self._read_events()
+            if e.get("type") == EVENT_TYPE_COMMIT
+            and e["metadata"].get("commit_hash") != side_head
+        ]
+        self.assertEqual(
+            len(merge_events), 1, f"expected one merge event: {merge_events}"
+        )
+        self.assertNotIn(
+            already,
+            merge_events[0]["metadata"].get("resolves", []),
+            "the merge claimed an id its own commit already resolved",
+        )
 
     def test_trailer_naming_absent_id_degrades_honestly(self):
         """AC3: a merged trailer naming an id absent from the live log must
@@ -314,8 +408,8 @@ class TestMergeCommitRelinksResolvesEvent(unittest.TestCase):
         self.assertNotIn("deadbeef1234", all_resolved)
 
     def test_ff_merge_omits_resolves_without_crashing(self):
-        """A degenerate ff-merge has no `^2` parent; merged_range_bodies must
-        fail safe (empty string) rather than raise into the caller."""
+        """A degenerate ff-merge has no `^2` parent; merged_range_commits must
+        fail safe (empty list) rather than raise into the caller."""
         _git(self.repo, "checkout", "-q", "-b", "story-branch")
         (self.repo / "fix.py").write_text("y = 2\n")
         _git(self.repo, "add", "-A")

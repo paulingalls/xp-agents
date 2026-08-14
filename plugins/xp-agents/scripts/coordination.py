@@ -9,6 +9,7 @@ import contextlib
 import json
 import sys
 import time
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -16,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import marker_names
 import session_scope
-from _append_impl import LockTimeoutError, flock_with_timeout, write_json_atomic
+from _append_impl import write_json_atomic
+from _try_flock import try_flock
 
 _COORDINATION_MAX_AGE = 1800  # 30 minutes
 
@@ -24,31 +26,31 @@ _COORDINATION_MAX_AGE = 1800  # 30 minutes
 # `.coordination.json` is a best-effort advisory file read by gates that all
 # degrade gracefully without it, and every write happens on the SYNCHRONOUS
 # PostToolUse path — so blocking a hook for ten seconds on it is its own
-# problem, worse than the stale entry a give-up leaves behind. The env override
-# still outranks this, which is what lets a cross-process test narrow it further.
+# problem, worse than the stale entry a give-up leaves behind. `XP_LOCK_TIMEOUT_SECONDS`
+# can SHORTEN this further — which is what lets a cross-process test narrow it —
+# but no longer widen it, so tuning the event log's lock cannot inflate this cap.
 _COORDINATION_LOCK_TIMEOUT_S = 2
 
 
-def _hold_coordination_lock(smm_dir: Path, stack: contextlib.ExitStack) -> bool:
-    """Take the coordination lock into *stack*. False when it could not be taken.
+def _coordination_lock(smm_dir: Path) -> AbstractContextManager[bool]:
+    """Hold the coordination lock for the block. Yields whether it was taken.
 
-    Only the ACQUIRE is wrapped, never the caller's body — the shape
-    `in_place_locks.door_mutex` already establishes. Wrapping a whole
-    `with flock_with_timeout(...): ...` would catch an `OSError` raised by
-    `write_json_atomic` (a full disk, say) and record it as a lock failure,
-    writing a wrong diagnosis into the error log.
+    The shape is `_try_flock.try_flock`, shared with the in-place door mutex —
+    which this used to merely resemble. This wrapper supplies the lock path, the
+    2s budget, and the one thing the door does not want: a give-up is LOGGED
+    rather than swallowed. This runs on a synchronous hook path where the
+    alternative to a trace is a coordination entry that silently stopped being
+    written; `tests/hooks/test_coordination_lock.py` carries the defect that
+    caused.
 
-    A give-up is LOGGED rather than swallowed: this runs on a synchronous hook
-    path where the alternative to a trace is a coordination entry that silently
-    stopped being written. `tests/hooks/test_coordination_lock.py` carries the
-    defect this shape exists to prevent.
+    The cause is passed THROUGH, not flattened to "could not lock": which errno
+    (`ENOLCK` on a network mount) or a timeout is the difference between a
+    diagnosable give-up and an unexplained one. That is why the shared shape takes
+    a callback instead of just returning a bool.
     """
     lock_path = smm_dir / marker_names.COORDINATION_LOCK
-    try:
-        stack.enter_context(
-            flock_with_timeout(lock_path, timeout_s=_COORDINATION_LOCK_TIMEOUT_S)
-        )
-    except (LockTimeoutError, OSError) as exc:
+
+    def _log(exc: Exception) -> None:
         # Lazy, like `now_iso` below: this module loads on the write-path hooks,
         # and only a failing acquire needs the error-logging machinery.
         import _common
@@ -58,8 +60,8 @@ def _hold_coordination_lock(smm_dir: Path, stack: contextlib.ExitStack) -> bool:
             error_class=type(exc).__name__,
             lock_path=str(lock_path),
         )
-        return False
-    return True
+
+    return try_flock(lock_path, timeout_s=_COORDINATION_LOCK_TIMEOUT_S, on_giveup=_log)
 
 
 # How `has_active_teammates` reads the file unfiltered. `read_coordination` has
@@ -125,11 +127,9 @@ def update_coordination(smm_dir: Path, agent_id: str, working_on: list[str]) -> 
     """Atomically update this agent's entry in .coordination.json."""
     coord_path = smm_dir / marker_names.COORDINATION_JSON
 
-    stack = contextlib.ExitStack()
-    if not _hold_coordination_lock(smm_dir, stack):
-        return
-
-    with stack:
+    with _coordination_lock(smm_dir) as held:
+        if not held:
+            return
         # Read existing data
         data: dict = {}
         with contextlib.suppress(FileNotFoundError, json.JSONDecodeError):
@@ -295,11 +295,9 @@ def clear_coordination_agent(smm_dir: Path, agent_id: str) -> None:
     """Remove an agent's entry from .coordination.json."""
     coord_path = smm_dir / marker_names.COORDINATION_JSON
 
-    stack = contextlib.ExitStack()
-    if not _hold_coordination_lock(smm_dir, stack):
-        return
-
-    with stack:
+    with _coordination_lock(smm_dir) as held:
+        if not held:
+            return
         data: dict = {}
         with contextlib.suppress(FileNotFoundError, json.JSONDecodeError):
             data = json.loads(coord_path.read_text(encoding="utf-8"))

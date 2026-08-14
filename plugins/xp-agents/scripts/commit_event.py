@@ -352,7 +352,10 @@ def make_commit_event(
     Optional kwargs:
       - ``resolves`` / ``has_resolves_trailer``: bash-commit only
         (parsed from the commit message body)
-      - ``is_merge``: a merge HEAD (close cycle, or the rebuild's merge arm)
+      - ``is_merge``: ANY merge HEAD — >1 parent. Set by the close cycle and,
+        since the hook routes converged, by every recorded merge on them. It
+        does NOT mean "a story shipped"; `story_metrics` needs the close
+        emitter's agent id for that.
         — excludes the event from ``retro_metrics._compute_resolves_link_rate``
         denominator so a merge HEAD doesn't dilute the rate without a trailer
       - ``is_free_session``: commit emitted on a free branch

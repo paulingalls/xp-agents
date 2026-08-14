@@ -78,20 +78,27 @@ SKIP_LIVENESS_ENV = "XP_SKIP_LIVENESS_CHECK"
 #   (the regression TestPluginDataIsolation guards). Listed here to keep this
 #   registry complete, but the PIN below is what contains it: that assignment
 #   overwrites any leaked value, so this strip is belt to its braces.
-# - XP_LOCK_TIMEOUT_SECONDS: `_append_impl`'s flock budget, and the TOP of that
-#   chain — it outranks both the module default and a caller's explicit
-#   `flock_with_timeout(timeout_s=...)`. A leaked export therefore rewrites
-#   every acquire budget in the suite: the timeout tests that patch
-#   `LOCK_TIMEOUT_SECONDS` measure the leaked value instead, and coordination's
-#   own 2s becomes whatever the dev shell says. Tests that exercise the lever
-#   pass it explicitly on the subprocess env (test_stop_gate_in_place,
+# - XP_LOCK_TIMEOUT_SECONDS: `_append_impl`'s flock budget. It replaces the module
+#   default outright and can SHORTEN a caller's explicit
+#   `flock_with_timeout(timeout_s=...)`, though no longer lengthen one. Either way
+#   a leaked export rewrites acquire budgets across the suite: the timeout tests
+#   that patch `LOCK_TIMEOUT_SECONDS` would measure the leaked value instead, and
+#   any value below coordination's 2s would shorten that too. Tests that exercise
+#   the lever pass it explicitly on the subprocess env (test_stop_gate_in_place,
 #   test_coordination_lock), which this strip does not affect.
 # - XP_SMM_MIGRATE: init.sh's relocation override. `off` suppresses relocation
 #   and `force` performs it despite the teammate-liveness gate, so a leaked
 #   value would either hide the migration tests' subject or drive it past the
 #   very guard those tests exist to pin. The migration suite sets it
 #   explicitly per case.
-for _leaked_var in (
+#
+# A NAMED CONSTANT, not an inline tuple in the loop below. CLAUDE.md calls this
+# module the single registry and requires `lefthook.yml` to mirror it, and a list
+# spelled inline can only be mirrored by hand — which is how it came to be missing
+# five of these entries with nothing to notice. `tests/test_env_strip_mirror.py`
+# reads THIS tuple and scans lefthook for every `env -u` run, so the claim is now
+# checked rather than asserted.
+STRIPPED_VARS: tuple[str, ...] = (
     "GIT_DIR",
     "GIT_WORK_TREE",
     "GIT_COMMON_DIR",
@@ -103,7 +110,9 @@ for _leaked_var in (
     "XP_LOCK_TIMEOUT_SECONDS",
     "XP_SMM_MIGRATE",
     *STRIPPED_SESSION_ID_VARS,
-):
+)
+
+for _leaked_var in STRIPPED_VARS:
     os.environ.pop(_leaked_var, None)
 
 os.environ[PINNED_SESSION_ID_VAR] = TEST_SESSION_ID

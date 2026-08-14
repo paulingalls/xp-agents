@@ -4,9 +4,10 @@
 Split out of `test_commit_event_rebuild.py`, which sat at exactly its own
 450-line sub-cap with no headroom until a back-merge added eight lines. The
 seam is not chronological: every case here drives ONE decision —
-`commit_emit._freshly_landed_commit_kind`, which answers how the head in front
-of it landed (a plain commit, a merge, or nothing this command can describe)
-from the committer timestamp, the parent count and the reflog action.
+`commit_emit._a_commit_freshly_landed`, which answers whether the head in front
+of it is a commit this command could have made — from the committer timestamp, the
+parent count and the reflog action. (It returned the KIND until merge tagging moved
+into the shared builder; nothing reads the distinction now.)
 
 The consumer keeps the cases about what the rebuild DOES once that answer is
 "yes": the event it builds, the trailer it resolves, the trace it replaces, the

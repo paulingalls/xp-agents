@@ -29,7 +29,6 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Literal
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
@@ -47,6 +46,7 @@ import review_records
 __all__ = [
     "HEAD_REBUILD_MAX_AGE_SECONDS",
     "build_commit_event",
+    "merge_resolves",
     "parse_commit_body",
     "rebuild_at_head",
 ]
@@ -91,12 +91,6 @@ _CONFLICT_FINISH_REFLOG_ACTION = "commit (merge)"
 # failing OPEN on a miss; `test_commit_event_provenance.py` holds what it took.
 _MERGE_CREATED_DETAIL_PREFIX = "merge made by"
 
-# Spelled as a type, like `in_place_marker._State`, to name the two landings in
-# one place. It does NOT catch a typo in a caller's bare-string comparison —
-# pyright runs `basic` here with `reportUnnecessaryComparison` off, so
-# `kind == "mrege"` is reported by nothing (measured). The tests guard that.
-_LandingKind = Literal["plain", "merge"]
-
 
 def parse_commit_body(raw_body: str | None) -> tuple[list[str], str, bool]:
     """`(resolves ids, the body an event's content is BUILT from, has_trailer)`.
@@ -116,6 +110,60 @@ def parse_commit_body(raw_body: str | None) -> tuple[list[str], str, bool]:
     return resolves, _COAUTHOR_TRAILER_RE.sub("", body).strip(), has_trailer
 
 
+def merge_resolves(
+    cwd: str,
+    commit_hash: str,
+    authored: list[str],
+    *,
+    events: list[dict],
+) -> list[str]:
+    """`authored` UNION the trailers of merged-in commits whose event never landed.
+
+    ALL THREE merge emitters route through here, which is the point — it was
+    written twice with different answers, and the close-cycle copy replaced where
+    the hook routes unioned.
+
+    ONLY commits whose own event never landed. That is the entire rationale for
+    re-parsing at all — a teammate's per-commit events can fail to reach the shared
+    log, leaving the merge HEAD the only surviving record of that work — and
+    unfiltered the derivation is catastrophically wider than its rationale. A
+    back-merge (`git merge main` to keep a branch current) has two parents like any
+    other, and its incoming range is EVERY commit the branch had not seen: dozens
+    or hundreds, whose trailers landed with their own commits weeks ago. Unioning
+    those credits one merge with resolving them, and silently closes any that were
+    deliberately left open.
+
+    That range is bounded by the source/target RELATIONSHIP, never structurally, so
+    "the close cycle's range is its own story's commits" was never a property the
+    code had: a story branch that back-merged `main` carries main's commits in its
+    range at close time too.
+
+    UNION, never replace. The authored ids come from a body the operator may have
+    written — a `-m` on a hand merge, an edited conflict-finish message, or a
+    close-cycle body read back from HEAD — and replacing drops what they typed.
+
+    The bound is the LIVE log, NARROWER than "already recorded": compaction
+    archives commit events once their sprint leaves the retention window, and a
+    rebased branch's hashes never match, so either case still re-derives. Recorded
+    rather than implied — reading the archives here would put an unbounded read on
+    a synchronous hook.
+
+    `events` is the caller's already-locked read, so the filter costs no lock.
+    """
+    recorded = {
+        (e.get("metadata") or {}).get("commit_hash")
+        for e in events
+        if e.get("type") == _common.COMMIT
+    }
+    unrecorded = [
+        body
+        for landed, body in commits.merged_range_commits(cwd, commit_hash)
+        if landed not in recorded
+    ]
+    derived, _, _ = commits.extract_resolves_trailer("\n".join(unrecorded))
+    return authored + [rid for rid in derived if rid not in authored]
+
+
 def build_commit_event(
     smm_dir: Path,
     agent_id: str,
@@ -127,7 +175,6 @@ def build_commit_event(
     committed_files: list[str],
     code_file_count: int,
     review_cadence: str,
-    is_merge: bool = False,
 ) -> dict | None:
     """Turn a commit body into a type=commit event. None when there is no body.
 
@@ -141,12 +188,29 @@ def build_commit_event(
     an id the resolver cannot see. That advisory belongs to the body, not to
     the caller, which is why it moved in here with the rest of the sequence.
 
-    `is_merge` forwards to the shared builder, which excludes the event from the
-    resolves-link-rate denominator. Only the rebuild's merge arm passes it.
+    MERGE TAGGING LIVES HERE rather than in either caller. `is_merge` was a
+    defaulted parameter exactly one of the two passed, so the dominant hand-merge
+    route recorded merge HEADs as plain commits — in the link-rate denominator,
+    and drawing a commit-too-large concern for the whole merged branch. The rule
+    it now follows: tagging belongs where the parent count is already known.
     """
     if not raw_body:
         return None
-    resolves, body, has_trailer = parse_commit_body(raw_body)
+    authored, body, has_trailer = parse_commit_body(raw_body)
+    resolves = authored
+
+    # Asked for `commit_hash`, not HEAD, so a moved HEAD cannot make this describe
+    # a different commit. Absent count (lookup failed, or no hash) leaves the
+    # event untagged — the pre-existing behaviour, and the safe direction: an
+    # untagged merge is only over-counted in a rate, while a wrongly tagged plain
+    # commit would be silently exempt from the size concern the tag suppresses.
+    is_merge = False
+    if commit_hash:
+        parent_count = commits.head_parent_count(cwd, commit_hash)
+        is_merge = parent_count is not None and parent_count > 1
+
+    if is_merge and commit_hash:
+        resolves = merge_resolves(cwd, commit_hash, resolves, events=events)
 
     # A trailer naming an id absent from the live log resolves nothing.
     # `resolve_prefix` is a lookup over the events it is handed, so an archived
@@ -159,9 +223,16 @@ def build_commit_event(
     # validated every id to exactly 12 hex (EVENT_ID_RE), and event ids are
     # exactly 12 hex too, so no id is ever a strict prefix of another — the
     # prefix-scan branch resolve_prefix keeps for short ids is unreachable here.
-    if resolves:
+    #
+    # AUTHORED ids only, never the merged-range derivation: an id re-parsed off a
+    # commit that landed weeks ago is routinely unresolvable for an innocent
+    # reason — a long back-merge's targets were resolved and archived long since
+    # — so advising on it files a concern naming closed work. That is why
+    # `merge_commit_event` skips this step outright. The advisory stays pointed at
+    # what somebody typed, which is the only part they can act on.
+    if authored:
         known = resolution.resolvable_event_ids(events)
-        unknown = [rid for rid in resolves if rid not in known]
+        unknown = [rid for rid in authored if rid not in known]
         if unknown:
             commit_event._record_unlinkable_trailer(smm_dir, agent_id, unknown)
 
@@ -228,11 +299,17 @@ def _message_unreadable_from_command(command: str) -> bool:
     return expands and bool(_UNEXPANDED_RE.search(message))
 
 
-def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> _LandingKind | None:
-    """How HEAD landed a moment ago: ``"plain"``, ``"merge"``, or None.
+def _a_commit_freshly_landed(cwd: str, commit_hash: str) -> bool:
+    """Did a commit land at `commit_hash` a moment ago?
 
-    The KIND, not a yes/no: the caller must tag a merge, and re-asking would cost
-    a second `git show` + `git reflog` on the synchronous PostToolUse path.
+    Returned the KIND until tagging moved into `build_commit_event`, which reads
+    the parent count for both callers; with no consumer for the distinction this
+    is a yes/no again.
+
+    The two arms stay UNEQUALLY strict, and the merge arm is the stricter: it
+    demands the reflog announce a CREATED merge, which is more than the parent
+    count the builder tags on. So a fast-forward onto a merge commit is refused
+    here, before there is any event to tag.
 
     Deliberately NOT "did this command make it" — that is what the hook
     cannot prove on this branch. Three signals, all required, because the
@@ -254,7 +331,7 @@ def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> _LandingKind | No
     """
     facts = commits.head_landing_facts(cwd, commit_hash)
     if facts is None:
-        return None
+        return False
     committer_ts, parent_count, reflog_subject = facts
     # The action names HOW head moved, the detail whether that made a commit.
     action, _, detail = (reflog_subject or "").partition(":")
@@ -266,13 +343,13 @@ def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> _LandingKind | No
     # heartbeat a false refusal costs only the trace we recorded before.
     age = time.time() - committer_ts
     if not 0 <= age <= HEAD_REBUILD_MAX_AGE_SECONDS:
-        return None
+        return False
     if parent_count > 1:
         if action == _CONFLICT_FINISH_REFLOG_ACTION:
-            return "merge"
+            return True
         if action.split(maxsplit=1)[:1] != [_MERGE_REFLOG_ACTION]:
-            return None
-        return "merge" if detail.startswith(_MERGE_CREATED_DETAIL_PREFIX) else None
+            return False
+        return detail.startswith(_MERGE_CREATED_DETAIL_PREFIX)
     # Absence VETOES rather than degrading to allow. Degrading left the widest
     # residual fabrication path: with `core.logAllRefUpdates` off, an amend or a
     # reset/ff-merge onto a fresh unrecorded commit, then a failed unreadable
@@ -281,7 +358,7 @@ def _freshly_landed_commit_kind(cwd: str, commit_hash: str) -> _LandingKind | No
     # evidence. Vetoing costs those repos only the trace they already got before
     # this story, so it is not a regression there; the asymmetry is lopsided.
     # Matches the recorded fail-closed doctrine for an unresolvable `git -C`.
-    return "plain" if action in _COMMIT_REFLOG_ACTIONS else None
+    return action in _COMMIT_REFLOG_ACTIONS
 
 
 def rebuild_at_head(
@@ -322,13 +399,17 @@ def rebuild_at_head(
     """
     if not backgrounded and not _message_unreadable_from_command(command):
         return False
-    kind = _freshly_landed_commit_kind(cwd, commit_hash)
-    if kind is None:
+    if not _a_commit_freshly_landed(cwd, commit_hash):
         return False
     raw_body = commits.get_commit_message_body(cwd)
     if not raw_body:
         return False
     committed_files = commits.get_committed_files(cwd)
+    # No `is_merge` to pass — the builder reads the parent count for both callers.
+    # So this path re-reads `%P` that `head_landing_facts` already had. Left
+    # redundant rather than threaded back: threading it is exactly what let the
+    # other caller forget. The extra read lands on this rare blind-stdout path,
+    # never on the hot success path.
     event = build_commit_event(
         smm_dir,
         agent_id,
@@ -339,7 +420,6 @@ def rebuild_at_head(
         committed_files=committed_files,
         code_file_count=code_files.count_code_files(committed_files),
         review_cadence=markers.read_review_cadence(smm_dir),
-        is_merge=kind == "merge",
     )
     if event is None:
         return False

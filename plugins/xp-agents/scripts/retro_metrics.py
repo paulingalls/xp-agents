@@ -401,7 +401,7 @@ def eligible_trailer_commits(
     # Filter the denominator to "commits we'd expect to carry a Resolves
     # trailer". Exclusions, each for its own reason:
     #
-    #   is_merge==True       — close-cycle merge HEAD; aggregates already-
+    #   is_merge==True       — ANY merge HEAD (>1 parent); aggregates already-
     #                          counted story commits, no trailer of its own.
     #   escape-hatch message — [release]/[chore]/[sprint-direct] commits
     #                          bypass the review/resolution discipline by

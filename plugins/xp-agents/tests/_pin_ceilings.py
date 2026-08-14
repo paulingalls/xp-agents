@@ -103,7 +103,12 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_branch_lifecycle.py": 494,
     "plugins/xp-agents/tests/hooks/test_teammate_runner.py": 493,
     "plugins/xp-agents/tests/hooks/test_retro_metrics.py": 493,
-    "plugins/xp-agents/tests/hooks/test_story_metrics_attribution.py": 492,
+    # RETIRED (this branch): test_story_metrics_attribution.py 492->383, by
+    # splitting the merge-attribution cases into
+    # test_story_metrics_merge_attribution.py. Below the 450 floor, so the entry
+    # goes rather than sitting dormant — kept at 492 it would hand back all 109
+    # lines the split just won, which is the manual step this table's docstring
+    # says nothing enforces.
     "plugins/xp-agents/tests/hooks/test_auto_resolve.py": 491,
     "plugins/xp-agents/tests/engine/test_sprint_store.py": 490,
     "plugins/xp-agents/tests/_close_fixtures.py": 488,
@@ -177,7 +182,12 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/scaffold/test_scaffold_plan.py": 455,
     "plugins/xp-agents/tests/engine/test_file_domain_lock.py": 454,
     "plugins/xp-agents/tests/hooks/test_close_common_verify_gate.py": 453,
-    "plugins/xp-agents/tests/hooks/test_commits_git_helpers.py": 452,
+    # 452 -> 459 when the merged-range tests retargeted from `merged_range_bodies`
+    # (deleted — the third emitter's convergence left it callerless) onto the
+    # per-commit reader. The +7 buys two assertions the blob-returning helper could
+    # not express: the incoming COUNT, and that the merge commit itself is filtered
+    # out of its own range. Trimmed the prose first; the remainder is assertions.
+    "plugins/xp-agents/tests/hooks/test_commits_git_helpers.py": 459,
     "plugins/xp-agents/tests/smm/test_append_safety.py": 452,
     "plugins/xp-agents/tests/scaffold/test_scaffold_cli_detect.py": 452,
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_branch_delete.py": 451,
