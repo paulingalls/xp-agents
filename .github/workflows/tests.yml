@@ -6,12 +6,33 @@ on:
   pull_request:
     branches: [main]
 
+# Supersede, don't accumulate. A sprint branch is pushed several times while its
+# PR is open and every push started another full matrix run: sprint-128 alone
+# burned five runs in August, of which only the last one's answer was ever read.
+#
+# Pushes to main get a group of their own (run_id is unique), so they neither
+# cancel nor queue behind each other. `cancel-in-progress: false` would NOT be
+# enough: a run that is merely PENDING in a shared group is cancelled when a
+# newer one joins it, so two merges landing inside one run's duration would
+# leave the middle commit unverified — and main is the release.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        # 3.11 is the floor this plugin DECLARES (CLAUDE.md: "Python 3.11+"), so
+        # it is the version a PR must be green on — testing only the newer one is
+        # the direction that lets 3.12-only syntax reach users at the floor. main
+        # additionally runs 3.12, which catches the opposite drift a merge later
+        # rather than a merge earlier: main IS the release here, so that row is
+        # accepted as post-merge detection, not as a pre-merge gate.
+        # The two versions split August's minutes almost exactly in half
+        # (502 / 530 of 1032), so dropping one from PRs halves the larger share.
+        python-version: ${{ github.event_name == 'pull_request' && fromJSON('["3.11"]') || fromJSON('["3.11", "3.12"]') }}
 
     steps:
       - uses: actions/checkout@v5
@@ -21,11 +42,21 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install ruff
+      - name: Install ruff and pytest
         # Tests require ruff on PATH (story-007's _staged_ruff_findings
         # invokes it during commit-gate tests via lint_check.run_linter_batch).
         # Install BEFORE tests so the gate can run, not after.
-        run: pip install ruff
+        #
+        # pytest is needed even though the suite below runs under unittest:
+        # _codex_harness.assert_module_skips_without_harness re-runs a module
+        # through `sys.executable -m pytest` to prove its harness-gated rows
+        # SKIP when the harness is absent. Launched via pytest that import is
+        # always satisfiable; launched via unittest it is not, so the three
+        # consumers of that helper failed here while passing on every developer
+        # machine. The asymmetry was invisible because the assertion reported
+        # only stdout, which an interpreter that cannot import pytest leaves
+        # empty — see the stderr fix in _codex_harness.py.
+        run: pip install ruff pytest
 
       - name: Install clang-tidy and clang-format
         # tests/hooks/test_lint_polyglot.py proves the C/C++ gate against the REAL

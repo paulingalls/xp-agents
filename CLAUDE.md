@@ -93,7 +93,9 @@ pytest -n auto
 pytest plugins/xp-agents/tests/hooks/test_session_start_core.py
 # Run a single test:
 pytest plugins/xp-agents/tests/hooks/test_session_start_core.py::TestSessionStart::test_clear_source_returns_context
-# Sequential fallback (no pytest installed):
+# Sequential fallback (no pytest RUNNER; pytest must still be importable —
+# the dual-packaging harness probes shell out to `python -m pytest`, and CI
+# proved they fail on an interpreter that cannot import it):
 python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py" -v
 ```
 

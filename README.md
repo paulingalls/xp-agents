@@ -442,8 +442,10 @@ You do not need to pre-run the suite yourself — that's what the gate is for. O
 # Run the full suite in parallel (~7,600 tests as of v5.0.0):
 pytest -n auto
 
-# Or sequentially via unittest (no pytest required; much slower than the
-# parallel run above, which itself measured 432s here):
+# Or sequentially via unittest (much slower than the parallel run above,
+# which itself measured 432s here). pytest still has to be IMPORTABLE: the
+# dual-packaging harness probes re-run a module through `python -m pytest`,
+# and fail loudly on an interpreter that cannot import it:
 python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py"
 ```
 

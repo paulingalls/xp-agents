@@ -157,7 +157,14 @@ def assert_module_skips_without_harness(
         check=False,
         timeout=_INNER_RUN_TIMEOUT,
     )
-    tail = result.stdout[-2000:]
+    # BOTH streams, because the interesting failures write to only one of them.
+    # An inner run that ran and failed explains itself on stdout; an inner run
+    # that could never START — no importable pytest, because the outer suite was
+    # launched through unittest rather than pytest — writes its one line to
+    # stderr and leaves stdout empty. Reporting stdout alone turned exactly that
+    # case into a bare `1 != 0` with nothing after the colon, which is how it
+    # survived a red CI run without naming itself.
+    tail = (result.stdout + result.stderr)[-2000:]
 
     case.assertEqual(result.returncode, 0, tail)
     # Counted, not merely matched: `\d+ skipped` also matches "0 skipped", so the
