@@ -233,6 +233,18 @@ class TestAbsenceVsFailure(unittest.TestCase):
         with self.assertRaises(ValueError):
             skill_preload_map.resolve_preload("xp-does-not-exist")
 
+    def test_path_shaped_name_raises_rather_than_reading_as_no_preload(self):
+        """Only a bare directory name can key the glob's results. An empty
+        name, `.`, `..`, a nested path and an absolute path all pass an
+        `is_dir()` check under `skills/` while matching no key — without a
+        shape check each returns None, telling a caller "this skill ships no
+        preload" about a name that names no skill. The empty one is the
+        reachable case: a consumer reading the skill name out of hook input
+        gets `""` when the field is missing."""
+        for name in ("", ".", "..", "xp-accept/scripts", "/tmp"):
+            with self.subTest(skill=name), self.assertRaises(ValueError):
+                skill_preload_map.resolve_preload(name)
+
 
 class TestConformancePin(unittest.TestCase):
     """The resolver must reproduce every shipped `!`...`` invocation line
@@ -251,10 +263,15 @@ class TestConformancePin(unittest.TestCase):
     def test_pin_catches_a_dropped_argument(self):
         """Mutation proof: dropping --consume-gate from the argument table
         must turn the pin red. Performed via monkeypatch so the mutation is
-        exercised on every run and always reverted."""
+        exercised on every run and always reverted.
+
+        Matched on the argv-mismatch message, not on bare AssertionError:
+        `_assert_conforms`'s own `assert invocation is not None` raises that
+        type too, so an unmatched assertRaises would go green on a resolver
+        that had stopped resolving anything at all."""
         with (
             patch.object(skill_preload_map, "_EXTRA_ARGS", {}),
-            self.assertRaises(AssertionError),
+            self.assertRaisesRegex(AssertionError, "resolver argv"),
         ):
             _assert_conforms("xp-assign")
         # Reverted: the table is unpatched again here, proven by conformance.
@@ -265,7 +282,7 @@ class TestConformancePin(unittest.TestCase):
         pin red too — a script-name-only check would miss this."""
         with (
             patch.object(skill_preload_map, "_REQUIRED_ENV", ()),
-            self.assertRaises(AssertionError),
+            self.assertRaisesRegex(AssertionError, "resolver env"),
         ):
             _assert_conforms("xp-accept")
         _assert_conforms("xp-accept")

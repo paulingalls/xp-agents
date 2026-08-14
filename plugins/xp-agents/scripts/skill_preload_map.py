@@ -84,6 +84,22 @@ def _discover_preload_scripts() -> dict[str, Path]:
     return scripts
 
 
+def _names_a_shipped_skill(skill_name: str) -> bool:
+    """A bare directory name under `skills/`, and nothing else.
+
+    The shape check is not decoration: `""`, `"."`, `".."`, a nested path and
+    an absolute path all pass the `is_dir()` check while matching none of the
+    glob's bare-name keys, so without it each reads as "a skill that declares
+    no preload" instead of "no such skill". `""` is the reachable one — a
+    consumer reading the skill name out of hook input gets it whenever the
+    field is missing. The relative components are named explicitly because
+    pathlib does not collapse them: `Path("..").name` is `".."`.
+    """
+    if skill_name in ("", ".", "..") or skill_name != Path(skill_name).name:
+        return False
+    return (_skills_dir() / skill_name).is_dir()
+
+
 def resolve_preload(skill_name: str) -> PreloadInvocation | None:
     """The preload invocation `skill_name` declares, or None if it has none.
 
@@ -91,8 +107,7 @@ def resolve_preload(skill_name: str) -> PreloadInvocation | None:
     distinct from None, which means "this skill exists and declares no
     preload."
     """
-    skills_dir = _skills_dir()
-    if not (skills_dir / skill_name).is_dir():
+    if not _names_a_shipped_skill(skill_name):
         raise ValueError(f"unknown skill: {skill_name!r}")
 
     script = _discover_preload_scripts().get(skill_name)
