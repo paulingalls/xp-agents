@@ -175,6 +175,27 @@ def head_landing_facts(cwd: str, rev: str) -> tuple[int, int, str | None] | None
     return (*facts, subject.strip().lower() or None if logged_rev == rev else None)
 
 
+def head_parent_count(cwd: str, rev: str) -> int | None:
+    """How many parents `rev` has — >1 is a merge. None when git cannot say.
+
+    Deliberately NOT `head_landing_facts`, which returns this number too: that
+    one also spawns `git reflog` for "HOW did HEAD get here", which the
+    confirmed-success path never asks. This is one `git show`.
+
+    Takes a rev rather than reading HEAD implicitly, like its sibling above — the
+    caller builds an event for a specific hash, and an implicit read could
+    describe a different commit than the one being recorded.
+
+    `is None`, not truthiness: `_run_git` returns `""` for a ROOT commit, whose
+    `%P` is legitimately empty, and `None` only when the lookup failed. Testing
+    truthiness would call a root commit unknowable.
+    """
+    out = _run_git(["git", "show", "-s", "--format=%P", rev], cwd)
+    if out is None:
+        return None
+    return len(out.split())
+
+
 def merged_range_bodies(cwd: str, merge_hash: str) -> str:
     """Concatenated `%B` bodies of the commits a `--no-ff` merge brought in.
 

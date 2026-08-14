@@ -83,7 +83,17 @@ PROSE_MEASURED: dict[str, int] = {
     # next to the constant it governs. The comment was cut three times to fit
     # 189 first; a fourth pass would have been deleting the reason, which is
     # what the docstring above says this measure must not buy.
-    "plugins/xp-agents/scripts/commit_emit.py": 192,
+    # 192 -> 223 converging the merge policy into `build_commit_event`. A THIRD
+    # re-record of this file, which is the shape to distrust, so what earned it:
+    # the change removes a parameter and replaces it with a derivation, and three
+    # of the four decisions behind that derivation are ones a reader will
+    # otherwise undo — union-not-replace on `resolves`, authored-only for both
+    # `has_resolves_trailer` and the advisory, and absent-count-leaves-untagged as
+    # the safe direction. What was NOT kept: the replacement alternative is argued
+    # in `TestWhatTheMergeEventResolves` and proven by mutation there, so the code
+    # comment now points at it in one line instead of restating it in seven. That
+    # is this table's own rule for a rejected alternative a test already pins.
+    "plugins/xp-agents/scripts/commit_emit.py": 223,
     "plugins/xp-agents/scripts/commit_event.py": 167,
     "plugins/xp-agents/scripts/commit_handling.py": 161,
     # 175 -> 156, a re-record DOWNWARD after the message-parsing half moved to
@@ -94,7 +104,13 @@ PROSE_MEASURED: dict[str, int] = {
     # by an extraction rather than by anyone writing a shorter true claim. The
     # extracted file measures 39 prose lines, below the floor, so it is
     # ungoverned and gets no entry of its own.
-    "plugins/xp-agents/scripts/commits.py": 156,
+    #
+    # Then 156 -> 170 in the very next commit, for `head_parent_count`. Spending
+    # a deletion immediately looks like the banking was pointless; it is the
+    # opposite. Measured against the banked 156 this growth is VISIBLE as +14.
+    # Left at the old 175 it would have been free, and a reader could not tell
+    # the file had grown at all.
+    "plugins/xp-agents/scripts/commits.py": 170,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     "plugins/xp-agents/scripts/coordination.py": 166,  # see commit_emit.py above
     "plugins/xp-agents/scripts/dash_c_tokens.py": 129,
