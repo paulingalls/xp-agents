@@ -46,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import markers
+from _repo_fixtures import git_in, init_nested_repo
 from conftest import _IntegrationTestCase
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_COMMIT
@@ -62,30 +63,14 @@ _HEREDOC_COMMIT = f"git commit -F - <<'MSG'\n{_BODY}\nMSG"
 class TestTheCommitPathEntryCondition(_IntegrationTestCase):
     def setUp(self):
         super().setUp()
-        self.repo = self.tmpdir / "repo"
-        self.repo.mkdir(parents=True, exist_ok=True)
-        self._git("init", "-q", "-b", "main", ".")
-        self._git("config", "user.email", "t@t.com")
-        self._git("config", "user.name", "T")
-        (self.repo / "README.md").write_text("init")
-        self._git("add", "-A")
-        self._git("commit", "-q", "-m", "init")
+        self.repo = init_nested_repo(self.tmpdir)
         # Pinned, not inherited: the block below exists only under commit
         # cadence, and a suite that leans on `read_review_cadence`'s default
         # stops testing a block the moment that default changes.
         markers.write_review_cadence(self.smm_dir, "commit")
 
     def _git(self, *args: str, stdin: str | None = None) -> str:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=self.repo,
-            capture_output=True,
-            text=True,
-            input=stdin,
-        )
-        if result.returncode != 0:
-            raise AssertionError(f"git {args!r} failed: {result.stderr}")
-        return result.stdout.strip()
+        return git_in(self.repo, *args, stdin=stdin)
 
     def _arm_the_review_gate(self) -> None:
         """Stage enough real code files that the review-cycle gate blocks.

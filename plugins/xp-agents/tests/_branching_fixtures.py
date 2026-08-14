@@ -46,6 +46,8 @@ from _repo_fixtures import (  # noqa: F401
     add_pre_push_hook,
     append_commit,
     create_teammate_worktree_with_commit,
+    git_in,
+    init_nested_repo,
     init_repo,
     init_repo_in_spaced_parent,
     init_repo_with_ignored_worktrees,
