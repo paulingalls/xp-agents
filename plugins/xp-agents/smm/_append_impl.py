@@ -106,15 +106,26 @@ _LOCK_TIMEOUT_ENV_VAR = "XP_LOCK_TIMEOUT_SECONDS"
 
 
 def _effective_lock_timeout_seconds(default: int | None = None) -> int:
-    """The acquire budget: env var, else *default*, else ``LOCK_TIMEOUT_SECONDS``.
+    """The acquire budget. The env var may only SHORTEN a caller's named one.
 
     *default* is a CALLER's named budget (``flock_with_timeout(timeout_s=...)``),
-    and it sits BELOW the env var deliberately. ``XP_LOCK_TIMEOUT_SECONDS`` is
-    the only lever that reaches a subprocess — one re-imports this module and
-    cannot see an in-process patch — so it has to be able to shorten every
-    acquire, including one whose caller named its own budget. Were it the other
-    way round, any caller passing ``timeout_s`` would become the one place a
-    real cross-process contention test could not speed up.
+    and ``XP_LOCK_TIMEOUT_SECONDS`` is the only lever that reaches a subprocess —
+    one re-imports this module and cannot see an in-process patch — so it has to
+    be able to shorten every acquire, including one whose caller named a budget.
+    That is the whole of what it needs, and ``min`` gives it: a cross-process
+    contention test can still speed any acquire up.
+
+    LENGTHENING is refused, which REVERSES the precedence this function shipped
+    with. Raising the var for its documented purpose — a slow event-log lock on a
+    network mount — used to inflate every caller's cap too, so coordination's
+    deliberate 2s became 30s and blocked a synchronous write-path hook for the
+    whole of it. That is the harm the 2s exists to prevent, caused by tuning an
+    unrelated lock. A caller that names a budget is asserting a ceiling its
+    CALLER's latency depends on; the env var is tuning, and tuning does not get
+    to overrule a latency bound.
+
+    With no named budget the var still stands alone — that path is its documented
+    purpose and is unchanged.
 
     ``None`` (not a literal ``LOCK_TIMEOUT_SECONDS``) is the sentinel for "no
     named budget", because a literal default argument in the caller's signature
@@ -129,7 +140,7 @@ def _effective_lock_timeout_seconds(default: int | None = None) -> int:
         except ValueError:
             value = 0
         if value > 0:
-            return value
+            return value if default is None else min(value, default)
     return default if default is not None else LOCK_TIMEOUT_SECONDS
 
 

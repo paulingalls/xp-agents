@@ -18,12 +18,16 @@ implementation goes wrong:
     how most of this suite makes a timeout fire fast, so breaking it does not
     fail loudly; it hangs.
 
-  * `XP_LOCK_TIMEOUT_SECONDS` must still WIN over an explicit budget. It is the
-    cross-process lever: a subprocess re-imports the module and cannot see an
-    in-process patch, so it is the only way to make a real contended acquire
-    time out quickly (see `tests/integration/test_stop_gate_in_place.py`). If an
-    explicit `timeout_s` shadowed it, every caller that named a budget would
-    become unreachable by the one tool that works everywhere.
+  * `XP_LOCK_TIMEOUT_SECONDS` must still reach a caller that named a budget, but
+    only to SHORTEN it. It is the cross-process lever: a subprocess re-imports
+    the module and cannot see an in-process patch, so it is the only way to make
+    a real contended acquire time out quickly (see
+    `tests/integration/test_stop_gate_in_place.py`). If an explicit `timeout_s`
+    shadowed it outright, every caller that named a budget would become
+    unreachable by the one tool that works everywhere — but the converse shipped
+    first and was worse: raising the var for its documented purpose inflated
+    coordination's deliberate 2s cap to the raised value, blocking a synchronous
+    write-path hook for it. `min` satisfies the lever and refuses the inflation.
 
   * The raised message must state the budget ACTUALLY USED. The handler used to
     rebuild it from the module default, so a 2s acquire reported "within 10
@@ -172,7 +176,11 @@ class TestOmittingItPreservesTodaysBehaviour(_SMMTestCase):
         ):
             self.assertEqual(_append_impl._effective_lock_timeout_seconds(), 7)
 
-    def test_a_named_budget_is_the_fallback_not_an_override(self):
+    def test_a_named_budget_replaces_the_module_default(self):
+        """Named 3 beats the global 7 — the `min` above applies to the ENV var,
+        not to `LOCK_TIMEOUT_SECONDS`, which a named budget simply supersedes.
+        (Renamed from "is the fallback not an override": that described the env
+        precedence this branch reversed, and was never about the global.)"""
         with (
             mock.patch.dict(os.environ, _env(), clear=True),
             mock.patch.object(_append_impl, "LOCK_TIMEOUT_SECONDS", 7),
@@ -180,13 +188,39 @@ class TestOmittingItPreservesTodaysBehaviour(_SMMTestCase):
             self.assertEqual(_append_impl._effective_lock_timeout_seconds(3), 3)
 
 
-class TestTheEnvLeverStillWins(_SMMTestCase):
-    """It is the only lever that reaches a subprocess, so a per-call budget
-    must not put a caller beyond its reach."""
+class TestTheEnvLeverMayOnlyShorten(_SMMTestCase):
+    """It is the only lever that reaches a subprocess, so a per-call budget must
+    not put a caller beyond its reach — but reach is not authority to inflate."""
 
-    def test_the_env_var_outranks_an_explicit_budget(self):
-        with mock.patch.dict(os.environ, _env(XP_LOCK_TIMEOUT_SECONDS="4"), clear=True):
-            self.assertEqual(_append_impl._effective_lock_timeout_seconds(2), 4)
+    def test_the_env_var_shortens_a_longer_named_budget(self):
+        """What the lever is FOR: speeding up a real contended acquire in a
+        subprocess, including one whose caller named its own budget."""
+        with mock.patch.dict(os.environ, _env(XP_LOCK_TIMEOUT_SECONDS="1"), clear=True):
+            self.assertEqual(_append_impl._effective_lock_timeout_seconds(9), 1)
+
+    def test_the_env_var_cannot_lengthen_a_shorter_named_budget(self):
+        """The reversal. `XP_LOCK_TIMEOUT_SECONDS=30` is set for a slow event-log
+        lock; it used to turn coordination's deliberate 2s into 30s and block
+        every Write/Edit PostToolUse hook for the raised value — the exact harm
+        the 2s cap exists to prevent, caused by tuning an unrelated lock."""
+        with mock.patch.dict(
+            os.environ, _env(XP_LOCK_TIMEOUT_SECONDS="30"), clear=True
+        ):
+            self.assertEqual(_append_impl._effective_lock_timeout_seconds(2), 2)
+
+    def test_the_env_var_still_stands_alone_when_no_budget_is_named(self):
+        """Its documented purpose, unchanged: with nothing to compare against it
+        replaces the module default outright, in BOTH directions."""
+        for raw, expected in (("30", 30), ("1", 1)):
+            with (
+                self.subTest(raw=raw),
+                mock.patch.dict(
+                    os.environ, _env(XP_LOCK_TIMEOUT_SECONDS=raw), clear=True
+                ),
+            ):
+                self.assertEqual(
+                    _append_impl._effective_lock_timeout_seconds(), expected
+                )
 
     def test_a_garbage_env_value_falls_back_to_the_named_budget(self):
         """Unparseable or non-positive is "unset", and the caller's own budget
