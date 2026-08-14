@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import _common
+import identity
 import sprint_store
 import triage
 import work_signals
@@ -27,6 +28,10 @@ extract_file_domain_paths = triage.extract_file_domain_paths
 # post-commit attributor (bash_post_tool._resolve_story_id).
 STORY_PREFIX_RE = re.compile(r"^\s*\[(story-\d+)\]")
 BRACKET_PREFIX_RE = re.compile(r"^\s*\[")
+
+# Imported, NOT respelled: the producer (`merge_commit_event`) reads the same
+# constant, so a rename cannot leave this consumer matching a string nothing writes
+# any more. See `event_metadata` for why the id is a discriminator here.
 
 
 def file_matches_domain(file_path: str, domain: set[str]) -> bool:
@@ -133,8 +138,22 @@ def _attribute_commits(
         # code commits are often never recorded as events. So we track it as a
         # fallback (see below) — used only when no real code commit exists.
         if metadata.get("is_merge"):
-            merged[story_id] = True
-            merge_files[story_id] |= committed_files
+            # Only the CLOSE-CYCLE merge is evidence the story shipped. `is_merge`
+            # alone stopped meaning that once the commit hook began tagging every
+            # two-parent HEAD: a teammate running `git merge main` mid-story to
+            # keep the branch current produces an is_merge event carrying that
+            # story's id, and reading it here marked the story merged and dropped
+            # the commit from `commit_counts` — so sprint review reported a story
+            # merged that was still in progress. `close_common` is the agent id
+            # `append_merge_commit_event` writes, and that emitter runs only from
+            # the close path, so it is the precise discriminator.
+            if commit.get("agent_id") == identity.CLOSE_CYCLE_AGENT_ID:
+                merged[story_id] = True
+                merge_files[story_id] |= committed_files
+            # Any other merge is neither the story shipping nor the story's own
+            # code work, so it is counted as neither. Falling through to
+            # `commit_counts += 1` would inflate a story's commit count with
+            # upstream work it merely absorbed.
             continue
 
         commit_counts[story_id] += 1

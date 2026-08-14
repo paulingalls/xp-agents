@@ -122,6 +122,28 @@ class TestTheWriterSurvivesContention(_ContendedCase):
         )
         self.assertNotIn("other", self._entries())
 
+    def test_the_trace_NAMES_the_cause(self):
+        """Which failure, not merely that one happened.
+
+        The sibling case above asserts `"coordination" in reason`, which the
+        message PREFIX satisfies on its own — it would stay green with the
+        exception dropped entirely. This is the assertion that does not: the
+        shared `try_flock` shape takes an `on_giveup` callback precisely so the
+        exception survives to the log, because a bool return flattens a timeout
+        and an `ENOLCK` on a network mount into one indistinguishable line, and a
+        give-up you cannot diagnose is the state this whole path exists to avoid.
+        """
+        self._run_contended(
+            f"coordination.update_coordination(Path({str(self.smm_dir)!r}),"
+            f" 'other', ['src/a.py'])"
+        )
+        errors = self._hook_errors()
+        self.assertIn(
+            "LockTimeoutError",
+            [e.get("error_class") for e in errors],
+            f"the give-up did not name its cause; got {errors}",
+        )
+
 
 class TestTheRemoverSurvivesContention(_ContendedCase):
     """Both lock sites, not just the writer — the defect was duplicated."""

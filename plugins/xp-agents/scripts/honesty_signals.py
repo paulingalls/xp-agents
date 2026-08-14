@@ -61,7 +61,9 @@ def build_honesty_signals(events: list[dict]) -> dict:
             if is_code:
                 code_commits += 1
                 cfc = meta.get("code_file_count")
-                # Merge HEADs aggregate already-reviewed work; escape-hatch
+                # Merge HEADs — ANY >1-parent commit, since the hook routes
+                # converged, not only a close cycle's — aggregate
+                # already-reviewed work; escape-hatch
                 # commits ([release]/[chore]/[sprint-direct]) bypass the
                 # review-cycle gate by design; story-cadence commits defer their
                 # review to /xp-story-close (which reviews the cumulative diff

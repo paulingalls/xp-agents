@@ -322,7 +322,15 @@ def commit_event(
     sprint_id: str | None = None,
     is_merge: bool = False,
     is_free_session: bool = False,
+    agent_id: str = "main",
 ) -> dict:
+    """A `type=commit` event.
+
+    `agent_id` matters for merges: `story_metrics` treats `is_merge` as evidence
+    the story SHIPPED only when the event came from `close_common`, the close-cycle
+    emitter. Any other merge is a hand-run one — most often a back-merge keeping a
+    branch current — which is neither the story shipping nor the story's own work.
+    """
     metadata: dict = {"code_commit": True, "commit_hash": "abc123"}
     if story_id:
         metadata["story_id"] = story_id
@@ -338,6 +346,7 @@ def commit_event(
         files=files,
         ts=ts,
         metadata=metadata,
+        agent_id=agent_id,
     )
 
 

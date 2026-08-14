@@ -109,6 +109,50 @@ def init_repo_in_spaced_parent(parent: str, repo_name: str = "repo") -> str:
     return str(repo)
 
 
+def init_nested_repo(parent: str | Path, repo_name: str = "repo") -> Path:
+    """Init a repo in a SUBDIR of ``parent`` and return its path.
+
+    For the hook-driving integration suites: they hand the hook an explicit
+    ``cwd``, and a repo that IS the temp root would let a test pass while the
+    hook was reading a repo it never had to resolve. Nesting keeps the caller's
+    ``cwd`` load-bearing.
+
+    Composes ``init_repo``, so the ``-b main`` pin and the deterministic identity
+    are shared rather than respelled. That means an EMPTY initial commit where the
+    two callers previously wrote a ``README.md`` first — checked before changing
+    it: neither suite referenced that file, and both only need SOME parent to
+    exist so ``git diff HEAD~1`` resolves on their first real commit.
+    """
+    repo = Path(parent) / repo_name
+    repo.mkdir(parents=True, exist_ok=True)
+    init_repo(str(repo))
+    return repo
+
+
+def git_in(repo: str | Path, *args: str, stdin: str | None = None) -> str:
+    """Run git in ``repo``; return stripped stdout, raise AssertionError on
+    non-zero.
+
+    ``stdin`` feeds ``git commit -F -``, which is the shape the heredoc suites
+    exist to drive — a runner without it cannot express their subject at all.
+
+    Raising rather than returning a status: a fixture step that fails silently
+    surfaces later as a confusing assertion about missing events, several lines
+    from the git call that actually broke.
+    """
+    result = subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        input=stdin,
+        env=GIT_ENV,
+    )
+    if result.returncode != 0:
+        raise AssertionError(f"git {args!r} failed: {result.stderr}")
+    return result.stdout.strip()
+
+
 def make_conflicted_merge(repo: str, env: dict = GIT_ENV) -> None:
     """Leave ``repo`` with an in-progress conflicted merge (MERGE_HEAD set).
 

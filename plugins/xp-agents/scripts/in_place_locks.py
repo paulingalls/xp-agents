@@ -49,14 +49,14 @@ import contextlib
 import fcntl
 import os
 import sys
-from collections.abc import Iterator
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import marker_names
-from _append_impl import LockTimeoutError, flock_with_timeout
+from _try_flock import try_flock
 
 
 def holder_lock_path(smm_dir: Path, name: str) -> Path:
@@ -64,23 +64,18 @@ def holder_lock_path(smm_dir: Path, name: str) -> Path:
     return smm_dir / marker_names.IN_PLACE_HOLDER.format(name=name)
 
 
-@contextlib.contextmanager
-def door_mutex(smm_dir: Path) -> Iterator[bool]:
+def door_mutex(smm_dir: Path) -> AbstractContextManager[bool]:
     """Hold the door mutex for the block. Yields True when held, False when not.
 
-    NEVER raises on a failed acquire — the caller decides what an unavailable
-    mutex means for its door. An exception from the BODY still propagates, and
-    the mutex is still released: the acquire is wrapped, the body is not.
+    The whole of the shape — never raising on a failed acquire, wrapping only the
+    acquire and never the body — now lives in `_try_flock.try_flock`, which the
+    coordination file shares. This stays as the NAME for the door's own lock path
+    so callers keep reading `with door_mutex(smm_dir) as held:`.
+
+    No `on_giveup`: nothing here needs the cause. Each caller already decides what
+    an unavailable door means, and none of them logs.
     """
-    stack = contextlib.ExitStack()
-    try:
-        lock = flock_with_timeout(smm_dir / marker_names.IN_PLACE_DOOR_LOCK)
-        stack.enter_context(lock)
-    except (LockTimeoutError, OSError):
-        yield False
-        return
-    with stack:
-        yield True
+    return try_flock(smm_dir / marker_names.IN_PLACE_DOOR_LOCK)
 
 
 def probe_holder_lock(path: Path) -> int | None:

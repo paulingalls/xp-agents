@@ -20,78 +20,8 @@ from commits_issues import (
     format_maybe_addressed_line,
     open_issues_matching_commit,
 )
-from smm_schema import EVENT_ID_RE
 
 REVIEW_CYCLE_THRESHOLD: int = 2
-
-
-def parse_commit_message(tool_response: str) -> str | None:
-    """Extract first line of commit message from git output."""
-    match = re.search(r"\[[\w/.-]+\s+\w+\]\s+(.+)", tool_response)
-    if match:
-        return match.group(1).strip()
-    return None
-
-
-_RESOLVES_TRAILER_RE = re.compile(r"(?im)^resolves-event:[ \t]*(.*)\n?")
-# Boundary-anchored twin of smm_schema.EVENT_ID_RE — keep in sync if the
-# canonical event-ID format changes.
-_BARE_EVENT_ID_RE = re.compile(r"\b[0-9a-f]{12}\b")
-
-
-def extract_implicit_event_ids(body: str | None, known_ids: set[str]) -> list[str]:
-    """Scan commit body for bare 12-hex event IDs matching open events.
-
-    Agents sometimes reference an event ID in prose (e.g., "closes concern
-    <12-hex-id>") without the formal `Resolves-Event:` trailer. This helper
-    surfaces those bare IDs so callers can accept the link and optionally
-    nudge for the formal trailer.
-
-    Only returns IDs that appear in `known_ids` — the caller supplies the
-    set of open concern/question/debt event IDs. Dedups in first-seen order.
-    """
-    if not body or not known_ids:
-        return []
-    ids: list[str] = []
-    seen: set[str] = set()
-    for match in _BARE_EVENT_ID_RE.finditer(body):
-        event_id = match.group(0)
-        if event_id in known_ids and event_id not in seen:
-            ids.append(event_id)
-            seen.add(event_id)
-    return ids
-
-
-def extract_resolves_trailer(body: str | None) -> tuple[list[str], str, bool]:
-    """Parse Resolves-Event: trailers from a commit body.
-
-    Trailer format (case-insensitive key, line-anchored):
-        Resolves-Event: <12-hex-id>[, <id>...]
-
-    Multiple trailer lines are supported; IDs are deduplicated in first-seen
-    order. IDs that aren't exactly 12 lowercase-hex chars are rejected. The
-    returned body has all matched trailer lines removed (including the newline)
-    so callers can use it directly as the stored commit event content.
-
-    has_trailer is True when any Resolves-Event: line was found, even if
-    the value was "none" or otherwise not a valid hex ID. This distinguishes
-    "developer followed the discipline but nothing to resolve" from
-    "developer forgot the trailer entirely".
-    """
-    if not body:
-        return [], body or "", False
-    ids: list[str] = []
-    seen: set[str] = set()
-    has_trailer = False
-    for match in _RESOLVES_TRAILER_RE.finditer(body):
-        has_trailer = True
-        for raw in match.group(1).split(","):
-            event_id = raw.strip().lower()
-            if EVENT_ID_RE.match(event_id) and event_id not in seen:
-                ids.append(event_id)
-                seen.add(event_id)
-    cleaned = _RESOLVES_TRAILER_RE.sub("", body)
-    return ids, cleaned, has_trailer
 
 
 def _run_git(args: list[str], cwd: str) -> str | None:
@@ -245,21 +175,25 @@ def head_landing_facts(cwd: str, rev: str) -> tuple[int, int, str | None] | None
     return (*facts, subject.strip().lower() or None if logged_rev == rev else None)
 
 
-def merged_range_bodies(cwd: str, merge_hash: str) -> str:
-    """Concatenated `%B` bodies of the commits a `--no-ff` merge brought in.
+def head_parent_count(cwd: str, rev: str) -> int | None:
+    """How many parents `rev` has — >1 is a merge. None when git cannot say.
 
-    A `--no-ff` merge always has two parents: `^1` is the target branch tip
-    (already accounted for), `^2` is the merged-in source tip. Used by the
-    merge-fallback commit-event builder to re-derive `Resolves-Event:`
-    trailers that a teammate's per-commit events never recorded.
+    Deliberately NOT `head_landing_facts`, which returns this number too: that
+    one also spawns `git reflog` for "HOW did HEAD get here", which the
+    confirmed-success path never asks. This is one `git show`.
 
-    Fails safe: a degenerate ff-merge (no `^2`) or any other git error
-    returns "" rather than raising into the caller.
+    Takes a rev rather than reading HEAD implicitly, like its sibling above — the
+    caller builds an event for a specific hash, and an implicit read could
+    describe a different commit than the one being recorded.
+
+    `is None`, not truthiness: `_run_git` returns `""` for a ROOT commit, whose
+    `%P` is legitimately empty, and `None` only when the lookup failed. Testing
+    truthiness would call a root commit unknowable.
     """
-    out = _run_git(
-        ["git", "log", "--format=%B", f"{merge_hash}^1..{merge_hash}^2"], cwd
-    )
-    return out or ""
+    out = _run_git(["git", "show", "-s", "--format=%P", rev], cwd)
+    if out is None:
+        return None
+    return len(out.split())
 
 
 def get_code_files_for_review(
@@ -421,6 +355,28 @@ from commit_command import (  # noqa: E402  intentional mid-file re-export
     parse_effective_cwd,
 )
 
+# -------------------------------------------------------------------
+# Commit-MESSAGE parsing — re-exported from commit_trailers
+# -------------------------------------------------------------------
+# Same arrangement, one file over: those three take text and return text,
+# while everything above asks git. Callers keep reaching them as
+# `commits.<name>`, so the split moved no call site.
+from commit_trailers import (  # noqa: E402  intentional mid-file re-export
+    extract_implicit_event_ids,
+    extract_resolves_trailer,
+    parse_commit_message,
+)
+
+# -------------------------------------------------------------------
+# A merge's incoming commits — re-exported from merged_range
+# -------------------------------------------------------------------
+# Moved out when the per-commit reader took this file over its sub-cap. Imported
+# DOWN from here (that module imports `_run_git` back up), so this block must stay
+# below `_run_git`'s definition.
+from merged_range import (  # noqa: E402  intentional mid-file re-export
+    merged_range_commits,
+)
+
 __all__ = [
     "REVIEW_CYCLE_THRESHOLD",
     "commit_repo_candidates",
@@ -443,7 +399,7 @@ __all__ = [
     "head_landing_facts",
     "is_escape_hatch_commit",
     "is_escape_hatch_message",
-    "merged_range_bodies",
+    "merged_range_commits",
     "open_issues_matching_commit",
     "parse_commit_message",
     "parse_effective_cwd",

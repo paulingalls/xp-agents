@@ -258,7 +258,14 @@ def _handle_commit(
     story_id = event["metadata"].get("story_id")
 
     file_count = len(committed_files)
-    if file_count >= COMMIT_SIZE_THRESHOLD:
+    # A merge is EXEMPT, and until this gate was written the exemption existed
+    # only in prose. `files` for a merge is the first-parent diff — legitimately
+    # the whole merged branch's net file set — so "consider smaller commits" is
+    # advice about work that was already committed in the small, on the branch
+    # this merge is landing. The tag is read off the built event rather than
+    # recomputed: the builder derived it from the parent count and stored it, and
+    # a second derivation here is a second thing to keep in step.
+    if file_count >= COMMIT_SIZE_THRESHOLD and not event["metadata"].get("is_merge"):
         pending.append(
             _common.make_event(
                 _common.CONCERN,

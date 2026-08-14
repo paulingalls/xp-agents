@@ -392,14 +392,16 @@ class TestGetCommitMessageBody(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# merged_range_bodies
+# merged_range_commits
 # ---------------------------------------------------------------------------
 
 
-class TestMergedRangeBodies(unittest.TestCase):
-    """Story-008 leg (b): the merge-backstop's only path to a merged-in
-    commit's trailer. Real repo, real `--no-ff` merge — this is git plumbing,
-    not something a mock can stand in for without hiding the `^1..^2` shape."""
+class TestMergedRangeCommits(unittest.TestCase):
+    """Every merge emitter's only path to a merged-in commit's trailer. Real repo,
+    real `--no-ff` merge — git plumbing a mock cannot stand in for.
+
+    Retargeted from `merged_range_bodies`, which the third emitter's convergence
+    left with no caller: all three now decide commit by commit."""
 
     def _git(self, *args: str) -> str:
         proc = subprocess.run(
@@ -433,18 +435,23 @@ class TestMergedRangeBodies(unittest.TestCase):
         self._git("merge", "-q", "--no-ff", "-m", "Merge feature", "feature")
         merge_hash = self._git("rev-parse", "HEAD")
 
-        bodies = commits.merged_range_bodies(str(self.repo), merge_hash)
+        pairs = commits.merged_range_commits(str(self.repo), merge_hash)
 
+        bodies = "\n".join(body for _, body in pairs)
         self.assertIn("aaaaaaaaaaaa", bodies)
         self.assertIn("bbbbbbbbbbbb", bodies)
+        self.assertEqual(len(pairs), 2, f"expected both incoming commits: {pairs}")
+        for landed, _ in pairs:
+            self.assertNotEqual(landed, merge_hash, "the merge itself must be filtered")
 
-    def test_non_merge_commit_returns_empty_string(self):
+    def test_non_merge_commit_yields_nothing(self):
         head = self._commit("c.py", "c = 1\n", "feat: c")
-        self.assertEqual(commits.merged_range_bodies(str(self.repo), head), "")
+        self.assertEqual(commits.merged_range_commits(str(self.repo), head), [])
 
-    def test_unknown_hash_returns_empty_string(self):
+    def test_unknown_hash_yields_nothing(self):
+        """Fails toward a MISS rather than raising into a synchronous hook."""
         self.assertEqual(
-            commits.merged_range_bodies(str(self.repo), "deadbeefcafe"), ""
+            commits.merged_range_commits(str(self.repo), "deadbeefcafe"), []
         )
 
 

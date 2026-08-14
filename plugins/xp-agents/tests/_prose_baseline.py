@@ -83,16 +83,77 @@ PROSE_MEASURED: dict[str, int] = {
     # next to the constant it governs. The comment was cut three times to fit
     # 189 first; a fourth pass would have been deleting the reason, which is
     # what the docstring above says this measure must not buy.
-    "plugins/xp-agents/scripts/commit_emit.py": 192,
-    "plugins/xp-agents/scripts/commit_event.py": 167,
-    "plugins/xp-agents/scripts/commit_handling.py": 161,
-    "plugins/xp-agents/scripts/commits.py": 175,
+    # 192 -> 223 converging the merge policy into `build_commit_event`. A THIRD
+    # re-record of this file, which is the shape to distrust, so what earned it:
+    # the change removes a parameter and replaces it with a derivation, and three
+    # of the four decisions behind that derivation are ones a reader will
+    # otherwise undo — union-not-replace on `resolves`, authored-only for both
+    # `has_resolves_trailer` and the advisory, and absent-count-leaves-untagged as
+    # the safe direction. What was NOT kept: the replacement alternative is argued
+    # in `TestWhatTheMergeEventResolves` and proven by mutation there, so the code
+    # comment now points at it in one line instead of restating it in seven. That
+    # is this table's own rule for a rejected alternative a test already pins.
+    # 223 -> 233 for the close review's three confirmed defects. What earned it:
+    # the merged-range derivation had to be bounded to commits whose own event
+    # never landed, and the reason a bare parent count is not that bound — a
+    # back-merge is two-parent too, and its incoming range is everything the
+    # branch had not seen — is the argument a future reader would otherwise
+    # remove the filter for. The size-concern exemption is now real code in
+    # `commit_handling.py` rather than a claim here, so its prose moved to where
+    # the gate is instead of being duplicated.
+    # Then 239 for the close review: the derivation bound had to say LIVE log
+    # rather than "already recorded", because compaction archives events and a
+    # rebased branch never matches — the reviewer found the prose stating the
+    # bound unconditionally, which is the exact failure mode this branch keeps
+    # repeating.
+    # 249 when the THIRD emitter converged onto `merge_resolves`. The helper now
+    # carries the whole argument for the bound, the union and the live-log caveat,
+    # because it is the one place all three routes read it — and the close
+    # emitter's old "a merge subject never carries a trailer" reasoning had to be
+    # written down as false, or converging it looks like a style change.
+    "plugins/xp-agents/scripts/commit_emit.py": 249,
+    # 167 -> 170: `is_merge` in the metadata table now says ANY merge HEAD, not
+    # "close cycle, or the rebuild's merge arm" — that reading is what produced
+    # the story_metrics defect.
+    "plugins/xp-agents/scripts/commit_event.py": 170,
+    # 161 -> 168: the commit-size gate now states why a merge is exempt, which
+    # is where that reasoning belongs — it was asserted in commit_emit.py while
+    # no code implemented it.
+    "plugins/xp-agents/scripts/commit_handling.py": 168,
+    # 175 -> 156, a re-record DOWNWARD after the message-parsing half moved to
+    # `commit_trailers.py`. Nothing forced this: 156 sits under the old
+    # 175 + slack, so the pin was already green. Recorded anyway because the
+    # docstring's own rule for a deletion is to bank it as the new bound — left
+    # at 175 this file would carry 24 lines of silent regrowth allowance, earned
+    # by an extraction rather than by anyone writing a shorter true claim. The
+    # extracted file measures 39 prose lines, below the floor, so it is
+    # ungoverned and gets no entry of its own.
+    #
+    # Then UP again in the next commits, for `head_parent_count` and back DOWN when
+    # the merged-range readers left for `merged_range.py`. Spending a banked
+    # deletion immediately looks like the banking was pointless; it is the
+    # opposite — measured against the banked number the growth is visible, where at
+    # the old 175 it would have been free and a reader could not tell the file had
+    # grown at all.
+    #
+    # NO ARROWS HERE, deliberately. An earlier version of this note narrated
+    # "156 -> 170" and "+14" beside a pin that had since become 167, because the
+    # arrows are hand-typed while the pin is generated — the third stale number in
+    # this table in one sprint. The rule the table already states (numbers come
+    # from `_prose_scan`, never a keyboard) applies to prose ABOUT the numbers too.
+    "plugins/xp-agents/scripts/commits.py": 167,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
-    "plugins/xp-agents/scripts/coordination.py": 166,  # see commit_emit.py above
+    # 166 -> 169: the acquire-budget comment said the env override "still
+    # outranks this", which the precedence reversal made false.
+    "plugins/xp-agents/scripts/coordination.py": 169,
     "plugins/xp-agents/scripts/dash_c_tokens.py": 129,
     "plugins/xp-agents/scripts/framework_detect.py": 122,
     "plugins/xp-agents/scripts/hook_liveness.py": 196,
-    "plugins/xp-agents/scripts/identity.py": 227,
+    # 227 -> 239: CLOSE_CYCLE_AGENT_ID lands here rather than in
+    # `event_metadata` — it is an agent identity, not an event metadata key, and
+    # the note has to say why the id is read as a discriminator or a future
+    # reader deletes the `story_metrics` check that depends on it.
+    "plugins/xp-agents/scripts/identity.py": 239,
     "plugins/xp-agents/scripts/in_place_marker.py": 291,
     "plugins/xp-agents/scripts/lead_gates.py": 166,
     "plugins/xp-agents/scripts/lint_runners.py": 177,
