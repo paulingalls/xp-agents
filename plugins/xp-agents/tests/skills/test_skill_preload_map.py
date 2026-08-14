@@ -149,5 +149,31 @@ class TestEnvironmentContract(unittest.TestCase):
         self.assertEqual(invocation.env["CLAUDE_PLUGIN_DATA"], "")
 
 
+class TestAbsenceVsFailure(unittest.TestCase):
+    """Three distinct cases: no preload (None), no preload but required
+    (raises), and no such skill at all (raises from resolve_preload
+    itself — collapsing this into None would erase the distinction between
+    "this skill has no preload" and "there is no such skill")."""
+
+    def test_no_preload_skills_are_in_the_shipped_tree(self):
+        for name in _NO_PRELOAD_SKILLS:
+            with self.subTest(skill=name):
+                self.assertTrue((_SKILLS_DIR / name).is_dir())
+
+    def test_skill_with_no_preload_returns_none(self):
+        for name in _NO_PRELOAD_SKILLS:
+            with self.subTest(skill=name):
+                self.assertIsNone(skill_preload_map.resolve_preload(name))
+
+    def test_required_raises_when_no_preload(self):
+        for name in _NO_PRELOAD_SKILLS:
+            with self.subTest(skill=name), self.assertRaises(ValueError):
+                skill_preload_map.resolve_preload_required(name)
+
+    def test_unknown_skill_name_raises_from_resolve_preload(self):
+        with self.assertRaises(ValueError):
+            skill_preload_map.resolve_preload("xp-does-not-exist")
+
+
 if __name__ == "__main__":
     unittest.main()
