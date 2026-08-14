@@ -59,7 +59,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from _budget_helpers import scrub_close_cycle_marker
 from _preload_delivery_fixtures import (
-    MARKERLESS_BY_DESIGN,
     MECHANISM_TERMS,
     PRELOAD_DELIVERY_MARKERS,
     Marker,
@@ -74,6 +73,13 @@ from conftest import (
 
 _SUITE_PATH = Path(__file__)
 _TABLE_PATH = _SUITE_PATH.parent.parent / "_preload_delivery_fixtures.py"
+
+# Recorded, like the marker table: both AC2 scans are satisfied by ANY text
+# once the term list is empty, so `len(hits) == len(MECHANISM_TERMS)` alone
+# passes at 0 == 0. Bump this deliberately when adding a term; the point is
+# that DROPPING one cannot be silent — the tempting fix, when the milestone's
+# new delivery path makes a term match legitimately, is to delete the term.
+_RECORDED_TERM_COUNT = 9
 
 _HARNESS_BROKEN = (
     "pinned harness broken: git will fire a hook in the fresh temp repo at "
@@ -121,11 +127,9 @@ def delivery_failures(outputs: dict[str, str]) -> list[str]:
 
 
 def empty_marker_sets() -> list[str]:
-    """Table entries recording no marker at all — vacuous unless declared."""
+    """Table entries recording no marker at all — vacuous, with no exemption."""
     return sorted(
-        skill
-        for skill, markers in PRELOAD_DELIVERY_MARKERS.items()
-        if not markers and skill not in MARKERLESS_BY_DESIGN
+        skill for skill, markers in PRELOAD_DELIVERY_MARKERS.items() if not markers
     )
 
 
@@ -187,11 +191,14 @@ class TestTableCoverage(unittest.TestCase):
         )
 
     def test_no_entry_records_an_empty_marker_set(self):
-        """An entry that records nothing passes for any output whatsoever."""
+        """An entry that records nothing passes for any output whatsoever.
+
+        There is deliberately no exemption list: seeding found no preload that
+        delivers nothing its instructions read, and a preload that ever does is
+        a red worth arguing about, not an entry to wave through."""
         self.assertFalse(
             empty_marker_sets(),
-            "delivery-table entries recording no marker (a vacuous entry — "
-            "seed it, or declare it in MARKERLESS_BY_DESIGN with a reason): "
+            "delivery-table entries recording no marker — seed them: "
             f"{empty_marker_sets()}",
         )
 
@@ -265,6 +272,13 @@ class TestNoMechanismAssertions(unittest.TestCase):
         the scanned file is red by construction — so scanning THAT module is
         the demonstration that the separation is load-bearing, and that the
         terms are live strings rather than decoration."""
+        self.assertEqual(
+            len(MECHANISM_TERMS),
+            _RECORDED_TERM_COUNT,
+            "the term list changed size; an emptied one makes both scans pass "
+            "on any text at all. Confirm the change is intended, then bump "
+            "the recorded count.",
+        )
         hits = mechanism_references(_TABLE_PATH.read_text(encoding="utf-8"))
         self.assertEqual(
             len(hits),

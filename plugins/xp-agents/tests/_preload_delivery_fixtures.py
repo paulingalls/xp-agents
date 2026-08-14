@@ -19,8 +19,10 @@ preloads, so it is those skills' instructions living in another file.
 
 Deliberately NOT recorded, though delivered:
 - Values a scrape would pick up that no instruction reads — `PLUGIN_ROOT=`
-  and `SMM_FILE=` from `xp-assign`, `PLAN_FILE_ERROR=` from `xp-review-plan`,
-  `CLOSE_CODE_FILE_COUNT=` from the close preloads.
+  (`xp-assign`, `xp-schedule`; both SKILL.md bodies resolve the plugin root
+  from the environment instead), `SMM_FILE=` from `xp-assign`,
+  `PLAN_FILE_ERROR=` from `xp-review-plan`, `TEAMMATE_CWD=` from
+  `xp-quality-review`, `CLOSE_CODE_FILE_COUNT=` from the close preloads.
 - `HIGH_CONCERN_COUNT=$(git diff ...)` — a shell assignment inside a fenced
   example in the shared close reference, not a delivered value. Recording it
   would pin reference prose as if it were state.
@@ -155,6 +157,10 @@ PRELOAD_DELIVERY_MARKERS: dict[str, tuple[Marker, ...]] = {
         _val("MODE"),
         _key("TEST_COMMAND", _NO_TEST_COMMAND),
         _line("## Debt for Changed Files"),
+        # Unconditional, and a whole SKILL.md step ("For each concern...")
+        # is driven by it. `## Changed Files` is unconditional too but no
+        # instruction dereferences the heading, so it stays unrecorded.
+        _line("## Open Plan Concerns"),
     ),
     # Forks to xp-plan-reviewer, whose definition reads SMM_DIR. The preload's
     # other line, `PLAN_FILE_ERROR=`, is read by nothing.
@@ -207,14 +213,6 @@ PRELOAD_DELIVERY_MARKERS: dict[str, tuple[Marker, ...]] = {
     ),
     "xp-work-selection": (_SMM_DIR,),
 }
-
-
-# Seeding found no marker-free skill — every preload delivers at least one
-# marker its instructions read — so there is no exception set. Adding one, and
-# the guard branch that consumes it, would ship a hole for a state that does
-# not exist. If a future preload genuinely has nothing to record, add the
-# skill here WITH its reason and teach the guard to read this.
-MARKERLESS_BY_DESIGN: dict[str, str] = {}
 
 
 # --- Term list for the mechanism scan -------------------------------------
