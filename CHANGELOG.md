@@ -2,9 +2,13 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
-## Unreleased
+## v5.15.0 — One merge policy, three emitters
 
-### One merge policy, three emitters
+Minor rather than patch. Most of it is defect fixes, but two changes are ones a
+consumer can observe: a merge HEAD's recorded event changes shape (it now carries
+`is_merge` and a wider `resolves` on the routes an operator actually uses), and
+`XP_LOCK_TIMEOUT_SECONDS` no longer means what it meant — it can shorten a
+caller's named lock budget but not lengthen it, which reverses a recorded decision.
 
 A `type=commit` event for a merge HEAD could be produced by three emitters, and
 they disagreed. The close-cycle emitter tagged `is_merge` and re-derived
@@ -254,8 +258,8 @@ merge finished by hand is recognised there too, spelled `commit (merge)`.
 git's `[branch hash]` line), so they take the shared success path, which does not
 pass `is_merge` and records them as plain commits carrying the whole merged
 branch as their files. These notes claimed the general case until a close review
-measured both shapes end to end. (Closed after this release — see Unreleased,
-"One merge policy, three emitters".)
+measured both shapes end to end. (Closed in v5.15.0, "One merge policy, three
+emitters".)
 
 ### The fix that claimed another clone's commit
 
