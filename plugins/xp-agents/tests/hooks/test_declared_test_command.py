@@ -11,7 +11,10 @@ around is a table of runner names — one already exists in the tree, and
 building on it would have made the gate inert for every project whose runner
 is not in it. So the decisive proof is not that the well-known runners work:
 it is that runners NO table anywhere in this repo has heard of work exactly
-the same way, and that the shipped module's source names none of them.
+the same way, and that no shipped module keying on the declaration names one.
+That second half is a SWEEP over the whole chain — this module plus every
+shipped module importing it — so it also covers the consumers, whose own
+suites do not repeat it.
 """
 
 import json
@@ -25,6 +28,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import declared_test_command
+from _paths import _PLUGIN_ROOT
+from _pin_helpers import shipped_files_to_scan
 from _system_context_fixtures import valid_doc, write_doc
 from conftest import _SMMTestCase
 from system_context_schema import SYSTEM_CONTEXT_FILENAME
@@ -281,9 +286,10 @@ class TestTheFamiliarRunnersAreNotSpecialCased(unittest.TestCase):
         self.assertFalse(_runs("jest src/", "npx jest"))
 
 
-# Names any runner table in this tree would contain. The shipped module must
-# name none of them — not in a rule, not in an example, not in prose. An
-# example is how the next author learns what the rule is allowed to know.
+# Names any runner table in this tree would contain. No module that keys on
+# the declaration may name one — not in a rule, not in an example, not in
+# prose. An example is how the next author learns what the rule is allowed to
+# know.
 _RUNNER_LITERALS = (
     "pytest", "unittest", "jest", "vitest", "mocha", "playwright", "deno",
     "turbo", "nx", "bun", "npm", "pnpm", "yarn", "lerna", "cargo", "gradle",
@@ -291,34 +297,65 @@ _RUNNER_LITERALS = (
     "xcodebuild", "rake", "tox", "nose2", "ctest",
 )  # fmt: skip
 
+_MODULE = Path(declared_test_command.__file__)
+_IMPORTS_THE_DECLARATION_RE = re.compile(
+    r"^\s*(?:import|from)\s+" + _MODULE.stem + r"\b", re.MULTILINE
+)
 
-class TestShippedSourceNamesNoRunner(unittest.TestCase):
+
+def _declaration_keyed_modules() -> list[Path]:
+    """Every shipped module that keys on the declaration: the reader itself,
+    plus each shipped module that imports it.
+
+    A SWEEP rather than a named pair, because a named pair covers only the
+    modules that existed the day it was written — and the next consumer of the
+    declaration is exactly where a runner table would grow back, one module
+    further out, under a scan that never looked at it.
+    """
+    return sorted(
+        path
+        for path in shipped_files_to_scan(_PLUGIN_ROOT)
+        if path == _MODULE
+        or _IMPORTS_THE_DECLARATION_RE.search(path.read_text(encoding="utf-8"))
+    )
+
+
+class TestShippedSourcesNameNoRunner(unittest.TestCase):
     """AC3's literal half: no rule keys on a runner name.
 
-    A source scan rather than a behavioural one, because the behavioural
-    tests above can only prove that today's inputs are handled — they cannot
-    prove that tomorrow's special case is absent.
+    A source scan rather than a behavioural one, because the behavioural tests
+    above can only prove that today's inputs are handled — they cannot prove
+    that tomorrow's special case is absent.
     """
 
-    MODULE = Path(declared_test_command.__file__)
+    def test_the_sweep_finds_every_module_that_keys_on_the_declaration(self):
+        """A scan that silently empties out proves nothing. The reader and the
+        gate that consumes it are the floor; a regexp that stopped matching
+        would otherwise pass by scanning nothing."""
+        found = _declaration_keyed_modules()
+        self.assertIn(_MODULE, found)
+        self.assertGreaterEqual(len(found), 2, msg=f"swept only {found}")
 
-    def test_no_runner_name_appears_in_the_shipped_module(self):
-        source = self.MODULE.read_text(encoding="utf-8")
-        found = sorted(
-            name
-            for name in _RUNNER_LITERALS
-            if re.search(rf"\b{re.escape(name)}\b", source, re.IGNORECASE)
-        )
-        self.assertEqual(
-            found,
-            [],
-            msg=(
-                f"{self.MODULE.name} names {found} — the declared command is "
-                f"the only runner knowledge this module may hold. The plugin "
-                f"ships to projects in every language; a runner name here is "
-                f"the start of the table this design exists to route around."
-            ),
-        )
+    def test_no_runner_name_appears_in_any_of_them(self):
+        for module in _declaration_keyed_modules():
+            source = module.read_text(encoding="utf-8")
+            found = sorted(
+                name
+                for name in _RUNNER_LITERALS
+                if re.search(rf"\b{re.escape(name)}\b", source, re.IGNORECASE)
+            )
+            with self.subTest(module=module.name):
+                self.assertEqual(
+                    found,
+                    [],
+                    msg=(
+                        f"{module.name} names {found} — the declared command is "
+                        f"the only runner knowledge this chain may hold. The "
+                        f"plugin ships to projects in every language; a runner "
+                        f"name here is the start of the table this design "
+                        f"exists to route around."
+                    ),
+                )
 
 
 if __name__ == "__main__":

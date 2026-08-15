@@ -148,9 +148,13 @@ BAND_CEILINGS = {
     # because the obvious cut — the hook-wiring and E2E classes into a sibling
     # — would move AC5's only evidence out of the file this story's
     # acceptance_execution actually runs, which is the gap kickoff triage
-    # raised against this story in the first place. The cohesive group to
-    # extract when it next grows is `TestEndToEndThroughTheRealHook`, once a
-    # second suite needs the same real-runner-with-a-sentinel fixture.
+    # raised against this story in the first place. Unchanged across review:
+    # the duplicate runner-name scan left for the sibling suite that now
+    # sweeps for it, and a declare() mixin replaced three copies of one
+    # fixture write, which between them paid for the redirect shapes and the
+    # masking-declaration case added alongside. The cohesive group to extract
+    # when it next grows is `TestEndToEndThroughTheRealHook`, once a second
+    # suite needs the same real-runner-with-a-sentinel fixture.
     "plugins/xp-agents/tests/hooks/test_exit_capture_gate.py": 470,
     # RETIRED (story-019 follow-up): test_sprint_frontier.py 470->283. The
     # unscoped-verdict tests had already moved to test_frontier_unprovable.py;

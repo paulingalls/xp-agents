@@ -29,9 +29,10 @@ over-refuses there, and must carry an escape hatch. The alternative — reading
 the declaration's subcommand as well — buys a narrower match by teaching this
 module what a subcommand is, which is the first sentence of a vocabulary.
 
-Leaf module: imports DOWN only (shell structure + the system_context loader),
-knows nothing about hooks, and is consumed by both the pre-run and post-run
-sides of the test-failure gate.
+Leaf module: imports DOWN only (shell structure + the system_context loader)
+and knows nothing about hooks. One consumer today, `exit_capture_gate`; shaped
+for a second — the post-run side of the same test-failure gate still keys on a
+runner table, and this is what it would key on instead.
 """
 
 import sys

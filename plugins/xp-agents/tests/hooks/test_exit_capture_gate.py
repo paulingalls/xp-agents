@@ -15,7 +15,6 @@ not say what to run instead is a dead end, not a gate.
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -62,17 +61,33 @@ _HONEST_SHAPES = {
     "trailing-newline": "pytest -n auto\n",
     "argument-substitution": "pytest -n $(nproc)",
     "argument-substitution-flag": "pytest --rootdir=$(pwd) tests/",
+    # A redirect alone moves the OUTPUT, not the status — the shell still
+    # exits the runner's code. This is the form the refusal text names as the
+    # answer for a suite whose output is too large to read as it comes, so it
+    # has to actually be allowed, or the refusal sends the reader into a
+    # second one.
+    "redirect-only": "pytest -n auto > /tmp/suite.log",
+    "redirect-both-streams": "pytest -n auto > /tmp/suite.log 2>&1",
+    "redirect-merged-form": "pytest -n auto &> /tmp/suite.log",
 }
 
 
-class _GateCase(_SMMTestCase):
-    """An SMM whose system_context may declare a test command."""
+class _Declares:
+    """Writes the one thing every class here needs: a system_context declaring
+    a test command. A mixin rather than a base, because the three suites below
+    sit on two different bases and share only this."""
 
-    def declare(self, command: str = _DECLARED) -> None:
+    smm_dir: Path  # supplied by whichever base this is mixed into
+
+    def declare(self, command: str = _DECLARED, language: str = "Python") -> None:
         write_doc(
             self.smm_dir,
-            valid_doc(stack={"languages": ["Python"], "test_command": command}),
+            valid_doc(stack={"languages": [language], "test_command": command}),
         )
+
+
+class _GateCase(_Declares, _SMMTestCase):
+    """An SMM whose system_context may declare a test command."""
 
     def block(self, command: str) -> str | None:
         return exit_capture_gate.captured_exit_block(self.smm_dir, command)
@@ -201,6 +216,18 @@ class TestNoDeclarationMeansNoGate(_GateCase):
         self.declare()
         self.assert_allowed("")
 
+    def test_a_declaration_that_masks_its_own_status_no_ops(self):
+        """The deadlock: nothing stops a project declaring a command that
+        discards its own exit status, and the schema does not look. Refusing
+        on it would refuse the declared command under a reason naming that
+        same command as the fix — every invocation, forever, with the escape
+        hatch as the only way out. No honest form exists to name here, so the
+        gate stands down and the post-run advisory takes it."""
+        self.declare("pytest -n auto 2>&1 | tail -50")
+        for command in ("pytest -n auto 2>&1 | tail -50", "pytest tests/ | tail"):
+            with self.subTest(command=command):
+                self.assert_allowed(command)
+
 
 class TestEscapeHatch(_GateCase):
     """A refusal an author cannot override is a refusal that gets routed
@@ -262,6 +289,15 @@ class TestTheRefusalIsActionable(_GateCase):
         reason = self.assert_refused("mix test | tail -20")
         self.assertIn("mix test", reason)
 
+    def test_the_reason_offers_a_form_the_gate_actually_allows(self):
+        """The reason names a redirect as the way to keep the output; that is
+        only advice if the gate lets it through. Pinned as a pair so the text
+        and the rule cannot drift into contradicting each other."""
+        self.declare()
+        reason = self.assert_refused("pytest -n auto | tail -20")
+        self.assertIn("> <file> 2>&1", reason)
+        self.assert_allowed("pytest -n auto > /tmp/suite.log 2>&1")
+
     def test_the_reason_says_that_an_and_chain_is_still_fine(self):
         """Without this the obvious reading of the refusal is "never compose
         the test command", and the next command tried is a bare re-run that
@@ -294,40 +330,13 @@ class TestShellWrappersCannotLaunder(_GateCase):
         self.assert_allowed('git commit -m "stop piping pytest | tail"')
 
 
-# The module may hold no runner vocabulary either — it composes the
-# declaration-reading module, and a name here would be the same leak one
-# indirection further out.
-_RUNNER_LITERALS = (
-    "pytest", "unittest", "jest", "vitest", "mocha", "playwright", "deno",
-    "turbo", "nx", "bun", "npm", "pnpm", "yarn", "lerna", "cargo", "gradle",
-    "maven", "mvn", "rspec", "minitest", "phpunit", "dotnet", "swift",
-    "xcodebuild", "rake", "tox", "nose2", "ctest",
-)  # fmt: skip
+# AC3's literal half — that this module names no runner either — is not here.
+# `test_declared_test_command` sweeps every shipped module importing the
+# declaration reader, which is this one; a second copy of the same name list
+# beside it is what drifts.
 
 
-class TestShippedSourceNamesNoRunner(unittest.TestCase):
-    """AC3's literal half, applied to the gate as well as to its input."""
-
-    def test_no_runner_name_appears_in_the_shipped_module(self):
-        module = Path(exit_capture_gate.__file__)
-        source = module.read_text(encoding="utf-8")
-        found = sorted(
-            name
-            for name in _RUNNER_LITERALS
-            if re.search(rf"\b{re.escape(name)}\b", source, re.IGNORECASE)
-        )
-        self.assertEqual(
-            found,
-            [],
-            msg=(
-                f"{module.name} names {found} — every refusal this gate makes "
-                f"must derive from the project's declaration. A runner name "
-                f"here is the table this design routes around, one module out."
-            ),
-        )
-
-
-class TestWiredIntoPreToolUse(_HookTestCase):
+class TestWiredIntoPreToolUse(_Declares, _HookTestCase):
     """The gate reaching the hook, in process.
 
     Separate from the gate's own tests because the interesting facts here are
@@ -335,12 +344,6 @@ class TestWiredIntoPreToolUse(_HookTestCase):
     gates, and refusing by raising the exception the hook's `__main__` turns
     into exit 2.
     """
-
-    def declare(self, command: str = _DECLARED) -> None:
-        write_doc(
-            self.smm_dir,
-            valid_doc(stack={"languages": ["Python"], "test_command": command}),
-        )
 
     def test_a_masked_run_raises_blocked(self):
         self.declare()
@@ -398,7 +401,7 @@ class TestWiredIntoPreToolUse(_HookTestCase):
         )
 
 
-class TestEndToEndThroughTheRealHook(_SMMTestCase):
+class TestEndToEndThroughTheRealHook(_Declares, _SMMTestCase):
     """AC5: the real hook, as a subprocess, with a runner that would leave
     evidence if it ran.
 
@@ -416,10 +419,7 @@ class TestEndToEndThroughTheRealHook(_SMMTestCase):
         self.runner = self.workdir / "run-suite.sh"
         self.runner.write_text(f"#!/bin/sh\ntouch {self.sentinel}\nexit 1\n")
         self.runner.chmod(0o755)
-        write_doc(
-            self.smm_dir,
-            valid_doc(stack={"languages": ["Shell"], "test_command": str(self.runner)}),
-        )
+        self.declare(str(self.runner), language="Shell")
 
     def tearDown(self):
         shutil.rmtree(self.workdir, ignore_errors=True)
