@@ -124,6 +124,80 @@ class TestReadDeltaParseCost(_SMMTestCase):
         self.assertIn('"content": "event-0"', parsed)
 
 
+class TestCompactParseCost(_SMMTestCase):
+    """Compaction parses the log once, and actually reaches the archive path.
+
+    Both are invariants the old compact wall-clock timer stood in for — but its
+    liveness check (`archived > 0`) lived INSIDE the gated timer, so it only ran
+    where XP_PERF was set, which CI never does. A second parse pass, or an early
+    exit before the retention split, is caught here deterministically on any
+    machine at any load.
+    """
+
+    def _compact_with_spy(self) -> tuple[dict, list[str]]:
+        """Compact a log with a curation watermark, capturing every raw string
+        handed to parse_jsonl.
+
+        compact imports parse_jsonl into its own namespace (compact.py:44), so it
+        is directly patchable there; `wraps` delegates to the real function and
+        records its args.
+
+        The curation watermark is what makes this a compaction at all: without
+        one, compact_after_curation early-exits before the retention split.
+        """
+        import compact
+
+        events = _generate_mixed_events(200)
+        for i in range(10):
+            events.append(
+                make_event(
+                    EVENT_TYPE_SESSION_END,
+                    content=f"end-{i}",
+                    working_on=[],
+                    ts=f"2026-02-{i + 1:02d}T00:00:00+00:00",
+                )
+            )
+        self._write_events(events)
+        materialize.write_curation_watermark(
+            self.smm_dir, len(events) // 2, "xp-housekeeper"
+        )
+
+        with patch.object(compact, "parse_jsonl", wraps=compact.parse_jsonl) as spy:
+            result = compact.compact(self.smm_dir)
+        return result, [call.args[0] for call in spy.call_args_list]
+
+    def test_compact_parses_the_log_in_a_single_pass(self):
+        _, seen = self._compact_with_spy()
+
+        self.assertEqual(
+            len(seen),
+            1,
+            f"compact handed parse_jsonl {len(seen)} raw strings — a second pass "
+            "makes compaction cost a multiple of history, which the old wall-clock "
+            "bound could only notice as a slowdown, and only on a quiet box",
+        )
+
+    def test_compact_reaches_the_archive_path(self):
+        """Positive control for the assertion above, plus the liveness the gated
+        timer used to carry.
+
+        Without this, a spy patched onto the wrong name would see zero calls and
+        the single-pass assertion would pass forever while asserting nothing —
+        and an early exit before the retention split would go unnoticed.
+        """
+        result, seen = self._compact_with_spy()
+
+        self.assertGreater(
+            result["archived"], 0, "compaction never reached the archive path"
+        )
+        self.assertEqual(len(seen), 1, "the spy is not watching the parse at all")
+        self.assertIn(
+            '"content": "event-0"',
+            seen[0],
+            "compact must be handed the whole log — the spy saw only part of it",
+        )
+
+
 @unittest.skipUnless(os.environ.get("XP_PERF"), "perf suite — set XP_PERF=1")
 class TestScaleBenchmarks(_SMMTestCase):
     """Wall-clock scale timers. Opt-in via XP_PERF because a wall-clock bound
