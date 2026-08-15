@@ -73,13 +73,18 @@ class _TwoCheckoutCase(_HookTestCase):
     def lead_runs_quality_review(self) -> None:
         """The real PostToolUse leg: its payload cwd is the LEAD's, because
         that is the process the hook fires in — whatever repo the review was
-        about."""
+        about.
+
+        The leg is the REVIEWER AGENT returning, not the skill launching: the
+        Skill payload fires before the review has run and no longer sets the
+        flag.
+        """
         review_cycle_done.run(
             {
                 "agent_id": "main",
                 "cwd": _LEAD_CWD,
-                "tool_name": "Skill",
-                "tool_input": {"skill": "xp-quality-review"},
+                "tool_name": "Agent",
+                "tool_input": {"subagent_type": "xp-agents:xp-code-reviewer"},
             },
             smm_dir=self.smm_dir,
         )

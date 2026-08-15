@@ -27,8 +27,8 @@ Defers on ASKING_USER so AskUserQuestion dialogues complete cleanly.
 Also defers during the close /code-review's async Step 4b window —
 `review_records.review_mid_cycle`, under the key `identity.review_flags_key`
 gives every writer of the flag (simplify_done set when the workflow launched,
-quality_review_done not yet set when /xp-quality-review consumes its
-findings). Pushing xp-close-reviewer there would run Step 4.5 BEFORE the
+quality_review_done not yet set until the xp-code-reviewer /xp-quality-review
+spawns returns). Pushing xp-close-reviewer there would run Step 4.5 BEFORE the
 background /code-review returns; deferring (return None) lets the agent
 yield and be re-woken by the workflow-completion notification. Teammates
 deferral is intentionally NOT applied — outside Step 4b the close cycle
@@ -258,7 +258,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if marker_active:
         # Step 4b window: the close /code-review workflow is in flight
         # (review mid-cycle). Defer the close-reviewer nudge until the
-        # workflow returns and /xp-quality-review consumes its findings —
+        # workflow returns and the reviewer /xp-quality-review spawns to
+        # consume its findings has itself returned —
         # same predicate sprint_stop_gate uses, under the same key
         # identity.review_flags_key gives every writer of the flag.
         #
@@ -266,7 +267,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # age): defer ONLY while the marker is young (workflow plausibly
         # still running).
         # Once it ages past the threshold the mid-cycle flag is stuck — a
-        # /xp-quality-review consume that never set quality_review_done — so
+        # quality review that never reached its reviewer's completion — so
         # an unbounded defer would silently abandon the close forever. Fall
         # through to the block, which is where the surfacing happens: while
         # this session is the marker's live owner, no bypass will record or

@@ -46,8 +46,9 @@ import review_records
 # review_cycle_done emits for the equivalent completed review. Keys double as
 # the argparse `choices` (the valid review-cycle flags this CLI sets). Only
 # simplify_done is needed: it is the sole leg the async-Workflow Step 4b must
-# substitute for. /xp-quality-review still launches via the Skill tool, so
-# review_cycle_done sets quality_review_done itself — no CLI leg for it.
+# substitute for. The quality half still fires a hook — /xp-quality-review
+# spawns xp-code-reviewer via the Agent tool, and review_cycle_done sets
+# quality_review_done off that agent's completion — so no CLI leg for it.
 _FLAG_LIFECYCLE: dict[str, tuple[str, str]] = {
     "simplify_done": (
         event_schema.STATUS_ACTION_SIMPLIFY_COMPLETE,

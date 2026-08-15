@@ -136,9 +136,11 @@ def end_review_cycle(
 def review_mid_cycle(smm_dir: Path, agent_id: str) -> bool:
     """True when a review cycle is mid-flight for ``agent_id``.
 
-    Mid-cycle = /code-review (or /simplify) has set ``simplify_done`` but
-    /xp-quality-review has not yet set ``quality_review_done``. One home for
-    the predicate, so the Stop gates that defer on it cannot drift apart.
+    Mid-cycle = /code-review (or /simplify) has set ``simplify_done`` but the
+    quality review has not yet set ``quality_review_done`` — which happens when
+    the xp-code-reviewer agent /xp-quality-review spawns RETURNS, not when the
+    skill is invoked. One home for the predicate, so the Stop gates that defer
+    on it cannot drift apart.
 
     Load-bearing invariant: a standalone self-find review sets
     ``quality_review_done`` WITHOUT ``simplify_done`` — that is a COMPLETED
