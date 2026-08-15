@@ -135,19 +135,28 @@ def _record_completed_quality_review(smm_dir: Path, cwd: str, input_data: dict) 
     The COVERAGE has to be written at completion for a second reason: the
     reviewer's fixes are in the working tree by now, and at launch they did not
     exist. Recorded at launch the set would omit exactly the files it exists to
-    forgive. Keyed on the repo, like the watermark, because the paths are
-    repo-relative. `commits` is imported lazily — every subagent completion
-    reaches this module, only this one needs git.
+    forgive. Only the STAGED and committed ones, though — the scan does not
+    read unstaged work, so in commit cadence the set is often empty and
+    forgives nothing, which is the safe direction. Keyed on the repo, like the
+    watermark, because the paths are repo-relative. `commits` is imported
+    lazily — every subagent completion reaches this module, only this one needs
+    git.
+
+    ORDER: the two git reads run FIRST and the flag last, so an interrupt
+    between them leaves the gate armed rather than cleared — the same direction
+    `review_records.end_review_cycle` fails in, for the same reason. Reversed,
+    the interrupted state is the very one this release exists to remove: the
+    flag raised, no coverage, and the reviewer's own fixes re-arming the gate.
     """
     import commits
 
-    review_records.set_review_flag(
-        smm_dir, identity.review_flags_key(cwd), "quality_review_done"
-    )
     repo_key = identity.review_watermark_key(cwd)
     watermark = review_records.read_review_watermark(smm_dir, repo_key)
     scope = commits.get_code_files_for_review(cwd, watermark)
     review_records.write_review_coverage(smm_dir, repo_key, scope)
+    review_records.set_review_flag(
+        smm_dir, identity.review_flags_key(cwd), "quality_review_done"
+    )
     _common.append_safe(
         smm_dir,
         _common.make_event(

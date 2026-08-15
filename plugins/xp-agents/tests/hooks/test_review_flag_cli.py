@@ -154,8 +154,10 @@ class TestTheCliSubstitutesForTheHookExactly(unittest.TestCase):
 
     def test_the_cli_covers_only_the_async_leg(self):
         """Non-vacuity: an equality over an empty table proves nothing, and
-        the quality-review leg deliberately has no CLI substitute — it still
-        launches via the Skill tool, so the hook sets it."""
+        the quality-review leg deliberately has no CLI substitute — a
+        prose-invoked leg would make the commit gate's own flag settable
+        without a review; `review_cycle_legs` sets it from the reviewer's
+        SubagentStop instead."""
         self.assertEqual(set(review_flag_cli._FLAG_LIFECYCLE), {"simplify_done"})
 
 

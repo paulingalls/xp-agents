@@ -50,9 +50,13 @@ staged and committed files, so in commit cadence — where the reviewed work is
 typically unstaged — it can come back empty and forgive nothing
 (`156d4cdddce4`). It fails safe. The exemption also spans two commit gates
 rather than one when the fixes ride the same commit as the reviewed work
-(`86c30b9d2712`), and a reviewer spawned for an unrelated purpose now writes
-coverage as well as clearing the flag (`2cc9b891a249`, extending
-`6552b06d04a3`).
+(`86c30b9d2712`) — and it is keyed on PATHS, not on content, so that second
+gate forgives whatever those files hold by then, including work written after
+the review and never seen by it. A reviewer spawned for an unrelated purpose
+now writes coverage as well as clearing the flag (`2cc9b891a249`, extending
+`6552b06d04a3`). And the record is spent by the commit sites, so a commit that
+never reaches one leaves its paths exempt indefinitely (`250a3e1b41a6`)
+— the one disclosed cost here that fails open rather than safe.
 
 `subagent_stop.py` crossed both the 450-line band and the prose floor with the
 new leg, so the review-cycle legs moved to `scripts/review_cycle_legs.py` rather

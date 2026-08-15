@@ -197,6 +197,32 @@ class TestOnlyAGenuineCompletionCounts(_HookTestCase):
         self.assertFalse(flags["quality_review_done"])
         self.assertEqual(review_records.read_review_coverage(self.smm_dir, _KEY), set())
 
+    def test_an_interrupted_scan_leaves_the_gate_armed(self):
+        """Write ORDER, not just the writes: the flag is raised LAST.
+
+        A run that dies during the git scan must fail toward one extra review,
+        never toward a cleared gate with no coverage — that state is exactly
+        the one this release removes, since the reviewer's own fixes would
+        then re-arm the gate with the flag already spent.
+        """
+        with (
+            patch("commits.get_code_files_for_review", side_effect=OSError("boom")),
+            self.assertRaises(OSError),
+        ):
+            subagent_stop.run(
+                {
+                    "session_id": "t",
+                    "agent_id": "rev-1",
+                    "agent_type": "xp-agents:xp-code-reviewer",
+                    "cwd": _CWD,
+                    "last_assistant_message": "Done",
+                },
+                smm_dir=self.smm_dir,
+            )
+
+        flags = review_records.read_review_flags(self.smm_dir, _KEY)
+        self.assertFalse(flags["quality_review_done"])
+
     def test_a_git_failure_records_no_coverage(self):
         """Fails toward one extra review. An empty scope forgives nothing,
         which is the safe direction when git could not be read."""

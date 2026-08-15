@@ -152,7 +152,15 @@ def write_review_coverage(smm_dir: Path, agent_id: str, paths: list[str]) -> Non
 
 
 def read_review_coverage(smm_dir: Path, agent_id: str) -> set[str]:
-    """The paths the last review covered, or an empty set when it has expired.
+    """The paths recorded for the last review, whatever their age.
+
+    Expiry is WRITE-driven — `_age_review_coverage` drops the record on the
+    commit that spends it, and this read enforces nothing. That fails OPEN,
+    unlike the flags: a commit that lands without reaching a commit site never
+    ages the record, so its paths stay exempt indefinitely. Tracked as debt —
+    a read-time age check cannot close it, because the write that fails to age
+    is the same one that fails to advance the watermark, leaving nothing in
+    the SMM that moved. Closing it needs the commit that landed, i.e. git.
 
     Empty on anything unreadable — a malformed record forgives nothing, which
     fails toward one extra review rather than toward an unreviewed commit.
