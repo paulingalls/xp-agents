@@ -248,6 +248,26 @@ class TestAgentIdValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             append_validation.validate_agent_id("")
 
+    def test_rejects_trailing_newline(self):
+        """`$` matches before a final newline; the ids reach filenames.
+
+        An id is interpolated into marker names (`.watermark-<id>`, in
+        `_append_lock.write_watermark`), so a trailing newline names a
+        different file than the one every other caller reads. Only `\\Z`
+        refuses it.
+        """
+        with self.assertRaises(ValueError):
+            append_validation.validate_agent_id("agent\n")
+
+    def test_is_valid_agent_id_rejects_trailing_newline(self):
+        """The degrading sibling answers the same allowlist as the raiser.
+
+        `is_valid_agent_id` guards the resolver that turns a path into a
+        marker key. Were it to disagree with `validate_agent_id`, the
+        degrade path would accept the id the append path rejects.
+        """
+        self.assertFalse(append_validation.is_valid_agent_id("agent\n"))
+
 
 class TestSmmDirValidation(unittest.TestCase):
     """Tests for SMM directory ownership validation."""
