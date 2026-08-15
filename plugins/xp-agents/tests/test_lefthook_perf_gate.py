@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
-"""The perf gate's own guard: lefthook.yml must keep running the scale timers alone.
+"""The retired perf tier's guard: the wall-clock timers must stay retired.
 
-The wall-clock bounds in test_scale_invariants.TestScaleBenchmarks only mean something
-when nothing else is competing for the box. That condition lives entirely in
-lefthook.yml — `piped` (sequential) rather than `parallel`, and a `perf` command
-that opts the timers in with XP_PERF=1 and disables xdist. Every one of those is a
-single word that a later edit could drop with no test going red, silently voiding
-the design while leaving a suite that still passes. Hence this file.
+This file used to pin that lefthook kept running the scale timers alone. The tier
+is gone — a wall-clock bound measures the machine, not the diff, and serializing
+`perf` after `all-tests` only ever controlled the contention that same run
+created. A concurrent CLI teammate (a recorded Key Decision of this project) was
+invisible to it, and because story close pushes, a blocking timer failed closes
+whose diff touched none of it.
 
-A guard that only asserts words are PRESENT in the config is nearly vacuous: it
-stays green while the config points at a class that no longer exists, or while a
-newly-gated timer elsewhere in the tree runs nowhere at all. So the assertions
-below bind the config to reality — the `-k` selector must name a class that
-exists in the file the command actually runs, and every XP_PERF-gated file in
-the tree must be a file this command runs.
+The invariants those timers stood in for are asserted structurally now, on WHAT
+gets parsed rather than how long it took — TestReadDeltaParseCost and
+TestCompactParseCost in tests/engine/test_scale_invariants.py, and
+test_repair_single_pass_no_double_parse in tests/engine/test_maintenance.py.
+
+So the guard INVERTS rather than disappearing. Deleting it outright would leave
+nothing stopping the tier's return, and the failure it always existed to catch is
+unchanged: a gate that runs nothing and reports green. With no `perf` command,
+any XP_PERF-gated class would execute nowhere and skip silently — so the
+assertion is now that no such class exists, and no such command is declared.
 
 Text-level, not YAML-parsed: the plugin is stdlib-only and PyYAML is not available.
+`LEFTHOOK` and `_uncommented` are imported by test_env_strip_mirror.py; both are
+part of this module's contract and must survive any rework.
 """
 
 import re
@@ -31,16 +37,15 @@ REPO_ROOT = _PLUGIN_ROOT.parents[1]
 LEFTHOOK = REPO_ROOT / "lefthook.yml"
 TESTS_ROOT = _PLUGIN_ROOT / "tests"
 
-# The pre-push command that runs the whole suite under xdist. The name must sort
-# BEFORE "perf" — lefthook orders commands alphabetically and `perf` has to run
-# last, alone, for its wall-clock bounds to mean anything. Naming this `tests`
-# would sort it after `perf` and silently invert that guarantee, which is why
-# the name is a named constant rather than a literal spelled at three sites.
+# The pre-push command that runs the whole suite under xdist. A constant rather
+# than a literal because the vacuity guard below is only as good as the name it
+# looks for: rename the command in lefthook.yml without renaming it here and the
+# guard reports a missing suite instead of the rename.
 _SUITE_COMMAND = "all-tests"
 
-# A class opted into the perf tier, i.e. skipped unless XP_PERF is set. Any file
-# holding one of these runs ONLY from lefthook's perf command; if that command
-# does not name the file, the timers inside it execute nowhere.
+# A class opted into the retired perf tier, i.e. skipped unless XP_PERF is set.
+# Nothing sets XP_PERF any more, so a class carrying this decorator runs nowhere
+# at all — green, and measuring nothing.
 XP_PERF_GATE = re.compile(r"""skipUnless\(\s*os\.environ\.get\(\s*["']XP_PERF["']""")
 
 
@@ -119,45 +124,59 @@ def _hook(name: str) -> str:
     return _uncommented(_top_level_block(LEFTHOOK.read_text(encoding="utf-8"), name))
 
 
-def _test_paths_in(run: str) -> list[Path]:
-    """Repo-relative test paths the command actually runs."""
-    return [
-        REPO_ROOT / token
-        for token in run.split()
-        if token.startswith("plugins/") and token.endswith(".py")
-    ]
-
-
-def _decorators_above(text: str, class_name: str) -> str:
-    """The contiguous decorator lines directly above `class <class_name>`."""
-    lines = text.splitlines()
-    for i, line in enumerate(lines):
-        if not line.startswith(f"class {class_name}"):
-            continue
-        above = []
-        for prev in reversed(lines[:i]):
-            if not prev.strip() or prev.lstrip().startswith("#"):
-                continue
-            if not prev.startswith("@") and not prev.startswith(" "):
-                break  # not part of the decorator block
-            above.append(prev)
-        return "\n".join(above)
-    return ""
-
-
-class TestPrePushSerializesThePerfTier(unittest.TestCase):
+class TestThePerfTierStaysRetired(unittest.TestCase):
     def setUp(self):
         self.block = _hook("pre-push")
-        self.perf = _command_body(self.block, "perf")
-        self.assertTrue(self.perf, "pre-push must define the `perf` command")
+
+    def test_pre_push_declares_no_perf_command(self):
+        """The tier is retired, not merely unused.
+
+        A `perf` command reappearing is how the false reds come back: it would
+        arm wall-clock bounds inside a BLOCKING push gate, where a concurrent
+        teammate's load — which the gate cannot see, let alone attribute — fails
+        closes whose diff touched none of it.
+        """
+        self.assertNotIn(
+            "perf",
+            _command_names(self.block),
+            "pre-push declares a `perf` command again. Wall-clock bounds measure "
+            "the machine, not the diff; assert what the code touches instead (see "
+            "TestCompactParseCost / TestReadDeltaParseCost).",
+        )
+
+    def test_no_xp_perf_gated_class_survives_anywhere(self):
+        """The inverted sweep, and the reason this file still exists.
+
+        With no command to arm XP_PERF, a gated class runs NOWHERE — it skips in
+        every suite, in CI, and at both gates, reporting green while measuring
+        nothing. That is the same failure the original guard existed to catch,
+        so the premise inverts and the assertion stays.
+        """
+        offenders = [
+            str(path.relative_to(REPO_ROOT))
+            for path in sorted(TESTS_ROOT.rglob("test_*.py"))
+            if XP_PERF_GATE.search(path.read_text(encoding="utf-8"))
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            f"{offenders} carry an XP_PERF skipUnless, but nothing sets XP_PERF "
+            "any more — those tests skip everywhere and assert nothing. Either "
+            "make them ungated structural assertions, or delete them.",
+        )
 
     def test_pre_push_is_piped(self):
+        """Kept, with a new reason. Its original justification — keeping `perf`
+        from racing the suite's xdist workers — retired with the tier, so state
+        the surviving one rather than leaving a pin whose rationale is gone. With
+        one command `piped` changes nothing today; it is pinned so that a command
+        added here later is sequential on arrival rather than racing this one,
+        which is a decision nobody would think to make at that moment."""
         self.assertRegex(
             self.block,
             r"(?m)^\s+piped:\s*true\b",
-            "pre-push must be piped: without sequential execution the perf "
-            "command races the integration suite's xdist workers — the exact "
-            "contention the wall-clock bounds cannot survive.",
+            "pre-push must stay piped — any command added beside all-tests has to "
+            "be sequential by default, not racing it.",
         )
 
     def test_pre_push_is_not_parallel(self):
@@ -165,121 +184,30 @@ class TestPrePushSerializesThePerfTier(unittest.TestCase):
             self.block,
             r"(?m)^\s+parallel:",
             "pre-push must not set parallel: lefthook rejects piped+parallel "
-            "outright ('conflicting options'), which aborts EVERY push in the "
-            "repo, and parallel alone re-introduces the contention.",
+            "outright ('conflicting options'), which aborts EVERY push in the repo.",
         )
 
-    def test_perf_command_arms_the_timers_and_runs_them_alone(self):
-        self.assertIn(
-            "XP_PERF=1", self.perf, "perf command must arm the XP_PERF-gated timers"
-        )
-        self.assertIn(
-            "-p no:xdist",
-            self.perf,
-            "perf command must disable xdist — the timers have to run alone",
-        )
-
-    def test_perf_command_selects_a_class_that_exists(self):
-        """The `-k` selector is a string: rename the class and it silently matches
-        nothing. pytest exits 5 there, so the push fails — but it fails cryptically,
-        at the push, for everyone. Bind the selector to the class here instead."""
-        selector = re.search(r"-k\s+(\S+)", self.perf)
-        self.assertIsNotNone(selector, "perf command must select the timers with -k")
-        name = selector.group(1)  # pyright: ignore[reportOptionalMemberAccess]
-        self.assertRegex(
-            name, r"^\w+$", "-k selector must be a bare class name, not an expression"
-        )
-
-        paths = _test_paths_in(self.perf)
-        self.assertTrue(paths, "perf command must name the test file it runs")
-        for path in paths:
-            self.assertTrue(path.is_file(), f"perf command runs a missing file: {path}")
-        self.assertTrue(
-            any(f"class {name}" in p.read_text(encoding="utf-8") for p in paths),
-            f"perf command selects `-k {name}`, but no class of that name exists in "
-            f"{[p.name for p in paths]} — the selector would deselect every test.",
-        )
-
-    def test_the_selected_timers_stay_off_the_commit_gate(self):
-        """The converse of the check below, and the one that protects the commit
-        gate itself. `-k` naming a class that EXISTS is not enough: if the
-        XP_PERF skipUnless is ever dropped from it, those wall-clock timers rejoin
-        `pytest -n auto` at pre-commit and go red on 16-worker contention alone —
-        the exact flakiness this whole tier exists to remove — and no test goes red
-        to say so. Bind the selected class to its gate.
-        """
-        selector = re.search(r"-k\s+(\S+)", self.perf)
-        self.assertIsNotNone(selector, "perf command must select the timers with -k")
-        name = selector.group(1)  # pyright: ignore[reportOptionalMemberAccess]
-
-        gated = [
-            path
-            for path in _test_paths_in(self.perf)
-            if XP_PERF_GATE.search(
-                _decorators_above(path.read_text(encoding="utf-8"), name)
-            )
-        ]
-        self.assertTrue(
-            gated,
-            f"`class {name}` is what the perf command runs, but it carries no "
-            "XP_PERF skipUnless — its wall-clock timers would also run on every "
-            "commit under `pytest -n auto`, where contention alone turns them red.",
-        )
-
-    def test_every_xp_perf_gated_file_runs_at_the_push_gate(self):
-        """An XP_PERF-gated class is skipped everywhere except this one command.
-        If a second file grows scale timers and the command does not name it, its
-        timers execute nowhere — green, and measuring nothing."""
-        run_paths = {p.resolve() for p in _test_paths_in(self.perf)}
-        for path in sorted(TESTS_ROOT.rglob("test_*.py")):
-            if not XP_PERF_GATE.search(path.read_text(encoding="utf-8")):
-                continue
-            self.assertIn(
-                path.resolve(),
-                run_paths,
-                f"{path.relative_to(REPO_ROOT)} has XP_PERF-gated timers but the "
-                "lefthook `perf` command does not run it — they would never execute. "
-                "Add the file to the perf command's run line.",
-            )
-
-    def test_perf_runs_after_the_other_pre_push_commands(self):
-        """lefthook orders commands alphabetically by name, NOT by file order. perf
-        must sort last so a real integration failure surfaces before a perf bound
-        does — `piped` stops at the first failure."""
+    def test_pre_push_still_runs_a_suite(self):
+        """Vacuity guard. Every assertion above is satisfied by an empty pre-push
+        block, so without this the retirement could be 'achieved' by deleting the
+        gate entirely."""
         names = _command_names(self.block)
-        self.assertIn("perf", names, "pre-push must declare a `perf` command")
-        self.assertGreater(len(names), 1, "pre-push must still run the other suites")
-        self.assertEqual(
-            "perf",
-            max(names),
-            f"`perf` must sort last among {sorted(names)} — lefthook runs commands "
-            "in alphabetical order by name.",
-        )
-
-
-class TestTheSuiteRunCannotArmTheTimers(unittest.TestCase):
-    """An exported XP_PERF=1 must not re-arm the wall-clock bounds on the
-    xdist-parallel suite run, where they measure 16-wide contention rather than
-    anything real.
-
-    This guard used to sit on pre-commit's `tests` command. The full suite moved
-    to pre-push, so the guard moved with it — the property is a property of the
-    PARALLEL SUITE RUN, not of the hook it happens to live in. Note pre-push's
-    prior `integration` command never carried `-u XP_PERF`; inheriting the
-    suite's full breadth without it would have armed the timers under xdist.
-
-    The commit gate keeps a run of its own (`staged-tests`), and its strip is
-    pinned beside it in `test_lefthook_commit_gate.py`.
-    """
-
-    def test_parallel_suite_command_strips_xp_perf(self):
-        suite = _command_body(_hook("pre-push"), _SUITE_COMMAND)
-        self.assertTrue(suite, f"pre-push must define the `{_SUITE_COMMAND}` command")
         self.assertIn(
-            "-u XP_PERF",
-            suite,
-            f"pre-push `{_SUITE_COMMAND}` must env -u XP_PERF — it runs -n auto",
+            _SUITE_COMMAND,
+            names,
+            f"pre-push must still declare `{_SUITE_COMMAND}` — retiring the timers "
+            "must not retire the suite.",
         )
+
+
+class TestTheCommitGateStaysNarrow(unittest.TestCase):
+    """Unrelated to the retired tier, and kept as-is.
+
+    The `-u XP_PERF` strips that used to live here went with the variable: once
+    nothing sets XP_PERF, stripping it is a no-op whose stated reason ("arms the
+    perf tier") describes machinery that no longer exists — and a strip declared
+    with a false reason is precisely what the env-strip registry forbids.
+    """
 
     def test_pre_commit_no_longer_runs_the_suite(self):
         """The commit gate runs the staged tests, never the whole tree.
