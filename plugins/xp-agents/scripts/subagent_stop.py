@@ -16,10 +16,9 @@ import append_validation
 import assign_scope
 import concerns
 import coordination
-import identity
 import marker_names
 import markers
-import review_records
+import review_cycle_legs
 import sprint_state
 import sprint_status
 import target_routing
@@ -67,70 +66,6 @@ def _emit_subagent_complete(smm_dir: Path, input_data: dict) -> None:
         input_data.get("agent_type", ""),
         STATUS_ACTION_SUBAGENT_COMPLETE,
     )
-
-
-def _is_code_review(name: str) -> bool:
-    """True for the built-in /code-review skill, but NOT our own
-    xp-code-reviewer agent (which also contains the substring "code-review").
-    Also rejects third-party plugin qualified forms (`otherplugin:code-review`).
-
-    Kept substring-based on the bare/our-namespace form because `agent_id`
-    legitimately carries prefix-style instance identifiers like
-    `code-review-reuse-1` (pinned by test_code_review_agent_id_sets_flag).
-    """
-    bare = target_routing.strip_our_namespace(name)
-    if bare is None:
-        return False
-    return "code-review" in bare and "code-reviewer" not in bare
-
-
-_QUALITY_REVIEW_BARE_NAMES: frozenset[str] = frozenset({"xp-quality-review"})
-
-
-def _is_quality_review(name: str) -> bool:
-    """True only for the canonical xp-quality-review name (bare or our-plugin
-    qualified). Exact-match allowlist — closes both `xp-quality-reviewer*`
-    AND `xp-quality-review-*` helper families by construction. The narrower
-    `not in name` guard (used by `_is_code_review`) couldn't distinguish
-    `xp-quality-review-helper` from a legitimate instance id, so we exit
-    that pattern here. No production caller passes a quality-review instance
-    id (no test pins one), so exact-match loses nothing today.
-    """
-    bare = target_routing.strip_our_namespace(name)
-    if bare is None:
-        return False
-    return bare in _QUALITY_REVIEW_BARE_NAMES
-
-
-def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
-    """Set review cycle flags from a subagent's COMPLETION.
-
-    Deliberately not recursion-skipped: the names it matches are xp-* ones.
-
-    The second writer of each flag, and the reason it may key on the SKILL
-    name where the PostToolUse sibling may not: SubagentStop fires when the
-    subagent finishes, so a skill matched here has actually run. The sibling's
-    PostToolUse:Skill fires when the Skill TOOL returns, which for an inline
-    skill is at launch — which is why review_cycle_done keys the quality half
-    on the xp-code-reviewer agent instead. Both legs are latent on today's
-    Claude payloads and kept for the harnesses where they are not: the quality
-    one while /xp-quality-review is inline (an inline skill is not a subagent),
-    the /code-review one because its workflow subagents arrive as agent_type
-    `workflow-subagent` with an opaque agent_id (measured 2026-08-14), matching
-    neither field. `simplify_done` is set by the PostToolUse sibling meanwhile.
-    """
-    agent_type = input_data.get("agent_type", "").lower()
-    agent_id_val = input_data.get("agent_id", "").lower()
-
-    flag: str | None = None
-    if _is_code_review(agent_type) or _is_code_review(agent_id_val):
-        flag = "simplify_done"
-    elif _is_quality_review(agent_type) or _is_quality_review(agent_id_val):
-        flag = "quality_review_done"
-
-    if flag is not None:
-        agent_id = identity.review_flags_key(input_data.get("cwd", ""))
-        review_records.set_review_flag(smm_dir, agent_id, flag)
 
 
 def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:
@@ -343,7 +278,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     """
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is not None:
-        _update_review_cycle_flags(smm_dir, input_data)
+        review_cycle_legs.update_review_cycle_flags(smm_dir, input_data)
         _handle_housekeeping_done(smm_dir, input_data)
         _handle_sprint_review_done(smm_dir, input_data)
         _handle_close_reviewer_done(smm_dir, input_data)

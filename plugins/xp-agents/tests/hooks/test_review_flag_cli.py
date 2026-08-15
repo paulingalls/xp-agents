@@ -56,20 +56,24 @@ class TestTheWriterAndTheGateAgreeOnTheKey(_HookTestCase):
     def _quality_review_completes(self, agent_id: str) -> None:
         """The PostToolUse leg that ends Step 4b, under a divergent payload.
 
-        The reviewer AGENT returning, not the skill launching — the Skill
-        payload fires before the review has run and no longer sets the flag.
+        The reviewer's SubagentStop, not either PostToolUse: both of those
+        fire when their tool call returns, which is at launch.
         """
-        import review_cycle_done
+        from unittest.mock import patch
 
-        review_cycle_done.run(
-            {
-                "agent_id": agent_id,
-                "cwd": ".",
-                "tool_name": "Agent",
-                "tool_input": {"subagent_type": "xp-agents:xp-code-reviewer"},
-            },
-            smm_dir=self.smm_dir,
-        )
+        import subagent_stop
+
+        with patch("commits.get_code_files_for_review", return_value=[]):
+            subagent_stop.run(
+                {
+                    "session_id": "t",
+                    "agent_id": agent_id,
+                    "agent_type": "xp-agents:xp-code-reviewer",
+                    "cwd": ".",
+                    "last_assistant_message": "Done",
+                },
+                smm_dir=self.smm_dir,
+            )
 
     def _stop(self, **kwargs) -> object:
         import close_cycle_stop_gate

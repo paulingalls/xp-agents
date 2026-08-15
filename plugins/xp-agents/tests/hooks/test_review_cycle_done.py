@@ -13,6 +13,7 @@ import re
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -20,7 +21,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import review_cycle_done
+import review_cycle_legs
 import review_records
+import subagent_stop
 from conftest import _HookTestCase, _make_agent_input, _make_skill_input
 from event_schema import EVENT_TYPE_STATUS, event_action
 
@@ -58,18 +61,20 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertFalse(cycle["quality_review_done"])
         self.assertIsNone(result)
 
-    def test_code_reviewer_completion_sets_quality_flag(self):
-        """The reviewer subagent returning IS the review completing.
-
-        One spawn per cycle (the skill's single-spawn invariant), so this
-        fires exactly once per review.
-        """
+    def test_the_reviewer_agent_payload_is_inert_here(self):
+        """This hook fires when the Agent TOOL CALL returns, and the harness
+        backgrounds subagents, so that is LAUNCH — measured 2026-08-15, the
+        reviewer's start event landed 70ms after the qr_complete this hook had
+        already emitted for it. v5.16.0 keyed the flag here and so moved the
+        defect from skill-launch to agent-launch. It lives on SubagentStop now;
+        see test_review_coverage.TestOnlyAGenuineCompletionCounts."""
         review_cycle_done.run(
             _make_agent_input("xp-agents:xp-code-reviewer", agent_type=""),
             smm_dir=self.smm_dir,
         )
         cycle = review_records.read_review_flags(self.smm_dir, "main")
-        self.assertTrue(cycle["quality_review_done"])
+        self.assertFalse(cycle["quality_review_done"])
+        self.assertEqual(len(self._action_events("qr_complete")), 0)
 
     def _action_events(self, action: str) -> list[dict]:
         events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
@@ -80,21 +85,6 @@ class TestReviewCycleDone(_HookTestCase):
         unchanged) action=simplify_complete."""
         review_cycle_done.run(_make_skill_input("code-review"), smm_dir=self.smm_dir)
         emitted = self._action_events("simplify_complete")
-        self.assertEqual(len(emitted), 1)
-        self.assertEqual(emitted[0]["type"], EVENT_TYPE_STATUS)
-
-    def test_code_reviewer_completion_emits_action_event(self):
-        """action=qr_complete rides the reviewer's completion, not the launch.
-
-        `commit_event` reads this event as a second, independent "was there
-        a review since the last commit" advisory. Emitted at launch, the
-        skill satisfied that advisory by being invoked.
-        """
-        review_cycle_done.run(
-            _make_agent_input("xp-agents:xp-code-reviewer", agent_type=""),
-            smm_dir=self.smm_dir,
-        )
-        emitted = self._action_events("qr_complete")
         self.assertEqual(len(emitted), 1)
         self.assertEqual(emitted[0]["type"], EVENT_TYPE_STATUS)
 
@@ -309,7 +299,6 @@ class TestDetectTargetAllowlist(unittest.TestCase):
 
     _KNOWN_TARGETS = (
         ("code-review", review_cycle_done._TARGET_SIMPLIFY),
-        ("xp-code-reviewer", review_cycle_done._TARGET_QUALITY_REVIEW),
         ("security-review", review_cycle_done._TARGET_SECURITY_REVIEW),
         ("xp-review-plan", review_cycle_done._TARGET_PLAN_REVIEW),
         ("xp-assign", review_cycle_done._TARGET_ASSIGN),
@@ -330,16 +319,14 @@ class TestDetectTargetAllowlist(unittest.TestCase):
             with self.subTest(name=qualified):
                 self.assertEqual(review_cycle_done._detect_target(qualified), expected)
 
-    def test_xp_code_reviewer_routes_to_quality_not_simplify(self):
-        """xp-code-reviewer (contains the 'code-review' substring) carries the
-        QUALITY target. The exact-match allowlist is what keeps the substring
-        from routing it to SIMPLIFY."""
+    def test_xp_code_reviewer_routes_to_none(self):
+        """The reviewer is off this table entirely: every entry here records at
+        LAUNCH, and the flag it would set is the one the commit gate reads.
+        The exact-match allowlist also keeps the `code-review` substring it
+        contains from routing it to SIMPLIFY."""
         for name in ("xp-code-reviewer", "xp-agents:xp-code-reviewer"):
             with self.subTest(name=name):
-                self.assertEqual(
-                    review_cycle_done._detect_target(name),
-                    review_cycle_done._TARGET_QUALITY_REVIEW,
-                )
+                self.assertIsNone(review_cycle_done._detect_target(name))
 
     def test_quality_review_skill_routes_to_none(self):
         """The SKILL name is off the allowlist: its PostToolUse fires at launch,
@@ -383,11 +370,12 @@ class TestDetectTargetAllowlist(unittest.TestCase):
 class TestSpawnedReviewerNameIsTheRoutedName(unittest.TestCase):
     """Both sides of the contract the quality flag now rides on.
 
-    The flag is set by the AGENT the skill spawns, so the `subagent_type`
-    /xp-quality-review passes must be a name `_detect_target` routes to the
-    quality target. Renaming either half alone leaves the commit gate with
-    nothing to clear it, and the skill's own prose pin (which only looks for
-    the substring anywhere in the body) would still pass.
+    The flag is set when the AGENT the skill spawns COMPLETES, so the
+    `subagent_type` /xp-quality-review passes must be a name
+    `review_cycle_legs._is_code_reviewer` recognises. Renaming either half alone
+    leaves the commit gate with nothing to clear it, and the skill's own prose
+    pin (which only looks for the substring anywhere in the body) would still
+    pass.
     """
 
     _SKILL_MD = (
@@ -397,16 +385,14 @@ class TestSpawnedReviewerNameIsTheRoutedName(unittest.TestCase):
         / "SKILL.md"
     )
 
-    def test_skill_spawns_a_subagent_type_routing_to_quality_target(self):
+    def test_skill_spawns_a_subagent_type_the_completion_leg_recognises(self):
         """At LEAST one spawned name, not every one: a future second spawn (a
-        helper agent) routing elsewhere is legitimate, while a rename of the
-        reviewer is still red."""
+        helper agent) is legitimate, while a rename of the reviewer is still
+        red."""
         spawned = re.findall(r'subagent_type:\s*"([^"]+)"', self._SKILL_MD.read_text())
         self.assertTrue(spawned, "SKILL.md must declare a subagent_type to spawn")
-        routed = {n: review_cycle_done._detect_target(n) for n in spawned}
-        self.assertIn(
-            review_cycle_done._TARGET_QUALITY_REVIEW, routed.values(), str(routed)
-        )
+        recognised = {n: review_cycle_legs._is_code_reviewer(n) for n in spawned}
+        self.assertIn(True, recognised.values(), str(recognised))
 
 
 class TestAgentIdSemantics(_HookTestCase):
@@ -430,12 +416,17 @@ class TestAgentIdSemantics(_HookTestCase):
         self.assertEqual(emitted[0]["agent_id"], "teammate-7")
 
     def test_quality_review_event_uses_resolved_agent_id(self):
-        review_cycle_done.run(
-            _make_agent_input(
-                "xp-agents:xp-code-reviewer", agent_type="", agent_id="teammate-9"
-            ),
-            smm_dir=self.smm_dir,
-        )
+        with patch("commits.get_code_files_for_review", return_value=[]):
+            subagent_stop.run(
+                {
+                    "session_id": "t",
+                    "agent_id": "teammate-9",
+                    "agent_type": "xp-agents:xp-code-reviewer",
+                    "cwd": "/tmp",
+                    "last_assistant_message": "Done",
+                },
+                smm_dir=self.smm_dir,
+            )
         events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         emitted = [e for e in events if event_action(e) == "qr_complete"]
         self.assertEqual(len(emitted), 1)
