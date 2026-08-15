@@ -51,12 +51,22 @@ _TARGET_HOUSEKEEPING = "housekeeping"
 # The quality half is keyed on the REVIEWER AGENT, not on the skill that spawns
 # it: PostToolUse:Skill fires when the Skill TOOL returns, and for an INLINE
 # skill (which /xp-quality-review is) that is at LAUNCH, before it has run a
-# step. A forked skill's Skill call does return at completion, so the
-# xp-review-plan entry below is unaffected by this. Keyed on the inline skill,
-# an invoked-and-abandoned review cleared the commit gate, and a commit landing
-# during a review cleared the flag with nothing left to set it again when the
-# review actually finished. The reviewer returning is the earliest honest
-# signal that a review happened, and the skill spawns it exactly once per cycle.
+# step. Keyed on the inline skill, an invoked-and-abandoned review cleared the
+# commit gate, and a commit landing during a review cleared the flag with
+# nothing left to set it again when the review actually finished. The reviewer
+# returning is the earliest honest signal that a review happened, and the skill
+# spawns it exactly once per cycle.
+#
+# The launch/completion split is a property of each entry, not of this one.
+# xp-review-plan is FORKED, so its Skill call does return at completion and it
+# is right as it stands. The other three skill-keyed entries all record at
+# LAUNCH: security-review and xp-assign are inline like the quality half was,
+# and code-review is an async workflow whose call returns once it is in flight.
+# None of the three gates a commit, so none wedges anything. code-review's
+# launch timing is in fact depended on — simplify_done is what
+# review_records.review_mid_cycle reads as "workflow still running" — while
+# security-review's "full review performed" reaches retro_metrics that way.
+# Audit the entry, not the table.
 _TARGET_BY_NAME: dict[str, str] = {
     "code-review": _TARGET_SIMPLIFY,
     "xp-code-reviewer": _TARGET_QUALITY_REVIEW,

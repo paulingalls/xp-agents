@@ -25,12 +25,12 @@ marker_names.CLOSE_CYCLE_ID).
 
 Defers on ASKING_USER so AskUserQuestion dialogues complete cleanly.
 Also defers during the close /code-review's async Step 4b window —
-`review_records.review_mid_cycle`, under the key `identity.review_flags_key`
-gives every writer of the flag (simplify_done set when the workflow launched,
-quality_review_done not yet set until the xp-code-reviewer /xp-quality-review
-spawns returns). Pushing xp-close-reviewer there would run Step 4.5 BEFORE the
-background /code-review returns; deferring (return None) lets the agent
-yield and be re-woken by the workflow-completion notification. Teammates
+`review_records.review_mid_cycle`, under the key that
+`identity.review_flags_key` gives every writer of the flag (simplify_done set
+when the workflow launched, quality_review_done not yet set until the
+xp-code-reviewer that /xp-quality-review spawns returns). Nudging
+xp-close-reviewer there would run Step 4.5 before /code-review returns;
+deferring lets the agent yield, re-woken by the completion notification. Teammates
 deferral is intentionally NOT applied — outside Step 4b the close cycle
 wants to block mid-cycle by design.
 
@@ -259,9 +259,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if marker_active:
         # Step 4b window: the close /code-review workflow is in flight
         # (review mid-cycle). Defer the close-reviewer nudge until the
-        # workflow returns and the reviewer /xp-quality-review spawns to
-        # consume its findings has itself returned —
-        # same predicate sprint_stop_gate uses, under the same key
+        # workflow returns and the reviewer that /xp-quality-review spawns
+        # to consume its findings has itself returned — the same predicate
+        # sprint_stop_gate uses, under the same key that
         # identity.review_flags_key gives every writer of the flag.
         #
         # Age-bound the defer on its own window (shorter than the abandonment

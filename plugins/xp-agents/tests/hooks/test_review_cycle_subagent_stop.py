@@ -45,7 +45,18 @@ class TestSubagentStopReviewFlags(_HookTestCase):
         self.assertTrue(cycle["simplify_done"])
 
     def test_quality_review_agent_type_sets_flag(self):
-        """SubagentStop with agent_type 'xp-quality-review' sets flag."""
+        """SubagentStop with agent_type 'xp-quality-review' sets flag.
+
+        DORMANT PATH as of v5.16.0 — no production caller reaches it, because
+        /xp-quality-review is inline and SubagentStop never fires for an
+        inline skill. Kept, and pinned, because SubagentStop IS a completion
+        signal: were the skill ever to become forked, this is the leg that
+        would carry the flag. The _is_code_review siblings are latent for
+        their own reason (Claude sends /code-review's workflow subagents with
+        agent_type 'workflow-subagent' and an opaque agent_id, matching
+        neither field), so read no test in this class as evidence that its
+        path runs in production.
+        """
         subagent_stop.run(
             self._stop_input("task-2", agent_type="xp-quality-review"),
             smm_dir=self.smm_dir,

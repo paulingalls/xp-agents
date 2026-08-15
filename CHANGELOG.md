@@ -24,7 +24,12 @@ review's fixes demand another review.
 **The flag moves to the reviewer.** `_TARGET_BY_NAME` now maps the
 `xp-code-reviewer` agent rather than the skill that spawns it; the skill's Step 2
 spawns it exactly once per cycle, so the count is unchanged and no consumer sees
-fewer events. Forked skills are a different case and are untouched — a
+fewer events — which holds only while that skill is the only spawn site in the
+tree, a property nothing pins. The same unpinned assumption has a second edge: a
+future skill spawning the reviewer for its own reasons would clear the commit
+gate as a side effect. Tracked as `6552b06d04a3`, unreachable today.
+
+Forked skills are a different case and are untouched — a
 `context: fork` skill's Skill call **does** return at completion, so the
 `xp-review-plan` entry beside it is correct as it stands. The distinction is
 written into the comment, because the categorical version of the claim invites a

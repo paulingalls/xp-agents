@@ -112,10 +112,12 @@ def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
     subagent finishes, so a skill matched here has actually run. The sibling's
     PostToolUse:Skill fires when the Skill TOOL returns, which for an inline
     skill is at launch — which is why review_cycle_done keys the quality half
-    on the xp-code-reviewer agent instead. This leg is dormant while
-    /xp-quality-review is inline (an inline skill is not a subagent); it is
-    kept so the flag still lands if that skill ever becomes forked, symmetric
-    with the /code-review leg above it.
+    on the xp-code-reviewer agent instead. Both legs are latent on today's
+    Claude payloads and kept for the harnesses where they are not: the quality
+    one while /xp-quality-review is inline (an inline skill is not a subagent),
+    the /code-review one because its workflow subagents arrive as agent_type
+    `workflow-subagent` with an opaque agent_id (measured 2026-08-14), matching
+    neither field. `simplify_done` is set by the PostToolUse sibling meanwhile.
     """
     agent_type = input_data.get("agent_type", "").lower()
     agent_id_val = input_data.get("agent_id", "").lower()
