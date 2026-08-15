@@ -55,6 +55,13 @@ def _is_code_reviewer(name: str) -> bool:
     `_is_code_review` EXCLUDES this name — it answers a different question
     (did /code-review run) and routing the reviewer there would clear the half
     of the cycle that belongs to a workflow which may never have run.
+
+    Both callers pass `agent_type` and `agent_id`, but `agent_type` is the one
+    that fires: every proven sibling handler here matches on it alone, and
+    `_is_code_review`'s docstring records that `agent_id` carries instance
+    suffixes, which exact match rejects. The `agent_id` disjunct is a latent
+    belt for a harness that fills it and leaves `agent_type` empty — not a
+    second guard, and not what keeps a helper name out.
     """
     bare = target_routing.strip_our_namespace(name)
     if bare is None:

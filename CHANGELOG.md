@@ -30,29 +30,39 @@ third. It terminated only when a review came back clean or touched fewer than
 two files. Reproduced live during the previous release's own close, when the
 close-reviewer's Step 5c fixes were blocked.
 
-A completed review now records the code files it looked at. The next commit does
-not count those files, and the coverage is then spent. The exemption is
-deliberately narrow and worth stating plainly: it forgives files a review
-actually opened, for one follow-up commit, and never work reaching outside that
-set. It is keyed on the repo rather than the session, because the paths are
-repo-relative and the same relative path in another checkout is other work.
+A completed review now records the code files in its scope, and commits stop
+counting those files until the record is spent. State the exemption at its real
+width, not its intended one: **two** commit gates read the record, not one — it
+is written with age 0, the commit that ends the review's own cycle ages it to 1,
+and the commit after that consumes it. And it is keyed on PATHS, not content, so
+the second gate forgives whatever those files hold by then, including work
+written after the review ended.
 
-Recording the scope at completion rather than launch matters twice over — at
-launch the reviewer's fixes do not exist yet, so the set would have omitted
-exactly the files it exists to forgive.
+"The files it looked at" is also generous. The scope is measured when the
+reviewer finishes, deliberately, because at launch its fixes do not yet exist —
+so the set knowingly contains edits the review made rather than read. It never
+contains files outside the scope, which is the property the gate depends on.
+
+It is keyed on the repo rather than the session, because the paths are
+repo-relative and the same relative path in another checkout is other work.
 
 This is a **workflow-cost repayment, not a new hole**. Before v5.16.0 the gate
 could be satisfied by merely invoking the review skill, so the loop was a speed
 bump; closing that hole turned it into a wall. The two changes belong together.
 
+One cost this release CREATES rather than inherits: `SubagentStop` does not
+fire for a reviewer that is interrupted or crashes, and `review_flag_cli` has
+no `quality_review_done` leg — deliberately, since a prose-invocable writer for
+the gate's own flag is the hole both releases exist to close. So an aborted
+review leaves the commit gate armed with no manual recovery; re-running the
+review is the only way through. v5.16.0's `PostToolUse:Agent` always fired,
+which is what made that state unreachable before.
+
 Known and tracked rather than claimed fixed: the recorded scope is computed from
 staged and committed files, so in commit cadence — where the reviewed work is
 typically unstaged — it can come back empty and forgive nothing
-(`156d4cdddce4`). It fails safe. The exemption also spans two commit gates
-rather than one when the fixes ride the same commit as the reviewed work
-(`86c30b9d2712`) — and it is keyed on PATHS, not on content, so that second
-gate forgives whatever those files hold by then, including work written after
-the review and never seen by it. A reviewer spawned for an unrelated purpose
+(`156d4cdddce4`). It fails safe. The two-gate width and the path keying stated
+above are disclosed, not fixed (`86c30b9d2712`). A reviewer spawned for an unrelated purpose
 now writes coverage as well as clearing the flag (`2cc9b891a249`, extending
 `6552b06d04a3`). And the record is spent by the commit sites, so a commit that
 never reaches one leaves its paths exempt indefinitely (`250a3e1b41a6`)
@@ -105,11 +115,14 @@ maintainer to "fix" the forked entry too.
 The `qr_complete` **event** moves with the flag, not just the flag.
 `commit_event.py` reads that event as a second, independent "was there a review
 since the last commit" advisory; emitted at launch, that advisory was satisfied
-by merely invoking the skill.
+by merely invoking the skill. (Superseded with the rest: moving it onto the
+Agent tool left it firing at launch too, so this stated purpose was equally
+unmet until v5.17.0.)
 
 A residual remains and is not claimed fixed: the calling skill's act-on-findings
 step lands after the reviewer returns, so those edits are still made while the
-gate is disarmed. That window used to be the whole review; it is now one step.
+gate is disarmed. Under v5.16.0's agent-launch keying that window was the whole
+review PLUS this step; it is now this step alone.
 Nothing yet teaches the gate that a change was produced BY the review that just
 ran, which is what a fix for the separated-commit half of the loop would need.
 

@@ -54,7 +54,7 @@ class TestTheWriterAndTheGateAgreeOnTheKey(_HookTestCase):
         )
 
     def _quality_review_completes(self, agent_id: str) -> None:
-        """The PostToolUse leg that ends Step 4b, under a divergent payload.
+        """The leg that ends Step 4b, under a divergent payload.
 
         The reviewer's SubagentStop, not either PostToolUse: both of those
         fire when their tool call returns, which is at launch.

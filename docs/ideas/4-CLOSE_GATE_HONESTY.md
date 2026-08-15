@@ -61,8 +61,9 @@ The `' - '` separator fix that shared this handoff **did** ship (`fd9deccd`, `sm
 
 ## 6. The pre-commit review gate can't see an Agent-tool review — **SUPERSEDED; kept for its reasoning**
 
-> **Superseded.** `review_cycle_done.py` now keys `quality_review_done` on the
-> `xp-code-reviewer` agent's completion — exactly the fix this section says not
+> **Superseded.** `quality_review_done` now keys on the `xp-code-reviewer` agent (v5.17.0: on
+> its SubagentStop, in `review_cycle_legs.py` — v5.16.0's `review_cycle_done`
+> keying fired at agent LAUNCH and was reversed) — exactly the fix this section says not
 > to take. The by-construction exclusion it cites rested on the Skill hook being
 > a completion signal; it is not. `/xp-quality-review` is an INLINE skill, so its
 > `PostToolUse:Skill` fires when the Skill tool returns, which is at launch.
