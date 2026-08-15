@@ -167,7 +167,7 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/session_start.py": 164,
     "plugins/xp-agents/scripts/shell_exit_structure.py": 257,
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
-    "plugins/xp-agents/scripts/staged_lint.py": 226,
+    "plugins/xp-agents/scripts/staged_lint.py": 221,
     "plugins/xp-agents/scripts/tdd_check.py": 133,
     "plugins/xp-agents/scripts/teammate_runner.py": 182,
     "plugins/xp-agents/scripts/test_attribution.py": 151,
