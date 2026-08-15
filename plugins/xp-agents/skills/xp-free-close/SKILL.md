@@ -16,8 +16,6 @@ allowed-tools:
   - Bash(gh pr *)
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
-
 # Free Close
 
 > **Sequential discipline.** Run Step 1 → 2 → 3 → 4 → 4b → 4.5 → 5–6 → 7 one per

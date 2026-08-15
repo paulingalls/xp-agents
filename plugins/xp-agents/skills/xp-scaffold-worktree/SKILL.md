@@ -15,8 +15,6 @@ allowed-tools:
   - Bash(python3 */smm/system_context_cli.py *)
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
-
 # Scaffold Worktree Bootstrap
 
 > **Sequential discipline.** Run Steps 0-8 in order, one step per turn — never

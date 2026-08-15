@@ -132,6 +132,13 @@ _EMITTER_STRUCTURALLY_SILENT: dict[str, str] = {
 EMITTER_VOLUME_BUDGETS: dict[str, int] = {
     "post_tool_exit_plan.py": 400,
     "pre_tool_skill.py": 400,
+    # Measured 21,317 at the xp-work-selection fixture against a populated
+    # SMM, against 355 at the quiet one — the data dimension is real and it is
+    # entirely the chosen preload's, not this emitter's. Not a NEW context cost:
+    # these are the same bytes the instruction-time preload line already
+    # delivered, arriving through a different door. The per-skill preload
+    # budgets remain the primary bound on that payload.
+    "preload_injection.py": 24000,
     "prompt_nugget.py": 600,
     "retrospective.py": 600,
     "session_end_warning.py": 200,

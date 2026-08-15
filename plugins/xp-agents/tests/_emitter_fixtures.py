@@ -101,6 +101,23 @@ def kickoff_gate() -> dict:
     }
 
 
+def preload_injection() -> dict:
+    """Names a skill whose preload is READ-ONLY.
+
+    The fixture's choice of skill is the whole cost of this entry, because this
+    emitter injects another script's output verbatim — it contributes no prose
+    of its own. `xp-schedule` reads the frontier and writes nothing; a close
+    skill would ARM a close cycle by being measured, leaving state behind for
+    whatever the harness runs next.
+    """
+    return {
+        "session_id": "t",
+        "agent_id": "main",
+        "tool_name": "Skill",
+        "tool_input": {"skill": "xp-agents:xp-schedule"},
+    }
+
+
 def bash_post_tool() -> dict:
     return {
         "session_id": "t",
@@ -125,6 +142,14 @@ EMITTER_BUDGETS: dict[str, int] = {
     "post_tool_exit_plan.py": 100,
     "pre_tool_bash.py": 100,
     "pre_tool_skill.py": 100,
+    # Measured 355 with the xp-schedule fixture. Unlike every sibling here,
+    # these bytes are not this emitter's own prose — it injects another
+    # script's output verbatim, so the number tracks that preload rather than
+    # anything in preload_injection.py. The primary bound on the payload is
+    # the per-skill preload budget in test_preload_budgets.py; this entry
+    # exists so the injection surface is not the one emitter with no ceiling
+    # at all, and it moves when the chosen fixture's preload moves.
+    "preload_injection.py": 400,
     "pre_tool_write.py": 100,
     "prompt_nugget.py": 100,
     "retrospective.py": 100,
@@ -190,9 +215,32 @@ def subagent_start_full_tier() -> dict:
     }
 
 
+def preload_injection_loud() -> dict:
+    """The louder branch: a skill whose preload reports triage state.
+
+    The loud dimension for this emitter is WHICH skill it was asked to load,
+    because it injects that skill's preload verbatim — so the expensive input
+    is a preload with more of the SMM to report, not a bigger payload of its
+    own.
+
+    NOT read-only, unlike the quiet fixture: `xp-work-selection`'s preload arms
+    NEEDS_HOUSEKEEPING and HOUSEKEEPING_ARMED, so this emitter is registered in
+    `_volume_fixture._MARKER_WRITERS` and measured last. No sibling in the
+    volume set reads those markers today; the registration is what keeps that
+    from being a fact anyone has to re-derive when one starts to.
+    """
+    return {
+        "session_id": "t",
+        "agent_id": "main",
+        "tool_name": "Skill",
+        "tool_input": {"skill": "xp-agents:xp-work-selection"},
+    }
+
+
 EMITTER_LOUD_FIXTURES: dict[str, FixtureBuilder] = {
     "post_tool_exit_plan.py": post_tool_exit_plan_triggered,
     "pre_tool_skill.py": pre_tool_skill_gated,
+    "preload_injection.py": preload_injection_loud,
     "prompt_nugget.py": prompt_nugget,
     "retrospective.py": retrospective,
     "session_end_warning.py": session_end_warning,
@@ -208,6 +256,7 @@ EMITTER_FIXTURES: dict[str, FixtureBuilder] = {
     "post_tool_exit_plan.py": post_tool_exit_plan,
     "pre_tool_bash.py": pre_tool_bash,
     "pre_tool_skill.py": pre_tool_skill,
+    "preload_injection.py": preload_injection,
     "pre_tool_write.py": pre_tool_write,
     "prompt_nugget.py": prompt_nugget,
     "retrospective.py": retrospective,

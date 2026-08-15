@@ -12,8 +12,6 @@ allowed-tools:
   - Bash(python3 */smm/smm_cli.py *)
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
-
 # End Session
 
 > **Sequential discipline.** Run Step 1 → 2 → 3 → 4 → 5 strictly, one step per

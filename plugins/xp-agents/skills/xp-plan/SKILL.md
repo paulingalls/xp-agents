@@ -17,8 +17,6 @@ allowed-tools:
   - Bash(python3 */scripts/branching.py *)
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
-
 # Execution Plan
 
 > **Sequential discipline.** Run Mode Detection → System-Context Check → Create

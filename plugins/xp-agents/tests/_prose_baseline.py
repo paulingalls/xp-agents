@@ -61,6 +61,7 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/branch_lifecycle.py": 149,
     "plugins/xp-agents/scripts/branch_resolution.py": 207,
     "plugins/xp-agents/scripts/branching.py": 180,
+    "plugins/xp-agents/scripts/preload_injection.py": 128,
     "plugins/xp-agents/scripts/close_cycle_abandonment.py": 139,
     "plugins/xp-agents/scripts/close_cycle_stop_gate.py": 163,
     "plugins/xp-agents/scripts/close_gate_commands.py": 149,

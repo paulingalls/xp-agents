@@ -31,6 +31,18 @@ _EXPECTED_PRELOADS = 17
 # The two skills that ship no scripts/*.sh at all — absence, not failure.
 _NO_PRELOAD_SKILLS = ("xp-scaffold-acceptance", "xp-stage-migration")
 
+# The only skills that still carry an instruction-time `!`...`` line, and so the
+# only ones the conformance pin below still has an oracle for. They are the
+# forked ones: injection reaches the parent and stops at the fork boundary, so
+# these three cannot be delivered by it until they are converted to spawn their
+# own subagent. Spelled literally rather than discovered by scanning for the
+# line — derived, this set would silently follow whatever the tree happens to
+# say, and the pin would report green on a tree where someone had deleted a
+# line that was still load-bearing.
+_LINE_BEARING_SKILLS = frozenset(
+    {"xp-review-plan", "xp-sprint-review", "xp-system-context"}
+)
+
 
 def _all_preload_skill_names() -> list[str]:
     return sorted(
@@ -247,45 +259,64 @@ class TestAbsenceVsFailure(unittest.TestCase):
 
 
 class TestConformancePin(unittest.TestCase):
-    """The resolver must reproduce every shipped `!`...`` invocation line
-    exactly — argv AND env, not just "some script ran".
+    """The resolver must reproduce every REMAINING `!`...`` line exactly —
+    argv AND env, not just "some script ran".
 
-    Oracle: the `!`...`` line text. The story that deletes those lines
-    (not this one) must retire this pin DELIBERATELY when it does — see
-    skill_preload_map's module docstring.
+    **Retired down, deliberately, when the lines were deleted.** This module's
+    docstring said the day would come and named the obligation: retire or
+    repoint, never leave the pin in place quietly checking nothing. Fourteen
+    inline skills now get their state by injection and have no line to conform
+    to; the three forked ones still carry theirs, because injection was measured
+    not to cross the fork boundary. So the oracle still exists — for three
+    skills instead of seventeen — and the pin follows it down rather than
+    pretending to a coverage it lost.
+
+    The pin retires completely when those three are converted. Whoever does that
+    should delete this class and `_parse_skill_md_invocation` with it, rather
+    than leave a scan of an empty set reporting green.
     """
 
-    def test_every_preload_skill_conforms_to_its_skill_md_line(self):
-        for name in _all_preload_skill_names():
+    def test_every_remaining_line_conforms_to_the_resolver(self):
+        for name in sorted(_LINE_BEARING_SKILLS):
             with self.subTest(skill=name):
                 _assert_conforms(name)
 
-    def test_pin_catches_a_dropped_argument(self):
-        """Mutation proof: dropping --consume-gate from the argument table
-        must turn the pin red. Performed via monkeypatch so the mutation is
-        exercised on every run and always reverted.
+    def test_the_line_bearing_set_is_not_empty(self):
+        """Non-vacuity, and it is not hypothetical here: the set shrank from
+        seventeen to three in one commit and goes to zero in another. At zero,
+        every assertion above passes by iterating nothing."""
+        self.assertTrue(
+            _LINE_BEARING_SKILLS,
+            "no skill carries an instruction-time line — retire this class "
+            "rather than let it scan an empty set",
+        )
 
-        Matched on the argv-mismatch message, not on bare AssertionError:
+    def test_pin_catches_a_dropped_env_name(self):
+        """Mutation proof: dropping the required env name must turn the pin
+        red — a script-name-only check would miss this.
+
+        Matched on the env-mismatch message, not on bare AssertionError:
         `_assert_conforms`'s own `assert invocation is not None` raises that
         type too, so an unmatched assertRaises would go green on a resolver
         that had stopped resolving anything at all."""
-        with (
-            patch.object(skill_preload_map, "_EXTRA_ARGS", {}),
-            self.assertRaisesRegex(AssertionError, "resolver argv"),
-        ):
-            _assert_conforms("xp-assign")
-        # Reverted: the table is unpatched again here, proven by conformance.
-        _assert_conforms("xp-assign")
-
-    def test_pin_catches_a_dropped_env_name(self):
-        """Mutation proof: dropping the required env name must turn the
-        pin red too — a script-name-only check would miss this."""
+        subject = sorted(_LINE_BEARING_SKILLS)[0]
         with (
             patch.object(skill_preload_map, "_REQUIRED_ENV", ()),
             self.assertRaisesRegex(AssertionError, "resolver env"),
         ):
-            _assert_conforms("xp-accept")
-        _assert_conforms("xp-accept")
+            _assert_conforms(subject)
+        # Reverted: the table is unpatched again here, proven by conformance.
+        _assert_conforms(subject)
+
+    # The argv mutation proof is GONE, not moved, and the reason is worth
+    # stating: it dropped `--consume-gate` from the table and watched the pin
+    # go red, and the only skill taking an extra argument is `xp-assign`, which
+    # is inline and no longer has a line to conform to. Against the three that
+    # remain — all plain `preload.sh` with no arguments — emptying `_EXTRA_ARGS`
+    # changes nothing, so the same test would have passed while proving
+    # nothing. `TestOutliers.test_xp_assign_carries_consume_gate` still pins the
+    # value directly, and the gate's own suite pins that the resolver is what
+    # carries it.
 
 
 if __name__ == "__main__":

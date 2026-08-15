@@ -7,9 +7,13 @@ scheduled->in-progress, and sets each story's execution_mode. These pins keep
 the skill's authoring prose honest about that contract.
 """
 
+import sys
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+
+import skill_preload_map
 from conftest import _split_frontmatter_body
 
 _SKILL_PATH = (
@@ -34,8 +38,18 @@ class TestScheduleSkillProse(unittest.TestCase):
         # the Sequential-discipline pin only on inline skills.
         self.assertNotIn("context: fork", self.frontmatter)
 
-    def test_self_wires_preload(self):
-        self.assertIn("scripts/preload.sh", self.body)
+    def test_its_preload_is_wired(self):
+        """Repointed when the instruction-time line was deleted: an inline
+        skill no longer names its own preload, because the hook resolves and
+        runs it. Asserting the old string here would have pinned a channel
+        nothing uses; `test_preload_wiring.py` owns the wiring question for
+        every skill under whichever mechanism applies to it.
+
+        Kept as a per-skill assertion rather than dropped, because THIS skill's
+        steps branch on the values that preload emits.
+        """
+        invocation = skill_preload_map.resolve_preload_required("xp-schedule")
+        self.assertEqual(Path(invocation.argv[0]).name, "preload.sh")
 
     def test_has_sequential_discipline_pin(self):
         self.assertIn("Sequential discipline", self.body)

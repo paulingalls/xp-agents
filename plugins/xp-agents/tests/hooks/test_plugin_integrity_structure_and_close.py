@@ -60,9 +60,20 @@ class TestPluginIntegrity(unittest.TestCase):
         # hooks/hooks.json is auto-discovered; must NOT be in manifest
         self.assertNotIn("hooks", data)
 
-    def _assert_hook_paths_exist(self, hook_type: str, path_key: str):
-        """Verify all hooks of given type reference existing files."""
-        hooks_file = self.plugin_root / "hooks" / "hooks.json"
+    def _assert_hook_paths_exist(
+        self, hook_type: str, path_key: str, manifest: str = "hooks.json"
+    ):
+        """Verify all hooks of given type reference existing files.
+
+        Takes the manifest name because the second harness's variant is a
+        SEPARATE registration surface, not a view of this one: it carries hook
+        objects the source does not (the emitter's declared-addition table), and
+        those inherit nothing from the source's own path check. A command
+        authored straight into the variant could name a script that does not
+        exist and no pin would say so — measured, and recorded as debt while it
+        was true.
+        """
+        hooks_file = self.plugin_root / "hooks" / manifest
         data = json.loads(hooks_file.read_text())
         for event_name, entries in data["hooks"].items():
             for entry in entries:
@@ -79,7 +90,8 @@ class TestPluginIntegrity(unittest.TestCase):
                         resolved = raw
                     self.assertTrue(
                         Path(resolved).is_file(),
-                        f"Missing {hook_type}: {raw} (event: {event_name})",
+                        f"Missing {hook_type}: {raw} (event: {event_name}, "
+                        f"manifest: {manifest})",
                     )
 
     def test_all_hook_scripts_exist(self):
@@ -89,6 +101,20 @@ class TestPluginIntegrity(unittest.TestCase):
     def test_all_prompt_hooks_exist(self):
         """Every prompt file referenced in hooks.json exists on disk."""
         self._assert_hook_paths_exist("prompt", "prompt")
+
+    def test_all_variant_hook_scripts_exist(self):
+        """Every command script referenced in the derived variant exists.
+
+        The source's pin does not cover this. Most variant commands are carried
+        across and so inherit the check above, but an authored one — a hook the
+        variant carries and the source must not, because the two harnesses
+        trigger on different events — is reachable only here.
+        """
+        self._assert_hook_paths_exist("command", "command", manifest="hooks.codex.json")
+
+    def test_all_variant_prompt_hooks_exist(self):
+        """Same, for prompt-type hooks in the derived variant."""
+        self._assert_hook_paths_exist("prompt", "prompt", manifest="hooks.codex.json")
 
     def test_kickoff_skill_has_sprint_steps(self):
         """Kickoff SKILL.md must have the redesigned flow steps."""

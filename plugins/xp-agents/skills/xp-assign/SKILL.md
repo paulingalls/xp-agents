@@ -17,8 +17,6 @@ allowed-tools:
   - Read
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh --consume-gate`
-
 # Work Assignment
 
 > **Sequential discipline.** Run Pre-flight → Execution-shape decision →

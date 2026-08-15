@@ -13,8 +13,6 @@ allowed-tools:
   - Read
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
-
 # Schedule the Next Frontier
 
 > **Sequential discipline.** Run Read-frontier → Mode → Promote → Next strictly,

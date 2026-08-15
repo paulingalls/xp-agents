@@ -21,7 +21,8 @@
           },
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/preload_injection.py"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/preload_injection.py",
+            "statusMessage": "Loading skill state..."
           }
         ]
       },
@@ -32,6 +33,11 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_skill.py",
             "statusMessage": "Preparing review guidance..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/preload_injection.py",
+            "statusMessage": "Loading skill state..."
           }
         ]
       },

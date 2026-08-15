@@ -11,8 +11,6 @@ allowed-tools:
   - Bash(*/skills/*/scripts/*)
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
-
 # Accept Verification
 
 > **Sequential discipline.** Run Step 1 → 1.0 → 1b → 1.5 → 2 → 3 → 4 → 5 → 6 →
