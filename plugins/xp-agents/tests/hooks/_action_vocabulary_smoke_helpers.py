@@ -45,7 +45,6 @@ import work_selection_decide
 from _commit_helpers import patch_commits
 from concerns import LINT_CONCERN_PREFIX
 from conftest import (
-    _make_agent_input,
     _make_bash_failure_input,
     _make_bash_input,
     _make_skill_input,
@@ -197,15 +196,26 @@ def _drive_review_cycle(skill: str) -> Driver:
     return _runner
 
 
-def _drive_review_cycle_agent(subagent_type: str) -> Driver:
-    """The Agent-tool half of the same hook — the payload the reviewer arrives
-    under. Distinct from the skill driver because the quality half is keyed on
-    the agent RETURNING; the inline skill that spawns it fires at launch."""
+def _drive_reviewer_completion(agent_type: str) -> Driver:
+    """qr_complete rides the reviewer's SubagentStop, not either PostToolUse.
+
+    Both PostToolUse payloads fire when their tool call RETURNS, which is at
+    launch for an inline skill and for an Agent-tool subagent this harness
+    backgrounds. SubagentStop is the completion signal.
+    """
 
     def _runner(smm_dir: Path) -> list[dict]:
-        review_cycle_done.run(
-            _make_agent_input(subagent_type, agent_type=""), smm_dir=smm_dir
-        )
+        with patch("commits.get_code_files_for_review", return_value=[]):
+            subagent_stop.run(
+                {
+                    "session_id": "t",
+                    "agent_id": "rev-1",
+                    "agent_type": agent_type,
+                    "cwd": "/tmp",
+                    "last_assistant_message": "Done",
+                },
+                smm_dir=smm_dir,
+            )
         return _events(smm_dir)
 
     return _runner
@@ -312,7 +322,9 @@ _PRODUCER_CASES: dict[str, Driver] = {
     "STATUS_ACTION_PLAN_AWAITING_REVIEW": _drive_plan_completed,
     "STATUS_ACTION_PLAN_EXITED": _drive_plan_exited,
     "STATUS_ACTION_SIMPLIFY_COMPLETE": _drive_review_cycle("code-review"),
-    "STATUS_ACTION_QR_COMPLETE": _drive_review_cycle_agent("xp-code-reviewer"),
+    "STATUS_ACTION_QR_COMPLETE": _drive_reviewer_completion(
+        "xp-agents:xp-code-reviewer"
+    ),
     "STATUS_ACTION_SECURITY_COMPLETE": _drive_review_cycle("security-review"),
     "STATUS_ACTION_PLAN_REVIEWED": _drive_review_cycle("xp-review-plan"),
     "STATUS_ACTION_ASSIGN_COMPLETE": _drive_review_cycle("xp-assign"),

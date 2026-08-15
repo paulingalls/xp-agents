@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Tests for the SubagentStop review-flag backup detection.
+"""Tests for the SubagentStop review-flag legs and their allowlist guards.
 
 Split from test_review_cycle.py by test-class grouping: this file covers
-subagent_stop.py's review-related SubagentStop handling — the backup
-code-review/quality-review flag detection with its allowlist guards
+subagent_stop.py's review-related SubagentStop handling — the name matching
+in `review_cycle_legs` that decides which completion means which flag
 (TestSubagentStopReviewFlags) and the xp-plan-reviewer .assign-pending
-marker (TestPlanReviewerSetsAssignPending). See test_review_cycle_done.py
-for the review_cycle_done.py PostToolUse:Skill|Agent hook siblings.
+marker (TestPlanReviewerSetsAssignPending). See test_review_coverage.py for
+the live xp-code-reviewer leg (the flag, its coverage record and qr_complete),
+and test_review_cycle_done.py for the PostToolUse:Skill|Agent siblings, which
+fire at launch and so set no commit-gating flag.
 """
 
 import sys
@@ -23,7 +25,7 @@ from conftest import _HookTestCase
 
 
 class TestSubagentStopReviewFlags(_HookTestCase):
-    """SubagentStop backup: detect review-related subagent completions."""
+    """SubagentStop: which review-related subagent completion means which flag."""
 
     def _stop_input(self, agent_id: str, agent_type: str = "", **overrides) -> dict:
         data = {
@@ -47,11 +49,13 @@ class TestSubagentStopReviewFlags(_HookTestCase):
     def test_quality_review_agent_type_sets_flag(self):
         """SubagentStop with agent_type 'xp-quality-review' sets flag.
 
-        DORMANT PATH as of v5.16.0 — no production caller reaches it, because
+        LATENT PATH — no production caller reaches it, because
         /xp-quality-review is inline and SubagentStop never fires for an
         inline skill. Kept, and pinned, because SubagentStop IS a completion
         signal: were the skill ever to become forked, this is the leg that
-        would carry the flag. The _is_code_review siblings are latent for
+        would carry the flag. In production the flag rides the reviewer AGENT's
+        completion instead (test_review_coverage.py). The _is_code_review
+        siblings are latent for
         their own reason (Claude sends /code-review's workflow subagents with
         agent_type 'workflow-subagent' and an opaque agent_id, matching
         neither field), so read no test in this class as evidence that its
@@ -88,7 +92,8 @@ class TestSubagentStopReviewFlags(_HookTestCase):
     def test_xp_code_reviewer_agent_does_not_set_flag(self):
         """Collision guard: our own xp-code-reviewer agent (spawned by
         /xp-quality-review) contains the substring 'code-review' but must NOT
-        set the simplify flag. _update_review_cycle_flags runs before the
+        set the simplify flag — that half belongs to a /code-review workflow
+        which may never have run. update_review_cycle_flags runs before the
         is_xp_agent skip, so the guard ('code-reviewer' not in name) is what
         prevents the false positive."""
         subagent_stop.run(
@@ -124,7 +129,7 @@ class TestSubagentStopReviewFlags(_HookTestCase):
         """story-006 symmetric guard: a future name like 'xp-quality-reviewer-helper'
         contains the substring 'quality-review' but must NOT set the
         quality_review_done flag. Mirrors `_is_code_review`'s 'code-reviewer not in'
-        exclusion. Closes the parallel defect class in `_update_review_cycle_flags`
+        exclusion. Closes the parallel defect class in `update_review_cycle_flags`
         (debt b2389e3f725d)."""
         subagent_stop.run(
             self._stop_input("helper-1", agent_type="xp-quality-reviewer-helper"),

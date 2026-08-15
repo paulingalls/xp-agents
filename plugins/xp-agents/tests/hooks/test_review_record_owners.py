@@ -39,8 +39,8 @@ import commits
 import identity
 import markers
 import pre_tool_bash_commit_gates
-import review_cycle_done
 import review_records
+import subagent_stop
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input
 
@@ -75,19 +75,21 @@ class _TwoCheckoutCase(_HookTestCase):
         that is the process the hook fires in — whatever repo the review was
         about.
 
-        The leg is the REVIEWER AGENT returning, not the skill launching: the
-        Skill payload fires before the review has run and no longer sets the
-        flag.
+        The leg is the reviewer's SubagentStop — the only event here that fires
+        once a review has actually run. Neither PostToolUse payload sets the
+        flag: both fire when their tool call returns, which is at launch.
         """
-        review_cycle_done.run(
-            {
-                "agent_id": "main",
-                "cwd": _LEAD_CWD,
-                "tool_name": "Agent",
-                "tool_input": {"subagent_type": "xp-agents:xp-code-reviewer"},
-            },
-            smm_dir=self.smm_dir,
-        )
+        with patch("commits.get_code_files_for_review", return_value=[]):
+            subagent_stop.run(
+                {
+                    "session_id": "t",
+                    "agent_id": "rev-1",
+                    "agent_type": "xp-agents:xp-code-reviewer",
+                    "cwd": _LEAD_CWD,
+                    "last_assistant_message": "Done",
+                },
+                smm_dir=self.smm_dir,
+            )
 
 
 class TestTheFlagsFollowTheSession(_TwoCheckoutCase):

@@ -2,7 +2,84 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.17.0 — Measuring which hook actually fires, and covering a review's own fixes
+
+**v5.16.0's central fix did not work, and this release says so first.** That
+note claimed `quality_review_done` had moved onto a completion signal by keying
+it on the `xp-code-reviewer` agent instead of the skill. Measured live the hour
+after release: `PostToolUse:Agent` fires when the Agent **tool call** returns,
+and this harness backgrounds subagents, so that is launch too. The reviewer's
+own start event was stamped 70ms *after* the `qr_complete` the hook had already
+emitted for it. v5.16.0 moved the defect from skill-launch to agent-launch.
+
+The flag and its `qr_complete` event now ride **`SubagentStop`**, which fires
+when a subagent has genuinely finished. That is not an assumption this time:
+`xp-close-reviewer`'s SubagentStop handler is already recording completions for
+an Agent-tool subagent in this same harness. `review_cycle_done`'s allowlist now
+carries the rule that cost two releases to learn — *every* entry in it records at
+LAUNCH, so nothing that gates a commit may live there. The one exception is the
+forked `/xp-review-plan`, and `simplify_done` depends on launch timing
+deliberately, since `review_mid_cycle` reads it as "the workflow is still
+running".
+
+**A review's own fixes no longer demand a second review.** The gate blocks at
+`REVIEW_CYCLE_THRESHOLD` changed code files unless a review ran, and a landed
+commit clears the flag — so the fixes a review produced arrived at the next
+commit as unreviewed changes and demanded another review, whose fixes demanded a
+third. It terminated only when a review came back clean or touched fewer than
+two files. Reproduced live during the previous release's own close, when the
+close-reviewer's Step 5c fixes were blocked.
+
+A completed review now records the code files in its scope, and commits stop
+counting those files until the record is spent. State the exemption at its real
+width, not its intended one: **two** commit gates read the record, not one — it
+is written with age 0, the commit that ends the review's own cycle ages it to 1,
+and the commit after that consumes it. And it is keyed on PATHS, not content, so
+the second gate forgives whatever those files hold by then, including work
+written after the review ended.
+
+"The files it looked at" is also generous. The scope is measured when the
+reviewer finishes, deliberately, because at launch its fixes do not yet exist —
+so the set knowingly contains edits the review made rather than read. It never
+contains files outside the scope, which is the property the gate depends on.
+
+It is keyed on the repo rather than the session, because the paths are
+repo-relative and the same relative path in another checkout is other work.
+
+This is a **workflow-cost repayment, not a new hole**. Before v5.16.0 the gate
+could be satisfied by merely invoking the review skill, so the loop was a speed
+bump; closing that hole turned it into a wall. The two changes belong together.
+
+One cost this release CREATES rather than inherits: `SubagentStop` does not
+fire for a reviewer that is interrupted or crashes, and `review_flag_cli` has
+no `quality_review_done` leg — deliberately, since a prose-invocable writer for
+the gate's own flag is the hole both releases exist to close. So an aborted
+review leaves the commit gate armed with no manual recovery; re-running the
+review is the only way through. v5.16.0's `PostToolUse:Agent` always fired,
+which is what made that state unreachable before.
+
+Known and tracked rather than claimed fixed: the recorded scope is computed from
+staged and committed files, so in commit cadence — where the reviewed work is
+typically unstaged — it can come back empty and forgive nothing
+(`156d4cdddce4`). It fails safe. The two-gate width and the path keying stated
+above are disclosed, not fixed (`86c30b9d2712`). A reviewer spawned for an unrelated purpose
+now writes coverage as well as clearing the flag (`2cc9b891a249`, extending
+`6552b06d04a3`). And the record is spent by the commit sites, so a commit that
+never reaches one leaves its paths exempt indefinitely (`250a3e1b41a6`)
+— the one disclosed cost here that fails open rather than safe.
+
+`subagent_stop.py` crossed both the 450-line band and the prose floor with the
+new leg, so the review-cycle legs moved to `scripts/review_cycle_legs.py` rather
+than taking two new recorded ceilings.
+
 ## v5.16.0 — A review is done when the reviewer says so
+
+> **Partly superseded by v5.17.0.** The diagnosis below is right and the
+> skill-launch hole is really closed. The REMEDY is not: keying the flag on the
+> `xp-code-reviewer` agent moved it onto another launch-time signal, because
+> `PostToolUse:Agent` also fires when the tool call returns. Read "the reviewer
+> returning" below as "the reviewer being spawned". v5.17.0 moves it to
+> `SubagentStop`.
 
 Minor rather than patch: the per-commit review gate now clears at a different
 moment, which anyone who watches the gate will notice.
@@ -38,11 +115,14 @@ maintainer to "fix" the forked entry too.
 The `qr_complete` **event** moves with the flag, not just the flag.
 `commit_event.py` reads that event as a second, independent "was there a review
 since the last commit" advisory; emitted at launch, that advisory was satisfied
-by merely invoking the skill.
+by merely invoking the skill. (Superseded with the rest: moving it onto the
+Agent tool left it firing at launch too, so this stated purpose was equally
+unmet until v5.17.0.)
 
 A residual remains and is not claimed fixed: the calling skill's act-on-findings
 step lands after the reviewer returns, so those edits are still made while the
-gate is disarmed. That window used to be the whole review; it is now one step.
+gate is disarmed. Under v5.16.0's agent-launch keying that window was the whole
+review PLUS this step; it is now this step alone.
 Nothing yet teaches the gate that a change was produced BY the review that just
 ran, which is what a fix for the separated-commit half of the loop would need.
 
