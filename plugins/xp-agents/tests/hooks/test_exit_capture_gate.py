@@ -14,8 +14,12 @@ not say what to run instead is a dead end, not a gate.
 """
 
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -23,9 +27,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import _common
 import exit_capture_gate
+import pre_tool_bash
 from _system_context_fixtures import valid_doc, write_doc
-from conftest import _SMMTestCase
+from conftest import _HookTestCase, _make_bash_input, _SMMTestCase
 from system_context_schema import SYSTEM_CONTEXT_FILENAME
 
 _DECLARED = "pytest -n auto"
@@ -319,6 +325,145 @@ class TestShippedSourceNamesNoRunner(unittest.TestCase):
                 f"here is the table this design routes around, one module out."
             ),
         )
+
+
+class TestWiredIntoPreToolUse(_HookTestCase):
+    """The gate reaching the hook, in process.
+
+    Separate from the gate's own tests because the interesting facts here are
+    about POSITION, not detection: below the recursion skip, above the commit
+    gates, and refusing by raising the exception the hook's `__main__` turns
+    into exit 2.
+    """
+
+    def declare(self, command: str = _DECLARED) -> None:
+        write_doc(
+            self.smm_dir,
+            valid_doc(stack={"languages": ["Python"], "test_command": command}),
+        )
+
+    def test_a_masked_run_raises_blocked(self):
+        self.declare()
+        with self.assertRaises(_common.BlockedError) as caught:
+            pre_tool_bash.run(
+                _make_bash_input("pytest -n auto | tail -20"), smm_dir=self.smm_dir
+            )
+        self.assertIn(_DECLARED, str(caught.exception))
+
+    def test_the_refusal_text_is_the_first_argument(self):
+        """`__main__` prints `str(e)` and nothing else — all three PreToolUse
+        handlers do — so a reason parked in the second argument reaches
+        nobody."""
+        self.declare()
+        with self.assertRaises(_common.BlockedError) as caught:
+            pre_tool_bash.run(
+                _make_bash_input("pytest -n auto | tail -20"), smm_dir=self.smm_dir
+            )
+        self.assertIn(
+            exit_capture_gate.EXIT_STATUS_NOT_NEEDED_MARKER, str(caught.exception)
+        )
+
+    def test_a_bare_run_passes_through(self):
+        self.declare()
+        self.assertIsNone(
+            pre_tool_bash.run(_make_bash_input(_DECLARED), smm_dir=self.smm_dir)
+        )
+
+    def test_no_declaration_leaves_the_hook_as_it_was(self):
+        pre_tool_bash.run(
+            _make_bash_input("pytest -n auto | tail -20"), smm_dir=self.smm_dir
+        )
+
+    def test_corrupt_system_context_does_not_break_the_hook(self):
+        """The reason the loader swallows its errors: a PreToolUse exit that
+        is not 2 does not block, so a raise here would let the command run
+        anyway AND repeat on every Bash call for the rest of the session."""
+        (self.smm_dir / SYSTEM_CONTEXT_FILENAME).write_text("{ not json")
+        pre_tool_bash.run(
+            _make_bash_input("pytest -n auto | tail -20"), smm_dir=self.smm_dir
+        )
+
+    def test_xp_agents_skip_the_gate(self):
+        """Sitting below the recursion skip is forced — the gate reads
+        system_context, which lives in the SMM dir — so this is the accepted
+        consequence, pinned rather than assumed."""
+        self.declare()
+        self.assertIsNone(
+            pre_tool_bash.run(
+                _make_bash_input(
+                    "pytest -n auto | tail -20", agent_type="xp-agents:xp-code-reviewer"
+                ),
+                smm_dir=self.smm_dir,
+            )
+        )
+
+
+class TestEndToEndThroughTheRealHook(_SMMTestCase):
+    """AC5: the real hook, as a subprocess, with a runner that would leave
+    evidence if it ran.
+
+    The sentinel is what makes this more than a restatement of the in-process
+    test: the refusal is only worth anything if it lands BEFORE the runner
+    spends the wall clock this story exists to save.
+    """
+
+    SCRIPTS = Path(__file__).parent.parent.parent / "scripts"
+
+    def setUp(self):
+        super().setUp()
+        self.workdir = Path(tempfile.mkdtemp())
+        self.sentinel = self.workdir / "the-runner-ran"
+        self.runner = self.workdir / "run-suite.sh"
+        self.runner.write_text(f"#!/bin/sh\ntouch {self.sentinel}\nexit 1\n")
+        self.runner.chmod(0o755)
+        write_doc(
+            self.smm_dir,
+            valid_doc(stack={"languages": ["Shell"], "test_command": str(self.runner)}),
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.workdir, ignore_errors=True)
+        super().tearDown()
+
+    def run_hook(self, command: str) -> subprocess.CompletedProcess:
+        env = os.environ.copy()
+        env["SMM_DIR"] = str(self.smm_dir)
+        return subprocess.run(
+            ["python3", str(self.SCRIPTS / "pre_tool_bash.py")],
+            input=json.dumps(_make_bash_input(command, cwd=str(self.workdir))),
+            capture_output=True,
+            text=True,
+            cwd=self.workdir,
+            env=env,
+        )
+
+    def test_a_masked_run_exits_2_with_the_reason_on_stderr(self):
+        result = self.run_hook(f"{self.runner} | tail -20")
+        self.assertEqual(result.returncode, 2, msg=result.stderr)
+        self.assertIn(str(self.runner), result.stderr)
+        self.assertIn(exit_capture_gate.EXIT_STATUS_NOT_NEEDED_MARKER, result.stderr)
+
+    def test_the_runner_never_executes(self):
+        self.run_hook(f"{self.runner} > out.log\necho $?")
+        self.assertFalse(
+            self.sentinel.exists(),
+            msg=(
+                "the runner left its sentinel — the refusal landed after the "
+                "run, which is the post-hoc advisory this story replaced"
+            ),
+        )
+
+    def test_the_bare_form_is_not_refused(self):
+        """The control. Without it, a hook that refused everything — or
+        crashed on every payload — would pass the test above."""
+        result = self.run_hook(str(self.runner))
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertEqual(result.stderr, "")
+
+    def test_the_escape_marker_is_honoured_end_to_end(self):
+        marker = exit_capture_gate.EXIT_STATUS_NOT_NEEDED_MARKER
+        result = self.run_hook(f"{self.runner} | tail -20  {marker}")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
 
 
 if __name__ == "__main__":

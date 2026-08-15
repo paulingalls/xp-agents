@@ -144,6 +144,14 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/skills/test_scaffold_worktree_skill.py": 475,
     "plugins/xp-agents/tests/engine/test_compact_concurrency.py": 473,
     "plugins/xp-agents/tests/smm/test_integration_branch_ref.py": 470,
+    # Entered the band on arrival (story-004). Recorded rather than split
+    # because the obvious cut — the hook-wiring and E2E classes into a sibling
+    # — would move AC5's only evidence out of the file this story's
+    # acceptance_execution actually runs, which is the gap kickoff triage
+    # raised against this story in the first place. The cohesive group to
+    # extract when it next grows is `TestEndToEndThroughTheRealHook`, once a
+    # second suite needs the same real-runner-with-a-sentinel fixture.
+    "plugins/xp-agents/tests/hooks/test_exit_capture_gate.py": 470,
     # RETIRED (story-019 follow-up): test_sprint_frontier.py 470->283. The
     # unscoped-verdict tests had already moved to test_frontier_unprovable.py;
     # the dependency-edge / treat_as_done group moved to
