@@ -37,16 +37,15 @@ REPO_ROOT = _PLUGIN_ROOT.parents[1]
 LEFTHOOK = REPO_ROOT / "lefthook.yml"
 TESTS_ROOT = _PLUGIN_ROOT / "tests"
 
-# The pre-push command that runs the whole suite under xdist. The name must sort
-# BEFORE "perf" — lefthook orders commands alphabetically and `perf` has to run
-# last, alone, for its wall-clock bounds to mean anything. Naming this `tests`
-# would sort it after `perf` and silently invert that guarantee, which is why
-# the name is a named constant rather than a literal spelled at three sites.
+# The pre-push command that runs the whole suite under xdist. A constant rather
+# than a literal because the vacuity guard below is only as good as the name it
+# looks for: rename the command in lefthook.yml without renaming it here and the
+# guard reports a missing suite instead of the rename.
 _SUITE_COMMAND = "all-tests"
 
-# A class opted into the perf tier, i.e. skipped unless XP_PERF is set. Any file
-# holding one of these runs ONLY from lefthook's perf command; if that command
-# does not name the file, the timers inside it execute nowhere.
+# A class opted into the retired perf tier, i.e. skipped unless XP_PERF is set.
+# Nothing sets XP_PERF any more, so a class carrying this decorator runs nowhere
+# at all — green, and measuring nothing.
 XP_PERF_GATE = re.compile(r"""skipUnless\(\s*os\.environ\.get\(\s*["']XP_PERF["']""")
 
 
@@ -125,32 +124,6 @@ def _hook(name: str) -> str:
     return _uncommented(_top_level_block(LEFTHOOK.read_text(encoding="utf-8"), name))
 
 
-def _test_paths_in(run: str) -> list[Path]:
-    """Repo-relative test paths the command actually runs."""
-    return [
-        REPO_ROOT / token
-        for token in run.split()
-        if token.startswith("plugins/") and token.endswith(".py")
-    ]
-
-
-def _decorators_above(text: str, class_name: str) -> str:
-    """The contiguous decorator lines directly above `class <class_name>`."""
-    lines = text.splitlines()
-    for i, line in enumerate(lines):
-        if not line.startswith(f"class {class_name}"):
-            continue
-        above = []
-        for prev in reversed(lines[:i]):
-            if not prev.strip() or prev.lstrip().startswith("#"):
-                continue
-            if not prev.startswith("@") and not prev.startswith(" "):
-                break  # not part of the decorator block
-            above.append(prev)
-        return "\n".join(above)
-    return ""
-
-
 class TestThePerfTierStaysRetired(unittest.TestCase):
     def setUp(self):
         self.block = _hook("pre-push")
@@ -195,14 +168,15 @@ class TestThePerfTierStaysRetired(unittest.TestCase):
     def test_pre_push_is_piped(self):
         """Kept, with a new reason. Its original justification — keeping `perf`
         from racing the suite's xdist workers — retired with the tier, so state
-        the surviving one rather than leaving a pin whose rationale is gone:
-        piped stops at the first failure, and a second command added here later
-        must not race this one."""
+        the surviving one rather than leaving a pin whose rationale is gone. With
+        one command `piped` changes nothing today; it is pinned so that a command
+        added here later is sequential on arrival rather than racing this one,
+        which is a decision nobody would think to make at that moment."""
         self.assertRegex(
             self.block,
             r"(?m)^\s+piped:\s*true\b",
-            "pre-push must stay piped — it stops at the first failure, and any "
-            "command added beside all-tests must not race it.",
+            "pre-push must stay piped — any command added beside all-tests has to "
+            "be sequential by default, not racing it.",
         )
 
     def test_pre_push_is_not_parallel(self):

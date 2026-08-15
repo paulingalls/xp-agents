@@ -103,9 +103,10 @@ class TestReadDeltaParseCost(_SMMTestCase):
         """Positive control for the assertion above (decision 308dd829d2a4).
 
         Same fixture, same spy, one delta: nothing has been read yet, so the whole
-        file IS the delta and parse_jsonl must receive all 1000 lines. Without this,
-        a spy patched onto the wrong name would see zero calls and the tail-only
-        assertion above would pass forever while asserting nothing.
+        file IS the delta and parse_jsonl must receive all 1000 lines. That is what
+        proves the 500-line result above is WATERMARK-DRIVEN — a read_delta that
+        parsed a fixed-size window, or one whose offset walk ignored the watermark
+        in the same direction every time, satisfies the tail-only assertion alone.
         """
         seen = self._raw_handed_to_parse(0)
 
@@ -174,12 +175,13 @@ class TestCompactParseCost(_SMMTestCase):
         )
 
     def test_compact_reaches_the_archive_path(self):
-        """Positive control for the assertion above, plus the liveness the gated
-        timer used to carry.
+        """The liveness the gated timer used to carry, and what makes the count
+        above mean something.
 
-        Without this, a spy patched onto the wrong name would see zero calls and
-        the single-pass assertion would pass forever while asserting nothing —
-        and an early exit before the retention split would go unnoticed.
+        "Exactly one parse" is also what a compaction that bailed out early looks
+        like: it reads, parses once, and archives nothing. Pinning `archived > 0`
+        and the whole log reaching parse_jsonl is what separates one honest pass
+        from one aborted one.
         """
         result, seen = self._compact_with_spy()
 

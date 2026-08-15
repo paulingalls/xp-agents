@@ -8,7 +8,7 @@ lefthook omitted `SMM_DIR`, `XP_AGENTS_DATA`, `XP_FILE_DOMAIN_DRIFT_TOLERANCE`,
 asserted an invariant. A documented invariant with no test is a claim.
 
 THE RULE IS NOT SET EQUALITY, and getting that wrong is the trap here. lefthook
-also strips two vars the registry deliberately does not, so the containment runs
+also strips a var the registry deliberately does not, so the containment runs
 one way: every registry-stripped var must appear in every `env -u` run, and
 anything extra lefthook strips must be declared below with a reason. Demanding
 equality would force `XP_SESSION_ID` into the registry, where it must NOT be —
@@ -16,8 +16,8 @@ equality would force `XP_SESSION_ID` into the registry, where it must NOT be —
 pins would fight itself.
 
 THE SCAN IS THE POINT. This DISCOVERS every pytest run by reading
-lefthook.yml, rather than naming the three runs that exist today. Enumerating
-locations is precisely the failure being fixed: a fourth run added later would be
+lefthook.yml, rather than naming the runs that exist today. Enumerating
+locations is precisely the failure being fixed: a run added later would be
 unmirrored and unnoticed, which is how the first three drifted. It reproduces the
 gap it closes. (The same reasoning rebuilt the per-file prose ratchet around a
 tree walk instead of a named set.)
@@ -150,6 +150,27 @@ class TestEveryRunMirrorsTheRegistry(unittest.TestCase):
         overlap = sorted(set(_LEFTHOOK_ONLY_STRIPS) & set(STRIPPED_VARS))
         self.assertEqual(
             overlap, [], f"declared as lefthook-only but in the registry: {overlap}"
+        )
+
+    def test_a_declared_extra_is_still_stripped_somewhere(self):
+        """The other direction of the same staleness rule, and the one that was
+        missing: an entry lefthook has STOPPED stripping is a note describing
+        machinery that no longer exists, and it goes on excusing whatever else
+        lands under that name. Retiring `XP_PERF` proved the gap — the entry had
+        to be removed by hand, with nothing going red if it had been left.
+
+        At least one run, not every run: a strip that only one job needs is a
+        legitimate asymmetry; a strip no job performs is a dead note.
+        """
+        stripped_anywhere: set[str] = set()
+        for run in _pytest_runs():
+            stripped_anywhere |= _stripped_in(run)
+        orphaned = sorted(set(_LEFTHOOK_ONLY_STRIPS) - stripped_anywhere)
+        self.assertEqual(
+            orphaned,
+            [],
+            "declared in _LEFTHOOK_ONLY_STRIPS but no lefthook pytest run strips "
+            f"them any more: {orphaned}. Delete the entry with the machinery.",
         )
 
 

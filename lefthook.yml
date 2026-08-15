@@ -182,10 +182,11 @@ pre-commit:
 # Those run ungated — on every commit and in CI, where XP_PERF was never set and
 # the timers therefore never ran at all.
 #
-# `piped: true` stays: it stops at the first failure, and if a second command is
-# ever added here it must not race this one. `all-tests` is the whole suite,
-# subsuming the former `integration` command rather than sitting beside it —
-# keeping both would run tests/integration twice.
+# `piped: true` stays. With one command it changes nothing today — it is kept so
+# that a second command added here is sequential by default and stops at the
+# first failure, rather than racing this one on arrival. `all-tests` is the whole
+# suite, subsuming the former `integration` command rather than sitting beside
+# it — keeping both would run tests/integration twice.
 # No glob/{push_files}: pre-push also fires from a detached HEAD
 # (close_common._push_relocated), where a file-list filter can come back empty
 # and silently skip the command.
