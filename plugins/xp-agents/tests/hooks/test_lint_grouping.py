@@ -62,7 +62,12 @@ class TestGroupPathsByLinter(_LintTmpDirMixin, unittest.TestCase):
             mock_detect.assert_called_once()
             self.assertEqual(groups[("ruff", "/some/ruff.toml")], ["x.py"])
 
-    def test_cwd_and_git_root_stay_distinct(self):
+    def test_cwd_is_the_join_base_not_git_root(self):
+        """A path is joined to `cwd`, so a nearer config beats the root's one.
+
+        Passing `git_root` for both would start the walk at the root and find
+        the root's `ruff.toml` instead.
+        """
         root = self._lint_tmpdir
         sub = root / "subproj"
         sub.mkdir()
@@ -75,6 +80,23 @@ class TestGroupPathsByLinter(_LintTmpDirMixin, unittest.TestCase):
         self.assertIn("nested.py", all_paths)
         (config_path,) = {config for (_, config) in groups}
         self.assertEqual(Path(config_path).resolve(), (sub / "ruff.toml").resolve())
+
+    def test_git_root_is_the_walk_ceiling_not_cwd(self):
+        """The walk climbs PAST `cwd` to `git_root`, which the sibling above
+        cannot see: with a config in `cwd` too, passing `cwd` for both still
+        finds one. Here only the root has a config, so a collapsed ceiling
+        stops at `sub` and drops the path entirely."""
+        root = self._lint_tmpdir
+        sub = root / "subproj"
+        sub.mkdir()
+        (sub / "nested.py").touch()
+
+        groups = lint_grouping.group_paths_by_linter(["nested.py"], str(sub), str(root))
+
+        all_paths = [p for paths in groups.values() for p in paths]
+        self.assertIn("nested.py", all_paths)
+        (config_path,) = {config for (_, config) in groups}
+        self.assertEqual(Path(config_path).resolve(), (root / "ruff.toml").resolve())
 
 
 if __name__ == "__main__":
