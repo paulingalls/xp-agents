@@ -52,8 +52,28 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import hook_liveness
+import marker_claim
+import markers
+import plugin_loader
+import shell_commands
 import skill_preload_map
 import target_routing
+
+# Commands that READ a file's contents. The second harness's identity handle is
+# the model reading SKILL.md through the shell, so only a read is an invocation.
+#
+# A heuristic, and it must be read as one: `wc -c` is the case that was measured
+# breaking this, not the only command that could ever mention a skill path. The
+# bias is deliberate — a read shape wrongly rejected costs one missed injection
+# on that read, while a mention wrongly accepted TAKES THE CLAIM and starves the
+# genuine read that follows, which is the failure that hid for a whole session.
+_READ_COMMANDS = frozenset({"cat", "head", "tail", "less", "more", "bat", "view", "nl"})
+
+# Short on purpose. The claim exists to collapse the burst of reads that one
+# invocation produces, not to remember the invocation: a claim outliving it
+# silently starves the next one. A duplicate injection costs context twice; a
+# starved one leaves a skill running blind, and only the second is invisible.
+_CLAIM_TTL_SECONDS = 10
 
 # Generous against the slowest measured preload (1.91s for a close preload,
 # which computes diffs) and far below the harness's own hook bound. It exists
@@ -74,6 +94,53 @@ def skill_from_payload(input_data: dict) -> str | None:
     if not skill:
         return None
     return target_routing.strip_our_namespace(skill) or None
+
+
+def skill_from_command(command: str) -> str | None:
+    """The skill whose body this shell command READS, or None.
+
+    Second-harness leg. Tokenized with `shell_commands.simple_commands` — the
+    same tokenization the Bash gates use — rather than searched as raw text. A
+    regex over the raw command finds a path inside a commit message and treats
+    prose as an argument; to the shell that message is one token, so a tokenizer
+    cannot make the mistake. That module's docstring records what the regex
+    approach cost twice. Splitting per simple command is what stops a read being
+    hidden behind a chain, and unparseable text yields no commands at all, which
+    degrades here to no injection.
+    """
+    for tokens in shell_commands.simple_commands(command):
+        if not tokens or Path(tokens[0]).name not in _READ_COMMANDS:
+            continue
+        for token in tokens[1:]:
+            skill = _skill_name_from_path(token)
+            if skill is not None:
+                return skill
+    return None
+
+
+def _skill_name_from_path(token: str) -> str | None:
+    """The skill directory name for a path naming one of OUR skill bodies."""
+    path = Path(token)
+    if path.name != "SKILL.md":
+        return None
+    try:
+        relative = path.resolve().relative_to(
+            (plugin_loader.resolve_plugin_root() / "skills").resolve()
+        )
+    except (OSError, ValueError, RuntimeError):
+        return None
+    # Exactly `<skill>/SKILL.md` — not a body nested deeper under a skill.
+    return relative.parts[0] if len(relative.parts) == 2 else None
+
+
+def _claim_for(skill: str) -> markers.MarkerDef:
+    """One claim per (session, skill).
+
+    Session-scoped because the SMM dir is shared across worktrees and windows:
+    keyed on the skill alone, two teammates invoking the same skill at once
+    would leave one of them running blind.
+    """
+    return markers.MarkerDef(f".preload-claim-{skill}", "text", session_scoped=True)
 
 
 def run_preload(skill: str, cwd: str) -> str | None:
@@ -111,16 +178,50 @@ def run_preload(skill: str, cwd: str) -> str | None:
 
 
 def run(input_data: dict, **_kwargs) -> str | None:
-    """The injected context for this invocation, or None to inject nothing."""
+    """The injected context for this invocation, or None to inject nothing.
+
+    The two legs are NOT symmetric, and the asymmetry is deliberate.
+
+    A skill tool call fires once per invocation, so the first-harness leg needs
+    no claim — and must not take one. The same entry already carries
+    `pre_tool_skill.py`, which can BLOCK the invocation, and hooks on one entry
+    run in parallel: this handler cannot know the call was refused. A claim here
+    would be taken for an invocation that never happened, starving the user's
+    retry after they cleared the gate. The cost of not claiming is one wasted
+    preload run whose output goes to a skill that will not run — which starves
+    nothing.
+
+    The second-harness leg has no such guarantee: the model may read one
+    `SKILL.md` several times for a single invocation, which is the burst the
+    claim exists to collapse.
+    """
     if _common.is_xp_agent(input_data):
         return None
 
     skill = skill_from_payload(input_data)
     if skill is None:
-        return None
+        skill = skill_from_command(input_data.get("tool_input", {}).get("command", ""))
+        if skill is None or not _take_claim(skill):
+            return None
 
     _refresh_heartbeat(input_data)
     return run_preload(skill, input_data.get("cwd", ""))
+
+
+def _take_claim(skill: str) -> bool:
+    """Claim this skill's preload run, or report that a live claim holds it.
+
+    Fails OPEN when the SMM dir cannot be resolved: without it there is nowhere
+    to record a claim, and the choice is then between injecting twice and not
+    injecting at all. A duplicate costs context; a miss leaves the skill
+    stateless and says nothing, so the tie goes to delivering.
+    """
+    smm_dir = _common.get_validated_smm_dir(None)
+    if smm_dir is None:
+        return True
+    return marker_claim.claim(
+        smm_dir, _claim_for(skill), ttl_seconds=_CLAIM_TTL_SECONDS
+    )
 
 
 def _refresh_heartbeat(input_data: dict) -> None:

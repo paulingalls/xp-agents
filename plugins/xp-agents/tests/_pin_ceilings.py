@@ -188,6 +188,12 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_retrospective_signals.py": 455,
     "plugins/xp-agents/tests/scaffold/test_scaffold_plan.py": 455,
     "plugins/xp-agents/tests/engine/test_file_domain_lock.py": 454,
+    # Entered the band with story-011's two-leg coverage: the skill-tool leg,
+    # the shell-read leg, and the claim behaviour where those two differ. The
+    # cohesive group to extract next is the shell-read family
+    # (identity-from-command plus the claim/mention interaction), which shares
+    # no fixture with the execution and heartbeat classes.
+    "plugins/xp-agents/tests/hooks/test_preload_injection.py": 483,
     # Entered the band with the derived variant's path-existence pin
     # (story-011): the source's own check covers hooks.json only, so a hook
     # authored straight into the variant could name a script that does not
