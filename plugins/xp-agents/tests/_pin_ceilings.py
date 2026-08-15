@@ -84,6 +84,13 @@ BAND_CEILINGS = {
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
+    # NOT ENTERED (story-011): markers.py briefly reached 453 with the exclusive
+    # claim in it, and took a ceiling here before its own sub-cap pin was
+    # consulted. That pin (test_session_markers.TestMarkersSplit) holds the
+    # module to 450 and says to extract rather than to record — so the claim
+    # moved to scripts/marker_claim.py and the file is back at 388. A ceiling
+    # entry here would have quietly overridden a stricter rule that already
+    # existed.
     # RETIRED: verify_acceptance.py 455->434, under the 450 floor so the entry
     # is deleted rather than re-recorded. Deduping the sprint run to one
     # subprocess per DISTINCT command replaced the inline row-building loop
@@ -181,6 +188,13 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_retrospective_signals.py": 455,
     "plugins/xp-agents/tests/scaffold/test_scaffold_plan.py": 455,
     "plugins/xp-agents/tests/engine/test_file_domain_lock.py": 454,
+    # Entered the band with the derived variant's path-existence pin
+    # (story-011): the source's own check covers hooks.json only, so a hook
+    # authored straight into the variant could name a script that does not
+    # exist — which one did. This file has already been split twice for size;
+    # the cohesive group to extract next is the M-2 close-skill step-ordering
+    # pins, which share `_assert_text_ordering` and touch no manifest at all.
+    "plugins/xp-agents/tests/hooks/test_plugin_integrity_structure_and_close.py": 454,
     "plugins/xp-agents/tests/hooks/test_close_common_verify_gate.py": 453,
     # 452 -> 459 when the merged-range tests retargeted from `merged_range_bodies`
     # (deleted — the third emitter's convergence left it callerless) onto the
