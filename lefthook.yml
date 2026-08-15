@@ -160,32 +160,36 @@ pre-commit:
         else
           par=""
           [ -n "$dirs" ] && par="-n auto"
-          env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u SMM_DIR -u XP_AGENTS_DATA -u XP_FILE_DOMAIN_DRIFT_TOLERANCE -u XP_LOCK_TIMEOUT_SECONDS -u XP_SMM_MIGRATE -u XP_TEAMMATE_NAME -u XP_PERF -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest $dirs $files $par -q || [ $? -eq 5 ]
+          env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u SMM_DIR -u XP_AGENTS_DATA -u XP_FILE_DOMAIN_DRIFT_TOLERANCE -u XP_LOCK_TIMEOUT_SECONDS -u XP_SMM_MIGRATE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest $dirs $files $par -q || [ $? -eq 5 ]
         fi
 
-# piped (NOT parallel — lefthook rejects both) runs the commands sequentially,
-# in alphabetical order by name: all-tests, then perf. The scale timers are
-# wall-clock bounds, so they mean nothing while all-tests' 16 xdist workers are
-# saturating the box; serializing is what makes the numbers real. The name
-# `all-tests` is load-bearing: `tests` would sort AFTER `perf` and silently
-# invert that ordering — test_lefthook_perf_gate.py holds it as a constant and
-# pins that `perf` sorts last.
+# There is no `perf` command here, and that is deliberate — see
+# test_lefthook_perf_gate.py, which now pins its ABSENCE.
 #
-# `all-tests` is the whole suite, which subsumes the former `integration`
-# command rather than sitting beside it — keeping both would run
-# tests/integration twice. It carries -u XP_PERF, which `integration` never did:
-# it runs -n auto, and an exported XP_PERF=1 would arm the wall-clock bounds
-# 16-wide, measuring xdist contention instead of anything real.
-# No glob/{push_files} on either command: pre-push also fires from a detached
-# HEAD (close_common._push_relocated), where a file-list filter can come back
-# empty and silently skip the command.
-# `perf` pins both a file path and a class name. Either one drifting fails LOUD
-# rather than silently gating nothing: rename the class and pytest deselects
-# everything (exit 5); move the file and pytest errors on the missing path
-# (exit 4). Dropping XP_PERF=1 is the one drift that WOULD pass silently (every
-# test skips, exit 0) — test_lefthook_perf_gate.py is the guard for that, and for
-# the skipUnless staying on the class. Keep in sync with TestScaleBenchmarks in
-# tests/engine/test_scale_invariants.py.
+# A wall-clock bound measures the machine, not the diff. The retired tier tried
+# to buy honest numbers by serializing `perf` after `all-tests`, but that only
+# controls the contention THIS run creates; another process on the box is
+# invisible to it. Concurrent CLI teammates are a recorded Key Decision of this
+# project, so that case is normal operation — and because story close pushes, a
+# blocking timer here failed closes whose diff touched none of it. Measured:
+# read_delta 108ms against a 100ms bound (75x headroom) at load average 94.89,
+# while the full suite passed.
+#
+# What those timers stood in for is now asserted structurally, on WHAT gets
+# parsed rather than how long it took: TestReadDeltaParseCost and
+# TestCompactParseCost in tests/engine/test_scale_invariants.py, and
+# test_repair_single_pass_no_double_parse in tests/engine/test_maintenance.py.
+# Those run ungated — on every commit and in CI, where XP_PERF was never set and
+# the timers therefore never ran at all.
+#
+# `piped: true` stays. With one command it changes nothing today — it is kept so
+# that a second command added here is sequential by default and stops at the
+# first failure, rather than racing this one on arrival. `all-tests` is the whole
+# suite, subsuming the former `integration` command rather than sitting beside
+# it — keeping both would run tests/integration twice.
+# No glob/{push_files}: pre-push also fires from a detached HEAD
+# (close_common._push_relocated), where a file-list filter can come back empty
+# and silently skip the command.
 pre-push:
   piped: true
   commands:
@@ -195,6 +199,4 @@ pre-push:
     # tests/_env_hygiene.py pins the same chain in process; both places are
     # required and a test asserts they agree.
     all-tests:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u SMM_DIR -u XP_AGENTS_DATA -u XP_FILE_DOMAIN_DRIFT_TOLERANCE -u XP_LOCK_TIMEOUT_SECONDS -u XP_SMM_MIGRATE -u XP_TEAMMATE_NAME -u XP_PERF -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest -n auto -q
-    perf:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u SMM_DIR -u XP_AGENTS_DATA -u XP_FILE_DOMAIN_DRIFT_TOLERANCE -u XP_LOCK_TIMEOUT_SECONDS -u XP_SMM_MIGRATE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID XP_PERF=1 pytest plugins/xp-agents/tests/engine/test_scale_invariants.py -k TestScaleBenchmarks -p no:xdist -q
+      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u SMM_DIR -u XP_AGENTS_DATA -u XP_FILE_DOMAIN_DRIFT_TOLERANCE -u XP_LOCK_TIMEOUT_SECONDS -u XP_SMM_MIGRATE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest -n auto -q
