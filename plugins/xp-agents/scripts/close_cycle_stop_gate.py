@@ -67,9 +67,10 @@ import target_routing
 #
 #   1. DEFER WINDOW — Step 4b is in flight, suppress the close-reviewer
 #      nudge. Must EXCEED /code-review high's observed ~10-15 min runtime
-#      plus headroom for /xp-quality-review consume + /security-review +
-#      concern-triage AskUserQuestion. (Was 600s, which predated the
-#      workflow-backed /code-review and expired mid-Step-4b; bumped to 1800s.)
+#      plus headroom for /xp-quality-review's REVIEWER RUN and consume (the
+#      flag rides the agent's RETURN, not the skill's launch) +
+#      /security-review + concern-triage AskUserQuestion. (600s expired
+#      mid-Step-4b; 1800s was never re-measured against the reviewer leg.)
 #
 #   2. ABANDONMENT TIMEOUT — the bypass-recorded "close abandoned" concern.
 #      Must be SUBSTANTIALLY LONGER than the defer window so a slow but

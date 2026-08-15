@@ -103,7 +103,20 @@ def _is_quality_review(name: str) -> bool:
 
 
 def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
-    """Set review cycle flags. Runs even for xp- agents (xp-quality-review is xp-*)."""
+    """Set review cycle flags from a subagent's COMPLETION.
+
+    Deliberately not recursion-skipped: the names it matches are xp-* ones.
+
+    The second writer of each flag, and the reason it may key on the SKILL
+    name where the PostToolUse sibling may not: SubagentStop fires when the
+    subagent finishes, so a skill matched here has actually run. The sibling's
+    PostToolUse:Skill fires when the Skill TOOL returns, which for an inline
+    skill is at launch — which is why review_cycle_done keys the quality half
+    on the xp-code-reviewer agent instead. This leg is dormant while
+    /xp-quality-review is inline (an inline skill is not a subagent); it is
+    kept so the flag still lands if that skill ever becomes forked, symmetric
+    with the /code-review leg above it.
+    """
     agent_type = input_data.get("agent_type", "").lower()
     agent_id_val = input_data.get("agent_id", "").lower()
 

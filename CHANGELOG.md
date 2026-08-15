@@ -49,8 +49,8 @@ path falls back to the default rather than naming a file no other caller reads.
 Eight sibling allowlists still spell `$`; none has a traced failure path, so
 none was changed — the rule is recorded as a decision instead.
 
-Three comments in files this change did not otherwise touch stated the old rule
-and are corrected rather than deleted, and `docs/ideas/4-CLOSE_GATE_HONESTY.md`
+Comments in files this change did not otherwise touch stated the old rule and
+are corrected rather than deleted, and `docs/ideas/4-CLOSE_GATE_HONESTY.md`
 §6 — which told a future implementer **not** to make this change — is marked
 superseded with its reasoning kept.
 

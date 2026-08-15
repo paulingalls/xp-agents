@@ -9,6 +9,7 @@ test_review_cycle_subagent_stop.py for the SubagentStop backup-detection
 siblings (subagent_stop.py).
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -396,18 +397,16 @@ class TestSpawnedReviewerNameIsTheRoutedName(unittest.TestCase):
         / "SKILL.md"
     )
 
-    def test_skill_subagent_type_routes_to_quality_target(self):
-        import re
-
-        body = self._SKILL_MD.read_text()
-        spawned = re.findall(r'subagent_type:\s*"([^"]+)"', body)
+    def test_skill_spawns_a_subagent_type_routing_to_quality_target(self):
+        """At LEAST one spawned name, not every one: a future second spawn (a
+        helper agent) routing elsewhere is legitimate, while a rename of the
+        reviewer is still red."""
+        spawned = re.findall(r'subagent_type:\s*"([^"]+)"', self._SKILL_MD.read_text())
         self.assertTrue(spawned, "SKILL.md must declare a subagent_type to spawn")
-        for name in spawned:
-            with self.subTest(subagent_type=name):
-                self.assertEqual(
-                    review_cycle_done._detect_target(name),
-                    review_cycle_done._TARGET_QUALITY_REVIEW,
-                )
+        routed = {n: review_cycle_done._detect_target(n) for n in spawned}
+        self.assertIn(
+            review_cycle_done._TARGET_QUALITY_REVIEW, routed.values(), str(routed)
+        )
 
 
 class TestAgentIdSemantics(_HookTestCase):
