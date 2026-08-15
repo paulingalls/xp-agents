@@ -29,12 +29,15 @@ in the subtraction suite.
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+import hooks_emit
 from _hooks_variant_fixtures import _CODEX, _SOURCE, _all_hook_objects
 
 # The expectation, recorded — never derived from the emitter. Keyed by the
@@ -76,6 +79,23 @@ def _declared_triples() -> set[tuple[str, str, str]]:
     }
 
 
+def _missing_additions(manifest: dict) -> list[str]:
+    """Declared additions absent from `manifest`, each described by name.
+
+    Factored out so the mutation proof below can run the SAME check against a
+    manifest regenerated from an emptied declaration. Asserting the shipped pin
+    is red under mutation is otherwise impossible: the pin reads the checked-in
+    variant, which emptying the emitter's table does not touch until something
+    regenerates.
+    """
+    present = _triples(manifest)
+    return [
+        f"{event}:{matcher} is missing the variant-only hook {command!r}"
+        for event, matcher, command in sorted(_declared_triples())
+        if (event, matcher, command) not in present
+    ]
+
+
 class TestDeclaredAdditionsReachTheVariant(unittest.TestCase):
     """Each declared hook object lands on its declared entry, and nowhere else.
 
@@ -96,12 +116,7 @@ class TestDeclaredAdditionsReachTheVariant(unittest.TestCase):
         )
 
     def test_every_declared_addition_reaches_the_variant(self):
-        present = _triples(self.codex)
-        missing = [
-            f"{event}:{matcher} is missing the variant-only hook {command!r}"
-            for event, matcher, command in sorted(_declared_triples())
-            if (event, matcher, command) not in present
-        ]
+        missing = _missing_additions(self.codex)
         self.assertEqual(missing, [], "; ".join(missing))
 
     def test_declared_additions_land_on_an_entry_that_already_exists(self):
@@ -206,6 +221,59 @@ class TestSurvivingEntriesAreCarriedAcross(unittest.TestCase):
                 if added:
                     entry.setdefault("hooks", []).extend(json.loads(json.dumps(added)))
             self.assertEqual(entries, expected, f"{event} entry rewritten")
+
+
+class TestThePinWouldCatchARemovedAddition(unittest.TestCase):
+    """The pins above are proven non-vacuous by mutating the emitter, not by
+    inspection.
+
+    Both cases run permanently rather than being performed once and described:
+    a mutation demonstrated in a session and written up in a docstring stops
+    protecting anything the moment someone edits the code it described.
+
+    Each asserts on the MESSAGE, never on the exception type alone.
+    `assertRaises(AssertionError)` also catches an assertion this module raises
+    for its own internal reasons, so a pin that had stopped resolving anything
+    would satisfy it — the defect found in story-002's review.
+    """
+
+    def _emit_with(self, table: dict) -> dict:
+        with (
+            patch.object(hooks_emit, "_VARIANT_ONLY_HOOKS", table),
+            tempfile.TemporaryDirectory() as tmp,
+        ):
+            out_dir = Path(tmp)
+            hooks_emit.emit(source=_SOURCE, out_dir=out_dir)
+            return json.loads(
+                (out_dir / "hooks.codex.json").read_text(encoding="utf-8")
+            )
+
+    def test_emptying_the_declaration_makes_the_pin_name_the_lost_entry(self):
+        """AC4. Regenerating from an empty table must fail the presence check,
+        and the failure must name the entry — event, matcher and command — so a
+        reader learns WHICH hook went missing rather than that a count moved."""
+        produced = self._emit_with({})
+        missing = _missing_additions(produced)
+
+        self.assertTrue(missing, "emptying the declaration left the pin green")
+        self.assertIn("PreToolUse:Bash", missing[0])
+        self.assertIn("preload_injection.py", missing[0])
+
+        # Reverted: the real table is in force again, proven rather than assumed.
+        self.assertEqual(_missing_additions(self._emit_with(ADDITIONS)), [])
+
+    def test_declaring_an_addition_for_no_existing_entry_raises(self):
+        """The emitter's own guard against a reachable state: a source edit that
+        renames or removes the target entry. Without the raise the addition
+        becomes a no-op whose output still regenerates and still parses."""
+        with self.assertRaisesRegex(ValueError, r"PreToolUse:NoSuchMatcher"):
+            self._emit_with(
+                {
+                    ("PreToolUse", "NoSuchMatcher"): [
+                        {"type": "command", "command": "python3 x.py"}
+                    ]
+                }
+            )
 
 
 if __name__ == "__main__":
