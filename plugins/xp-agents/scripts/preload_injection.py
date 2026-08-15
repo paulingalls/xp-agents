@@ -219,9 +219,18 @@ def _take_claim(skill: str) -> bool:
     smm_dir = _common.get_validated_smm_dir(None)
     if smm_dir is None:
         return True
-    return marker_claim.claim(
+    took = marker_claim.claim(
         smm_dir, _claim_for(skill), ttl_seconds=_CLAIM_TTL_SECONDS
     )
+    # One file per (session, skill) would otherwise pile up forever in an SMM
+    # dir shared across worktrees and windows. Swept on the TAKING path only: a
+    # caller that was refused sits inside someone else's live window and has no
+    # business sweeping. The sweep window is far wider than the claim's own, so
+    # a claim still doing its job is never a candidate.
+    marker_claim.reap_stale(
+        smm_dir, ".preload-claim-*", ttl_seconds=_CLAIM_TTL_SECONDS * 60
+    )
+    return took
 
 
 def _refresh_heartbeat(input_data: dict) -> None:

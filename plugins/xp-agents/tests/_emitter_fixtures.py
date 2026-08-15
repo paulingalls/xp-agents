@@ -218,10 +218,16 @@ def subagent_start_full_tier() -> dict:
 def preload_injection_loud() -> dict:
     """The louder branch: a skill whose preload reports triage state.
 
-    Still read-only. The loud dimension for this emitter is WHICH skill it was
-    asked to load, because it injects that skill's preload verbatim — so the
-    expensive input is a preload with more of the SMM to report, not a bigger
-    payload of its own.
+    The loud dimension for this emitter is WHICH skill it was asked to load,
+    because it injects that skill's preload verbatim — so the expensive input
+    is a preload with more of the SMM to report, not a bigger payload of its
+    own.
+
+    NOT read-only, unlike the quiet fixture: `xp-work-selection`'s preload arms
+    NEEDS_HOUSEKEEPING and HOUSEKEEPING_ARMED, so this emitter is registered in
+    `_volume_fixture._MARKER_WRITERS` and measured last. No sibling in the
+    volume set reads those markers today; the registration is what keeps that
+    from being a fact anyone has to re-derive when one starts to.
     """
     return {
         "session_id": "t",

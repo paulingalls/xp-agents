@@ -16,8 +16,6 @@ allowed-tools:
   - Bash(python3 */scripts/surface_coverage.py *)
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
-
 # Sprint Planning
 
 > **Sequential discipline.** Run Steps 1 → 1b → 2 → 3 → 3b → 4 → 5 → 6 → 7 → 8

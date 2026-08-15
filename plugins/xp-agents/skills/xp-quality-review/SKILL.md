@@ -18,8 +18,6 @@ allowed-tools:
   - Bash(*/init.sh)
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
-
 # Quality Review
 
 > **Sequential discipline.** Run Step 1 → 2 → 3 → 4 → 5 one per turn: make the

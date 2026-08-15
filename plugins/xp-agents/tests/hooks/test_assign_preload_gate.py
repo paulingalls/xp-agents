@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import marker_names
+import skill_preload_map
 from conftest import _PLUGIN_ROOT, _IntegrationTestCase
 
 _ASSIGN_SKILL = _PLUGIN_ROOT / "skills" / "xp-assign" / "SKILL.md"
@@ -101,20 +102,22 @@ class TestAssignPreloadConsumeWiring(unittest.TestCase):
     """The static half: the real invocation opts in, via the marker helper."""
 
     def test_skill_invocation_passes_the_consume_flag(self):
-        """The `!`-injected preload line IS the real assign invocation — if it
-        does not opt in, the gate is never consumed and /xp-assign re-arms
-        against itself forever."""
-        body = _ASSIGN_SKILL.read_text(encoding="utf-8")
-        injected = [
-            line
-            for line in body.splitlines()
-            if line.startswith("!`") and "preload" in line
-        ]
-        self.assertTrue(injected, "no injected preload line in xp-assign/SKILL.md")
-        self.assertTrue(
-            any(_CONSUME_FLAG in line for line in injected),
-            f"the injected preload line does not pass {_CONSUME_FLAG}:\n"
-            + "\n".join(injected),
+        """The RESOLVER now holds the real assign invocation — if it does not
+        opt in, the gate is never consumed and /xp-assign re-arms against
+        itself forever.
+
+        Repointed, not weakened. This read the `!`-injected line in SKILL.md
+        until that line was deleted and hook-side injection took over; the
+        oracle moved with the mechanism, because the resolver is what the
+        handler actually runs. Reading the deleted line would have made this
+        pin assert against a channel nothing uses.
+        """
+        invocation = skill_preload_map.resolve_preload_required("xp-assign")
+        self.assertIn(
+            _CONSUME_FLAG,
+            invocation.argv,
+            f"the resolved assign invocation does not pass {_CONSUME_FLAG}: "
+            f"{invocation.argv}",
         )
 
     def test_preload_consumes_through_the_marker_helper(self):

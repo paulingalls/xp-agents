@@ -157,5 +157,47 @@ class TestClaimUnderRealConcurrency(_SMMTestCase):
         )
 
 
+class TestStaleClaimsAreReaped(_SMMTestCase):
+    """Per-(session, subject) claims accumulate forever without this.
+
+    The heartbeat hit the same wall and answered it the same way, on the same
+    reasoning: reaping on write keeps it self-contained, and the work is bounded
+    by how many claims are live-ish.
+    """
+
+    def test_an_expired_claim_is_swept(self):
+        marker_claim.claim(self.smm_dir, _CLAIM, ttl_seconds=60)
+        path = markers.marker_path(self.smm_dir, _CLAIM)
+        stale = time.time() - 600
+        os.utime(path, (stale, stale))
+
+        marker_claim.reap_stale(self.smm_dir, ".test-claim*", ttl_seconds=60)
+        self.assertFalse(path.exists())
+
+    def test_a_live_claim_is_left_alone(self):
+        """The dangerous direction. Sweeping a claim that is still holding back
+        a duplicate run hands it to the next caller — turning tidy-up into the
+        race the claim exists to prevent."""
+        marker_claim.claim(self.smm_dir, _CLAIM, ttl_seconds=60)
+        path = markers.marker_path(self.smm_dir, _CLAIM)
+
+        marker_claim.reap_stale(self.smm_dir, ".test-claim*", ttl_seconds=60)
+        self.assertTrue(path.exists())
+        self.assertFalse(marker_claim.claim(self.smm_dir, _CLAIM, ttl_seconds=60))
+
+    def test_a_symlink_is_not_unlinked(self):
+        """This owns the files it created and nothing else."""
+        target = Path(self.smm_dir) / "elsewhere"
+        target.write_text("not ours", encoding="utf-8")
+        link = Path(self.smm_dir) / ".test-claim-link"
+        link.symlink_to(target)
+        stale = time.time() - 600
+        os.utime(target, (stale, stale))
+
+        marker_claim.reap_stale(self.smm_dir, ".test-claim*", ttl_seconds=60)
+        self.assertTrue(link.is_symlink())
+        self.assertTrue(target.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -15,8 +15,6 @@ allowed-tools:
   - Read
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/check_session_needs.sh`
-
 # Session Kickoff
 
 > **Sequential discipline.** Run Step 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 strictly,

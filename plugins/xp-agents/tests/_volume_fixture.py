@@ -336,7 +336,13 @@ def _preload_runner(name, smm_dir, repo):
 # LAST and no sibling measures a marker it did not trigger. Same guard, same
 # reason, as `_budget_helpers.assert_emitter_under_budgets`'s subagent_stop
 # ordering; an unlisted marker-writer makes measurements order-dependent.
-_MARKER_WRITERS = frozenset({"post_tool_exit_plan.py"})
+#
+# `preload_injection` writes through whatever preload its fixture names, so it
+# inherits that preload's side effects: the loud fixture's `xp-work-selection`
+# arms NEEDS_HOUSEKEEPING and HOUSEKEEPING_ARMED. It sorts before every
+# `s`-named sibling by default, so it is listed here rather than left to be
+# discovered by the first sibling that starts reading those markers.
+_MARKER_WRITERS = frozenset({"post_tool_exit_plan.py", "preload_injection.py"})
 
 
 def _measurement_order(names) -> list[str]:

@@ -188,12 +188,14 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_retrospective_signals.py": 455,
     "plugins/xp-agents/tests/scaffold/test_scaffold_plan.py": 455,
     "plugins/xp-agents/tests/engine/test_file_domain_lock.py": 454,
-    # Entered the band with story-011's two-leg coverage: the skill-tool leg,
-    # the shell-read leg, and the claim behaviour where those two differ. The
-    # cohesive group to extract next is the shell-read family
-    # (identity-from-command plus the claim/mention interaction), which shares
-    # no fixture with the execution and heartbeat classes.
-    "plugins/xp-agents/tests/hooks/test_preload_injection.py": 483,
+    # NOT ENTERED (story-011): test_preload_injection.py reached 483 with both
+    # of the handler's legs in it, and took a ceiling here in the same breath
+    # as naming the split that would avoid one. The shell-read family (identity
+    # from the command, plus the claim/mention interaction) moved to
+    # tests/hooks/test_preload_injection_shell_read.py — it shared no fixture
+    # with the execution and heartbeat classes — leaving both files well under
+    # the 450 floor. A band entry taken on a file's first day is the shape the
+    # file-size convention names as recurring debt.
     # Entered the band with the derived variant's path-existence pin
     # (story-011): the source's own check covers hooks.json only, so a hook
     # authored straight into the variant could name a script that does not

@@ -38,17 +38,29 @@ def claim(
     before the write. `O_CREAT | O_EXCL` is the whole mechanism — the same idiom
     `smm/archive.py` uses to claim an archive name rather than assume it.
 
-    `O_NOFOLLOW` refuses a symlinked path outright, matching `marker_exists`,
-    which reports a symlinked marker absent. Following it would write through to
-    a file we do not own, and expiring it would delete one.
+    `O_NOFOLLOW` refuses to WRITE through a symlinked path, matching
+    `marker_exists`, which reports a symlinked marker absent — writing through
+    would land in a file we do not own. It is the create that is guarded, not
+    the whole call: the expiry leg's `stat` follows the link, so a link whose
+    TARGET is older than the window is unlinked and the claim taken. That
+    removes the link itself, never the target, so nothing we do not own is
+    deleted either way.
 
     **The claim EXPIRES, and that is load-bearing rather than tidy-up.** A claim
     held forever silently starves the next legitimate claimant — the same quiet
     failure the claim exists to prevent, arriving from the other side. A holder
     older than `ttl_seconds` is treated as abandoned: unlinked, and the
-    exclusive create retried exactly once. Once, not in a loop — two claimants
-    expiring the same stale holder must not take turns deleting each other's
-    fresh claim.
+    exclusive create retried exactly once.
+
+    The expiry leg is NOT exclusive, and saying so is the honest bound on this
+    primitive: two claimants that both read the same stale holder can both
+    unlink and both win, the second's unlink dropping the first's fresh claim.
+    There is no stdlib primitive for "unlink only if still stale", so that
+    window is accepted rather than closed — its cost is one duplicate run, the
+    direction this design already prefers, and it is reachable only once a
+    claim has already gone stale. Retrying in a LOOP is what would turn that
+    bounded duplicate into two claimants taking turns deleting each other,
+    which is why the retry is exactly one.
 
     Callers pick `ttl_seconds` from how long the work being serialised takes,
     and should bias it SHORT: a duplicate run costs the work twice, while an
@@ -70,6 +82,32 @@ def claim(
     with contextlib.suppress(OSError):
         path.unlink()
     return _try_exclusive_create(path)
+
+
+def reap_stale(smm_dir: Path, glob: str, *, ttl_seconds: float) -> None:
+    """Delete expired claim files matching `glob`. Best-effort, never raises.
+
+    Claims are per (session, subject), so without this they accumulate one file
+    per pair forever in an SMM dir shared across worktrees and windows. The
+    heartbeat hit exactly this wall and answered it the same way —
+    `hook_heartbeat_scan.reap_stale_siblings`, "per-session files would
+    otherwise accumulate one per session forever" — and reaping on write keeps
+    it self-contained: no cleanup hook to wire, and the work is bounded by how
+    many claims are live-ish.
+
+    Only EXPIRED claims go. A fresh one is holding back a duplicate run right
+    now, and deleting it would hand the claim to a second caller — turning a
+    tidy-up into the very race the claim exists to prevent. A symlink is
+    skipped rather than unlinked: this owns the files it created, nothing else.
+    """
+    cutoff = time.time() - ttl_seconds
+    for path in smm_dir.glob(glob):
+        try:
+            if path.is_symlink() or path.stat().st_mtime > cutoff:
+                continue
+            path.unlink()
+        except OSError:
+            continue
 
 
 def _try_exclusive_create(path: Path) -> bool:
