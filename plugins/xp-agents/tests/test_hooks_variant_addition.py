@@ -159,7 +159,12 @@ class TestVariantInventsNothing(unittest.TestCase):
     command is not in the source, so nothing proves its script exists. That gap
     is recorded as debt for story-011, which creates the script this
     declaration names — until then the variant ships a command with no file
-    behind it, deliberately and on a branch that is never released.
+    behind it, deliberately.
+
+    What bounds that gap is story-011 landing first, NOT the branch being
+    unreleased: this content reaches the primary branch with the rest of the
+    sprint, so "it only lives on a story branch" would be the comforting
+    version rather than the true one.
     """
 
     def setUp(self):
@@ -256,10 +261,17 @@ class TestThePinWouldCatchARemovedAddition(unittest.TestCase):
         missing = _missing_additions(produced)
 
         self.assertTrue(missing, "emptying the declaration left the pin green")
-        self.assertIn("PreToolUse:Bash", missing[0])
-        self.assertIn("preload_injection.py", missing[0])
+        # Selected by entry rather than indexed: a second declared addition
+        # sorting ahead of this one would otherwise fail the assertion for a
+        # reason that has nothing to do with what the pin is proving.
+        named = [message for message in missing if "PreToolUse:Bash" in message]
+        self.assertEqual(len(named), 1, f"expected one message naming it: {missing}")
+        self.assertIn("preload_injection.py", named[0])
 
-        # Reverted: the real table is in force again, proven rather than assumed.
+        # And green again with a non-empty table, so the red above came from the
+        # emptying rather than from `_missing_additions` having stopped
+        # resolving anything. ADDITIONS, not the emitter's own table — this
+        # suite's oracle is deliberately independent of it.
         self.assertEqual(_missing_additions(self._emit_with(ADDITIONS)), [])
 
     def test_declaring_an_addition_for_no_existing_entry_raises(self):

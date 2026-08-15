@@ -96,6 +96,13 @@ _DROPPED_HOOK_KEYS = ("timeout", "async")
 # never passed through _DROPPED_HOOK_KEYS: they must not declare `timeout` or
 # `async` in the first place, and the variant-wide pins in
 # tests/test_hooks_variant_subtraction.py fail if one ever does.
+#
+# A carried-across command inherits path existence from the source's own pin
+# (tests/hooks/test_plugin_integrity_structure_and_close.py, which reads
+# hooks.json only); an authored one inherits nothing. The command below names a
+# script a later story has yet to create, so until it does the variant registers
+# a hook with no file behind it and no pin says so — an accepted, recorded gap
+# rather than one a reader of this table has to discover.
 _VARIANT_ONLY_HOOKS: dict[tuple[str, str], list[dict]] = {
     ("PreToolUse", "Bash"): [
         {
