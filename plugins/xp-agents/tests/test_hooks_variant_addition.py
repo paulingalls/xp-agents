@@ -47,6 +47,7 @@ ADDITIONS: dict[tuple[str, str], list[dict]] = {
         {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/preload_injection.py",
+            "statusMessage": "Loading skill state...",
         }
     ],
 }
