@@ -135,33 +135,23 @@ class TestSourceIsNeverWritten(unittest.TestCase):
             )
 
 
-class TestVariantIsDerivedBySubtraction(unittest.TestCase):
-    """Nothing in the variant was invented — every command comes from the source.
+class TestEveryVariantCommandIsPluginRootRelative(unittest.TestCase):
+    """A relative or absolute path breaks once the host caches the plugin.
 
-    Cheaper and stronger than re-walking each path to check it exists on disk:
-    `TestPluginIntegrity._assert_hook_paths_exist` already proves existence for
-    the source, and a subset claim inherits it. It also catches the failure that
-    path-existence would miss — a command the emitter synthesised that happens
-    to point at a real file.
+    The same rule the shipped hooks.json lives under, asserted on the generated
+    file so the emitter cannot rewrite a path into a literal. It scans the whole
+    variant, so it covers the hook objects the addition rule contributes too —
+    a declared addition naming a bare path fails here.
+
+    Its former classmate, the commands-come-from-the-source subset pin, moved to
+    `test_hooks_variant_addition.py` and was renamed: the addition rule made
+    "derived by subtraction" false as a claim about this file's contents.
     """
 
     def setUp(self):
-        self.source = json.loads(_SOURCE.read_text(encoding="utf-8"))
         self.codex = json.loads(_CODEX.read_text(encoding="utf-8"))
 
-    def _commands(self, manifest: dict) -> set[str]:
-        return {hook["command"] for _, hook in _all_hook_objects(manifest)}
-
-    def test_variant_commands_are_a_subset_of_the_source(self):
-        invented = self._commands(self.codex) - self._commands(self.source)
-        self.assertEqual(invented, set(), f"commands not present in source: {invented}")
-
     def test_every_command_resolves_through_the_plugin_root_variable(self):
-        """A relative or absolute path breaks once the host caches the plugin.
-
-        The same rule the shipped hooks.json lives under, asserted on the
-        generated file so the emitter cannot rewrite a path into a literal.
-        """
         offenders = [
             f"{event}: {hook['command']}"
             for event, hook in _all_hook_objects(self.codex)
@@ -197,6 +187,12 @@ class TestEmitterRunsAsASubprocess(unittest.TestCase):
     emitters document the same `--out-dir` contract, the sibling manifest
     emitter creates its target, and this one died with FileNotFoundError on
     `--out-dir build/hooks` while its documented twin succeeded.
+
+    It asserts the produced BYTES equal the checked-in variant. That was a
+    per-command subset check until the addition rule landed, which made
+    "every command comes from the source" false; restating it as byte equality
+    is both stronger and free of any dependency on the declared additions,
+    which stay spelled in one file only.
     """
 
     def test_cli_emits_a_valid_manifest_into_a_target_directory(self):
@@ -214,19 +210,14 @@ class TestEmitterRunsAsASubprocess(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+            produced = (out_dir / "hooks.codex.json").read_bytes()
 
-            produced = json.loads(
-                (out_dir / "hooks.codex.json").read_text(encoding="utf-8")
-            )
-
-        self.assertIn("hooks", produced)
-        source = json.loads(_SOURCE.read_text(encoding="utf-8"))
-        source_commands = {hook["command"] for _, hook in _all_hook_objects(source)}
-
-        for event, hook in _all_hook_objects(produced):
-            with self.subTest(event=event):
-                self.assertIn(hook["command"], source_commands)
-                self.assertIn("${CLAUDE_PLUGIN_ROOT}", hook["command"])
+        self.assertEqual(
+            produced,
+            _CODEX.read_bytes(),
+            "the CLI entry point produced a different manifest than the "
+            "checked-in variant",
+        )
 
 
 class TestFormatterExclusionCoversEveryManifest(unittest.TestCase):

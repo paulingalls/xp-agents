@@ -83,28 +83,11 @@ class TestUnrecognisedEventsDropped(unittest.TestCase):
     def test_dropped_events_are_exactly_the_unrecognised_ones(self):
         self.assertEqual(set(self.source) - set(self.codex), self.UNRECOGNISED)
 
-    def test_surviving_entries_differ_only_by_the_declared_key_drops(self):
-        """Dropping events and the two declared keys is the ONLY editing done.
-
-        Without this, a transform that also rewrote a matcher, reordered
-        entries or edited a command would still satisfy the three set
-        assertions above.
-
-        Stated as: strip the SAME declared keys from the source and the two
-        must match exactly. A rewritten matcher or a reordered list fails.
-
-        Restated and relocated to `test_hooks_variant_addition.py` when the
-        addition rule lands: from that point the variant legitimately carries
-        hook objects the source does not, and this comparison has to account
-        for them.
-        """
-        for event, entries in self.codex.items():
-            expected = json.loads(json.dumps(self.source[event]))
-            for entry in expected:
-                for hook in entry.get("hooks", []):
-                    hook.pop("timeout", None)
-                    hook.pop("async", None)
-            self.assertEqual(entries, expected, f"{event} entry rewritten")
+    # The companion "surviving entries are carried across untouched" pin lives
+    # in `test_hooks_variant_addition.py`. It belongs there rather than here:
+    # once the variant legitimately carries hook objects the source does not,
+    # the comparison has to know the declared additions, and those are spelled
+    # in exactly one file.
 
 
 class TestNoTimeoutInTheVariant(unittest.TestCase):

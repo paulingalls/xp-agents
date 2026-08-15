@@ -7,6 +7,14 @@ is the whole design: the first harness's manifest is byte-identical after a run
 by construction, so the fourteen suites that read it need no change, and the
 second variant cannot drift because a pin regenerates it and compares.
 
+Mostly subtraction, plus one rule that runs the other way. The two harnesses
+trigger on different events — harness 1 sees a skill invocation as a tool call,
+while harness 2 has no skill tool call and the skill's body reaches the model
+through a shell read — so the variant needs a hook the source must not carry,
+and subtracting from a source that must not contain it cannot express that.
+`_VARIANT_ONLY_HOOKS` is that rule; the sibling `manifest_emit.py` derives the
+second plugin manifest by addition in the same spirit.
+
 Why a script under `scripts/` rather than under `hooks/`: `tests/_pin_helpers.py`
 scans `scripts/` and `smm/` for shipped Python and deliberately skips `hooks/`
 ("it holds hooks.json and no Python at all"). An emitter under `hooks/` would
@@ -73,6 +81,30 @@ _UNRECOGNISED_EVENTS = frozenset(
 #     unavailable either way.
 _DROPPED_HOOK_KEYS = ("timeout", "async")
 
+# Hook objects the VARIANT carries and the source does not, keyed by the
+# (event, matcher) pair of the entry each is appended to.
+#
+# Shape, decided by counting both shipped manifests rather than by preference:
+# one entry carrying many hook objects occurs six times (Stop carries six,
+# UserPromptSubmit three), while two entries sharing a matcher on one event has
+# never shipped. The second harness's hook-merge rules are recorded as
+# undocumented, so the addition takes the shape that harness demonstrably
+# already runs. The pins assert JSON shape only, so a hook that never FIRED
+# would look identical here — which is why the shape is chosen on evidence.
+#
+# These are authored FOR the variant, so unlike carried-across entries they are
+# never passed through _DROPPED_HOOK_KEYS: they must not declare `timeout` or
+# `async` in the first place, and the variant-wide pins in
+# tests/test_hooks_variant_subtraction.py fail if one ever does.
+_VARIANT_ONLY_HOOKS: dict[tuple[str, str], list[dict]] = {
+    ("PreToolUse", "Bash"): [
+        {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/preload_injection.py",
+        }
+    ],
+}
+
 
 def default_source() -> Path:
     """The checked-in source manifest, resolved from this file."""
@@ -87,12 +119,20 @@ def default_out_dir() -> Path:
 def transform(source: dict) -> dict:
     """Return the second harness's manifest derived from the first's.
 
-    Subtraction only. Every surviving entry is carried across untouched — no
-    matcher is rewritten and no entry reordered. Matchers naming tools that do
-    not exist on the second harness are left alone deliberately: making them
-    fire needs the payload normalization and the explicit marker legs that later
-    milestones own, and a matcher that fires into a handler reading a field the
-    harness never sends is worse than one that never fires.
+    Subtraction, then the declared additions. Every surviving entry is carried
+    across untouched apart from the dropped keys and any hook objects
+    `_VARIANT_ONLY_HOOKS` appends to it — no matcher is rewritten and no entry
+    reordered. Matchers naming tools that do not exist on the second harness are
+    left alone deliberately: making them fire needs the payload normalization
+    and the explicit marker legs that later milestones own, and a matcher that
+    fires into a handler reading a field the harness never sends is worse than
+    one that never fires.
+
+    Raises ValueError when a declared addition names an (event, matcher) the
+    derived manifest has no entry for. That state is reachable rather than
+    hypothetical — an edit to the source that renames or removes an entry turns
+    the addition into a silent no-op — and the variant would still regenerate
+    and still parse, so nothing else would say so at the moment of the edit.
     """
     derived = json.loads(json.dumps(source))
     derived["hooks"] = {
@@ -105,6 +145,20 @@ def transform(source: dict) -> dict:
             for hook in entry.get("hooks", []):
                 for key in _DROPPED_HOOK_KEYS:
                     hook.pop(key, None)
+
+    for (event, matcher), added in _VARIANT_ONLY_HOOKS.items():
+        targets = [
+            entry
+            for entry in derived["hooks"].get(event, [])
+            if (entry.get("matcher") or "") == matcher
+        ]
+        if len(targets) != 1:
+            raise ValueError(
+                f"variant-only hooks declared for {event}:{matcher} match "
+                f"{len(targets)} entries in the derived manifest, expected exactly "
+                "one — the source entry was renamed, removed, or duplicated"
+            )
+        targets[0].setdefault("hooks", []).extend(json.loads(json.dumps(added)))
     return derived
 
 

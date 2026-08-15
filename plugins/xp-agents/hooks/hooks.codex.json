@@ -18,6 +18,10 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_bash.py",
             "statusMessage": "Checking commit constraints..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/preload_injection.py"
           }
         ]
       },
