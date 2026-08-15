@@ -103,7 +103,22 @@ def _is_quality_review(name: str) -> bool:
 
 
 def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
-    """Set review cycle flags. Runs even for xp- agents (xp-quality-review is xp-*)."""
+    """Set review cycle flags from a subagent's COMPLETION.
+
+    Deliberately not recursion-skipped: the names it matches are xp-* ones.
+
+    The second writer of each flag, and the reason it may key on the SKILL
+    name where the PostToolUse sibling may not: SubagentStop fires when the
+    subagent finishes, so a skill matched here has actually run. The sibling's
+    PostToolUse:Skill fires when the Skill TOOL returns, which for an inline
+    skill is at launch — which is why review_cycle_done keys the quality half
+    on the xp-code-reviewer agent instead. Both legs are latent on today's
+    Claude payloads and kept for the harnesses where they are not: the quality
+    one while /xp-quality-review is inline (an inline skill is not a subagent),
+    the /code-review one because its workflow subagents arrive as agent_type
+    `workflow-subagent` with an opaque agent_id (measured 2026-08-14), matching
+    neither field. `simplify_done` is set by the PostToolUse sibling meanwhile.
+    """
     agent_type = input_data.get("agent_type", "").lower()
     agent_id_val = input_data.get("agent_id", "").lower()
 

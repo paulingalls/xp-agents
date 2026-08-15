@@ -23,7 +23,11 @@ import os
 import re
 from pathlib import Path
 
-_AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9_:\-]+$")
+# `\Z`, not `$`: `$` also matches just before a FINAL newline, so `"agent\n"`
+# cleared this allowlist. Agent ids are interpolated into marker filenames
+# (`.watermark-<id>`), where a trailing newline names a file no other caller
+# reads. Pinned in tests/smm/test_append_safety.py.
+_AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9_:\-]+\Z")
 
 
 def validate_smm_dir(smm_dir: Path) -> None:

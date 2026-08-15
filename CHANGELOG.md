@@ -2,6 +2,63 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.16.0 — A review is done when the reviewer says so
+
+Minor rather than patch: the per-commit review gate now clears at a different
+moment, which anyone who watches the gate will notice.
+
+`PostToolUse:Skill` fires when the Skill **tool** returns. For an INLINE skill —
+which `/xp-quality-review` is — that is at LAUNCH, not at completion. So
+`review_cycle_done.py` set `quality_review_done` before `xp-code-reviewer` had
+been spawned, and emitted "Quality review complete" alongside it. Both were
+observed live this release: the hook's own "commit your changes now" text
+arrived while the skill had not yet run its first step.
+
+Two holes followed from one mistake. Invoking `/xp-quality-review` and
+abandoning it cleared the commit gate. And a commit landing **during** a review
+cleared the flag — the commit path resets the cycle — with nothing left to set
+it again when the review actually finished, so the review's own edits arrived at
+the next commit as unreviewed changes. That is the re-arming loop where a
+review's fixes demand another review.
+
+**The flag moves to the reviewer.** `_TARGET_BY_NAME` now maps the
+`xp-code-reviewer` agent rather than the skill that spawns it; the skill's Step 2
+spawns it exactly once per cycle, so the count is unchanged and no consumer sees
+fewer events — which holds only while that skill is the only spawn site in the
+tree, a property nothing pins. The same unpinned assumption has a second edge: a
+future skill spawning the reviewer for its own reasons would clear the commit
+gate as a side effect. Tracked as `6552b06d04a3`, unreachable today.
+
+Forked skills are a different case and are untouched — a
+`context: fork` skill's Skill call **does** return at completion, so the
+`xp-review-plan` entry beside it is correct as it stands. The distinction is
+written into the comment, because the categorical version of the claim invites a
+maintainer to "fix" the forked entry too.
+
+The `qr_complete` **event** moves with the flag, not just the flag.
+`commit_event.py` reads that event as a second, independent "was there a review
+since the last commit" advisory; emitted at launch, that advisory was satisfied
+by merely invoking the skill.
+
+A residual remains and is not claimed fixed: the calling skill's act-on-findings
+step lands after the reviewer returns, so those edits are still made while the
+gate is disarmed. That window used to be the whole review; it is now one step.
+Nothing yet teaches the gate that a change was produced BY the review that just
+ran, which is what a fix for the separated-commit half of the loop would need.
+
+Also: `_AGENT_ID_RE` refused nothing ending in a newline. `$` matches just
+before a final newline, so `"agent\n"` cleared the allowlist and reached the
+marker filenames agent ids are interpolated into (`.watermark-<id>`, built
+literally in `_append_lock.write_watermark`). `\Z` refuses it, and the degrade
+path falls back to the default rather than naming a file no other caller reads.
+Eight sibling allowlists still spell `$`; none has a traced failure path, so
+none was changed — the rule is recorded as a decision instead.
+
+Comments in files this change did not otherwise touch stated the old rule and
+are corrected rather than deleted, and `docs/ideas/4-CLOSE_GATE_HONESTY.md`
+§6 — which told a future implementer **not** to make this change — is marked
+superseded with its reasoning kept.
+
 ## v5.15.0 — One merge policy, three emitters
 
 Minor rather than patch. Most of it is defect fixes, but two changes are ones a

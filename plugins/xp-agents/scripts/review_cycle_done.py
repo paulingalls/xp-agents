@@ -3,11 +3,13 @@
 lifecycle events, inject post-completion context after review skills or
 the xp-housekeeper agent.
 
-Detects /code-review, /xp-quality-review, /security-review, /xp-review-plan,
-/xp-assign via tool_input.skill, and xp-housekeeper via subagent_type.
-Each appends a canonical status event with metadata.action so consumers
-can detect completions without regex-matching LLM-authored content. The
-per-commit review flag is set only for /code-review and /xp-quality-review.
+Detects /code-review, /security-review, /xp-review-plan and /xp-assign via
+tool_input.skill, and the xp-housekeeper and xp-code-reviewer agents via
+tool_input.subagent_type. Each appends a canonical status event with
+metadata.action so consumers can detect completions without regex-matching
+LLM-authored content. The per-commit review flag is set only for /code-review
+and for the xp-code-reviewer agent — see the allowlist below for why the
+quality half is keyed on the agent rather than on the skill that spawns it.
 
 ACCEPT_IN_FLIGHT drain lives in a sibling hook (accept_terminal.py) — this
 hook owns review-cycle lifecycle, that one owns accept-marker lifecycle.
@@ -42,12 +44,32 @@ _TARGET_HOUSEKEEPING = "housekeeping"
 
 
 # Explicit allowlist: incoming skill/agent name -> canonical target. Closed set
-# (built-in skills + plugin-internal xp-* names). The xp-code-reviewer agent's
-# bare and qualified forms are absent by construction, so no substring guard
-# is needed; future names like xp-quality-reviewer-helper are also safe.
+# (built-in skills + plugin-internal xp-* names). Exact-match, so the
+# xp-code-reviewer entry below cannot be reached by the `code-review` substring
+# it contains, and future names like xp-quality-reviewer-helper stay unrouted.
+#
+# The quality half is keyed on the REVIEWER AGENT, not on the skill that spawns
+# it: PostToolUse:Skill fires when the Skill TOOL returns, and for an INLINE
+# skill (which /xp-quality-review is) that is at LAUNCH, before it has run a
+# step. Keyed on the inline skill, an invoked-and-abandoned review cleared the
+# commit gate, and a commit landing during a review cleared the flag with
+# nothing left to set it again when the review actually finished. The reviewer
+# returning is the earliest honest signal that a review happened, and the skill
+# spawns it exactly once per cycle.
+#
+# The launch/completion split is a property of each entry, not of this one.
+# xp-review-plan is FORKED, so its Skill call does return at completion and it
+# is right as it stands. The other three skill-keyed entries all record at
+# LAUNCH: security-review and xp-assign are inline like the quality half was,
+# and code-review is an async workflow whose call returns once it is in flight.
+# None of the three gates a commit, so none wedges anything. code-review's
+# launch timing is in fact depended on — simplify_done is what
+# review_records.review_mid_cycle reads as "workflow still running" — while
+# security-review's "full review performed" reaches retro_metrics that way.
+# Audit the entry, not the table.
 _TARGET_BY_NAME: dict[str, str] = {
     "code-review": _TARGET_SIMPLIFY,
-    "xp-quality-review": _TARGET_QUALITY_REVIEW,
+    "xp-code-reviewer": _TARGET_QUALITY_REVIEW,
     "security-review": _TARGET_SECURITY_REVIEW,
     "xp-review-plan": _TARGET_PLAN_REVIEW,
     "xp-assign": _TARGET_ASSIGN,
@@ -110,7 +132,9 @@ _TARGET_FLAG: dict[str, str] = {
 
 _NEXT_STEP: dict[str, str] = {
     "simplify_done": "Run /xp-quality-review next.",
-    "quality_review_done": "Review cycle complete — commit your changes now.",
+    # Delivered when the REVIEWER returns, so the calling skill still has its
+    # act-on-findings step to run before any commit.
+    "quality_review_done": "Reviewer finished — act on its findings, then commit.",
 }
 
 

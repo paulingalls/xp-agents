@@ -28,7 +28,8 @@ story-008. Four rules across three surfaces:
 4. seed_smm.py's cadence wisdom stays cadence-aware, and claims no
    gate-clearing role for `/simplify` — a harness built-in this plugin does
    not ship, so its behavior is not ours to assert. Only `/code-review` and
-   `/xp-quality-review` set the per-commit review flag.
+   the `xp-code-reviewer` agent `/xp-quality-review` spawns set the
+   per-commit review flag.
 
 Rules 3 and 4 are green on arrival and load-bearing: they are what stops rules
 1 and 2 from being "satisfied" by deleting the behavior instead of fixing it.

@@ -59,7 +59,23 @@ The `' - '` separator fix that shared this handoff **did** ship (`fd9deccd`, `sm
 
 **Refinement over the handoff's sketch:** `extract_file_domain_paths` expands globs, so a glob matching nothing contributes no entry and won't show up in a `' ' in d` scan of `declared`. Report the raw `story["file_domain"]` entries too.
 
-## 6. The pre-commit review gate can't see an Agent-tool review — **validate reachability first**
+## 6. The pre-commit review gate can't see an Agent-tool review — **SUPERSEDED; kept for its reasoning**
+
+> **Superseded.** `review_cycle_done.py` now keys `quality_review_done` on the
+> `xp-code-reviewer` agent's completion — exactly the fix this section says not
+> to take. The by-construction exclusion it cites rested on the Skill hook being
+> a completion signal; it is not. `/xp-quality-review` is an INLINE skill, so its
+> `PostToolUse:Skill` fires when the Skill tool returns, which is at launch.
+>
+> That answers ONE of this section's two objections. The other one survives and
+> is now live: any `xp-code-reviewer` completion clears the flag, whatever
+> spawned it, so a future skill spawning the reviewer for an unrelated purpose
+> would open the commit gate. Unreachable today — `xp-quality-review/SKILL.md`
+> is the only spawn site in the tree — but that is an unpinned property of the
+> tree, not a guarantee, and the same assumption is what makes the release's
+> "event count is unchanged" claim hold. Tracked as concern `6552b06d04a3`.
+>
+> Do not act on the direction below; read it only for the alternative it weighed.
 
 `scripts/pre_tool_bash_commit_gates.py:182-189` blocks a commit unless `cycle["quality_review_done"]` is set, and only the `/xp-quality-review` **Skill** sets it. An `xp-code-reviewer` spawned via the **Agent** tool — what the skill does internally, and what `_close_pipeline_shared.md:34-52` Step 5c prescribes — does not.
 

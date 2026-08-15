@@ -54,15 +54,19 @@ class TestTheWriterAndTheGateAgreeOnTheKey(_HookTestCase):
         )
 
     def _quality_review_completes(self, agent_id: str) -> None:
-        """The PostToolUse leg that ends Step 4b, under a divergent payload."""
+        """The PostToolUse leg that ends Step 4b, under a divergent payload.
+
+        The reviewer AGENT returning, not the skill launching — the Skill
+        payload fires before the review has run and no longer sets the flag.
+        """
         import review_cycle_done
 
         review_cycle_done.run(
             {
                 "agent_id": agent_id,
                 "cwd": ".",
-                "tool_name": "Skill",
-                "tool_input": {"skill": "xp-quality-review"},
+                "tool_name": "Agent",
+                "tool_input": {"subagent_type": "xp-agents:xp-code-reviewer"},
             },
             smm_dir=self.smm_dir,
         )
