@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Scale invariants for the SMM engine: parse cost proportional to the delta.
 
-The structural assertions here run on every commit — they assert on WHAT gets
-parsed, so they hold on any machine at any load. The wall-clock timers that they
-replaced are opt-in via XP_PERF; nothing in that tier is a primary guard.
+The assertions here run on every commit and in CI — they assert on WHAT gets
+parsed, so they hold on any machine at any load. They replaced a tier of
+wall-clock timers that measured the machine rather than the diff; that tier is
+retired, and test_lefthook_perf_gate.py pins its absence.
 
 Split from test_maintenance.py.
 """
 
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -20,10 +20,6 @@ import materialize
 import read_delta
 from conftest import _SMMTestCase, make_event
 from event_schema import EVENT_TYPE_SESSION_END
-
-# ===========================================================================
-# Performance Benchmarks (Milestone 8)
-# ===========================================================================
 
 
 def _generate_mixed_events(count: int) -> list[dict]:
@@ -198,88 +194,9 @@ class TestCompactParseCost(_SMMTestCase):
         )
 
 
-@unittest.skipUnless(os.environ.get("XP_PERF"), "perf suite — set XP_PERF=1")
-class TestScaleBenchmarks(_SMMTestCase):
-    """Wall-clock scale timers. Opt-in via XP_PERF because a wall-clock bound
-    measures the machine, not the code: under `pytest -n auto` these compete
-    with 15 sibling workers and go red on contention alone, blocking commits
-    whose diff touched none of this. lefthook's pre-push `perf` command is the
-    one place they run alone (piped, -p no:xdist), which is the only condition
-    under which the numbers mean anything.
-
-    Nothing here is the primary guard. The invariants these timers stood in for
-    (parse cost proportional to the delta, single-pass repair, compaction
-    actually reached) are asserted structurally in the gating suite, where they
-    hold on any machine at any load. A bound below only catches a change in
-    ORDER of magnitude, so it is deliberately loose — measured serially on a
-    16-core box: read_delta 1.3ms against a 100ms bound (~75x), compact 24ms and
-    repair 20ms against 1000ms (~40-50x). A quadratic is 100x+, so headroom that
-    wide still catches the only thing these can catch, while a tight bound would
-    cost the whole gate in false reds.
-    """
-
-    def test_read_delta_1000_with_watermark(self):
-        import time
-
-        events = _generate_mixed_events(1000)
-        self._write_events(events)
-        read_delta.write_watermark(self.smm_dir, "bench", 500)
-        start = time.monotonic()
-        read_delta.read_delta(self.smm_dir, "bench")
-        elapsed = (time.monotonic() - start) * 1000
-        self.assertLess(
-            elapsed, 100, f"read_delta(1000@500) took {elapsed:.0f}ms > 100ms"
-        )
-
-    def test_compact_5000_events(self):
-        import time
-
-        import compact
-
-        events = _generate_mixed_events(5000)
-        # Add session_end events at regular intervals
-        for i in range(10):
-            events.append(
-                make_event(
-                    EVENT_TYPE_SESSION_END,
-                    content=f"end-{i}",
-                    working_on=[],
-                    ts=f"2026-02-{i + 1:02d}T00:00:00+00:00",
-                )
-            )
-        self._write_events(events)
-        # A curation watermark is what makes this a compaction timer at all:
-        # without one, compact_after_curation early-exits before the retention
-        # split and the clock only ever measured read + parse.
-        materialize.write_curation_watermark(
-            self.smm_dir, len(events) // 2, "xp-housekeeper"
-        )
-
-        # No keep_sessions: compact() documents it as ignored (the curation
-        # watermark above is the real boundary). Passing it implied otherwise.
-        start = time.monotonic()
-        result = compact.compact(self.smm_dir)
-        elapsed = (time.monotonic() - start) * 1000
-
-        self.assertGreater(result["archived"], 0, "timer must reach the archive path")
-        self.assertLess(elapsed, 1000, f"compact(5000) took {elapsed:.0f}ms > 1000ms")
-
-    def test_repair_5000_events(self):
-        import time
-
-        import repair
-
-        events = _generate_mixed_events(5000)
-        self._write_events(events)
-        start = time.monotonic()
-        repair.repair(self.smm_dir)
-        elapsed = (time.monotonic() - start) * 1000
-        self.assertLess(elapsed, 1000, f"repair(5000) took {elapsed:.0f}ms > 1000ms")
-
-
 class TestMixedEventGenerator(_SMMTestCase):
-    """The shared scale fixture itself — must stay honest even when the timers
-    above are skipped, since the structural invariants build on it."""
+    """The shared scale fixture itself — the structural invariants above build
+    on it, so it has to stay honest."""
 
     def test_mixed_event_generator_distribution(self):
         """Verify _generate_mixed_events produces expected types."""

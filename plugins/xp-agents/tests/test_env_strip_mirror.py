@@ -46,10 +46,6 @@ _LEFTHOOK_ONLY_STRIPS = {
     # so it cannot appear there. lefthook strips it so the pin is what every
     # pytest process sees, not a dev shell's value.
     PINNED_SESSION_ID_VAR: "pinned by the registry, not stripped",
-    # Arms the wall-clock perf tier. Not a correctness leak — a leaked XP_PERF
-    # makes benchmarks run where they were not asked for, and they fail on timing
-    # noise. Stripped at the gate; irrelevant in-process.
-    "XP_PERF": "arms the perf tier; a gate concern, not an import-time one",
 }
 
 
@@ -77,8 +73,8 @@ def _stripped_in(run: str) -> set[str]:
     """The var names this run passes to `env -u`.
 
     Reads the `-u <NAME>` pairs rather than splitting on whitespace and guessing:
-    the same line also carries `XP_PERF=1` assignments and the pytest invocation,
-    and neither is a strip.
+    a run line can also carry bare `NAME=value` assignments and the pytest
+    invocation itself, and neither is a strip.
     """
     tokens = run.split()
     return {
@@ -95,7 +91,7 @@ class TestTheScanFindsSomethingToCheck(unittest.TestCase):
 
     def test_lefthook_declares_pytest_runs(self):
         self.assertGreaterEqual(
-            len(_pytest_runs()), 3, "the scan found no pytest runs to verify"
+            len(_pytest_runs()), 2, "the scan found no pytest runs to verify"
         )
 
     def test_the_registry_is_not_empty(self):
