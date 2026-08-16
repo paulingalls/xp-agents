@@ -83,25 +83,36 @@ def append_merge_commit_event(
     ):
         return
     files = commits.get_committed_files(cwd)
-    body = commits.get_commit_message_body(cwd) or f"Merge {source}"
+    raw_body = commits.get_commit_message_body(cwd) or f"Merge {source}"
     code_file_count = code_files.count_code_files(files)
+    # `is_merge` derivation and content cleaning both mirror commit_emit.
+    # build_commit_event (commit_emit.py:191-212) exactly — this emitter is
+    # the one caller that used to invent a second answer for each. See that
+    # docstring for the full rationale (fail-safe direction on an unknown
+    # parent count, `is None` vs truthiness for a root commit).
+    is_merge = False
+    if commit_hash:
+        parent_count = commits.head_parent_count(cwd, commit_hash)
+        is_merge = parent_count is not None and parent_count > 1
+    authored, body, has_resolves_trailer = commit_emit.parse_commit_body(raw_body)
+    resolves = authored
     # AUTHORED first, then the bounded merged-range derivation unioned onto it, via
     # the same helper both hook routes use. This emitter used to REPLACE with the
     # derivation and to take `has_resolves_trailer` from it, on the argument that
     # "the merge HEAD's own body (the `Merge <source>` subject) never carries one".
-    # Two things were wrong with that. `body` above is read back from HEAD, so it is
-    # whatever actually landed rather than the generated subject; and the range was
-    # only ever bounded by the source/target relationship, so a story branch that
-    # back-merged `main` brings main's commits into it at close — the same
-    # unbounded-derivation defect the hook routes were just fixed for.
+    # Two things were wrong with that. `raw_body` above is read back from HEAD, so
+    # it is whatever actually landed rather than the generated subject; and the
+    # range was only ever bounded by the source/target relationship, so a story
+    # branch that back-merged `main` brings main's commits into it at close — the
+    # same unbounded-derivation defect the hook routes were just fixed for.
     #
     # `has_resolves_trailer` is AUTHORED-only: it RECORDS that somebody wrote a
     # trailer, and a re-parsed id is not one. No rate moves either way — the
     # `is_merge` exclusion below keeps merge events out of every trailer metric —
     # so what taking it from the derivation cost was the truth of the record, for
     # anyone reading the log and for any later metric that does not exclude merges.
-    resolves, _, has_resolves_trailer = commits.extract_resolves_trailer(body)
-    resolves = commit_emit.merge_resolves(cwd, commit_hash, resolves, events=events)
+    if is_merge:
+        resolves = commit_emit.merge_resolves(cwd, commit_hash, resolves, events=events)
     # Degrade gracefully on a corrupt/schema-invalid sprint.json: the merge
     # itself already succeeded on target, and the surrounding push/delete/
     # remote-prune chain must continue. Matches close_verify_gate's
@@ -130,7 +141,7 @@ def append_merge_commit_event(
         sprint_id=sprint["sprint_id"] if isinstance(sprint, dict) else None,
         resolves=resolves,
         has_resolves_trailer=has_resolves_trailer,
-        is_merge=True,
+        is_merge=is_merge,
         is_free_session=branching.is_free_branch(source),
     )
     _common.bulk_append_safe(smm_dir, [event])

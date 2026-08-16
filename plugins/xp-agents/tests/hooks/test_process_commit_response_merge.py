@@ -40,7 +40,14 @@ def _git(cwd: Path, *args: str) -> str:
 
 
 def _init_repo(repo: Path) -> str:
-    """Initialize a git repo with an initial commit; return HEAD sha."""
+    """Initialize a git repo with a genuine two-parent merge HEAD; return its sha.
+
+    A real merge, not a single root commit whose message merely LOOKS like
+    one: `append_merge_commit_event` derives `is_merge` from HEAD's actual
+    parent count (story-005), so a fixture claiming to be a close-cycle merge
+    must structurally be one, or the pinned `is_merge` assertion below would
+    only ever have passed by accident of the old hardcoded-True behavior.
+    """
     subprocess.run(
         ["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True
     )
@@ -59,7 +66,34 @@ def _init_repo(repo: Path) -> str:
     (repo / "README").write_text("init\n")
     subprocess.run(["git", "add", "README"], cwd=repo, check=True, capture_output=True)
     subprocess.run(
-        ["git", "commit", "-m", "Merge sprint-104/story-A\n\nBody"],
+        ["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "checkout", "-b", "story-A"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    (repo / "feature").write_text("feature\n")
+    subprocess.run(["git", "add", "feature"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "feature work"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "checkout", "main"], cwd=repo, check=True, capture_output=True
+    )
+    subprocess.run(
+        [
+            "git",
+            "merge",
+            "--no-ff",
+            "story-A",
+            "-m",
+            "Merge sprint-104/story-A\n\nBody",
+        ],
         cwd=repo,
         check=True,
         capture_output=True,
