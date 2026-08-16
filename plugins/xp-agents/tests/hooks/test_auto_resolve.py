@@ -322,6 +322,55 @@ class TestResolveLintFromConfigDir(_HookTestCase):
         self.assertEqual(captured["cwd"], os.path.realpath(str(subpkg)))
         self.assertEqual(captured["file_path"], "src/foo.ts")
 
+    def test_batch_path_also_runs_from_config_dir(self):
+        """Same monorepo property, pinned on the BATCH leg too: resolve_lint_on_commit
+        must invoke run_linter_batch from the config file's directory, or a
+        monorepo lint concern could never clear once resolution batches."""
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
+        subpkg = repo / "apps" / "mobile"
+        (subpkg / "src").mkdir(parents=True)
+        (subpkg / "eslint.config.mjs").touch()
+        target = subpkg / "src" / "foo.ts"
+        target.write_text("const x = 1\n")
+        normalized = worktree.normalize_path(str(target), str(repo))
+
+        concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content=f"Lint errors in {normalized}:\nno-unused-vars",
+            severity="medium",
+        )
+        self._write_events([concern])
+        events = self._read_events()
+
+        captured: dict[str, str | None] = {}
+
+        def fake_run_linter_batch(
+            _linter_name, _paths, cwd=None, *, config_path=None, **_kw
+        ):
+            captured["cwd"] = cwd
+            captured["config_path"] = config_path
+            return lint_check.LintRun("clean", "")
+
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/npx"),
+            patch("lint_check.run_linter_batch", side_effect=fake_run_linter_batch),
+        ):
+            lint_resolution.resolve_lint_on_commit(
+                self.smm_dir,
+                str(repo),
+                "main",
+                [str(target)],
+                events=events,
+                resolutions=None,
+            )
+        self.assertEqual(captured["cwd"], os.path.realpath(str(subpkg)))
+        resolutions = [
+            e for e in self._read_events() if e.get("metadata", {}).get("resolves")
+        ]
+        self.assertEqual(len(resolutions), 1)
+        self.assertIn(concern["id"], resolutions[0]["metadata"]["resolves"])
+
 
 class TestResolutionsThreading(_LintTmpDirMixin, _HookTestCase):
     """Verify resolve_lint_on_commit threads resolutions without re-computation."""
@@ -348,6 +397,10 @@ class TestResolutionsThreading(_LintTmpDirMixin, _HookTestCase):
                 return_value=("ruff", ""),
             ),
             patch("lint_check.run_linter", return_value=None),
+            patch(
+                "lint_check.run_linter_batch",
+                return_value=lint_check.LintRun("clean", ""),
+            ),
             patch(
                 "resolution.compute_resolutions",
                 wraps=resolution.compute_resolutions,
@@ -418,6 +471,11 @@ class TestSweepOrphanLintConcerns(_LintTmpDirMixin, _HookTestCase):
         import lint_resolution
 
         events = self._read_events()
+        batch_run = (
+            lint_check.LintRun("clean", "")
+            if lint_clean
+            else lint_check.LintRun("findings", "E302")
+        )
         with (
             patch(
                 "lint_check.detect_linter_config",
@@ -427,6 +485,7 @@ class TestSweepOrphanLintConcerns(_LintTmpDirMixin, _HookTestCase):
                 "lint_check.run_linter",
                 return_value=None if lint_clean else "E302",
             ),
+            patch("lint_check.run_linter_batch", return_value=batch_run),
         ):
             lint_resolution.sweep_orphan_lint_concerns(
                 self.smm_dir,
