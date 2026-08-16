@@ -50,7 +50,11 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-plan": 10230,
     "xp-plan-close": 5670,
     "xp-quality-review": 6720,
-    "xp-review-plan": 990,
+    # Bumped 990 -> 2060 (story-013): converted from context: fork to the
+    # inline-spawns-subagent shape — the body gained the misfire-handling
+    # step, the spawn block, and the do-not-do-this-yourself clause the fork
+    # used to give for free. Measured 1834.
+    "xp-review-plan": 2060,
     "xp-scaffold-acceptance": 20940,
     # First budget for the finished surface. The registration increment carried
     # 810, calibrated on a 720-char skeleton that is not this surface —

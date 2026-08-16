@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 """The frontmatter context that review-cycle routing reasons from.
 
-`review_cycle_done._TARGET_BY_NAME` keys `xp-review-plan` on the SKILL because
-a FORKED skill's Skill call returns at completion, and deliberately omits
-`xp-quality-review` in favour of the agent it spawns because an INLINE skill's
-returns at launch. Flipping either frontmatter silently inverts that reasoning
-— a forked /xp-quality-review would make the omitted entry correct again, and
-an inlined /xp-review-plan would record its review before one had run — and
-nothing else in the suite pins the classification per name.
-
-story-013 note: `_TARGET_BY_NAME` no longer routes `xp-review-plan` at all
-(increment 1) because it is CONVERTING to the same inline-spawns-subagent
-shape as `xp-quality-review` (increment 2 lands the frontmatter change). This
-pin still asserts `True` until that frontmatter edit lands — flip it in the
-same commit as the `context: fork` removal, not before.
+`review_cycle_done._TARGET_BY_NAME` omits both `xp-quality-review` and
+`xp-review-plan` in favour of the agent each spawns, because an INLINE
+skill's Skill call returns at LAUNCH — before its subagent has reviewed
+anything. `xp-review-plan` converted (story-013) from a forked skill (whose
+Skill call really did return at completion) to the same inline-spawns-
+subagent shape `xp-quality-review` already used, so it now needs the same
+omission. Flipping either frontmatter back to `context: fork` would make the
+omitted routing wrong again — a forked skill's Skill call returns at
+completion, so its omission would need reversing — and nothing else in the
+suite pins the classification per name.
 """
 
 import sys
@@ -29,7 +26,7 @@ from conftest import _PLUGIN_ROOT, _split_frontmatter_body
 class TestRoutedSkillContext(unittest.TestCase):
     # skill name -> does its frontmatter declare `context: fork`?
     _ASSUMED: ClassVar[dict[str, bool]] = {
-        "xp-review-plan": True,
+        "xp-review-plan": False,
         "xp-quality-review": False,
         "xp-assign": False,
     }

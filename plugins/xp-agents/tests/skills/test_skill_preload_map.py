@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """Tests for skill_preload_map.py — the skill-to-preload-invocation resolver.
 
-Story context: the per-skill `!`...`` preload line in SKILL.md is the only
-existing record of which command each skill's preload is. A later story
-deletes those lines; this resolver is what replaces the record they carried,
-so both a shell-preload harness and a locator-only harness can run the same
+Story context: the per-skill `!`...`` preload line in SKILL.md used to be the
+only existing record of which command each skill's preload is. story-013
+deleted the last three lines (the forked skills converted to spawn their own
+subagent); this resolver is now the SOLE record, for every shipped skill, so
+both a shell-preload harness and a locator-only harness can run the same
 invocation from one source.
 """
 
 import os
-import re
-import shlex
 import sys
 import unittest
 from pathlib import Path
@@ -31,81 +30,11 @@ _EXPECTED_PRELOADS = 17
 # The two skills that ship no scripts/*.sh at all — absence, not failure.
 _NO_PRELOAD_SKILLS = ("xp-scaffold-acceptance", "xp-stage-migration")
 
-# The only skill(s) that still carry an instruction-time `!`...`` line, and so
-# the only ones the conformance pin below still has an oracle for. They are the
-# forked ones: injection reaches the parent and stops at the fork boundary, so
-# these cannot be delivered by it until they are converted to spawn their own
-# subagent. Spelled literally rather than discovered by scanning for the
-# line — derived, this set would silently follow whatever the tree happens to
-# say, and the pin would report green on a tree where someone had deleted a
-# line that was still load-bearing.
-#
-# story-013 converted xp-sprint-review and xp-system-context; xp-review-plan
-# converts in the same story's next commit.
-_LINE_BEARING_SKILLS = frozenset({"xp-review-plan"})
-
 
 def _all_preload_skill_names() -> list[str]:
     return sorted(
         script.parent.parent.name for script in _SKILLS_DIR.glob("*/scripts/*.sh")
     )
-
-
-# The oracle for the conformance pin below: the `!`...`` invocation line
-# itself, matching the same shape test_preload_wiring.py keys off. This
-# regex is the ONLY line-shaped assumption this module makes — it is a test
-# fixture for reading the plugin's OWN shipped declaration, not language
-# parsing of any user-project code.
-_INVOCATION_LINE_RE = re.compile(r"^!`(.+)`$")
-_ENV_ASSIGNMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=")
-
-
-def _parse_skill_md_invocation(skill_name: str) -> tuple[list[str], list[str]]:
-    """Parse `skill_name`'s `!`...`` line into (required env names, argv
-    tail), where argv tail is [script_filename, *args] — everything the
-    resolver is responsible for reproducing.
-
-    Whole-line parse, not a script-path needle: a needle is blind to
-    exactly the two facts this story exists to get right (a dropped
-    argument, a dropped env name).
-    """
-    skill_md = _SKILLS_DIR / skill_name / "SKILL.md"
-    for line in skill_md.read_text(encoding="utf-8").splitlines():
-        m = _INVOCATION_LINE_RE.match(line)
-        if not m:
-            continue
-        tokens = shlex.split(m.group(1))
-        env_names = []
-        i = 0
-        while i < len(tokens):
-            env_match = _ENV_ASSIGNMENT_RE.match(tokens[i])
-            if not env_match:
-                break
-            env_names.append(env_match.group(1))
-            i += 1
-        argv_tail = tokens[i:]
-        if not argv_tail:
-            continue
-        script_name = Path(argv_tail[0]).name
-        return env_names, [script_name, *argv_tail[1:]]
-    raise AssertionError(f"{skill_name} has no `!`...`` invocation line")
-
-
-def _assert_conforms(skill_name: str) -> None:
-    env_names, argv_tail = _parse_skill_md_invocation(skill_name)
-    invocation = skill_preload_map.resolve_preload(skill_name)
-    assert invocation is not None
-    resolved_argv_tail = [Path(invocation.argv[0]).name, *invocation.argv[1:]]
-    if resolved_argv_tail != argv_tail:
-        raise AssertionError(
-            f"{skill_name}: resolver argv {resolved_argv_tail!r} != "
-            f"SKILL.md line {argv_tail!r}"
-        )
-    if set(invocation.env.keys()) != set(env_names):
-        raise AssertionError(
-            f"{skill_name}: resolver env {sorted(invocation.env)!r} != "
-            f"SKILL.md line {sorted(env_names)!r}"
-        )
 
 
 class TestCommonDefaultResolution(unittest.TestCase):
@@ -259,65 +188,16 @@ class TestAbsenceVsFailure(unittest.TestCase):
                 skill_preload_map.resolve_preload(name)
 
 
-class TestConformancePin(unittest.TestCase):
-    """The resolver must reproduce every REMAINING `!`...`` line exactly —
-    argv AND env, not just "some script ran".
-
-    **Retired down, deliberately, when the lines were deleted.** This module's
-    docstring said the day would come and named the obligation: retire or
-    repoint, never leave the pin in place quietly checking nothing. Fourteen
-    inline skills now get their state by injection and have no line to conform
-    to; the three forked ones still carry theirs, because injection was measured
-    not to cross the fork boundary. So the oracle still exists — for three
-    skills instead of seventeen — and the pin follows it down rather than
-    pretending to a coverage it lost.
-
-    The pin retires completely when those three are converted. Whoever does that
-    should delete this class and `_parse_skill_md_invocation` with it, rather
-    than leave a scan of an empty set reporting green.
-    """
-
-    def test_every_remaining_line_conforms_to_the_resolver(self):
-        for name in sorted(_LINE_BEARING_SKILLS):
-            with self.subTest(skill=name):
-                _assert_conforms(name)
-
-    def test_the_line_bearing_set_is_not_empty(self):
-        """Non-vacuity, and it is not hypothetical here: the set shrank from
-        seventeen to three in one commit and goes to zero in another. At zero,
-        every assertion above passes by iterating nothing."""
-        self.assertTrue(
-            _LINE_BEARING_SKILLS,
-            "no skill carries an instruction-time line — retire this class "
-            "rather than let it scan an empty set",
-        )
-
-    def test_pin_catches_a_dropped_env_name(self):
-        """Mutation proof: dropping the required env name must turn the pin
-        red — a script-name-only check would miss this.
-
-        Matched on the env-mismatch message, not on bare AssertionError:
-        `_assert_conforms`'s own `assert invocation is not None` raises that
-        type too, so an unmatched assertRaises would go green on a resolver
-        that had stopped resolving anything at all."""
-        subject = sorted(_LINE_BEARING_SKILLS)[0]
-        with (
-            patch.object(skill_preload_map, "_REQUIRED_ENV", ()),
-            self.assertRaisesRegex(AssertionError, "resolver env"),
-        ):
-            _assert_conforms(subject)
-        # Reverted: the table is unpatched again here, proven by conformance.
-        _assert_conforms(subject)
-
-    # The argv mutation proof is GONE, not moved, and the reason is worth
-    # stating: it dropped `--consume-gate` from the table and watched the pin
-    # go red, and the only skill taking an extra argument is `xp-assign`, which
-    # is inline and no longer has a line to conform to. Against the three that
-    # remain — all plain `preload.sh` with no arguments — emptying `_EXTRA_ARGS`
-    # changes nothing, so the same test would have passed while proving
-    # nothing. `TestOutliers.test_xp_assign_carries_consume_gate` still pins the
-    # value directly, and the gate's own suite pins that the resolver is what
-    # carries it.
+# TestConformancePin retired here (story-013): it compared the resolver
+# against each remaining `!`...`` line's argv/env, and its own docstring named
+# this obligation in advance — retire the class and its `_parse_skill_md_
+# invocation`/`_assert_conforms` helpers once the line-bearing set reached
+# zero, rather than leave a scan of an empty set reporting green. The
+# argv/env properties it proved (per-skill script name, `--consume-gate` on
+# xp-assign, the env-name contract) are still covered above by
+# TestCommonDefaultResolution, TestOutliers and TestEnvironmentContract,
+# which assert the resolver directly rather than against a line that no
+# longer exists.
 
 
 if __name__ == "__main__":

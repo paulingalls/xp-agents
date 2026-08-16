@@ -79,5 +79,20 @@ class TestSprintReviewConverted(unittest.TestCase):
         _assert_converted(self, "xp-sprint-review", "xp-sprint-reviewer")
 
 
+class TestReviewPlanConverted(unittest.TestCase):
+    """AC3's structural half: xp-plan-reviewer is spawned with the preload's
+    PLAN_FILE/PLAN_SOURCE threaded into its prompt, so a real review can run
+    end to end. The live-invocation half of AC3 is not discharged by the
+    suite — see the story's Acceptance Execution section."""
+
+    def test_converted(self):
+        _assert_converted(self, "xp-review-plan", "xp-plan-reviewer")
+
+    def test_threads_preload_vars_into_the_prompt(self):
+        _, body = _frontmatter_and_body("xp-review-plan")
+        for var in ("PLAN_FILE", "PLAN_SOURCE"):
+            self.assertIn(var, body, f"xp-review-plan must thread {var} into prompt")
+
+
 if __name__ == "__main__":
     unittest.main()
