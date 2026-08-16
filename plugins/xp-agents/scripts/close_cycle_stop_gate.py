@@ -25,12 +25,12 @@ marker_names.CLOSE_CYCLE_ID).
 
 Defers on ASKING_USER so AskUserQuestion dialogues complete cleanly.
 Also defers during the close /code-review's async Step 4b window —
-`review_records.review_mid_cycle`, under the key `identity.review_flags_key`
-gives every writer of the flag (simplify_done set when the workflow launched,
-quality_review_done not yet set when /xp-quality-review consumes its
-findings). Pushing xp-close-reviewer there would run Step 4.5 BEFORE the
-background /code-review returns; deferring (return None) lets the agent
-yield and be re-woken by the workflow-completion notification. Teammates
+`review_records.review_mid_cycle`, under the key that
+`identity.review_flags_key` gives every writer of the flag (simplify_done set
+when the workflow launched, quality_review_done not yet set until the
+xp-code-reviewer that /xp-quality-review spawns returns). Nudging
+xp-close-reviewer there would run Step 4.5 before /code-review returns;
+deferring lets the agent yield, re-woken by the completion notification. Teammates
 deferral is intentionally NOT applied — outside Step 4b the close cycle
 wants to block mid-cycle by design.
 
@@ -67,9 +67,10 @@ import target_routing
 #
 #   1. DEFER WINDOW — Step 4b is in flight, suppress the close-reviewer
 #      nudge. Must EXCEED /code-review high's observed ~10-15 min runtime
-#      plus headroom for /xp-quality-review consume + /security-review +
-#      concern-triage AskUserQuestion. (Was 600s, which predated the
-#      workflow-backed /code-review and expired mid-Step-4b; bumped to 1800s.)
+#      plus headroom for /xp-quality-review's REVIEWER RUN and consume (the
+#      flag rides the agent's RETURN, not the skill's launch) +
+#      /security-review + concern-triage AskUserQuestion. (600s expired
+#      mid-Step-4b; 1800s was never re-measured against the reviewer leg.)
 #
 #   2. ABANDONMENT TIMEOUT — the bypass-recorded "close abandoned" concern.
 #      Must be SUBSTANTIALLY LONGER than the defer window so a slow but
@@ -258,15 +259,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if marker_active:
         # Step 4b window: the close /code-review workflow is in flight
         # (review mid-cycle). Defer the close-reviewer nudge until the
-        # workflow returns and /xp-quality-review consumes its findings —
-        # same predicate sprint_stop_gate uses, under the same key
+        # workflow returns and the reviewer that /xp-quality-review spawns
+        # to consume its findings has itself returned — the same predicate
+        # sprint_stop_gate uses, under the same key that
         # identity.review_flags_key gives every writer of the flag.
         #
         # Age-bound the defer on its own window (shorter than the abandonment
         # age): defer ONLY while the marker is young (workflow plausibly
         # still running).
         # Once it ages past the threshold the mid-cycle flag is stuck — a
-        # /xp-quality-review consume that never set quality_review_done — so
+        # quality review that never reached its reviewer's completion — so
         # an unbounded defer would silently abandon the close forever. Fall
         # through to the block, which is where the surfacing happens: while
         # this session is the marker's live owner, no bypass will record or

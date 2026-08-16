@@ -3,11 +3,15 @@
 lifecycle events, inject post-completion context after review skills or
 the xp-housekeeper agent.
 
-Detects /code-review, /xp-quality-review, /security-review, /xp-review-plan,
-/xp-assign via tool_input.skill, and xp-housekeeper via subagent_type.
-Each appends a canonical status event with metadata.action so consumers
-can detect completions without regex-matching LLM-authored content. The
-per-commit review flag is set only for /code-review and /xp-quality-review.
+Detects /code-review, /security-review, /xp-review-plan and /xp-assign via
+tool_input.skill, and the xp-housekeeper agent via tool_input.subagent_type.
+Each appends a canonical status event with metadata.action so consumers can
+detect completions without regex-matching LLM-authored content.
+
+Every hook here fires at the tool call's RETURN, which is at LAUNCH for all but
+the one forked skill — so the only per-commit flag it may set is simplify_done,
+whose launch timing is depended on. quality_review_done needs a completion
+signal and is set by subagent_stop; see the allowlist below.
 
 ACCEPT_IN_FLIGHT drain lives in a sibling hook (accept_terminal.py) — this
 hook owns review-cycle lifecycle, that one owns accept-marker lifecycle.
@@ -34,7 +38,6 @@ import target_routing
 
 # Canonical target names; mapped from skill/agent names by _detect_target.
 _TARGET_SIMPLIFY = "simplify"
-_TARGET_QUALITY_REVIEW = "quality-review"
 _TARGET_SECURITY_REVIEW = "security-review"
 _TARGET_PLAN_REVIEW = "review-plan"
 _TARGET_ASSIGN = "assign"
@@ -42,12 +45,29 @@ _TARGET_HOUSEKEEPING = "housekeeping"
 
 
 # Explicit allowlist: incoming skill/agent name -> canonical target. Closed set
-# (built-in skills + plugin-internal xp-* names). The xp-code-reviewer agent's
-# bare and qualified forms are absent by construction, so no substring guard
-# is needed; future names like xp-quality-reviewer-helper are also safe.
+# (built-in skills + plugin-internal xp-* names). Exact-match, so a future name
+# like xp-quality-reviewer-helper stays unrouted.
+#
+# NOTHING HERE MAY GATE A COMMIT, and that is the rule this table exists under.
+# Every entry records at LAUNCH: PostToolUse fires when the TOOL CALL returns,
+# and measured 2026-08-15 that is at launch for an inline skill (security-review,
+# xp-assign), for an async workflow (code-review, whose call returns once it is
+# in flight), and for an Agent-tool subagent, which this harness backgrounds.
+# xp-review-plan is the one exception — it is FORKED, so its Skill call really
+# does return at completion.
+#
+# quality_review_done therefore does NOT live here: it is the flag the commit
+# gate reads, so it needs a completion signal, and it is set from
+# subagent_stop's SubagentStop leg instead. v5.16.0 briefly keyed it on the
+# xp-code-reviewer AGENT in this table, which moved the defect from
+# skill-launch to agent-launch rather than removing it.
+#
+# What launch timing IS depended on: simplify_done, which
+# review_records.review_mid_cycle reads as "the /code-review workflow is still
+# running". security-review's "full review performed" reaches retro_metrics the
+# same way. Audit the entry, not the table.
 _TARGET_BY_NAME: dict[str, str] = {
     "code-review": _TARGET_SIMPLIFY,
-    "xp-quality-review": _TARGET_QUALITY_REVIEW,
     "security-review": _TARGET_SECURITY_REVIEW,
     "xp-review-plan": _TARGET_PLAN_REVIEW,
     "xp-assign": _TARGET_ASSIGN,
@@ -77,10 +97,6 @@ _TARGET_LIFECYCLE: dict[str, tuple[str, str]] = {
         event_schema.STATUS_ACTION_SIMPLIFY_COMPLETE,
         "Code review complete",
     ),
-    _TARGET_QUALITY_REVIEW: (
-        event_schema.STATUS_ACTION_QR_COMPLETE,
-        "Quality review complete",
-    ),
     _TARGET_SECURITY_REVIEW: (
         event_schema.STATUS_ACTION_SECURITY_COMPLETE,
         "Security review complete — full review performed",
@@ -104,13 +120,11 @@ _TARGET_LIFECYCLE: dict[str, tuple[str, str]] = {
 # commit gate. plan-review/housekeeping are lifecycle-only, don't gate commits.
 _TARGET_FLAG: dict[str, str] = {
     _TARGET_SIMPLIFY: "simplify_done",
-    _TARGET_QUALITY_REVIEW: "quality_review_done",
 }
 
 
 _NEXT_STEP: dict[str, str] = {
     "simplify_done": "Run /xp-quality-review next.",
-    "quality_review_done": "Review cycle complete — commit your changes now.",
 }
 
 
@@ -188,11 +202,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # The FLAG is keyed on the checkout, not on this payload's agent_id —
         # identity.review_flags_key owns that rule for every site. The
         # event below keeps agent_id: it records who ran the review.
-        review_records.set_review_flag(
-            smm_dir,
-            identity.review_flags_key(input_data.get("cwd", "")),
-            flag,
-        )
+        cwd = input_data.get("cwd", "")
+        review_records.set_review_flag(smm_dir, identity.review_flags_key(cwd), flag)
 
     lifecycle = _TARGET_LIFECYCLE.get(target)
     if lifecycle is not None:

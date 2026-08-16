@@ -100,6 +100,11 @@ REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=T
 REVIEW_WATERMARK = MarkerDef(
     ".review-watermark-{agent_id}.json", "json", agent_scoped=True
 )
+# What the last review LOOKED AT, so its own fixes don't read as unreviewed work
+# next commit. Keyed on the REPO like the WATERMARK: it holds relative paths.
+REVIEW_COVERAGE = MarkerDef(
+    ".review-coverage-{agent_id}.json", "json", agent_scoped=True
+)
 QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=True)
 
 
@@ -307,6 +312,7 @@ _AGENT_SCOPED_MARKERS: tuple[MarkerDef, ...] = (
     TDD_TRACKER,
     REVIEW_CYCLE,
     REVIEW_WATERMARK,
+    REVIEW_COVERAGE,
     QUESTION_NUDGED,
 )
 

@@ -46,8 +46,16 @@ import review_records
 # review_cycle_done emits for the equivalent completed review. Keys double as
 # the argparse `choices` (the valid review-cycle flags this CLI sets). Only
 # simplify_done is needed: it is the sole leg the async-Workflow Step 4b must
-# substitute for. /xp-quality-review still launches via the Skill tool, so
-# review_cycle_done sets quality_review_done itself — no CLI leg for it.
+# substitute for.
+#
+# quality_review_done has NO leg here, deliberately. It is the flag the commit
+# gate reads, and this CLI is prose-invoked — a leg for it would make the gate
+# clearable by anything that can run a command, without a review having
+# happened, which is the hole v5.16.0/v5.17.0 exist to close. Its one writer is
+# `review_cycle_legs`, off the xp-code-reviewer's SubagentStop, the only signal
+# in the family that fires at completion. The cost is accepted and real: a
+# reviewer that never reaches SubagentStop leaves the gate armed with nothing
+# able to clear it, and the recovery is another review, not a manual override.
 _FLAG_LIFECYCLE: dict[str, tuple[str, str]] = {
     "simplify_done": (
         event_schema.STATUS_ACTION_SIMPLIFY_COMPLETE,
