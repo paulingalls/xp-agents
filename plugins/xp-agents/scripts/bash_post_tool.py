@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import commit_observer
 import commits
 import concerns
 import git_commits
@@ -187,6 +188,23 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             if nudge:
                 result = f"{result} {nudge}" if result is not None else nudge
         return result
+
+    # Any OTHER Bash: catch up on commits that moved HEAD while nothing was
+    # watching. A commit-shaped command was compared against HEAD above and is
+    # deliberately not re-examined here — `_handle_commit` owns its own
+    # decisions, including the ones it refuses on purpose. See
+    # `commit_observer`'s docstring for why leaving the marker un-advanced on
+    # that branch is what keeps the range open rather than losing it.
+    #
+    # BEFORE the xp-agent return, for the reason the commit branch above also
+    # runs on a leak: the commit event always lands, and only the state
+    # mutations are gated on the identity being wrong.
+    commit_observer.observe(
+        smm_dir,
+        agent_id,
+        cwd,
+        is_xp_agent_leak=_common.is_xp_agent(input_data),
+    )
 
     if _common.is_xp_agent(input_data):
         return None

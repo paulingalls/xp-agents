@@ -132,9 +132,31 @@ def get_staged_diff(cwd: str) -> str | None:
     return _run_git(["git", "diff", "--cached"], cwd)
 
 
-def get_commit_message_body(cwd: str) -> str | None:
-    """Get full commit message body of HEAD. Returns None on failure."""
-    return _run_git(["git", "log", "-1", "--format=%B"], cwd)
+def get_commit_message_body(cwd: str, rev: str = "HEAD") -> str | None:
+    """Get full commit message body of `rev` (HEAD by default). None on failure.
+
+    The default spells out the implicit rev the argument-less form already
+    resolved, so every existing caller runs the identical git command.
+    """
+    return _run_git(["git", "log", "-1", "--format=%B", rev], cwd)
+
+
+def get_commit_files(cwd: str, rev: str) -> list[str]:
+    """Files `rev` changed against its first parent. Empty on git failure.
+
+    Deliberately NOT a rev parameter on `get_committed_files`: that one runs
+    `git diff HEAD~1`, which compares against the WORKING TREE, so a dirty
+    checkout legitimately changes its answer. Naming both sides here asks the
+    different question a recorder of a specific past commit needs — what that
+    commit changed, whatever the tree looks like now.
+
+    A root commit has no `~1` and reports nothing, matching what
+    `get_committed_files` already does for a root HEAD.
+    """
+    out = _run_git(["git", "diff", "--name-only", "-z", f"{rev}~1", rev], cwd)
+    if out is None:
+        return []
+    return _nul_paths(out)
 
 
 def get_head_commit_hash(cwd: str) -> str | None:
@@ -388,6 +410,7 @@ __all__ = [
     "format_maybe_addressed_line",
     "get_code_files_for_review",
     "get_code_files_in_range",
+    "get_commit_files",
     "get_commit_message_body",
     "get_committed_files",
     "get_filenames_from_diff",

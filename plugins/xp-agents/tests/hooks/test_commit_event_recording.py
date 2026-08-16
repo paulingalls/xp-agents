@@ -68,7 +68,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 from _commit_repo_case import _MergeCase, _RebuildTestCase
-from conftest import make_event
+from conftest import compute_resolutions, make_event
 from event_schema import EVENT_TYPE_COMMIT
 
 # An ordinary Bash that is not commit-shaped and not a test run — the shape of
@@ -146,6 +146,29 @@ class TestBackgroundedCommit(_ObserverCase):
         self.assertEqual(len(self.commit_events()), 1)
         self.assertEqual(self.concerns(), [])
 
+    def test_the_landed_background_commit_is_recorded_by_the_next_bash(self):
+        """The defect, and the requirement: nothing looked at HEAD again.
+
+        The commit lands after the tool call returned. Under the old code the
+        next Bash was not commit-shaped, so `is_git_commit` was False and
+        `_handle_commit` — the only caller of the rebuild — never ran.
+        """
+        self.record_commit_event(self.head())
+        self.seed_observer()
+        self._launch()
+        landed = self.commit("feat: landed in the background, unobserved")
+        self.observe()
+        self.assertIn(landed, self.recorded_hashes())
+
+    def test_the_recorded_event_carries_the_message_git_kept(self):
+        self.record_commit_event(self.head())
+        self.seed_observer()
+        self._launch()
+        self.commit("feat: the subject git kept\n\nwhy it was done")
+        self.observe()
+        bodies = [e["content"] for e in self.commit_events()]
+        self.assertTrue(any("the subject git kept" in b for b in bodies))
+
 
 class TestUnreadableCommandOnAnOrdinaryCommit(_ObserverCase):
     """Specimens `d582871c` / `145eed83` — ordinary commits, multi-line command.
@@ -183,6 +206,14 @@ class TestUnreadableCommandOnAnOrdinaryCommit(_ObserverCase):
         reported = self.concerns()[0]["content"].split("Command: ", 1)[1]
         self.assertEqual(reported, f"cd {self.repo}")
 
+    def test_the_next_ordinary_bash_records_the_commit_anyway(self):
+        self.seed_observer()
+        head = self.commit("feat: x")
+        self.erase_reflog()
+        self.run_hook(MULTILINE_HEREDOC_COMMIT)
+        self.observe()
+        self.assertIn(head, self.recorded_hashes())
+
 
 class TestMergeCommit(_MergeCase, _ObserverCase):
     """Specimen `6d380d36` — a real merge commit that left a trace, no event.
@@ -208,6 +239,14 @@ class TestMergeCommit(_MergeCase, _ObserverCase):
         self.run_hook(self._MERGE_COMMAND)
         self.assertEqual(self.merge_events(), [])
         self.assertEqual(self.concerns()[0]["metadata"]["commit_hash"], head)
+
+    def test_the_next_ordinary_bash_records_the_merge(self):
+        self.seed_observer()
+        head = self._land_a_merge()
+        self.erase_reflog()
+        self.run_hook(self._MERGE_COMMAND)
+        self.observe()
+        self.assertIn(head, self.recorded_hashes())
 
 
 class TestTruncatedStdoutIsTheWorkingControl(_MergeCase, _ObserverCase):
@@ -260,6 +299,31 @@ class TestFastForwardStaysRefused(_MergeCase, _ObserverCase):
         self.run_hook("git merge --ff-only other 2>&1 | tail -40")
         self.assertEqual(self.merge_events(), [])
         self.assertEqual(self.concerns()[0]["metadata"]["commit_hash"], head)
+
+
+class TestTrailerResolvesThroughTheObserver(_ObserverCase):
+    """AC4: a trailer's resolution asserted BY A TEST, not by inspection.
+
+    This is the whole point of recording the commit at all. `metadata.resolves`
+    is the only channel a `Resolves-Event:` trailer travels, so a commit with no
+    event leaves every id it named silently open — and the commit message reads
+    as if they were closed.
+    """
+
+    def test_a_trailer_on_an_observed_commit_closes_its_target(self):
+        concern_id = self.seed_concern()
+        self.seed_observer()
+        self.commit(f"fix: close it\n\nResolves-Event: {concern_id}")
+        self.observe()
+        resolutions = compute_resolutions(self._read_events())
+        self.assertIn(concern_id, resolutions["resolved_concern_ids"])
+
+    def test_the_trailer_is_stripped_from_the_recorded_body(self):
+        concern_id = self.seed_concern()
+        self.seed_observer()
+        self.commit(f"fix: close it\n\nResolves-Event: {concern_id}")
+        self.observe()
+        self.assertNotIn("Resolves-Event", self.commit_events()[0]["content"])
 
 
 if __name__ == "__main__":

@@ -106,6 +106,13 @@ REVIEW_COVERAGE = MarkerDef(
     ".review-coverage-{agent_id}.json", "json", agent_scoped=True
 )
 QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=True)
+# Where the commit observer last saw HEAD in this checkout, so it can tell "a
+# commit landed while nothing was watching" from "nothing happened" without
+# loading the event log on every Bash. Keyed on the REPO, like the WATERMARK
+# above and via the same `identity.review_watermark_key`: a teammate's commits
+# move ITS head, and the SMM is shared across worktrees, so one shared record
+# would read as an unexplained jump in every checkout but the one that wrote it.
+LAST_SEEN_HEAD = MarkerDef(".last-seen-head-{agent_id}.json", "json", agent_scoped=True)
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +321,7 @@ _AGENT_SCOPED_MARKERS: tuple[MarkerDef, ...] = (
     REVIEW_WATERMARK,
     REVIEW_COVERAGE,
     QUESTION_NUDGED,
+    LAST_SEEN_HEAD,
 )
 
 

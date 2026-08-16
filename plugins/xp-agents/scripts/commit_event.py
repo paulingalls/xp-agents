@@ -33,6 +33,30 @@ from event_schema import (
 )
 
 
+def recorded_commit_hashes(events: list[dict]) -> set[str]:
+    """Every commit hash the LIVE log already carries a commit event for.
+
+    One home for the index, because three callers now dedup against it and each
+    hand-rolled the same `(e.get("metadata") or {}).get("commit_hash")` walk:
+    `commit_emit.merge_resolves` (which trailers a merge may re-derive) and
+    `commit_observer` (which commits in a range still need recording). A fourth
+    copy is how these drift, and drift here is silent — a missed entry
+    re-records a commit, a spurious one drops it.
+
+    LIVE log only, and the bound is real: compaction archives commit events once
+    their sprint leaves the retention window, and a rebased branch's hashes
+    never match. Callers must treat "absent" as "not visible from here", not as
+    proof the commit was never recorded.
+    """
+    return {
+        h
+        for e in events
+        if e.get("type") == _common.COMMIT
+        for h in [(e.get("metadata") or {}).get(METADATA_KEY_COMMIT_HASH)]
+        if h
+    }
+
+
 def _resolve_story_id(
     smm_dir: Path,
     cwd: str,
