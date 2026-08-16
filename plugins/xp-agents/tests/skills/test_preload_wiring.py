@@ -47,11 +47,14 @@ _HANDLER = "scripts/preload_injection.py"
 # report a green scan of nothing (the same guard the frontmatter suite keeps).
 _EXPECTED_PRELOADS = 17
 
-# The three skills still delivered by the instruction-time line, because
+# The skill(s) still delivered by the instruction-time line, because
 # injection does not cross the fork boundary. Spelled out rather than derived
 # from the frontmatter so that CONVERTING one is a visible edit here — derived,
 # the list would shrink silently and this suite would never mention it again.
-_FORKED_SKILLS = frozenset({"xp-review-plan", "xp-sprint-review", "xp-system-context"})
+# story-013 converted xp-sprint-review and xp-system-context to the
+# inline-spawns-subagent shape; xp-review-plan converts in the same story's
+# next commit.
+_FORKED_SKILLS = frozenset({"xp-review-plan"})
 
 
 def _preload_scripts() -> list[Path]:

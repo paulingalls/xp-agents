@@ -31,17 +31,18 @@ _EXPECTED_PRELOADS = 17
 # The two skills that ship no scripts/*.sh at all — absence, not failure.
 _NO_PRELOAD_SKILLS = ("xp-scaffold-acceptance", "xp-stage-migration")
 
-# The only skills that still carry an instruction-time `!`...`` line, and so the
-# only ones the conformance pin below still has an oracle for. They are the
+# The only skill(s) that still carry an instruction-time `!`...`` line, and so
+# the only ones the conformance pin below still has an oracle for. They are the
 # forked ones: injection reaches the parent and stops at the fork boundary, so
-# these three cannot be delivered by it until they are converted to spawn their
-# own subagent. Spelled literally rather than discovered by scanning for the
+# these cannot be delivered by it until they are converted to spawn their own
+# subagent. Spelled literally rather than discovered by scanning for the
 # line — derived, this set would silently follow whatever the tree happens to
 # say, and the pin would report green on a tree where someone had deleted a
 # line that was still load-bearing.
-_LINE_BEARING_SKILLS = frozenset(
-    {"xp-review-plan", "xp-sprint-review", "xp-system-context"}
-)
+#
+# story-013 converted xp-sprint-review and xp-system-context; xp-review-plan
+# converts in the same story's next commit.
+_LINE_BEARING_SKILLS = frozenset({"xp-review-plan"})
 
 
 def _all_preload_skill_names() -> list[str]:

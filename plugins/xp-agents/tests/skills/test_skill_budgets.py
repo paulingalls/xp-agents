@@ -64,7 +64,11 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-scaffold-worktree": 8570,
     "xp-schedule": 6710,
     "xp-sprint-close": 7540,
-    "xp-sprint-review": 1420,
+    # Bumped 1420 -> 1990 (story-013): converted from context: fork to the
+    # inline-spawns-subagent shape — the body gained the spawn block and the
+    # do-not-do-this-yourself clause the fork used to give for free. Measured
+    # 1768.
+    "xp-sprint-review": 1990,
     "xp-sprint-start": 12560,
     "xp-stage-migration": 2420,
     # Bumped 12110 -> 12450 (story-025): condition 2 became a deterministic
@@ -96,7 +100,9 @@ SKILL_BUDGETS: dict[str, int] = {
     # bump is SPENT, 38 chars from the band. The next clause here trims one
     # first — do not read the remainder as headroom.
     "xp-story-close": 12960,
-    "xp-system-context": 1070,
+    # Bumped 1070 -> 1810 (story-013): same conversion as xp-sprint-review
+    # above. Measured 1606.
+    "xp-system-context": 1810,
     "xp-work-selection": 8700,
 }
 
