@@ -19,6 +19,7 @@ Coverage that never expired would let a file be edited freely forever once a
 review had glanced at it.
 """
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -30,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import commits
 import pre_tool_bash_commit_gates
 import review_cycle_done
 import review_records
@@ -38,6 +40,122 @@ from conftest import _HookTestCase
 
 _KEY = "main"
 _CWD = "/tmp"
+
+
+class _GhostRepoCase(unittest.TestCase):
+    """A REAL git repo, because the ghost is a property of git's own answers.
+
+    Mocking the three legs would only assert back whatever shape we guessed —
+    and the guess in the concern is wrong, which is the whole reason this
+    fixture exists.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self._tmp.name)
+        self._git("init", "-b", "main")
+        self._git("config", "user.email", "t@t.test")
+        self._git("config", "user.name", "T")
+        self._write("base.py", "x = 1\n")
+        self._git("add", "base.py")
+        self._git("commit", "-qm", "base")
+        self.watermark = self._git("rev-parse", "HEAD")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _git(self, *args: str) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=self.repo, capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    def _write(self, name: str, body: str) -> None:
+        (self.repo / name).write_text(body)
+
+    def _scope(self, command: str = "git commit -m notes") -> list[str]:
+        return commits.get_code_files_for_review(
+            str(self.repo), self.watermark, command
+        )
+
+    def _bury_three_spikes(self) -> None:
+        """The observed state: three spikes committed, then removed from the
+        working tree WITHOUT staging their removal, and one markdown file
+        staged for the commit that got blocked."""
+        for i in (1, 2, 3):
+            self._write(f"spike{i}.py", "print(1)\n")
+        self._git("add", "-A")
+        self._git("commit", "-qm", "spikes")
+        for i in (1, 2, 3):
+            (self.repo / f"spike{i}.py").unlink()
+        self._write("notes.md", "# notes\n")
+        self._git("add", "notes.md")
+
+
+class TestWhichLegProducesTheGhost(_GhostRepoCase):
+    """Increment 1 — reproduce concern 64c18a0a3a48 before changing anything.
+
+    Observed: the gate blocked a commit reporting "3 code files changed since
+    last review" whose entire staged diff was ONE markdown file, and none of
+    the three were on disk.
+
+    The concern blamed "spike files created and deleted within the session".
+    That cannot be the mechanism: `{sha}..HEAD` is a NET tree diff, so a file
+    born and buried inside the range never appears in it at all. Measured
+    instead — the three exist in HEAD *and* in the index, and were deleted from
+    the WORKING TREE with the deletion left unstaged. The widening leg produces
+    them on its own; the unstaged leg names them too, but only when armed.
+
+    These record what the code does TODAY. Increment 2 flips the first one.
+    """
+
+    def test_the_report_reproduces(self):
+        self._bury_three_spikes()
+
+        self.assertEqual(commits.get_staged_files(str(self.repo)), ["notes.md"])
+        self.assertEqual(self._scope(), ["spike1.py", "spike2.py", "spike3.py"])
+        for name in ("spike1.py", "spike2.py", "spike3.py"):
+            self.assertFalse((self.repo / name).exists())
+
+    def test_the_widening_leg_produces_them_alone(self):
+        """No `git add` in the command, so the unstaged leg never runs — and
+        the count is still 3. Drop the watermark and it is 0. That isolates the
+        producer to `{watermark}..HEAD`."""
+        self._bury_three_spikes()
+
+        self.assertEqual(len(self._scope("git commit -m notes")), 3)
+        self.assertEqual(
+            commits.get_code_files_for_review(
+                str(self.repo), "", "git commit -m notes"
+            ),
+            [],
+        )
+
+    def test_the_unstaged_leg_names_them_too_once_armed(self):
+        """`git add` arms leg 3, which reads working-tree-vs-index and so sees
+        the same unstaged deletions. Both legs have to be filtered."""
+        self._bury_three_spikes()
+
+        self.assertEqual(
+            len(
+                commits.get_code_files_for_review(
+                    str(self.repo), "", "git add -A && git commit -m notes"
+                )
+            ),
+            3,
+        )
+
+    def test_a_genuine_deletion_is_indistinguishable_from_disk(self):
+        """Why "exclude files not on disk" is the WRONG rule, stated as a pin.
+
+        A staged `git rm` is a real change that deserves review, and from the
+        filesystem it looks exactly like a ghost: absent. The difference is in
+        git — the index no longer holds it.
+        """
+        self._git("rm", "-q", "base.py")
+
+        self.assertFalse((self.repo / "base.py").exists())
+        self.assertIn("base.py", self._scope())
+        self.assertEqual(self._git("ls-files", "--", "base.py"), "")
 
 
 class TestCoverageIsRecordedAndAges(_HookTestCase):
