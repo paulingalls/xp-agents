@@ -69,20 +69,29 @@ class _LintCostTestCase(_HookTestCase):
             ids.extend(e.get("metadata", {}).get("resolves", []))
         return ids
 
-    def _fake_spawn(self, returncode=0, stdout="", stderr=""):
+    def _fake_spawn(self, returncode=0, stdout="", stderr="", *, per_call=None):
+        """A fake spawn, optionally answering per invocation.
+
+        `per_call(argv) -> (returncode, stdout)` is what lets a test give the
+        batch and the per-file re-runs different verdicts, which is the only
+        way to observe the findings fallback.
+        """
         calls: list[list[str]] = []
 
         def _run(argv, **_kwargs):
             calls.append(argv)
-            return _mock_ruff_result(
-                returncode=returncode, stdout=stdout, stderr=stderr
-            )
+            code, out = per_call(argv) if per_call else (returncode, stdout)
+            return _mock_ruff_result(returncode=code, stdout=out, stderr=stderr)
 
         _run.calls = calls
         return _run
 
-    def _resolve_on_commit(self, files, *, returncode=0, stdout="", stderr=""):
-        fake = self._fake_spawn(returncode=returncode, stdout=stdout, stderr=stderr)
+    def _resolve_on_commit(
+        self, files, *, returncode=0, stdout="", stderr="", per_call=None
+    ):
+        fake = self._fake_spawn(
+            returncode=returncode, stdout=stdout, stderr=stderr, per_call=per_call
+        )
         events = self._read_events()
         resolutions = compute_resolutions(events)
         with (
@@ -200,6 +209,45 @@ class TestResolveLintOnCommitCost(_LintCostTestCase):
         for c in seeded:
             self.assertIn(c["id"], resolved)
         self.assertNotIn(flagged["id"], resolved)
+
+    def test_flag_shaped_arg_under_a_subpackage_config(self):
+        """The same property one directory down, where the caller's filter
+        cannot see it: `sub/-x.py` is not flag-shaped project-relative, but
+        `sub/ruff.toml` makes its ARG `-x.py`, and run_linter_batch refuses a
+        batch over that arg. Unfiltered there, `sub/ok.py` never clears —
+        on this commit or any later sweep."""
+        (self.repo / "sub").mkdir()
+        (self.repo / "sub" / "ruff.toml").touch()
+        self._seed("sub/ok.py", "sub/-x.py")
+        ok = self._seed_concern("sub/ok.py")
+        flagged = self._seed_concern("sub/-x.py")
+        self._write_events([ok, flagged])
+
+        calls = self._resolve_on_commit(["sub/ok.py", "sub/-x.py"])
+
+        self.assertEqual(len(calls), 1)
+        resolved = self._resolved_ids(self._read_events())
+        self.assertIn(ok["id"], resolved)
+        self.assertNotIn(flagged["id"], resolved)
+
+    def test_findings_group_re_runs_per_file_and_resolves_the_clean_ones(self):
+        """A batch reporting findings names no file, so the group falls back to
+        one run per file — and a file that comes back clean on its own run
+        still resolves. Three spawns: the batch, then a.py and b.py."""
+        self._seed("a.py", "b.py")
+        seeded = {f: self._seed_concern(f) for f in ("a.py", "b.py")}
+        self._write_events(list(seeded.values()))
+
+        def per_call(argv):
+            dirty = any("b.py" in str(a) for a in argv)
+            return (1, "b.py:1:1: E302") if dirty else (0, "")
+
+        calls = self._resolve_on_commit(["a.py", "b.py"], per_call=per_call)
+
+        self.assertEqual(len(calls), 3)
+        resolved = self._resolved_ids(self._read_events())
+        self.assertIn(seeded["a.py"]["id"], resolved)
+        self.assertNotIn(seeded["b.py"]["id"], resolved)
 
 
 class TestSweepOrphanLintConcernsCost(_LintCostTestCase):

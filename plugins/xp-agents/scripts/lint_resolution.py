@@ -33,10 +33,10 @@ def check_and_resolve_lint(
 ) -> None:
     """Re-run the linter for *normalized*; resolve matching concerns if clean.
 
-    The per-file fallback: the config-dir monorepo path calls this directly,
-    and `_resolve_group` calls it once per path in a group whose batch run
-    reported findings — a batch's exit code names no file, so the group's
-    clean paths still deserve a look, and this is that look.
+    The per-file fallback: `_resolve_group` calls this once per path in a
+    group whose batch run reported findings — a batch's exit code names no
+    file, so the group's clean paths still deserve a look, and this is that
+    look.
     """
     import lint_check
 
@@ -79,18 +79,35 @@ def check_and_resolve_lint(
 
 def _batch_targets(
     config_path: str, git_root: str, paths: list[str]
-) -> tuple[str, list[str]]:
-    """(lint_cwd, file_args) for a group that all share *config_path*.
+) -> tuple[str, list[str], list[str]]:
+    """(lint_cwd, batched_paths, file_args) for a group sharing *config_path*.
 
     lint_cwd is constant across the group by construction, not an assumption:
     it is Path(config_path).parent, and config_path is half the group key.
+
+    A path whose ARG is flag-shaped is dropped from both returned lists.
+    `run_linter_batch` refuses a whole batch over one such arg, and the arg is
+    what it sees: the callers' project-relative filter cannot catch this one,
+    because `apps/mobile/-x.ts` only becomes `-x.ts` once made relative to the
+    config dir — so without this its whole subpackage's concerns would never
+    clear, on this commit or any later sweep. Dropping it from the resolve set
+    too is the point of returning both: batching a path but not resolving it
+    is fail-closed, resolving one the linter never saw is not.
     """
     import lint_check
 
-    targets = [
-        lint_check.lint_invocation_target(config_path, git_root, p) for p in paths
-    ]
-    return targets[0][0], [file_arg for _, file_arg in targets]
+    lint_cwd = str(Path(config_path).parent)
+    batched: list[str] = []
+    file_args: list[str] = []
+    for path in paths:
+        lint_cwd, file_arg = lint_check.lint_invocation_target(
+            config_path, git_root, path
+        )
+        if file_arg.startswith("-"):
+            continue
+        batched.append(path)
+        file_args.append(file_arg)
+    return lint_cwd, batched, file_args
 
 
 def _resolve_group(
@@ -114,7 +131,9 @@ def _resolve_group(
     """
     import lint_check
 
-    lint_cwd, file_args = _batch_targets(config_path, git_root, paths)
+    lint_cwd, batched, file_args = _batch_targets(config_path, git_root, paths)
+    if not batched:
+        return
     run = lint_check.run_linter_batch(
         linter_name,
         file_args,
@@ -126,7 +145,7 @@ def _resolve_group(
         case "clean":
             concerns.resolve_concerns(
                 smm_dir,
-                lambda c: any(concerns.lint_concern_matches(c, p) for p in paths),
+                lambda c: any(concerns.lint_concern_matches(c, p) for p in batched),
                 agent_id,
                 label,
                 events=events,
@@ -134,7 +153,7 @@ def _resolve_group(
                 extra_metadata={"action": STATUS_ACTION_LINT_RESOLVED},
             )
         case "findings":
-            for normalized in paths:
+            for normalized in batched:
                 check_and_resolve_lint(
                     smm_dir,
                     cwd,
@@ -160,11 +179,11 @@ def resolve_lint_on_commit(
     """Run linter on committed files and resolve lint concerns for passing ones.
 
     Groups files by the (linter, config) that claims them and spawns at most
-    one linter process per group — see `_resolve_group`. Two caller-side
-    filters run first, both before grouping: a flag-shaped path would make
-    `run_linter_batch` refuse the whole group (permanently, on a re-sweep),
-    and a path with no open lint concern has nothing this loop could ever
-    resolve — the common commit needs zero processes, not N.
+    one linter process per group — see `_resolve_group`. A caller-side filter
+    runs first, before grouping: a path with no open lint concern has nothing
+    this loop could ever resolve, so the common commit needs zero processes,
+    not N. (Flag-shaped ARGS are dropped a layer down, in `_batch_targets`,
+    which is where what the linter actually sees is known.)
     """
     if not files:
         return
@@ -175,7 +194,6 @@ def resolve_lint_on_commit(
         resolutions = resolution.compute_resolutions(events)
 
     normalized = [worktree.normalize_path(f, cwd) for f in files]
-    normalized = [p for p in normalized if not p.startswith("-")]
     normalized = [
         p
         for p in normalized
@@ -217,9 +235,9 @@ def sweep_orphan_lint_concerns(
     this commit. Catches side-effect fixes (`ruff check --fix` from Bash,
     pre-commit reformatting, cross-file fixes) that don't show up as direct
     edits to the offending file. Files referenced by lint concerns but no
-    longer on disk, or flag-shaped (a malformed `extract_lint_concern_path`
-    read), are skipped before grouping — same as `resolve_lint_on_commit`,
-    group_paths_by_linter applies no eligibility filter of its own."""
+    longer on disk are skipped before grouping (manual triage) —
+    group_paths_by_linter applies no eligibility filter of its own, so each
+    caller brings its own."""
     if events is None:
         events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
     if resolutions is None:
@@ -245,11 +263,9 @@ def sweep_orphan_lint_concerns(
         return
 
     git_root = worktree.resolve_git_root(cwd) or cwd
-    eligible = [
-        p
-        for p in orphan_paths
-        if not p.startswith("-") and (Path(git_root) / p).exists()
-    ]
+    # sorted: orphan_paths is a set, and an unordered batch would hand the
+    # linter its file args in a different order run to run.
+    eligible = sorted(p for p in orphan_paths if (Path(git_root) / p).exists())
     if not eligible:
         return
 
