@@ -196,6 +196,29 @@ def head_parent_count(cwd: str, rev: str) -> int | None:
     return len(out.split())
 
 
+def _unstaged_worktree_deletions(cwd: str) -> set[str]:
+    """Paths git still holds in the INDEX that are gone from the working tree.
+
+    The ghost the review gate used to bill for (concern 64c18a0a3a48): a spike
+    committed, then removed from the working tree with the removal never staged.
+    The widening leg names it on its own, so no `git add` in the command is
+    needed to produce one.
+
+    This is deliberately NOT "everything absent from disk". Deleting a code file
+    is a real change that deserves review, and from the filesystem a staged
+    `git rm` looks exactly like a ghost. The index is what tells them apart:
+    every deletion a commit actually makes is gone from the index too, and so is
+    never in this set.
+
+    Empty on git failure, which counts everything and fails toward one extra
+    review — the same direction every other leg here fails in.
+    """
+    out = _run_git(["git", "diff", "--name-only", "-z", "--diff-filter=D"], cwd)
+    if out is None:
+        return set()
+    return set(_nul_paths(out))
+
+
 def get_code_files_for_review(
     cwd: str,
     last_review_commit: str,
@@ -213,16 +236,22 @@ def get_code_files_for_review(
 
     ``staged_diff`` is ``get_staged_diff``'s text, for a caller that already
     holds it: the staged names are parsed from it instead of re-shelling.
-    """
-    all_files: set[str] = set()
 
+    Ghosts are dropped — see ``_unstaged_worktree_deletions`` for what counts as
+    one and, more importantly, for what does not. Every caller wants this: the
+    gate bills against the count, and the coverage record is written from the
+    same scan, so an exclusion reaching only one of them would shift the
+    subtraction instead of fixing it.
+    """
     if staged_diff is not None:
-        all_files.update(get_filenames_from_diff(staged_diff))
+        staged_names = set(get_filenames_from_diff(staged_diff))
     else:
         out = _run_git(["git", "diff", "--cached", "--name-only", "-z"], cwd)
         if out is None:
             return []
-        all_files.update(_nul_paths(out))
+        staged_names = set(_nul_paths(out))
+
+    all_files: set[str] = set(staged_names)
 
     extra_commands: list[list[str]] = []
     if last_review_commit:
@@ -243,6 +272,14 @@ def get_code_files_for_review(
         if out is None:
             continue
         all_files.update(_nul_paths(out))
+
+    # Only the WIDENED names can be ghosts — a staged path is by definition part
+    # of the commit, including `git add x.py && rm x.py`, where git reports an
+    # unstaged deletion for content the index really is about to commit. No
+    # widening, nothing to filter, and no fork spent asking.
+    widened = all_files - staged_names
+    if widened:
+        all_files -= widened & _unstaged_worktree_deletions(cwd)
 
     return [f for f in sorted(all_files) if code_files.is_code_file(f)]
 
