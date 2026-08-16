@@ -29,8 +29,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import pre_tool_bash_commit_gates
+import sprint_store
+import verify_deferred
 from _close_fixtures import _assert_text_ordering
-from conftest import _HookTestCase
+from conftest import _HookTestCase, make_sprint_dict, make_story_dict
 
 _COMMIT_CMD = "git commit -m 'test'"
 
@@ -44,6 +46,7 @@ _AKIA_DIFF = (
 )
 
 _OVER_THRESHOLD = ["a.py", "b.py", "c.py"]
+_STAGED_COVERAGE_AE = {"type": "pytest", "command": "pytest tests/a.py tests/b.py"}
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
 
@@ -186,6 +189,105 @@ class TestGateOrdering(_HookTestCase):
             "Verify-touch",
             msg="staged-lint, then branch-guard, then verify-touch nudge",
         )
+
+
+class TestVerifyTouchNudgeStagedCoverage(_HookTestCase):
+    """story-006 AC 1-3: the commit-time nudge counts staged files too.
+
+    Mocks only the git log-walk boundary (`verify_paths._changed_files`) and
+    `commits.get_staged_files` — the union logic in `untouched_verify_paths`
+    (also_changed) runs for real, so a broken union shows up here, not just
+    a mocked stand-in for it.
+    """
+
+    _STORY_BRANCH = "paul/story-001-feature"
+
+    def _save_story(self):
+        story = make_story_dict(id="story-001", status="in-progress")
+        story["acceptance_criteria"] = ["a manual AC"]
+        story["acceptance_execution"] = _STAGED_COVERAGE_AE
+        sprint = make_sprint_dict(stories=[story])
+        sprint_store.save_sprint(self.smm_dir, sprint, enforce_budget=False)
+
+    def _run(self, *, committed, staged):
+        with (
+            patch("branching.get_branching_stage", return_value=2),
+            patch("branching.is_sprint_branch", return_value=False),
+            patch("git_commits.is_git_commit", return_value=True),
+            patch("commits.get_code_files_for_review", return_value=[]),
+            patch("identity.get_current_branch", return_value=self._STORY_BRANCH),
+            patch("branching.get_story_base_branch", return_value="base"),
+            patch("verify_paths._changed_files", return_value=set(committed)),
+            patch("commits.get_staged_files", return_value=sorted(staged)),
+        ):
+            return pre_tool_bash_commit_gates.commit_gate_parts(
+                self.smm_dir, _COMMIT_CMD, "/tmp"
+            )
+
+    def test_first_commit_with_every_path_staged_does_not_fire(self):
+        # base == HEAD (nothing committed yet); every declared path sits
+        # staged in the index. Regression for the fire-on-first-commit bug.
+        self._save_story()
+        parts = self._run(committed=set(), staged={"tests/a.py", "tests/b.py"})
+        self.assertFalse(any("Verify-touch" in p for p in parts))
+
+    def test_commit_touching_none_of_the_paths_still_fires_and_names_them(self):
+        self._save_story()
+        parts = self._run(committed=set(), staged={"other.py"})
+        joined = "\n".join(parts)
+        self.assertIn("Verify-touch", joined)
+        self.assertIn("tests/a.py", joined)
+        self.assertIn("tests/b.py", joined)
+
+    def test_union_of_committed_and_staged_coverage_does_not_fire(self):
+        self._save_story()
+        parts = self._run(committed={"tests/a.py"}, staged={"tests/b.py"})
+        self.assertFalse(any("Verify-touch" in p for p in parts))
+
+    def test_partial_staged_coverage_still_fires_for_the_rest(self):
+        # Staged coverage widens the set; it must not blanket-clear it.
+        self._save_story()
+        parts = self._run(committed=set(), staged={"tests/a.py"})
+        joined = "\n".join(parts)
+        self.assertIn("Verify-touch", joined)
+        self.assertIn("tests/b.py", joined)
+        nudge = next(p for p in parts if "Verify-touch" in p)
+        self.assertNotIn("tests/a.py", nudge)
+
+
+class TestCloseGateIgnoresStagedCoverage(_HookTestCase):
+    """Pins `verify_deferred.untouched_paths_for_story`'s no-`staged` default
+    to commit-only coverage — story-006's most load-bearing test even though
+    no AC names it directly.
+
+    By this module's naming logic this test belongs beside `verify_deferred`,
+    not the commit gate. It lives here anyway, to avoid a third sprint
+    file_domain amendment (story-006 already added two). Do not "tidy" it
+    into a verify_deferred test module without also moving it consciously —
+    it is what stops a future "just make staged the default" from letting a
+    story merge with its acceptance test staged and never committed: the
+    close gate and the story-close preload CLI both call this function
+    without `staged`, so its default must stay commit-only forever.
+    """
+
+    def test_close_gate_default_ignores_the_index(self):
+        story = make_story_dict(id="story-001", status="in-progress")
+        story["acceptance_criteria"] = ["a manual AC"]
+        story["acceptance_execution"] = {
+            "type": "pytest",
+            "command": "pytest tests/a.py",
+        }
+        sprint = make_sprint_dict(stories=[story])
+        sprint_store.save_sprint(self.smm_dir, sprint, enforce_budget=False)
+
+        with (
+            patch("branching.get_story_base_branch", return_value="base"),
+            patch("verify_paths._changed_files", return_value=set()),
+        ):
+            untouched = verify_deferred.untouched_paths_for_story(
+                self.smm_dir, "/tmp", "story-001"
+            )
+        self.assertEqual(untouched, ["tests/a.py"])
 
 
 if __name__ == "__main__":

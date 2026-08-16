@@ -73,12 +73,21 @@ def branch_has_verify_deferred(cwd: str, base: str, head: str = "HEAD") -> bool:
     )
 
 
-def untouched_paths_for_story(smm_dir: Path, cwd: str, story_id: str) -> list[str]:
+def untouched_paths_for_story(
+    smm_dir: Path, cwd: str, story_id: str, *, staged: list[str] | None = None
+) -> list[str]:
     """Verify paths the story declares that no commit on its branch touched.
 
-    The shared fail-open pipeline behind both the pre-commit nudge and the
-    post-commit [verify-deferred] debt: returns [] (and never raises) when the
-    story is gone, declares no verify paths, or git can't be read.
+    The shared fail-open pipeline behind the pre-commit nudge, the
+    post-commit [verify-deferred] debt, and the story-close gate: returns []
+    (and never raises) when the story is gone, declares no verify paths, or
+    git can't be read.
+
+    `staged` is opt-in coverage from the index (the commit-time nudge's own
+    commit doesn't exist yet to be walked). Defaulting to None keeps every
+    other caller — the post-commit debt, the close gate, the CLI — reading
+    commit-only coverage, which merge time must never relax: a merge carries
+    commits, not the index.
     """
     import branching
     import sprint_store
@@ -93,7 +102,9 @@ def untouched_paths_for_story(smm_dir: Path, cwd: str, story_id: str) -> list[st
         return []
     base = branching.get_story_base_branch(smm_dir, cwd)
     try:
-        return verify_paths.untouched_verify_paths(paths, cwd, base)
+        return verify_paths.untouched_verify_paths(
+            paths, cwd, base, also_changed=set(staged or ())
+        )
     except ValueError:
         return []
 
