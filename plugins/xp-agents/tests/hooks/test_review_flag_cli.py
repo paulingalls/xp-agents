@@ -54,18 +54,26 @@ class TestTheWriterAndTheGateAgreeOnTheKey(_HookTestCase):
         )
 
     def _quality_review_completes(self, agent_id: str) -> None:
-        """The PostToolUse leg that ends Step 4b, under a divergent payload."""
-        import review_cycle_done
+        """The leg that ends Step 4b, under a divergent payload.
 
-        review_cycle_done.run(
-            {
-                "agent_id": agent_id,
-                "cwd": ".",
-                "tool_name": "Skill",
-                "tool_input": {"skill": "xp-quality-review"},
-            },
-            smm_dir=self.smm_dir,
-        )
+        The reviewer's SubagentStop, not either PostToolUse: both of those
+        fire when their tool call returns, which is at launch.
+        """
+        from unittest.mock import patch
+
+        import subagent_stop
+
+        with patch("commits.get_code_files_for_review", return_value=[]):
+            subagent_stop.run(
+                {
+                    "session_id": "t",
+                    "agent_id": agent_id,
+                    "agent_type": "xp-agents:xp-code-reviewer",
+                    "cwd": ".",
+                    "last_assistant_message": "Done",
+                },
+                smm_dir=self.smm_dir,
+            )
 
     def _stop(self, **kwargs) -> object:
         import close_cycle_stop_gate
@@ -146,8 +154,10 @@ class TestTheCliSubstitutesForTheHookExactly(unittest.TestCase):
 
     def test_the_cli_covers_only_the_async_leg(self):
         """Non-vacuity: an equality over an empty table proves nothing, and
-        the quality-review leg deliberately has no CLI substitute — it still
-        launches via the Skill tool, so the hook sets it."""
+        the quality-review leg deliberately has no CLI substitute — a
+        prose-invoked leg would make the commit gate's own flag settable
+        without a review; `review_cycle_legs` sets it from the reviewer's
+        SubagentStop instead."""
         self.assertEqual(set(review_flag_cli._FLAG_LIFECYCLE), {"simplify_done"})
 
 

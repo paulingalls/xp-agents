@@ -234,6 +234,18 @@ class TestCleanupAgentMarkers(_HookTestCase):
             markers.marker_exists(self.smm_dir, markers.REVIEW_CYCLE, "task-1")
         )
 
+    def test_removes_review_coverage(self):
+        """Coverage exempts its paths from the commit gate, so it must not
+        outlive the agent whose review recorded it — a reused worktree name
+        would inherit a stale exemption its own first commit never earned."""
+        review_records.write_review_coverage(self.smm_dir, "task-1", ["a.py"])
+
+        markers.cleanup_agent_markers(self.smm_dir, "task-1")
+
+        self.assertEqual(
+            review_records.read_review_coverage(self.smm_dir, "task-1"), set()
+        )
+
     def test_does_not_affect_other_agents(self):
         markers.marker_write(self.smm_dir, markers.TDD_TRACKER, {"files": []}, "task-1")
         markers.marker_write(self.smm_dir, markers.TDD_TRACKER, {"files": []}, "task-2")

@@ -196,6 +196,31 @@ def _drive_review_cycle(skill: str) -> Driver:
     return _runner
 
 
+def _drive_reviewer_completion(agent_type: str) -> Driver:
+    """qr_complete rides the reviewer's SubagentStop, not either PostToolUse.
+
+    Both PostToolUse payloads fire when their tool call RETURNS, which is at
+    launch for an inline skill and for an Agent-tool subagent this harness
+    backgrounds. SubagentStop is the completion signal.
+    """
+
+    def _runner(smm_dir: Path) -> list[dict]:
+        with patch("commits.get_code_files_for_review", return_value=[]):
+            subagent_stop.run(
+                {
+                    "session_id": "t",
+                    "agent_id": "rev-1",
+                    "agent_type": agent_type,
+                    "cwd": "/tmp",
+                    "last_assistant_message": "Done",
+                },
+                smm_dir=smm_dir,
+            )
+        return _events(smm_dir)
+
+    return _runner
+
+
 def _drive_question_close(smm_dir: Path) -> list[dict]:
     # Seed an open question, then drive smm_cli's _cmd_question_close
     # in-process via a constructed argparse.Namespace (mirrors how the
@@ -297,7 +322,9 @@ _PRODUCER_CASES: dict[str, Driver] = {
     "STATUS_ACTION_PLAN_AWAITING_REVIEW": _drive_plan_completed,
     "STATUS_ACTION_PLAN_EXITED": _drive_plan_exited,
     "STATUS_ACTION_SIMPLIFY_COMPLETE": _drive_review_cycle("code-review"),
-    "STATUS_ACTION_QR_COMPLETE": _drive_review_cycle("xp-quality-review"),
+    "STATUS_ACTION_QR_COMPLETE": _drive_reviewer_completion(
+        "xp-agents:xp-code-reviewer"
+    ),
     "STATUS_ACTION_SECURITY_COMPLETE": _drive_review_cycle("security-review"),
     "STATUS_ACTION_PLAN_REVIEWED": _drive_review_cycle("xp-review-plan"),
     "STATUS_ACTION_ASSIGN_COMPLETE": _drive_review_cycle("xp-assign"),

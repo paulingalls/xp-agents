@@ -200,7 +200,13 @@ BAND_CEILINGS = {
     # not express: the incoming COUNT, and that the merge commit itself is filtered
     # out of its own range. Trimmed the prose first; the remainder is assertions.
     "plugins/xp-agents/tests/hooks/test_commits_git_helpers.py": 459,
-    "plugins/xp-agents/tests/smm/test_append_safety.py": 452,
+    # 452 -> 472 for the trailing-newline pins on the agent-id allowlist (`$`
+    # matched before a final newline; `\Z` does not). The file sat at exactly
+    # its own ceiling, and the cheapest way to stay under it was to put the
+    # pins in a file that does not test this validator — the relocation debt
+    # 22abb3a8d214 names. Raised instead, because the two pins belong beside
+    # the twelve rejection cases they extend.
+    "plugins/xp-agents/tests/smm/test_append_safety.py": 472,
     "plugins/xp-agents/tests/scaffold/test_scaffold_cli_detect.py": 452,
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_branch_delete.py": 451,
     # Entered the band with story-011's stream-relay proofs (both-streams +
