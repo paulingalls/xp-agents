@@ -35,10 +35,11 @@ class TestWhatTheMergeEventResolves(_MergeCase):
     teammate's per-commit events can fail to reach the shared log — so the
     merged-in bodies are re-parsed for trailers those events would have carried.
     That derivation must ADD to the merge body's own trailer, never replace it.
-    Replacing is safe in `merge_commit_event` only because the body it builds
-    from is a generated `Merge <source>` subject with no trailer by
-    construction; an operator's `-m` is not, and dropping what they typed is the
-    same silent loss the tag exists to prevent.
+    Replacing was never safe in `merge_commit_event` either (story-005): its body
+    is read back from HEAD, so it is whatever actually landed there, not a
+    generated subject — see `merge_commit_event.py:99-107` for the corrected
+    rationale. An operator's `-m` can carry a trailer same as here, and dropping
+    what they typed is the same silent loss the tag exists to prevent.
 
     Driven through the conflict-finish shape: it confirms on git's
     `[branch hash]` line rather than on a message match, so the body is free to
