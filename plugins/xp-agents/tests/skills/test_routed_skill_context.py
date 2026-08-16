@@ -8,6 +8,12 @@ returns at launch. Flipping either frontmatter silently inverts that reasoning
 — a forked /xp-quality-review would make the omitted entry correct again, and
 an inlined /xp-review-plan would record its review before one had run — and
 nothing else in the suite pins the classification per name.
+
+story-013 note: `_TARGET_BY_NAME` no longer routes `xp-review-plan` at all
+(increment 1) because it is CONVERTING to the same inline-spawns-subagent
+shape as `xp-quality-review` (increment 2 lands the frontmatter change). This
+pin still asserts `True` until that frontmatter edit lands — flip it in the
+same commit as the `context: fork` removal, not before.
 """
 
 import sys

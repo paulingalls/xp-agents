@@ -197,7 +197,8 @@ def _drive_review_cycle(skill: str) -> Driver:
 
 
 def _drive_reviewer_completion(agent_type: str) -> Driver:
-    """qr_complete rides the reviewer's SubagentStop, not either PostToolUse.
+    """qr_complete and plan_reviewed both ride the reviewer's SubagentStop,
+    not either PostToolUse.
 
     Both PostToolUse payloads fire when their tool call RETURNS, which is at
     launch for an inline skill and for an Agent-tool subagent this harness
@@ -326,7 +327,9 @@ _PRODUCER_CASES: dict[str, Driver] = {
         "xp-agents:xp-code-reviewer"
     ),
     "STATUS_ACTION_SECURITY_COMPLETE": _drive_review_cycle("security-review"),
-    "STATUS_ACTION_PLAN_REVIEWED": _drive_review_cycle("xp-review-plan"),
+    "STATUS_ACTION_PLAN_REVIEWED": _drive_reviewer_completion(
+        "xp-agents:xp-plan-reviewer"
+    ),
     "STATUS_ACTION_ASSIGN_COMPLETE": _drive_review_cycle("xp-assign"),
     "STATUS_ACTION_HOUSEKEEPING_COMPLETE": _drive_review_cycle("xp-housekeeper"),
     "STATUS_ACTION_QUESTION_CLOSE": _drive_question_close,

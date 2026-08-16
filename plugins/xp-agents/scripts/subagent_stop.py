@@ -197,16 +197,24 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> None:
     The real teammate gate is the ASSIGN_PENDING marker on disk plus the
     plan_reviewed gate event, both written below; the reviewer's own
     Next-step block already tells the main agent to run /xp-assign.
+
+    plan_reviewed is emitted on BOTH the solo and teammate paths — it is a
+    completion record, not a gate; only ASSIGN_PENDING is teammate-scoped.
+    Since /xp-review-plan converted from a forked skill to one that spawns
+    xp-plan-reviewer via Agent (story-013), this SubagentStop leg is the sole
+    producer of that record, same shape as quality_review_done.
     """
     agent_type = input_data.get("agent_type", "")
     if target_routing.strip_our_namespace(agent_type) != _PLAN_REVIEWER_BARE:
         return None
 
+    agent_id = input_data.get("agent_id", _PLAN_REVIEWER_AGENT_ID)
+
     # Narrow the assign gate to teammate-mode plans: only teammate mode
     # needs /xp-assign to create the branch and spawn the teammate (per
     # story). Solo/unset plan reviews leave no marker so the agent codes
-    # straight through — but still record the reviewer's completion (the
-    # generic path below skips xp-* agents).
+    # straight through — but still record the reviewer's completion, and
+    # still record plan_reviewed (the generic path below skips xp-* agents).
     #
     # Loaded ONCE and read twice: the same sprint answers "is this a delegated
     # plan?" and "which stories is the marker being armed for?". The two used
@@ -218,10 +226,16 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> None:
         sprint_data.get("stories", [])
     )
     if not promoted:
+        solo_event = _common.make_event(
+            _common.STATUS,
+            agent_id,
+            "Plan reviewed",
+            working_on=[],
+            metadata={"action": STATUS_ACTION_PLAN_REVIEWED},
+        )
+        _common.append_safe(smm_dir, solo_event)
         _emit_subagent_complete(smm_dir, input_data)
         return None
-
-    agent_id = input_data.get("agent_id", _PLAN_REVIEWER_AGENT_ID)
     # SCOPE the marker to the stories this review covered, so a marker that
     # goes moot cannot gate an unrelated frontier promoted later. Only the
     # promoted set — deliberately NOT also filtered by "already spawned":

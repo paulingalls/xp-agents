@@ -3,15 +3,16 @@
 lifecycle events, inject post-completion context after review skills or
 the xp-housekeeper agent.
 
-Detects /code-review, /security-review, /xp-review-plan and /xp-assign via
-tool_input.skill, and the xp-housekeeper agent via tool_input.subagent_type.
-Each appends a canonical status event with metadata.action so consumers can
-detect completions without regex-matching LLM-authored content.
+Detects /code-review, /security-review and /xp-assign via tool_input.skill,
+and the xp-housekeeper agent via tool_input.subagent_type. Each appends a
+canonical status event with metadata.action so consumers can detect
+completions without regex-matching LLM-authored content.
 
-Every hook here fires at the tool call's RETURN, which is at LAUNCH for all but
-the one forked skill — so the only per-commit flag it may set is simplify_done,
-whose launch timing is depended on. quality_review_done needs a completion
-signal and is set by subagent_stop; see the allowlist below.
+Every hook here fires at the tool call's RETURN, which is LAUNCH for every
+entry — so the only per-commit flag it may set is simplify_done, whose launch
+timing is depended on. quality_review_done and plan_reviewed need a
+completion signal instead and are set by subagent_stop; see the allowlist
+below.
 
 ACCEPT_IN_FLIGHT drain lives in a sibling hook (accept_terminal.py) — this
 hook owns review-cycle lifecycle, that one owns accept-marker lifecycle.
@@ -39,7 +40,6 @@ import target_routing
 # Canonical target names; mapped from skill/agent names by _detect_target.
 _TARGET_SIMPLIFY = "simplify"
 _TARGET_SECURITY_REVIEW = "security-review"
-_TARGET_PLAN_REVIEW = "review-plan"
 _TARGET_ASSIGN = "assign"
 _TARGET_HOUSEKEEPING = "housekeeping"
 
@@ -53,14 +53,18 @@ _TARGET_HOUSEKEEPING = "housekeeping"
 # and measured 2026-08-15 that is at launch for an inline skill (security-review,
 # xp-assign), for an async workflow (code-review, whose call returns once it is
 # in flight), and for an Agent-tool subagent, which this harness backgrounds.
-# xp-review-plan is the one exception — it is FORKED, so its Skill call really
-# does return at completion.
+# There is no exception left: xp-review-plan converted (story-013) from a
+# forked skill (whose Skill call really did return at completion) to an
+# inline skill that spawns its own xp-plan-reviewer subagent, so its
+# completion signal moved to subagent_stop's SubagentStop leg — same shape
+# as quality_review_done below.
 #
-# quality_review_done therefore does NOT live here: it is the flag the commit
-# gate reads, so it needs a completion signal, and it is set from
-# subagent_stop's SubagentStop leg instead. v5.16.0 briefly keyed it on the
-# xp-code-reviewer AGENT in this table, which moved the defect from
-# skill-launch to agent-launch rather than removing it.
+# quality_review_done and plan_reviewed therefore do NOT live here: both are
+# completion signals, set from subagent_stop's SubagentStop leg instead.
+# v5.16.0 briefly keyed quality_review_done on the xp-code-reviewer AGENT in
+# this table, which moved the defect from skill-launch to agent-launch rather
+# than removing it — the mistake this table must not repeat for
+# xp-review-plan now that it spawns xp-plan-reviewer the same way.
 #
 # What launch timing IS depended on: simplify_done, which
 # review_records.review_mid_cycle reads as "the /code-review workflow is still
@@ -69,7 +73,6 @@ _TARGET_HOUSEKEEPING = "housekeeping"
 _TARGET_BY_NAME: dict[str, str] = {
     "code-review": _TARGET_SIMPLIFY,
     "security-review": _TARGET_SECURITY_REVIEW,
-    "xp-review-plan": _TARGET_PLAN_REVIEW,
     "xp-assign": _TARGET_ASSIGN,
     "xp-housekeeper": _TARGET_HOUSEKEEPING,
 }
@@ -100,10 +103,6 @@ _TARGET_LIFECYCLE: dict[str, tuple[str, str]] = {
     _TARGET_SECURITY_REVIEW: (
         event_schema.STATUS_ACTION_SECURITY_COMPLETE,
         "Security review complete — full review performed",
-    ),
-    _TARGET_PLAN_REVIEW: (
-        event_schema.STATUS_ACTION_PLAN_REVIEWED,
-        "Plan reviewed",
     ),
     _TARGET_ASSIGN: (
         event_schema.STATUS_ACTION_ASSIGN_COMPLETE,
