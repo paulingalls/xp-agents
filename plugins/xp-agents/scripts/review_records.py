@@ -127,7 +127,9 @@ def write_review_watermark(smm_dir: Path, agent_id: str, commit_hash: str) -> No
 
 _COVERAGE_PATHS = "paths"
 _COVERAGE_AGE = "commits_survived"
-_COVERAGE_HEAD = "written_at"
+# `_commit`, not a bare `written_at`: the heartbeat and session markers store a
+# float epoch under that name, and a reader would take this sha for a time.
+_COVERAGE_HEAD = "written_at_commit"
 
 # A review's coverage outlives the commit that ends its own cycle, and is spent
 # by the next one. Two, not one: the reviewed work lands first, so spending it

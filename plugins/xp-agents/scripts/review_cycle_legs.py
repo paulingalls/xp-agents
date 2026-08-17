@@ -28,18 +28,19 @@ import review_records
 import target_routing
 from event_schema import STATUS_ACTION_QR_COMPLETE
 
-# The share of the SubagentStop budget the coverage scan may spend. hooks.json
-# gives this handler 5000ms TOTAL, and `commits._run_git` bounds each call, not
-# the set — so the three legs the scan runs would allow 15s and get the handler
-# killed part-way. What is left over pays for the two marker writes and the
-# event append that follow the scan, which is why this is not the whole budget.
-# Kept here rather than in `commits`: the number is a property of THIS hook's
-# registration, and `commits` serves callers with no budget at all.
-_SCAN_BUDGET_S = 3.0
-# The HEAD read that stamps the coverage record comes out of the same 5000ms.
-# `rev-parse HEAD` is the cheapest read git has, so it gets the smallest share
-# that is still an honest bound; 3.0 + 0.5 leaves the writes their room.
-_HEAD_BUDGET_S = 0.5
+# How the SubagentStop budget is divided. hooks.json gives this handler 5000ms
+# TOTAL and `commits._run_git` bounds each CALL, so the four reads below would
+# allow 20s unbounded and get the handler killed part-way; what is left of the
+# 5000ms pays for the two marker writes and the event append after them. Kept
+# here, not in `commits`: the number is a property of THIS registration, and
+# `commits` serves callers with no budget at all.
+_SCAN_BUDGET_S = 2.5
+# A whole leg's worth for one `rev-parse`, git's cheapest read, because the two
+# fail in OPPOSITE directions: a scan leg timing out only narrows the recorded
+# set, while this one times out to `""` and ships a record with no stamp,
+# silently disabling `read_review_coverage`'s HEAD-distance expiry. The
+# fail-open read gets the room.
+_HEAD_BUDGET_S = 1.0
 
 
 def _is_code_review(name: str) -> bool:
@@ -161,10 +162,12 @@ def _record_completed_quality_review(smm_dir: Path, cwd: str, input_data: dict) 
     nothing stages them. v5.17.0 asked for the default scan, which reads staged
     + committed only, so in the dominant flow it recorded an EMPTY set and the
     fix it shipped did nothing — the next `git add -A && git commit` counted
-    the reviewer's own fixes unreviewed and demanded another review. Widening
-    is also the honest scope rather than a loosening: the diff the review was
-    handed is the working tree's (`git diff HEAD`, staged and unstaged both),
-    so the narrower set claimed less than was actually looked at.
+    the reviewer's own fixes unreviewed and demanded another review. Honest
+    scope, not a loosening, ON THE PER-INCREMENT PATH: that preload hands the
+    reviewer `git diff HEAD`, staged and unstaged both. The two close branches
+    (`MODE=consume-findings`, `CADENCE=story`) hand it a committed range, so
+    there the leg can forgive a file it never saw — accepted: story cadence
+    only advises at the gate, and a close range forgives more than this leg.
 
     Keyed on the repo, like the watermark, because the paths are repo-relative.
     `commits` is imported lazily — every subagent completion reaches this
