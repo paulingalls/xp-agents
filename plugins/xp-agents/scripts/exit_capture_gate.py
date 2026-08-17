@@ -41,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import declared_test_command
+import prewalk_rewrites
 import shell_exit_structure
 
 # Re-exported, not owned: the marker waives every pre-run refusal built on the
@@ -122,7 +123,16 @@ def captured_exit_block(smm_dir: Path, command: str) -> str | None:
     # `test_attribution`'s predicate matches a closed set of names and cannot,
     # which is why that consumer may omit the substitution rewrite and this one
     # may not.
-    if shell_exit_structure.exit_reaches_shell_for(command, runs_target):
+    #
+    # And the pipeline elision BEFORE it, for the reason `reads_piped_as_words`
+    # states: `|` binds tighter than `&&`, so `<declared> && cat log | tail` is
+    # `<declared> && (cat log | tail)` and a failed run's status still reaches
+    # the shell. Without this the refusal below prescribed a shape this gate then
+    # refused — retype the advice, get refused again. Fixed in the git-write
+    # sibling first and left standing here for a release, which is what made
+    # sharing it the fix rather than copying it.
+    elided = prewalk_rewrites.reads_piped_as_words(command, runs_target)
+    if shell_exit_structure.exit_reaches_shell_for(elided, runs_target):
         return None
     # Asked only on the refusal path, where one more walk over one short string
     # costs nothing, rather than on every Bash call in the session.

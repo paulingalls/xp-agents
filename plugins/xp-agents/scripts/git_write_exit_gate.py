@@ -64,6 +64,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import git_commits
+import prewalk_rewrites
 import shell_exit_structure
 
 # `GIT_PREFIX` rather than a bare `git\s+`, because `git -C <path> push` is the
@@ -93,15 +94,6 @@ _GIT_WRITE_RE = re.compile(
 # real break after it.
 _LINE_CONTINUATION_RE = re.compile(r"\\\n[ \t]*")
 
-# The operators the shell binds LOOSER than a pipe, and a single `|`, which it
-# binds tighter. Both are read only by `_reads_piped_as_words`, whose whole
-# subject is that difference in precedence.
-_LOOSE_BREAK_RE = re.compile(r"(&&|\|\||;|\n)")
-_PIPE_RE = re.compile(r"(?<!\|)\|(?!\|)")
-# What an elided read's pipeline leaves behind — any operator-free token would
-# do, as in `shell_exit_structure.argument_substitutions_as_words`.
-_READ_WORD = " x "
-
 
 def git_write_named(command: str) -> str | None:
     """The write subcommand *command* names, or None when it names none.
@@ -122,42 +114,6 @@ def git_write_named(command: str) -> str | None:
         if match is not None:
             return match.group("subcommand")
     return None
-
-
-def _reads_piped_as_words(command: str) -> str:
-    """*command* with every pipeline that runs no git write reduced to one word.
-
-    `|` binds TIGHTER than `&&`, so `git push && git log | cat` is
-    `git push && (git log | cat)`: a failed push short-circuits the list and its
-    non-zero IS the shell's, which is the whole reason `&&` is permitted. The
-    shared walk cannot see that — it reads operators in sequence with no
-    precedence and refuses the first discard anywhere after the write — so the
-    composition this refusal PRESCRIBES was itself refused, and the next attempt
-    reads the advice, retypes it and is refused again.
-
-    A rewrite rather than a second walk, for the reason
-    `argument_substitutions_as_words` is one: the same command, restated without
-    a pipe that was never the write's. Four things are left alone, each because
-    eliding it would answer a different question than the one asked:
-
-      * a pipeline that RUNS a write — `git push | tail` is the shape this gate
-        exists for.
-      * a background `&`, which applies to the whole list, write included.
-      * a substitution, whose opener the walk must still see and balance.
-      * an odd quote count, which means a quoted span crosses this operator, so
-        the split did not land where the shell would put it.
-    """
-    parts = _LOOSE_BREAK_RE.split(command)
-    for i in range(0, len(parts), 2):
-        part = parts[i]
-        if not _PIPE_RE.search(part) or git_write_named(part) is not None:
-            continue
-        if shell_exit_structure.ASYNC_RE.search(part) or "$(" in part or "`" in part:
-            continue
-        if part.count('"') % 2 or part.count("'") % 2:
-            continue
-        parts[i] = _READ_WORD
-    return "".join(parts)
 
 
 def _refusal(subcommand: str) -> str:
@@ -210,7 +166,8 @@ def captured_git_write_block(command: str) -> str | None:
     if subcommand is None:
         return None
     if shell_exit_structure.exit_reaches_shell_for(
-        _reads_piped_as_words(joined), _runs_a_git_write
+        prewalk_rewrites.reads_piped_as_words(joined, _runs_a_git_write),
+        _runs_a_git_write,
     ):
         return None
     return _refusal(subcommand)

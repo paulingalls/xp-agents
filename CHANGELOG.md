@@ -130,6 +130,18 @@ allowed. The body is still data; what follows the operator on that line is code,
 and is now kept. The same span hid a chained `&& git branch -D <branch>` from the
 branch-delete refusal, which shares that helper.
 
+*And the same fix now covers both gates, which is why it is a rewrite and not a
+patch.* `|` binds tighter than `&&`, so `<declared command> && cat out.log | tail
+-5` is `<declared> && (cat out.log | tail -5)` — a failed run short-circuits and
+its non-zero still reaches the shell. Fixing that in the write gate alone left the
+declared-command gate refusing the exact composition **its own refusal text
+recommends**, for a release. The elision is now `prewalk_rewrites`, shared, and
+takes each caller's own predicate. One case only surfaced once it was shared: a
+text-shaped predicate finds a target inside a quoted `sh -c` body, a head-token
+one reads `bash -c "..."` as running `bash`, so the elision has to check the
+wrapper's body the way the walk already does — caught by the older gate's own
+laundering test the moment the rewrite reached it.
+
 *And the escape marker was matched anywhere in the command text*, so a commit
 *message* quoting `# exit-status-not-needed` — which the notes describing it do —
 waived the gate on exactly the command whose pre-commit hooks exist to fail. It is
@@ -140,19 +152,11 @@ not, so a double-quoted message body no longer reaches any scanner as code.
 
 ### Known residuals
 
-Three of these are the same shape — a fix that landed in one consumer of a
-composition this release exists to share — and listing them together is the point
-rather than an accident of drafting. The close review found the third by asking
-why the first two were listed and a fourth was not.
+Both are the same shape — a fix that landed in one consumer of a composition this
+release exists to share. A third was listed here until the close review asked why
+two were disclosed and the most user-visible one was not; that question is what
+turned it into the fix below.
 
-- **The read-pipeline elision is fixed in the write gate only, and this is the
-  one a user will hit.** `|` binds tighter than `&&`, so the walk misreads
-  `<runner> && cat out.log | tail -5` as a captured runner. The write gate elides
-  read-only pipelines before the walk; `exit_capture_gate` does not, so with a
-  test command declared **that command is still refused — and its own refusal text
-  recommends exactly that shape.** Measured on the branch, not inferred. The fix
-  is to share the elision, which needs a home in a file now nine lines from its
-  cap, hence an extraction first.
 - **A completed review credits the wrong tree for a teammate story.** The
   reviewer's diff is taken in `TEAMMATE_CWD` — a live worktree — while this record
   keys on the `SubagentStop` payload's cwd, the orchestrator checkout. So the

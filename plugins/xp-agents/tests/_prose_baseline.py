@@ -162,16 +162,14 @@ PROSE_MEASURED: dict[str, int] = {
     # (a `;` that is compound-statement syntax), and why `|` after `&&` is not a
     # discard — the last of which it had refused, while its refusal text
     # prescribed that exact shape.
-    # 130 -> 140 at the close review, and this one is a NET trade rather than an
-    # allowance: `_refusal`'s docstring stopped restating the four things four
-    # tests already pin (-4), and the module gained the paragraph naming WHOSE
-    # commands it binds (+14). The reviewer's finding was that "needs no
-    # shared-model directory" is a narrower claim than the placement makes — the
-    # gate also sits above the shared-model lookup, so it refuses in projects
-    # with none, which is every Bash command in an installed project and not
-    # just this plugin's agents. A footprint that wide, recorded nowhere, is
-    # what this table exists to stop being cheap to leave out.
-    "plugins/xp-agents/scripts/git_write_exit_gate.py": 140,
+    # RETIRED (v5.19.0 close review): git_write_exit_gate.py 140 -> 113 prose,
+    # under the 120 floor, so the entry is DELETED rather than lowered — which
+    # is what banks the shrink instead of leaving 27 lines of re-entry
+    # allowance. It shrank because the read-pipeline elision it owned privately
+    # moved to prewalk_rewrites.py to be shared with the declared-command gate,
+    # and the argument for a rewrite-not-a-second-walk went with it. The
+    # footprint paragraph that took this file to 140 stayed; it is about this
+    # gate's own placement and belongs nowhere else.
     "plugins/xp-agents/scripts/hook_liveness.py": 196,
     # 227 -> 239: CLOSE_CYCLE_AGENT_ID lands here rather than in
     # `event_metadata` — it is an agent identity, not an event metadata key, and

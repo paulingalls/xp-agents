@@ -173,7 +173,13 @@ BAND_CEILINGS = {
     # masking-declaration case added alongside. The cohesive group to extract
     # when it next grows is `TestEndToEndThroughTheRealHook`, once a second
     # suite needs the same real-runner-with-a-sentinel fixture.
-    "plugins/xp-agents/tests/hooks/test_exit_capture_gate.py": 470,
+    # Ratcheted 470 -> 481 for the two honest shapes the close review found this
+    # gate refusing: `<declared> && <read> | <pager>`, where `|` binds tighter
+    # so a failed run short-circuits and its status still reaches the shell.
+    # They go in _HONEST_SHAPES rather than a new class because that table IS
+    # the statement of what must not be refused, and the refusal text has
+    # recommended a trailing `&& <next>` since this gate shipped.
+    "plugins/xp-agents/tests/hooks/test_exit_capture_gate.py": 481,
     # RETIRED (story-019 follow-up): test_sprint_frontier.py 470->283. The
     # unscoped-verdict tests had already moved to test_frontier_unprovable.py;
     # the dependency-edge / treat_as_done group moved to
