@@ -16,6 +16,15 @@ Measured end to end rather than asserted: reverting the emitter to its previous
 form makes the composition test fail `3 != 1`, with the log showing three
 separate `ruff check` invocations where there is now one.
 
+**A commit made from a subdirectory clears its lint concerns.** `git -C sub
+commit` and `cd sub && git commit` hand the hook a cwd below the repo root,
+while git still names the committed files relative to the root. Resolution
+normalized them against the cwd, doubling the prefix — `pkg/src/a.py` became
+`pkg/pkg/src/a.py`, which matches no recorded concern, so the file was dropped
+before the linter ever ran and its concern never cleared. Nothing errored; the
+work simply did not happen. Everything on this path is now resolved against the
+repo root, which the orphan sweep's own `.exists()` check already assumed.
+
 **Grouping is one implementation, shared, and it is not ruff-shaped.** The
 routing was fused to the commit-time gate's git-index filter; it now lives in
 `lint_grouping.group_paths_by_linter`, filter-free, with each caller bringing

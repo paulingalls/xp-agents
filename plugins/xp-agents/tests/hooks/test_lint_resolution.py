@@ -9,6 +9,7 @@ concerns.lint_concern_matches matcher all of it depends on.
 
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -119,6 +120,76 @@ class TestResolveLintFromConfigDir(_HookTestCase):
             e for e in self._read_events() if e.get("metadata", {}).get("resolves")
         ]
         self.assertEqual(len(resolutions), 1)
+        self.assertIn(concern["id"], resolutions[0]["metadata"]["resolves"])
+
+
+class TestPathsResolveAgainstTheRepoRoot(_HookTestCase):
+    """git names committed paths relative to the REPO ROOT, so resolution has
+    to normalize them there — not against the hook's cwd, which is a
+    subdirectory whenever the agent committed with `git -C sub` or `cd sub &&`.
+
+    `staged_lint` states this rule and follows it; this leg computed `git_root`
+    and then normalized against `cwd` anyway. The prefix doubles
+    (`pkg/src/a.py` -> `pkg/pkg/src/a.py`), the doubled path matches no recorded
+    concern, the file is dropped by the has-a-concern filter, and its concern
+    never clears. Silently — nothing errors, the linter simply never runs for it.
+
+    The same file already assumed root-relative one branch over: the orphan
+    sweep's `.exists()` check joins against `git_root`.
+    """
+
+    def _repo_with_concern(self):
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
+        pkg = repo / "pkg"
+        (pkg / "src").mkdir(parents=True)
+        (pkg / "ruff.toml").write_text("line-length = 88\n")
+        (pkg / "src" / "a.py").write_text("x = 1\n")
+        subprocess.run(["git", "init", "-q"], cwd=repo, capture_output=True)
+        concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Lint errors in pkg/src/a.py:\nE302 expected 2 blank lines",
+            severity="medium",
+        )
+        self._write_events([concern])
+        return repo, concern
+
+    def _resolve_from(self, repo, cwd):
+        """Drive the commit leg with git's own repo-root-relative path list."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch(
+                "lint_check.run_linter_batch",
+                return_value=lint_check.LintRun("clean", ""),
+            ),
+        ):
+            lint_resolution.resolve_lint_on_commit(
+                self.smm_dir, str(cwd), "main", ["pkg/src/a.py"]
+            )
+        return [
+            e for e in self._read_events() if (e.get("metadata") or {}).get("resolves")
+        ]
+
+    def test_a_commit_from_the_repo_root_resolves(self):
+        """Control. Without it, the subdirectory case below could be red for a
+        reason that has nothing to do with the normalization base."""
+        repo, concern = self._repo_with_concern()
+        resolutions = self._resolve_from(repo, repo)
+        self.assertEqual(len(resolutions), 1, f"expected one resolution: {resolutions}")
+        self.assertIn(concern["id"], resolutions[0]["metadata"]["resolves"])
+
+    def test_a_commit_from_a_subdirectory_resolves_too(self):
+        """The defect. `git -C pkg commit` hands the hook cwd=<repo>/pkg while
+        git still names the file `pkg/src/a.py`."""
+        repo, concern = self._repo_with_concern()
+        resolutions = self._resolve_from(repo, repo / "pkg")
+        self.assertEqual(
+            len(resolutions),
+            1,
+            "a commit made from a subdirectory cleared no lint concern — the "
+            f"committed path was normalized against cwd, not the repo root: "
+            f"{resolutions}",
+        )
         self.assertIn(concern["id"], resolutions[0]["metadata"]["resolves"])
 
 

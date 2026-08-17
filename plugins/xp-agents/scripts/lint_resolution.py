@@ -193,7 +193,13 @@ def resolve_lint_on_commit(
     if resolutions is None:
         resolutions = resolution.compute_resolutions(events)
 
-    normalized = [worktree.normalize_path(f, cwd) for f in files]
+    # git names committed paths relative to the REPO ROOT, so resolve them
+    # there — not against the hook's cwd, which is a subdirectory whenever the
+    # agent committed with `git -C sub` or `cd sub &&`. Normalizing against cwd
+    # DOUBLES the prefix, the doubled path matches no recorded concern, and the
+    # file is dropped by the filter below — silently. `staged_lint` states the
+    # same rule for the same reason.
+    normalized = [worktree.normalize_path(f, git_root) for f in files]
     normalized = [
         p
         for p in normalized
@@ -207,7 +213,7 @@ def resolve_lint_on_commit(
     if not normalized:
         return
 
-    groups = lint_grouping.group_paths_by_linter(normalized, cwd, git_root)
+    groups = lint_grouping.group_paths_by_linter(normalized, git_root, git_root)
     for (linter_name, config_path), paths in groups.items():
         _resolve_group(
             smm_dir,
@@ -243,8 +249,12 @@ def sweep_orphan_lint_concerns(
     if resolutions is None:
         resolutions = resolution.compute_resolutions(events)
 
+    # Hoisted above its first use: every path below is repo-root-relative,
+    # which the `.exists()` join further down already assumed while the two
+    # normalizations here resolved against cwd.
+    git_root = worktree.resolve_git_root(cwd) or cwd
     resolved_ids = resolutions["resolved_concern_ids"]
-    committed_set = {worktree.normalize_path(f, cwd) for f in committed_files}
+    committed_set = {worktree.normalize_path(f, git_root) for f in committed_files}
 
     orphan_paths: set[str] = set()
     for e in events:
@@ -255,21 +265,20 @@ def sweep_orphan_lint_concerns(
         path_part = concerns.extract_lint_concern_path(e.get("content", ""))
         if path_part is None:
             continue
-        normalized = worktree.normalize_path(path_part, cwd)
+        normalized = worktree.normalize_path(path_part, git_root)
         if normalized not in committed_set:
             orphan_paths.add(normalized)
 
     if not orphan_paths:
         return
 
-    git_root = worktree.resolve_git_root(cwd) or cwd
     # sorted: orphan_paths is a set, and an unordered batch would hand the
     # linter its file args in a different order run to run.
     eligible = sorted(p for p in orphan_paths if (Path(git_root) / p).exists())
     if not eligible:
         return
 
-    groups = lint_grouping.group_paths_by_linter(eligible, cwd, git_root)
+    groups = lint_grouping.group_paths_by_linter(eligible, git_root, git_root)
     for (linter_name, config_path), paths in groups.items():
         _resolve_group(
             smm_dir,
