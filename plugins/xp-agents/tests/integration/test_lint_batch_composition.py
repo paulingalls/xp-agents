@@ -241,5 +241,61 @@ class TestTheStagedGateRunsOncePerGroup(_LintedRepoCase):
         )
 
 
+class TestPostCommitResolutionRunsOnceAndClearsTheGroup(_LintedRepoCase):
+    """story-002's AC 5, deferred here on the record.
+
+    story-002 shipped the batching with its E2E explicitly owed to this story,
+    after its plan review caught a claim that the existing integration suite
+    already covered it. It did not — that suite's repo has no linter config.
+    This is the debt being paid: one real commit, the real PostToolUse hook as
+    a subprocess, one linter process, every concern in the group cleared.
+    """
+
+    def _commit_and_resolve(self, *rel_paths: str) -> dict[str, str]:
+        ids = self._seed_lint_concerns(*rel_paths)
+        self._touch_and_stage(*rel_paths)
+        git_in(self.repo, "commit", "-m", "fix the lint")
+        self._clear_spawns()
+        self._run_hook("bash_post_tool.py", "git commit -m 'fix the lint'")
+        return ids
+
+    def test_one_spawn_resolves_every_concern_in_the_group(self):
+        ids = self._commit_and_resolve(*_PY_FILES)
+
+        spawns = self._spawns("ruff")
+        self.assertEqual(
+            len(spawns),
+            1,
+            f"post-commit resolution spawned {len(spawns)} ruff processes for "
+            f"{len(_PY_FILES)} files sharing one config: {spawns}",
+        )
+        resolved = self._resolved_ids()
+        for rel, concern_id in ids.items():
+            self.assertIn(
+                concern_id,
+                resolved,
+                f"the clean batch did not resolve {rel}'s concern — one process "
+                f"is only correct if it vouches for the whole group",
+            )
+
+    def test_a_file_with_no_open_concern_spawns_nothing(self):
+        """The honest bound is zero, not one.
+
+        story-002's second filter drops paths carrying no unresolved lint
+        concern, which is most commits. Without this the spawn count above
+        could be read as "resolution always costs one process".
+        """
+        self._touch_and_stage(*_PY_FILES)
+        git_in(self.repo, "commit", "-m", "no concerns outstanding")
+        self._clear_spawns()
+        self._run_hook("bash_post_tool.py", "git commit -m 'no concerns outstanding'")
+
+        self.assertEqual(
+            self._spawns("ruff"),
+            [],
+            "a linter ran for a commit with no lint concern to resolve",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
