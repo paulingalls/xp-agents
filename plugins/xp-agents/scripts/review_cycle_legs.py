@@ -28,6 +28,15 @@ import review_records
 import target_routing
 from event_schema import STATUS_ACTION_QR_COMPLETE
 
+# The share of the SubagentStop budget the coverage scan may spend. hooks.json
+# gives this handler 5000ms TOTAL, and `commits._run_git` bounds each call, not
+# the set — so the three legs the scan runs would allow 15s and get the handler
+# killed part-way. What is left over pays for the two marker writes and the
+# event append that follow the scan, which is why this is not the whole budget.
+# Kept here rather than in `commits`: the number is a property of THIS hook's
+# registration, and `commits` serves callers with no budget at all.
+_SCAN_BUDGET_S = 3.0
+
 
 def _is_code_review(name: str) -> bool:
     """True for the built-in /code-review skill, but NOT our own
@@ -167,7 +176,9 @@ def _record_completed_quality_review(smm_dir: Path, cwd: str, input_data: dict) 
 
     repo_key = identity.review_watermark_key(cwd)
     watermark = review_records.read_review_watermark(smm_dir, repo_key)
-    scope = commits.get_code_files_for_review(cwd, watermark, include_unstaged=True)
+    scope = commits.get_code_files_for_review(
+        cwd, watermark, include_unstaged=True, scan_budget_s=_SCAN_BUDGET_S
+    )
     review_records.write_review_coverage(smm_dir, repo_key, scope)
     review_records.set_review_flag(
         smm_dir, identity.review_flags_key(cwd), "quality_review_done"

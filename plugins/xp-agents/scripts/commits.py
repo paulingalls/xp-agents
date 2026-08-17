@@ -24,11 +24,16 @@ from commits_issues import (
 REVIEW_CYCLE_THRESHOLD: int = 2
 
 
-def _run_git(args: list[str], cwd: str) -> str | None:
-    """Run a git command, return stripped stdout or None on failure."""
+def _run_git(args: list[str], cwd: str, timeout: float = 5) -> str | None:
+    """Run a git command, return stripped stdout or None on failure.
+
+    ``timeout`` is PER CALL, so a caller making several reads inside a bounded
+    hook has to divide its own budget across them rather than take the default
+    each time — see `get_code_files_for_review`'s ``scan_budget_s``.
+    """
     try:
         result = subprocess.run(
-            args, capture_output=True, text=True, timeout=5, cwd=cwd
+            args, capture_output=True, text=True, timeout=timeout, cwd=cwd
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -203,6 +208,7 @@ def get_code_files_for_review(
     *,
     staged_diff: str | None = None,
     include_unstaged: bool = False,
+    scan_budget_s: float | None = None,
 ) -> list[str]:
     """Get deduplicated code files changed since last review + staged.
 
@@ -221,13 +227,37 @@ def get_code_files_for_review(
     recorder in `review_cycle_legs` runs at a subagent's completion and knows
     the leg is wanted outright. It asks with this instead of passing a fake
     command, which would put a lie in the argument the regex reads.
+
+    ``scan_budget_s`` is a bound on the WHOLE scan, for a caller running inside
+    a hook that has one. `_run_git`'s timeout is per call, so three legs at the
+    default would allow 15s inside a 5s SubagentStop budget: the hook is killed
+    mid-handler, and the state it fails into (gate armed, flag unset) is only
+    recoverable by another full review. The budget is split evenly across the
+    legs that will actually run, counted before any of them does, so the split
+    does not depend on what the earlier reads returned. None keeps the
+    per-call default — the pre-commit gate is not the bounded caller.
     """
     all_files: set[str] = set()
+
+    wants_unstaged = bool(
+        include_unstaged
+        or re.search(git_commits.GIT_PREFIX + r"add\b", command)
+        or re.search(git_commits.GIT_PREFIX + r"commit\s+-a", command)
+    )
+    legs = (
+        int(staged_diff is None) + int(bool(last_review_commit)) + int(wants_unstaged)
+    )
+    per_leg = scan_budget_s / legs if scan_budget_s is not None and legs else None
+    read = (
+        (lambda cmd: _run_git(cmd, cwd))
+        if per_leg is None
+        else (lambda cmd: _run_git(cmd, cwd, timeout=per_leg))
+    )
 
     if staged_diff is not None:
         all_files.update(get_filenames_from_diff(staged_diff))
     else:
-        out = _run_git(["git", "diff", "--cached", "--name-only", "-z"], cwd)
+        out = read(["git", "diff", "--cached", "--name-only", "-z"])
         if out is None:
             return []
         all_files.update(_nul_paths(out))
@@ -238,18 +268,14 @@ def get_code_files_for_review(
             ["git", "diff", "--name-only", "-z", f"{last_review_commit}..HEAD"]
         )
 
-    # If the command includes 'git add' or 'git commit -a', also check
-    # unstaged tracked changes — those will be staged by the command itself.
-    # GIT_PREFIX tolerates `git -C <path>` for both subcommands.
-    if (
-        include_unstaged
-        or re.search(git_commits.GIT_PREFIX + r"add\b", command)
-        or re.search(git_commits.GIT_PREFIX + r"commit\s+-a", command)
-    ):
+    # Unstaged tracked changes: either the caller asked outright, or the
+    # command will stage them itself ('git add' / 'git commit -a'). Decided
+    # above, with the leg count, so the budget split sees the same answer.
+    if wants_unstaged:
         extra_commands.append(["git", "diff", "--name-only", "-z"])
 
     for cmd in extra_commands:
-        out = _run_git(cmd, cwd)
+        out = read(cmd)
         if out is None:
             continue
         all_files.update(_nul_paths(out))

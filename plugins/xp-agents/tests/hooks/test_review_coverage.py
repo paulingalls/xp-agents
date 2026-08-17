@@ -19,6 +19,8 @@ Coverage that never expired would let a file be edited freely forever once a
 review had glanced at it.
 """
 
+import math
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -356,7 +358,38 @@ class TestCoverageBelongsToTheRepoItWasMeasuredIn(_HookTestCase):
         )
 
 
-class TestTheScopeIsMeasuredAgainstARealTree(_HookTestCase):
+class _RealTreeCase(_HookTestCase):
+    """A real git repo with two committed code files, and a reviewer that
+    stops in it. Shared by the two classes below that must not patch the scan
+    — one measures WHAT it reads, the other what it COSTS, and both need the
+    legs to actually run."""
+
+    def setUp(self):
+        super().setUp()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = self._tmp.name
+        repo_fixtures.init_repo(self.repo)
+        Path(self.repo, "a.py").write_text("x = 1\n")
+        Path(self.repo, "b.py").write_text("y = 1\n")
+        repo_fixtures.git_in(self.repo, "add", "-A")
+        repo_fixtures.git_in(self.repo, "commit", "-m", "base")
+        self.key = identity.review_watermark_key(self.repo)
+        self.addCleanup(self._tmp.cleanup)
+
+    def _stop_reviewer(self) -> None:
+        subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "rev-1",
+                "agent_type": "xp-agents:xp-code-reviewer",
+                "cwd": self.repo,
+                "last_assistant_message": "Done",
+            },
+            smm_dir=self.smm_dir,
+        )
+
+
+class TestTheScopeIsMeasuredAgainstARealTree(_RealTreeCase):
     """The one class here that does NOT patch the scan.
 
     Every other test in this file hands `_record_completed_quality_review` its
@@ -374,29 +407,8 @@ class TestTheScopeIsMeasuredAgainstARealTree(_HookTestCase):
     that omits unstaged work is also narrower than what was actually reviewed.
     """
 
-    def setUp(self):
-        super().setUp()
-        self._tmp = tempfile.TemporaryDirectory()
-        self.repo = self._tmp.name
-        repo_fixtures.init_repo(self.repo)
-        Path(self.repo, "a.py").write_text("x = 1\n")
-        Path(self.repo, "b.py").write_text("y = 1\n")
-        repo_fixtures.git_in(self.repo, "add", "-A")
-        repo_fixtures.git_in(self.repo, "commit", "-m", "base")
-        self.key = identity.review_watermark_key(self.repo)
-        self.addCleanup(self._tmp.cleanup)
-
     def _reviewer_stops(self) -> set[str]:
-        subagent_stop.run(
-            {
-                "session_id": "t",
-                "agent_id": "rev-1",
-                "agent_type": "xp-agents:xp-code-reviewer",
-                "cwd": self.repo,
-                "last_assistant_message": "Done",
-            },
-            smm_dir=self.smm_dir,
-        )
+        self._stop_reviewer()
         return review_records.read_review_coverage(self.smm_dir, self.key)
 
     def test_the_reviewers_own_unstaged_fix_is_covered(self):
@@ -425,6 +437,70 @@ class TestTheScopeIsMeasuredAgainstARealTree(_HookTestCase):
         Path(self.repo, "a.py").write_text("x = 2\n")
 
         self.assertNotIn("b.py", self._reviewer_stops())
+
+
+class TestTheScanFitsTheHookBudget(_RealTreeCase):
+    """The recorder's git reads must fit the budget the hook is given.
+
+    `_run_git` allows 5s PER CALL and `hooks.json` gives SubagentStop 5000ms
+    TOTAL, so one slow read could spend the whole allowance and the rest could
+    not run at all. The scan makes three (staged, the watermark range,
+    unstaged) — the third added when coverage started reading unstaged work —
+    and a handler killed part-way leaves the gate armed with no flag, whose
+    only recovery is another full review.
+
+    Measured on a real repo so all three legs actually run: at `/tmp` the first
+    read fails and returns early, and the sum would understate the worst case
+    by two thirds.
+
+    Asserted as the SUM against the declared budget rather than as a literal
+    per-call number, so the pin follows the budget and the leg count instead of
+    having to be re-derived by hand when either moves.
+    """
+
+    _HOOK_BUDGET_S = 5.0
+    _EXPECTED_LEGS = 3
+
+    def _timeouts_during_a_completion(self) -> list[float]:
+        """Each git read's timeout, an absent one recorded as `inf`.
+
+        `inf` is what an unbounded call is worth against a budget, so the sum
+        below fails on one without needing a separate None check — and the list
+        stays a list of floats, which is what a reader assumes when they see it
+        summed."""
+        seen: list[float] = []
+        real = subprocess.run
+
+        def spy(args, **kwargs):
+            if args and args[0] == "git":
+                seen.append(float(kwargs.get("timeout") or math.inf))
+            return real(args, **kwargs)
+
+        head = repo_fixtures.git_in(self.repo, "rev-parse", "HEAD").strip()
+        review_records.write_review_watermark(self.smm_dir, self.key, head)
+        Path(self.repo, "a.py").write_text("x = 2\n")
+        with patch("commits.subprocess.run", side_effect=spy):
+            self._stop_reviewer()
+        return seen
+
+    def test_all_three_legs_run(self):
+        """The non-vacuity pin: a sum under budget is trivially satisfied by a
+        scan that stopped early, which is what made the first draft of this
+        pass against the very code it was written to fail."""
+        self.assertEqual(len(self._timeouts_during_a_completion()), self._EXPECTED_LEGS)
+
+    def test_every_read_is_bounded(self):
+        seen = self._timeouts_during_a_completion()
+
+        self.assertTrue(seen, "no git read observed — the spy missed the scan")
+        self.assertNotIn(math.inf, seen, "an unbounded git read can hang the hook")
+
+    def test_the_worst_case_leaves_room_to_finish(self):
+        """Worst case is every read timing out. The writes come after them, so
+        the budget has to cover the scan with room left, not merely equal it."""
+        seen = self._timeouts_during_a_completion()
+
+        self.assertLess(sum(seen), self._HOOK_BUDGET_S)
 
 
 if __name__ == "__main__":
