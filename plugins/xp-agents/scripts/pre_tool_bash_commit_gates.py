@@ -53,14 +53,24 @@ from commit_command import cd_target_unreachable
 
 
 def _verify_touch_nudge(
-    smm_dir: Path, effective_cwd: str, command: str, branch: str
+    smm_dir: Path,
+    effective_cwd: str,
+    command: str,
+    branch: str,
+    staged: list[str],
 ) -> str | None:
     """Advisory when the active story's declared verify paths are untouched.
 
     Fails open at every step — this is a nudge, never a block. Suppressed by
     a [verify-deferred] commit (which records its own debt post-commit) and
     silent off a story branch, when the story declares no verify paths, when
-    every path is already touched, or when git can't be read.
+    every path is already touched (by a prior commit OR the staged diff this
+    commit is about to create), or when git can't be read.
+
+    `staged` counts as coverage HERE ONLY — the commit this nudge evaluates
+    doesn't exist yet, so base..HEAD can't see it (a first commit has
+    base == HEAD). Every other consumer of untouched_paths_for_story omits
+    it and must keep doing so; see that function's docstring.
 
     verify_deferred is imported lazily (not top-level): pre_tool_bash loads on
     every Bash call, but only commits reach this helper, so we avoid pulling
@@ -73,7 +83,9 @@ def _verify_touch_nudge(
     story_id = identity.extract_story_id(branch)
     if not story_id:
         return None
-    untouched = untouched_paths_for_story(smm_dir, effective_cwd, story_id)
+    untouched = untouched_paths_for_story(
+        smm_dir, effective_cwd, story_id, staged=staged
+    )
     if not untouched:
         return None
     return (
@@ -244,7 +256,7 @@ def commit_gate_parts(smm_dir: Path, command: str, cwd: str) -> list[str]:
                 f"legitimate post-merge work."
             )
 
-        nudge = _verify_touch_nudge(smm_dir, effective_cwd, command, branch)
+        nudge = _verify_touch_nudge(smm_dir, effective_cwd, command, branch, staged)
         if nudge:
             parts.append(nudge)
 

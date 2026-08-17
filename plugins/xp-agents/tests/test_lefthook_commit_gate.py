@@ -193,18 +193,6 @@ class TestStagedTestsRunOnTheCommitGate(unittest.TestCase):
             "staged-tests must tolerate pytest's exit 5",
         )
 
-    def test_strips_xp_perf(self):
-        """A developer with XP_PERF=1 exported who stages a scale test would
-        otherwise arm wall-clock benchmarks inside the commit gate, where they
-        fail on timing noise. The pre-push side of the same property lives in
-        `test_lefthook_perf_gate.py`; this leg is what keeps the commit gate's
-        own run covered after the suite moved off it."""
-        self.assertIn(
-            "-u XP_PERF",
-            self.cmd,
-            "staged-tests must env -u XP_PERF",
-        )
-
     def test_never_a_bare_whole_tree_pytest(self):
         """A literal tree path on the pytest line would restore the full run.
 

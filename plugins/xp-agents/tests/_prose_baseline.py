@@ -206,14 +206,20 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/session_start.py": 164,
     "plugins/xp-agents/scripts/shell_exit_structure.py": 257,
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
-    "plugins/xp-agents/scripts/staged_lint.py": 226,
+    "plugins/xp-agents/scripts/staged_lint.py": 221,
     "plugins/xp-agents/scripts/tdd_check.py": 133,
     "plugins/xp-agents/scripts/teammate_runner.py": 182,
     "plugins/xp-agents/scripts/test_attribution.py": 151,
     "plugins/xp-agents/scripts/test_parsing.py": 151,
     "plugins/xp-agents/scripts/verify_acceptance.py": 159,
     "plugins/xp-agents/scripts/verify_acceptance_record.py": 129,
-    "plugins/xp-agents/scripts/verify_paths.py": 156,
+    # 156 -> 161 for `also_changed`: the parameter's existence is cheap, but
+    # WHO may pass it is a fail-open boundary (merge time must never count the
+    # index), so the signature needs a sentence naming that. Banked upward
+    # rather than trimmed because the alternative was deleting the only note
+    # at the seam a future caller reads first. The full rule stays single-homed
+    # in verify_deferred.untouched_paths_for_story; this file points at it.
+    "plugins/xp-agents/scripts/verify_paths.py": 161,
     "plugins/xp-agents/scripts/worktree.py": 197,
     "plugins/xp-agents/scripts/worktree_differential.py": 211,
 }

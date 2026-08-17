@@ -40,38 +40,27 @@ def _git(cwd: Path, *args: str) -> str:
 
 
 def _init_repo(repo: Path) -> str:
-    """Initialize a git repo with an initial commit; return HEAD sha."""
-    subprocess.run(
-        ["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "test"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-    )
+    """Initialize a git repo with a genuine two-parent merge HEAD; return its sha.
+
+    A real merge, not a single root commit whose message merely LOOKS like
+    one: `append_merge_commit_event` derives `is_merge` from HEAD's actual
+    parent count (story-005), so a fixture claiming to be a close-cycle merge
+    must structurally be one, or the pinned `is_merge` assertion below would
+    only ever have passed by accident of the old hardcoded-True behavior.
+    """
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.name", "test")
+    _git(repo, "config", "user.email", "test@example.com")
     (repo / "README").write_text("init\n")
-    subprocess.run(["git", "add", "README"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Merge sprint-104/story-A\n\nBody"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-    )
-    sha = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    return sha
+    _git(repo, "add", "README")
+    _git(repo, "commit", "-m", "init")
+    _git(repo, "checkout", "-b", "story-A")
+    (repo / "feature").write_text("feature\n")
+    _git(repo, "add", "feature")
+    _git(repo, "commit", "-m", "feature work")
+    _git(repo, "checkout", "main")
+    _git(repo, "merge", "--no-ff", "story-A", "-m", "Merge sprint-104/story-A\n\nBody")
+    return _git(repo, "rev-parse", "HEAD")
 
 
 def _seed_smm(repo: Path) -> Path:

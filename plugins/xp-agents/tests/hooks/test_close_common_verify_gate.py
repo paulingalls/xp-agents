@@ -121,6 +121,29 @@ def _merge_acceptance(td: str, main: str, smm: Path, *extra: str):
     )
 
 
+def _merge_touch(td: str, source: str, main: str, smm: Path):
+    """The touch gate's merge invocation — same reason as `_merge_acceptance`.
+
+    Six inline copies of this list is how one ends up naming `acceptance`
+    and passing for the wrong reason.
+    """
+    return _run(
+        [
+            "merge",
+            "--cwd",
+            td,
+            "--source",
+            source,
+            "--target",
+            main,
+            "--verify-gate",
+            "touch",
+            "--smm-dir",
+            str(smm),
+        ]
+    )
+
+
 class TestMergeVerifyTouchGate(unittest.TestCase):
     def test_refuses_when_declared_path_untouched_and_not_deferred(self):
         with tempfile.TemporaryDirectory() as td:
@@ -129,21 +152,7 @@ class TestMergeVerifyTouchGate(unittest.TestCase):
             smm = _make_smm(td)
             _seed_story_sprint(smm)
             _bf.make_commit(td, "u/story-001-x", "other.py", "x", "wip")
-            result = _run(
-                [
-                    "merge",
-                    "--cwd",
-                    td,
-                    "--source",
-                    "u/story-001-x",
-                    "--target",
-                    main,
-                    "--verify-gate",
-                    "touch",
-                    "--smm-dir",
-                    str(smm),
-                ]
-            )
+            result = _merge_touch(td, "u/story-001-x", main, smm)
             self.assertEqual(result.returncode, 1, result.stdout)
             self.assertIn("acc_test.py", result.stderr)
             self.assertTrue(_bf.branch_exists(td, "u/story-001-x"))
@@ -163,23 +172,40 @@ class TestMergeVerifyTouchGate(unittest.TestCase):
             smm = _make_smm(td)
             _seed_story_sprint(smm)
             _bf.make_commit(td, "u/story-001-y", "acc_test.py", "x", "add acc test")
-            result = _run(
-                [
-                    "merge",
-                    "--cwd",
-                    td,
-                    "--source",
-                    "u/story-001-y",
-                    "--target",
-                    main,
-                    "--verify-gate",
-                    "touch",
-                    "--smm-dir",
-                    str(smm),
-                ]
-            )
+            result = _merge_touch(td, "u/story-001-y", main, smm)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(_bf.branch_exists(td, "u/story-001-y"))
+
+    def test_refuses_when_the_declared_path_is_only_staged(self):
+        # A merge carries commits, not the index. story-006 taught the
+        # COMMIT-TIME nudge to count staged files as coverage; if that ever
+        # reaches this gate, a story merges with its acceptance test staged
+        # and never committed. The other direction — an unrelated dirty
+        # index must not silently defer the refusal either.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            smm = _make_smm(td)
+            _seed_story_sprint(smm)
+            _bf.make_commit(td, "u/story-001-s", "other.py", "x", "wip")
+            (Path(td) / "acc_test.py").write_text("x")
+            subprocess.run(
+                ["git", "add", "acc_test.py"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+                env=_bf.GIT_ENV,
+            )
+            result = _merge_touch(td, "u/story-001-s", main, smm)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            # Assert the GATE's wording, not just exit 1: a staged file also
+            # makes `git merge` itself fail ("local changes would be
+            # overwritten"), which is exit 1 naming acc_test.py for a
+            # completely different reason. A laxer assertion here passes
+            # whether or not the gate held.
+            self.assertIn("merge refused", result.stderr)
+            self.assertIn("acc_test.py", result.stderr)
+            self.assertTrue(_bf.branch_exists(td, "u/story-001-s"))
 
     def test_passes_when_verify_deferred_commit_present(self):
         with tempfile.TemporaryDirectory() as td:
@@ -190,21 +216,7 @@ class TestMergeVerifyTouchGate(unittest.TestCase):
             _bf.make_commit(
                 td, "u/story-001-z", "other.py", "x", "[verify-deferred] deadline"
             )
-            result = _run(
-                [
-                    "merge",
-                    "--cwd",
-                    td,
-                    "--source",
-                    "u/story-001-z",
-                    "--target",
-                    main,
-                    "--verify-gate",
-                    "touch",
-                    "--smm-dir",
-                    str(smm),
-                ]
-            )
+            result = _merge_touch(td, "u/story-001-z", main, smm)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(_bf.branch_exists(td, "u/story-001-z"))
 
@@ -217,21 +229,7 @@ class TestMergeVerifyTouchGate(unittest.TestCase):
             smm = _make_smm(td)
             (smm / "sprint.json").write_text("{ not valid json")
             _bf.make_commit(td, "u/story-001-c", "other.py", "x", "wip")
-            result = _run(
-                [
-                    "merge",
-                    "--cwd",
-                    td,
-                    "--source",
-                    "u/story-001-c",
-                    "--target",
-                    main,
-                    "--verify-gate",
-                    "touch",
-                    "--smm-dir",
-                    str(smm),
-                ]
-            )
+            result = _merge_touch(td, "u/story-001-c", main, smm)
             self.assertEqual(result.returncode, 1, result.stdout)
             self.assertIn("corrupt", result.stderr.lower())
             self.assertTrue(_bf.branch_exists(td, "u/story-001-c"))
@@ -253,21 +251,7 @@ class TestMergeVerifyTouchGate(unittest.TestCase):
             smm = _make_smm(td)
             _seed_story_sprint(smm)  # holds only story-001
             _bf.make_commit(td, "u/story-999-x", "other.py", "x", "wip")
-            result = _run(
-                [
-                    "merge",
-                    "--cwd",
-                    td,
-                    "--source",
-                    "u/story-999-x",
-                    "--target",
-                    main,
-                    "--verify-gate",
-                    "touch",
-                    "--smm-dir",
-                    str(smm),
-                ]
-            )
+            result = _merge_touch(td, "u/story-999-x", main, smm)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(_bf.branch_exists(td, "u/story-999-x"))
 
@@ -302,21 +286,7 @@ class TestMergeVerifyTouchGate(unittest.TestCase):
                 )
             )
             _bf.make_commit(td, "u/story-001-q", "other.py", "x", "wip")
-            result = _run(
-                [
-                    "merge",
-                    "--cwd",
-                    td,
-                    "--source",
-                    "u/story-001-q",
-                    "--target",
-                    main,
-                    "--verify-gate",
-                    "touch",
-                    "--smm-dir",
-                    str(smm),
-                ]
-            )
+            result = _merge_touch(td, "u/story-001-q", main, smm)
             self.assertEqual(result.returncode, 0, result.stderr)
 
 

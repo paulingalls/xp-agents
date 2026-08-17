@@ -180,6 +180,47 @@ class TestVerifyTouchLifecycle(_IntegrationTestCase):
         untouched, _ = self._preload_vars()
         self.assertEqual(untouched, "")
 
+    def _stage_only(self, branch: str, filename: str) -> None:
+        """Checkout a fresh story branch off main and `git add` a path with
+        NO commit — base == HEAD with a populated index, the exact
+        condition story-006 fixes. Deliberately NOT `_story_branch` /
+        `make_commit`: those commit immediately, making base..HEAD
+        non-empty and any such test green whether or not the fix exists.
+        """
+        subprocess.run(
+            ["git", "checkout", "main"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "checkout", "-b", branch],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        (self.tmpdir / filename).write_text("x")
+        subprocess.run(
+            ["git", "add", filename],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+
+    def test_first_commit_with_staged_acceptance_test_has_no_advisory(self):
+        # AC 4: driven through the PreToolUse hook as a real subprocess
+        # (unlike `_commit_nudge`'s in-process `pre_tool_bash.run` above) —
+        # a green in-process test would not prove the subprocess claim.
+        self._stage_only("u/story-001-first-commit", "acc_test.py")
+        result = self._run_script(
+            "pre_tool_bash.py",
+            _make_bash_input(command="git commit -m 'wip'", cwd=str(self.tmpdir)),
+            cwd=self.tmpdir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Verify-touch", result.stdout)
+        self.assertNotIn("acc_test.py", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

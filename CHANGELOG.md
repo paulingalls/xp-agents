@@ -2,6 +2,117 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.18.0 — One linter process per config group, not one per file
+
+**A commit no longer pays a linter process per file.** Post-commit lint
+resolution called the linter once for every committed file, serially, on the
+synchronous PostToolUse hook path while the agent waited. Both loops now group
+by the `(linter, config)` pair the file resolves to and run one batch per group
+— and a commit whose files carry no unresolved lint concern spawns **zero** on
+this path, because those files are dropped before grouping. (The commit-time
+staged gate still runs once per group; it lints what is about to land, so it has
+nothing to skip.) The loop can only ever *resolve*, so
+linting a file with nothing to clear was always work for nothing.
+
+Measured end to end rather than asserted: reverting the emitter to its previous
+form makes the composition test fail `3 != 1`, with the log showing three
+separate `ruff check` invocations where there is now one.
+
+**A commit made from a subdirectory clears its lint concerns.** `git -C sub
+commit` and `cd sub && git commit` hand the hook a cwd below the repo root,
+while git still names the committed files relative to the root. Resolution
+normalized them against the cwd, doubling the prefix — `pkg/src/a.py` became
+`pkg/pkg/src/a.py`, which matches no recorded concern, so the file was dropped
+before the linter ever ran and its concern never cleared. Nothing errored; the
+work simply did not happen. Everything on this path is now resolved against the
+repo root, which the orphan sweep's own `.exists()` check already assumed.
+
+**Grouping is one implementation, shared, and it is not ruff-shaped.** The
+routing was fused to the commit-time gate's git-index filter; it now lives in
+`lint_grouping.group_paths_by_linter`, filter-free, with each caller bringing
+its own eligibility test — the staged gate wants index membership, the
+post-commit sweep wants `.exists()` and must not inherit the other. Grouping is
+a table lookup on the ecosystem's own config file, so eslint, rubocop and
+clang-format batch identically; supporting one more language is a row, not a
+branch.
+
+**A batch's exit code names no file, and the code now says so in three places
+instead of guessing.** A clean batch vouches for every path in it and resolves
+the group in one append; a batch reporting findings falls back to one run per
+file *in that group only*, because knowing *which* file was dirty would need a
+per-language parser; an unverified batch — missing binary, timeout, a path the
+argument guard refused — resolves nothing at all. A bad read is not a pass.
+
+**The composition is proven at the process boundary.** The two legs share a
+helper and a runner, and nothing exercised both against a real repo. They now
+are, by a test that counts processes that actually started: a fake linter on
+`PATH` logging its argv, rather than a patched `subprocess.run`, which cannot
+cross a subprocess boundary at all. It also caught what the unit tests could
+not — that a batch's argv must be asserted to *contain* its group, not merely
+to exclude the other group's files.
+
+### Known residuals
+
+v5.15.0 disclosed its `is_merge` gap rather than arguing it away, which is the
+only reason this release gets to say that residual is closed. The same courtesy,
+for what is still open on the code above:
+
+- **Closing that residual opened a narrower one.** `story_metrics` reads a story
+  as shipped from `is_merge` **and** the close-cycle agent id. Now that the tag
+  is honest, an "Already up to date" close — which creates no commit — emits an
+  untagged event, so the story reads *unshipped* and the plain commit it landed
+  on is counted as a story commit. The old hardcoded `True` produced the right
+  metric by asserting something false. Tracked, not fixed here.
+- **The verify-touch union has two path sources that disagree on encoding.**
+  `git log --name-only` C-quotes a non-ASCII path; `git diff --cached --name-only`
+  is asked with `-z` and does not. A path with non-ASCII bytes can therefore clear
+  the advisory from the index and then re-fire once committed.
+- **Batching bounds processes, not wall clock.** Post-commit resolution passes no
+  shared deadline, so a polyglot repo can pay each group's own ceiling in
+  sequence on the synchronous hook path. The commit-time gate threads a deadline;
+  this path does not yet.
+
+### Also in this release
+
+**The wall-clock performance tier is retired.** Three pre-push timers measured
+the machine, not the diff. Serializing them after the suite controlled only the
+contention that run created; a concurrent CLI teammate — a recorded design
+decision of this project — was invisible to them. Because story close pushes,
+a blocking timer failed closes whose diff touched none of it: measured at
+`read_delta` 108 ms against a 100 ms bound, at load average 94.89, on a bound
+with 75× headroom when measured serially at 1.3 ms. What the timers stood in
+for is now asserted structurally, on **what gets parsed** rather than how long
+it took — and those run everywhere, including CI, where `XP_PERF` was never set
+and the timers therefore never ran at all.
+
+**The close-cycle merge emitter derives `is_merge` instead of asserting it.**
+v5.15.0 disclosed this as a tracked residual: the emitter passed `is_merge=True`
+by hand because it "knows structurally that it just made a merge", and the merge
+helper also reports success on **"Already up to date"**, which creates no commit.
+That residual is closed. The tag now comes from HEAD's parent count, matching
+the shared builder's own definition of the flag, and the emitter stores the
+cleaned commit body like its two siblings rather than the raw one. The tag is
+not cosmetic — it exempts an event from the commit-size concern and drops it
+from the resolves-link-rate denominator, so a wrongly tagged plain commit
+silently suppressed a real warning.
+
+**A commit is refused when it masks its test runner's exit status.** Piping a
+declared test command into `tail`, or capturing it in `$(...)`, makes the
+shell's status the pipe's — so a red suite reads as green and a green one
+cannot clear a failure concern. The gate keys on the project's *declared*
+command rather than a list of runner names, which would be inert for every
+project whose runner is not in it. It over-matches by design on the declared
+executable; `# exit-status-not-needed` is the release valve.
+
+**The acceptance-path advisory counts staged files.** It ran at PreToolUse —
+before the commit under evaluation exists — but read coverage from a walk over
+`base..HEAD` commits. On a story's first commit those are the same, so the range
+was empty and every declared path reported untouched while sitting fully staged
+in the index. It fired on the first commit of a story that had both its test
+files in that very commit. Staged coverage is opt-in at every layer and never a
+default: the close gate and the story-close preload stay commit-only, because a
+merge carries commits, not the index.
+
 ## v5.17.0 — Measuring which hook actually fires, and covering a review's own fixes
 
 **v5.16.0's central fix did not work, and this release says so first.** That
