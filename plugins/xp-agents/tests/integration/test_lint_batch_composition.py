@@ -197,5 +197,49 @@ class TestTheFixtureIsRealBeforeAnythingIsCounted(_LintedRepoCase):
         )
 
 
+class TestTheStagedGateRunsOncePerGroup(_LintedRepoCase):
+    """The commit-time leg, through a real process.
+
+    story-001's grouping is proved in units with `subprocess.run` patched. This
+    asserts the same property where the process boundary is real: N files
+    sharing one config produce ONE linter process, not N.
+    """
+
+    def test_one_spawn_covers_every_staged_file_in_the_group(self):
+        self._touch_and_stage(*_PY_FILES)
+        self._run_hook("pre_tool_bash.py", "git commit -m 'touch python'")
+
+        spawns = self._spawns("ruff")
+        self.assertEqual(
+            len(spawns),
+            1,
+            f"expected one ruff process for {len(_PY_FILES)} files in one "
+            f"config group, got {len(spawns)}: {spawns}",
+        )
+        argv = spawns[0]
+        for name in _PY_FILES:
+            self.assertIn(
+                name,
+                argv,
+                f"the single batch skipped {name} — one process is only correct "
+                f"if it covers the whole group: {argv}",
+            )
+
+    def test_the_other_group_is_untouched_when_only_one_is_staged(self):
+        """A count of one proves batching only if the other group ran zero.
+
+        Without this, a regression that ran every linter over every file on
+        every commit would still show one ruff spawn and pass above.
+        """
+        self._touch_and_stage(*_PY_FILES)
+        self._run_hook("pre_tool_bash.py", "git commit -m 'touch python'")
+
+        self.assertEqual(
+            self._spawns("npx"),
+            [],
+            "eslint ran for a commit that staged no TypeScript",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
