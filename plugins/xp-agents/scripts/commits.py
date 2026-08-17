@@ -28,9 +28,8 @@ REVIEW_CYCLE_THRESHOLD: int = 2
 def _run_git(args: list[str], cwd: str, timeout: float = 5) -> str | None:
     """Run a git command, return stripped stdout or None on failure.
 
-    ``timeout`` is PER CALL, so a caller making several reads inside a bounded
-    hook has to divide its own budget across them rather than take the default
-    each time — see `get_code_files_for_review`'s ``scan_budget_s``.
+    ``timeout`` is PER CALL, so a caller inside a bounded hook divides its own
+    budget across its reads — see `get_code_files_for_review`'s ``scan_budget_s``.
     """
     try:
         result = subprocess.run(
@@ -102,9 +101,7 @@ def get_commit_message_body(cwd: str) -> str | None:
 def get_head_commit_hash(cwd: str, timeout: float = 5) -> str | None:
     """Get current HEAD commit hash. Returns None on failure.
 
-    ``timeout`` for the same reason `get_code_files_for_review` takes a budget:
-    a caller inside a bounded hook has to pay for this read out of its own
-    allowance, not out of the per-call default.
+    ``timeout``: a bounded caller pays for this read out of its own allowance.
     """
     return _run_git(["git", "rev-parse", "HEAD"], cwd, timeout=timeout)
 
@@ -112,11 +109,10 @@ def get_head_commit_hash(cwd: str, timeout: float = 5) -> str | None:
 def count_commits_since(cwd: str, rev: str) -> int | None:
     """How many commits HEAD is ahead of ``rev``, or None if git cannot say.
 
-    `rev..HEAD`, so only what is reachable from HEAD counts: after a branch
-    switch the answer is the distance between the two tips, not a walk through
-    shared history. None — not 0 — when the range does not resolve (a rewritten,
-    pruned or foreign sha), because a caller deciding whether something has
-    aged must be able to tell "nothing has landed" from "cannot tell".
+    `rev..HEAD` counts only what is reachable from HEAD, so a branch switch
+    reads as the distance between tips. None — not 0 — when the range does not
+    resolve (rewritten, pruned or foreign sha): a caller deciding whether
+    something aged must tell "nothing landed" from "cannot tell".
     """
     out = _run_git(["git", "rev-list", "--count", f"{rev}..HEAD"], cwd)
     if out is None:
@@ -201,21 +197,16 @@ def get_code_files_for_review(
     ``staged_diff`` is ``get_staged_diff``'s text, for a caller that already
     holds it: the staged names are parsed from it instead of re-shelling.
 
-    ``include_unstaged`` adds the unstaged leg unconditionally, for a caller
-    that is not looking at a command at all. The ``command`` route below infers
-    the same leg from a shell string, which only the pre-commit gate has; the
-    recorder in `review_cycle_legs` runs at a subagent's completion and knows
-    the leg is wanted outright. It asks with this instead of passing a fake
-    command, which would put a lie in the argument the regex reads.
+    ``include_unstaged`` adds that leg outright, for a caller with no command
+    to infer it from — the ``command`` route below is the pre-commit gate's.
+    A flag, not a fake command, which would put a lie in what the regex reads.
 
-    ``scan_budget_s`` is a bound on the WHOLE scan, for a caller running inside
-    a hook that has one. `_run_git`'s timeout is per call, so three legs at the
-    default would allow 15s inside a 5s SubagentStop budget: the hook is killed
-    mid-handler, and the state it fails into (gate armed, flag unset) is only
-    recoverable by another full review. The budget is split evenly across the
-    legs that will actually run, counted before any of them does, so the split
-    does not depend on what the earlier reads returned. None keeps the
-    per-call default — the pre-commit gate is not the bounded caller.
+    ``scan_budget_s`` bounds the WHOLE scan, for a caller inside a hook that
+    has a budget: `_run_git`'s timeout is per call, so three legs at the default
+    allow 15s inside a 5s SubagentStop, and the handler is killed mid-write.
+    Split evenly across the legs that will run, counted before any of them does
+    so the split cannot depend on an earlier read. None keeps the per-call
+    default — the pre-commit gate is not the bounded caller.
     """
     all_files: set[str] = set()
 

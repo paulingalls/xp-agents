@@ -147,10 +147,9 @@ def write_review_coverage(
     age restarts with it, so a fresh review always covers its own fixes.
 
     ``head`` is the commit the review was recorded at, and is what lets
-    `read_review_coverage` expire a record no commit site ever spent. Optional
-    because a caller that cannot resolve one is better off writing coverage
-    without it than not at all: the write-driven ageing below still applies,
-    which is exactly the behaviour before this field existed.
+    `read_review_coverage` expire a record no commit site ever spent. Optional:
+    coverage without it is worth more than no coverage, and `_commits_since_write`
+    says what an absent one costs.
     """
     record = {_COVERAGE_PATHS: sorted(set(paths)), _COVERAGE_AGE: 0}
     if head:
@@ -162,23 +161,18 @@ def read_review_coverage(smm_dir: Path, agent_id: str, cwd: str = "") -> set[str
     """The paths recorded for the last review, expired if HEAD has moved on.
 
     Two expiries, because there are two ways a commit can land. The
-    WRITE-driven one is `_age_review_coverage`, on the commit sites' path. It
-    fails open on its own: a commit that reaches no commit site — an xp-
-    subagent's, which `is_xp_agent` skips — never spends the record, so its
-    paths would stay exempt with no bound, and a later session could rewrite
-    every one of them and commit unreviewed.
+    WRITE-driven one, `_age_review_coverage`, runs on the commit sites' path and
+    fails open on its own: a commit reaching no commit site — an xp- subagent's,
+    which `is_xp_agent` skips — never spends the record, so its paths would stay
+    exempt with no bound and a later session could rewrite every one of them and
+    commit unreviewed.
 
-    A counter cannot close that, because the write that fails to age is the
-    same one that fails to advance the watermark: nothing in the SMM moved.
-    HEAD did, so the second expiry asks git directly — how many commits since
-    the record was written — and drops it at the same cap. `..HEAD` counts only
-    what is reachable from here, so a branch switch reads as distance rather
-    than as history to forgive.
+    A counter cannot close that: the write that fails to age is the same one
+    that fails to advance the watermark, so nothing in the SMM moved. HEAD did,
+    which is what `_commits_since_write` reads, expiring at the same cap.
 
-    ``cwd`` is what makes that possible and is optional for the callers who
-    have no repo to name; without it, or without a recorded commit, or when git
-    cannot answer, the record reads as it stands — the pre-existing behaviour,
-    kept rather than expiring coverage on an unanswerable question.
+    ``cwd`` is what makes that read possible, and is optional — see there for
+    what its absence means.
 
     Empty on anything unreadable — a malformed record forgives nothing, which
     fails toward one extra review rather than toward an unreviewed commit.

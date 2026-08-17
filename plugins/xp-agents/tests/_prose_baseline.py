@@ -141,7 +141,11 @@ PROSE_MEASURED: dict[str, int] = {
     # arrows are hand-typed while the pin is generated — the third stale number in
     # this table in one sprint. The rule the table already states (numbers come
     # from `_prose_scan`, never a keyboard) applies to prose ABOUT the numbers too.
-    "plugins/xp-agents/scripts/commits.py": 167,
+    # Re-measured after the review-scope budget and the HEAD-distance reader
+    # landed, and after `get_filenames_from_diff` left for `diff_filenames.py` —
+    # the extraction took prose out of this file, so the number is a re-measure
+    # of what remains, not a straight allowance for what was added.
+    "plugins/xp-agents/scripts/commits.py": 179,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.
@@ -162,6 +166,11 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/markers.py": 123,
     "plugins/xp-agents/scripts/migration_lock.py": 121,
     "plugins/xp-agents/scripts/result_counts.py": 126,
+    # Crossed the floor on arrival of the HEAD-distance expiry, which needed
+    # its own reason recorded: the write-driven ageing it backstops fails open,
+    # and the docstring that called that "tracked debt" is now the one saying
+    # how it is closed.
+    "plugins/xp-agents/scripts/review_records.py": 132,
     "plugins/xp-agents/scripts/retro_metrics.py": 130,
     "plugins/xp-agents/scripts/scaffold_apply.py": 128,
     "plugins/xp-agents/scripts/session_start.py": 164,
