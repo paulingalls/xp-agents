@@ -297,5 +297,93 @@ class TestPostCommitResolutionRunsOnceAndClearsTheGroup(_LintedRepoCase):
         )
 
 
+class TestTwoConfigsDoNotLeakIntoEachOther(_LintedRepoCase):
+    """AC 3: each group runs once, and one group's verdict stays its own.
+
+    The counting here is not symmetric with the clean cases, and the asymmetry
+    is the contract rather than an accident. A CLEAN group is one batch. A
+    FINDINGS group is 1 + N: the batch says only that something is wrong
+    somewhere, and a batch's exit code names no file, so `_resolve_group` falls
+    back to one run per file to learn which of them are individually clean.
+    """
+
+    def _commit_both_groups(self) -> dict[str, str]:
+        py_rel = list(_PY_FILES)
+        ts_rel = [f"apps/web/{name}" for name in _TS_FILES]
+        ids = self._seed_lint_concerns(*py_rel, *ts_rel)
+        self._touch_and_stage(*py_rel, *ts_rel)
+        git_in(self.repo, "commit", "-m", "touch both ecosystems")
+        self._clear_spawns()
+        self._run_hook("bash_post_tool.py", "git commit -m 'touch both ecosystems'")
+        return ids
+
+    def test_each_config_runs_once_over_only_its_own_files(self):
+        self._commit_both_groups()
+
+        ruff_spawns = self._spawns("ruff")
+        npx_spawns = self._spawns("npx")
+        self.assertEqual(len(ruff_spawns), 1, f"ruff: {ruff_spawns}")
+        self.assertEqual(len(npx_spawns), 1, f"eslint: {npx_spawns}")
+
+        for name in _TS_FILES:
+            self.assertNotIn(
+                name,
+                ruff_spawns[0],
+                f"ruff's batch carried a TypeScript file ({name}) — the groups "
+                f"are keyed on (linter, config) and must not blend: {ruff_spawns}",
+            )
+        for name in _PY_FILES:
+            self.assertNotIn(
+                name,
+                npx_spawns[0],
+                f"eslint's batch carried a Python file ({name}): {npx_spawns}",
+            )
+
+    def test_a_dirty_group_does_not_stop_the_clean_group_resolving(self):
+        """The leak this AC is actually about.
+
+        The eslint shim reports findings; ruff stays clean. The Python
+        concerns must still clear, and the TypeScript ones must not — a shared
+        verdict would show up as either all-or-nothing.
+        """
+        self._write_shim("npx", clean=False)
+        ids = self._commit_both_groups()
+        resolved = self._resolved_ids()
+
+        for name in _PY_FILES:
+            self.assertIn(
+                ids[name],
+                resolved,
+                f"{name}'s concern stayed open because the OTHER group had "
+                f"findings — one group's verdict leaked into the other's",
+            )
+        for name in _TS_FILES:
+            self.assertNotIn(
+                ids[f"apps/web/{name}"],
+                resolved,
+                f"{name}'s concern was resolved although its linter reported "
+                f"findings — the batch vouched for a file it never cleared",
+            )
+
+    def test_the_dirty_group_falls_back_to_one_run_per_file(self):
+        """1 + N, and why: a batch's exit code names no file.
+
+        This is also what proves the dirty shim reached `findings` at all. A
+        shim that exited non-zero WITHOUT output would classify `unverified`,
+        whose arm resolves nothing and re-runs nothing — and the assertion
+        above would still pass, having tested none of this.
+        """
+        self._write_shim("npx", clean=False)
+        self._commit_both_groups()
+
+        npx_spawns = self._spawns("npx")
+        self.assertEqual(
+            len(npx_spawns),
+            1 + len(_TS_FILES),
+            f"expected one batch plus one run per file in the findings group, "
+            f"got {len(npx_spawns)}: {npx_spawns}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
