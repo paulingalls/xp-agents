@@ -119,13 +119,10 @@ def append_merge_commit_event(
     # established fail-open posture for SMM-state errors here.
     if sprint is _UNSET:
         sprint = sprint_store.load_sprint_fail_open(smm_dir)
-    # is_merge=True still excludes this event from resolves_link_rate
-    # accounting: the rate rewards the AUTHORING discipline of writing a trailer,
-    # and a merge event's `resolves` is MOSTLY derived — re-parsed from the
-    # merged-in commits above, not written on this event. It can now also carry an
-    # authored id from HEAD's body, which is exactly what `has_resolves_trailer`
-    # records; the exclusion stays unconditional because the denominator wants one
-    # rule per event kind, not a per-event judgement about how it was populated.
+    # What the tag means, and what it excludes, is stated once in
+    # `commit_emit.rebuild_at_head` — this emitter now derives it the same way,
+    # so it has nothing of its own to add. (It used to say "is_merge=True still
+    # excludes…", which stopped being true the moment the value was derived.)
     # Tag merges whose source is a free branch —
     # honored by retro_metrics alongside is_merge. (A free→primary merge is
     # both: it carries is_merge from this code path AND should be flagged as
