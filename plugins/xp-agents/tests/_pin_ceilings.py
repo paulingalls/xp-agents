@@ -134,10 +134,6 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_spawn_teammate.py": 488,
     "plugins/xp-agents/tests/engine/test_compact.py": 488,
     "plugins/xp-agents/tests/smm/test_smm_store.py": 487,
-    # Ratcheted for the ghost filter: this file's `subprocess.run` stub answered
-    # the new `--diff-filter=D` probe with the UNSTAGED listing, which calls
-    # every unstaged change a deletion. The branch that fixes it needs the note,
-    # or the next reader deletes it as redundant with the branch below.
     # RETIRED (story-016): test_commits_issues.py 495->359. The two
     # uncommitted-state classes moved to test_worktree_state.py beside the
     # module they now test. Below the 450 floor, so the entry is deleted

@@ -153,15 +153,6 @@ class TestGetUncommittedFiles(unittest.TestCase):
         self.assertIsNone(worktree_state.get_uncommitted_files("/tmp"))
 
 
-# ---------------------------------------------------------------------------
-# open_issues_matching_commit
-# ---------------------------------------------------------------------------
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestThePatchTargetCannotDriftSilently(unittest.TestCase):
     """The one way every test above could pass while proving nothing.
 
@@ -197,3 +188,7 @@ class TestThePatchTargetCannotDriftSilently(unittest.TestCase):
             f"{_SUBPROCESS} did not intercept a worktree_state call — the "
             "patch target no longer reaches the code under test",
         )
+
+
+if __name__ == "__main__":
+    unittest.main()

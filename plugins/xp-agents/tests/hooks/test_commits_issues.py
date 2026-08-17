@@ -119,7 +119,7 @@ class TestGetCodeFilesForReview(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# get_uncommitted_code_files
+# open_issues_matching_commit
 # ---------------------------------------------------------------------------
 
 
