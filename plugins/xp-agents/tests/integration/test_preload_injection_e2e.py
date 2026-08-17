@@ -63,14 +63,17 @@ from _capstone_plugin import (
     NOT_MEASURED,
     NOT_MEASURED_PREFIX,
     OUR_PLUGIN_NAME,
+    SECOND_HARNESS_PLUGIN_NAME,
     SEED_ENV,
     WITHHELD,
     ModelRun,
     build_capstone_plugin,
     child_env,
+    install_second_harness,
     live_gate_reason,
     requires_live,
     run_first_harness,
+    run_second_harness,
     verdict,
 )
 
@@ -98,7 +101,7 @@ def _drive_handler(
     env = {
         **os.environ,
         **fixture.env(),
-        "CLAUDE_PLUGIN_ROOT": str(fixture.root),
+        "CLAUDE_PLUGIN_ROOT": str(fixture.plugin_dir),
         "SMM_DIR": str(smm_dir),
         **(extra_env or {}),
     }
@@ -222,7 +225,7 @@ class TestBothManifestsCarryWhatEachHarnessReads(_IntegrationTestCase):
         Pinned so a future rename fails here rather than in a live row.
         """
         manifest = json.loads(
-            (self.fixture.root / ".claude-plugin" / "plugin.json").read_text()
+            (self.fixture.plugin_dir / ".claude-plugin" / "plugin.json").read_text()
         )
 
         self.assertEqual(manifest["name"], OUR_PLUGIN_NAME)
@@ -237,7 +240,7 @@ class TestBothManifestsCarryWhatEachHarnessReads(_IntegrationTestCase):
         """The second harness has no skill tool call at all, so without this
         entry that harness has no trigger and measures nothing."""
         derived = json.loads(
-            (self.fixture.root / ".codex-plugin" / "plugin.json").read_text()
+            (self.fixture.plugin_dir / ".codex-plugin" / "plugin.json").read_text()
         )
         entries = self.fixture.hook_entries(".codex-plugin")
         matchers = [e.get("matcher") for e in entries]
@@ -477,6 +480,77 @@ class TestTheFirstHarnessPutsAModelInTheLoop(unittest.TestCase):
         skill still engaged."""
         fixture = build_capstone_plugin(self.tmp / "control", inject=False)
         run = run_first_harness(fixture, self._prompt(fixture))
+
+        self.assertEqual(
+            verdict(run, fixture.expected_token),
+            WITHHELD,
+            f"firings={run.firings} timed_out={run.timed_out} "
+            f"stdout={run.stdout[-400:]!r}",
+        )
+
+
+class TestTheSecondHarnessPutsAModelInTheLoop(unittest.TestCase):
+    """The same question on the other harness, where nothing is symmetric.
+
+    That harness has no skill tool call, so the trigger is the model READING
+    `SKILL.md` through the shell. It has no `--plugin-dir`, so the fixture must
+    be installed. Its credentials live in the harness home, so an isolated home
+    authenticates nothing — which is why these rows install into the developer's
+    REAL home under distinct names and remove themselves afterwards.
+
+    The residual, stated rather than implied: this model has shell access, so it
+    could in principle read the preload and recompute the digest itself.
+    Impossibility is not available here, and the control is what carries the
+    weight — with the handler removed the token does not arrive.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _fixture(self, name: str, *, inject: bool = True):
+        return build_capstone_plugin(
+            self.tmp / name,
+            inject=inject,
+            plugin_name=SECOND_HARNESS_PLUGIN_NAME,
+        )
+
+    @requires_live("codex")
+    def test_the_installed_copy_carries_the_shell_read_trigger(self):
+        """Without this entry the harness has no trigger and the rows below
+        would report not-measured for a reason that looks like delivery."""
+        fixture = self._fixture("installed")
+        installed_root = install_second_harness(fixture, self.addCleanup)
+
+        declared = json.loads(
+            (installed_root / ".codex-plugin" / "plugin.json").read_text()
+        )["hooks"]
+        entries = json.loads((installed_root / declared.lstrip("./")).read_text())
+        matchers = [e.get("matcher") for e in entries["hooks"]["PreToolUse"]]
+
+        self.assertIn("Bash", matchers)
+
+    @requires_live("codex")
+    def test_the_token_reaches_the_model(self):
+        """AC1 on the second harness."""
+        fixture = self._fixture("live")
+        installed_root = install_second_harness(fixture, self.addCleanup)
+        run = run_second_harness(fixture, installed_root)
+
+        self.assertEqual(
+            verdict(run, fixture.expected_token),
+            DELIVERED,
+            f"firings={run.firings} timed_out={run.timed_out} "
+            f"stdout={run.stdout[-400:]!r}",
+        )
+
+    @requires_live("codex")
+    def test_the_control_withholds_it(self):
+        """AC2 on the second harness, and here it is load-bearing rather than a
+        redundant check — see the class docstring's residual."""
+        fixture = self._fixture("control", inject=False)
+        installed_root = install_second_harness(fixture, self.addCleanup)
+        run = run_second_harness(fixture, installed_root)
 
         self.assertEqual(
             verdict(run, fixture.expected_token),

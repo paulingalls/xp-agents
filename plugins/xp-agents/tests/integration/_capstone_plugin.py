@@ -137,15 +137,30 @@ reply `NO-TOKEN`.
 
 
 class CapstonePlugin(NamedTuple):
-    """A built plugin tree plus everything a caller needs to assert against it."""
+    """A built tree plus everything a caller needs to assert against it.
+
+    `root` is a REPO-shaped marketplace root and `plugin_dir` the plugin inside
+    it, mirroring this repository's own layout. Both are needed because the two
+    harnesses load a plugin differently: the first takes a directory
+    (`--plugin-dir <plugin_dir>`), the second has no such flag at all and can
+    only install from a marketplace (`marketplace add <root>`).
+    """
 
     root: Path
+    plugin_dir: Path
+    plugin_name: str
+    marketplace_name: str
     skill_name: str
     seed: str
     expected_token: str
     skill_body: Path
     firing_log: Path
     injects: bool
+
+    @property
+    def plugin_id(self) -> str:
+        """The `PLUGIN@MARKETPLACE` selector the second harness installs by."""
+        return f"{self.plugin_name}@{self.marketplace_name}"
 
     def hook_entries(self, manifest_dir: str) -> list[dict]:
         """The PreToolUse entries the manifest in *manifest_dir* points at.
@@ -155,12 +170,14 @@ class CapstonePlugin(NamedTuple):
         primary manifest omits the key and gets directory discovery, exactly as
         the shipped pair does.
         """
-        manifest = json.loads((self.root / manifest_dir / "plugin.json").read_text())
+        manifest = json.loads(
+            (self.plugin_dir / manifest_dir / "plugin.json").read_text()
+        )
         named = manifest.get("hooks")
         hooks_file = (
-            (self.root / named.lstrip("./"))
+            (self.plugin_dir / named.lstrip("./"))
             if named
-            else self.root / "hooks" / "hooks.json"
+            else self.plugin_dir / "hooks" / "hooks.json"
         )
         return json.loads(hooks_file.read_text())["hooks"]["PreToolUse"]
 
@@ -175,7 +192,7 @@ class CapstonePlugin(NamedTuple):
         A child whose cwd is this checkout can reach the suite, and a child that
         can run the suite is the recursion `_spawn_guard` was written about.
         """
-        return self.root.parent / "child-cwd"
+        return self.root / "child-cwd"
 
     def firings(self) -> int:
         if not self.firing_log.exists():
@@ -305,7 +322,7 @@ def run_first_harness(
         "claude",
         "-p",
         "--plugin-dir",
-        str(fixture.root),
+        str(fixture.plugin_dir),
         "--allowed-tools",
         "Skill",
         "--dangerously-skip-permissions",
@@ -315,6 +332,124 @@ def run_first_harness(
             completed = subprocess.run(
                 argv,
                 input=prompt,
+                capture_output=True,
+                text=True,
+                cwd=fixture.child_cwd,
+                env=env,
+                check=False,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return ModelRun(stdout="", firings=fixture.firings(), timed_out=True)
+    return ModelRun(stdout=completed.stdout, firings=fixture.firings(), timed_out=False)
+
+
+# The second harness's fixture ships under its OWN name. Two reasons, both
+# measured: its leg has no namespace check (5aaeb8d68cfe), and it must install
+# beside the developer's real xp-agents without colliding with it.
+SECOND_HARNESS_PLUGIN_NAME = "xp-capstone"
+
+_INSTALL_TIMEOUT_SECONDS = 120
+
+
+def _codex_plugin(*args: str, timeout: int = _INSTALL_TIMEOUT_SECONDS):
+    """A `codex plugin ...` management call.
+
+    Needs no spawn-guard escape hatch: the guard blocks that binary by
+    (binary, subcommand) and `plugin` is a management form that runs no model.
+    Only the `exec` below is a spawn.
+    """
+    return subprocess.run(
+        ["codex", "plugin", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout,
+    )
+
+
+def uninstall_second_harness(fixture: "CapstonePlugin") -> None:
+    """Remove the fixture from the harness home. Safe to call when absent."""
+    _codex_plugin("remove", fixture.plugin_id)
+    _codex_plugin("marketplace", "remove", fixture.marketplace_name)
+
+
+def install_second_harness(fixture: "CapstonePlugin", register_cleanup) -> Path:
+    """Install the fixture and return the tree the harness copied it into.
+
+    **This mutates the developer's real harness home**, and it is the only way:
+    that harness has no `--plugin-dir`, and its credentials live in the home, so
+    an isolated one authenticates nothing (401). The fixture ships under its own
+    plugin and marketplace names so it cannot collide with a real install.
+
+    *register_cleanup* is invoked BEFORE anything is installed — pass
+    `self.addCleanup`. Registering after would leave a stray marketplace and
+    plugin in the developer's config whenever the install itself fails partway.
+    """
+    register_cleanup(uninstall_second_harness, fixture)
+
+    registered = _codex_plugin("marketplace", "add", str(fixture.root))
+    if registered.returncode != 0:
+        raise AssertionError(f"marketplace add failed: {registered.stderr}")
+    added = _codex_plugin("add", fixture.plugin_id)
+    if added.returncode != 0:
+        raise AssertionError(f"plugin add failed: {added.stderr}")
+
+    for line in added.stdout.splitlines():
+        if line.startswith("Installed plugin root: "):
+            return Path(line.removeprefix("Installed plugin root: ").strip())
+    raise AssertionError(f"install reported no plugin root: {added.stdout!r}")
+
+
+def run_second_harness(
+    fixture: "CapstonePlugin",
+    installed_root: Path,
+    *,
+    timeout: int = LIVE_TIMEOUT_SECONDS,
+) -> ModelRun:
+    """Put a REAL model in the loop on the second harness.
+
+    Three flags each answer something measured rather than guessed:
+
+    `--dangerously-bypass-hook-trust` — WITHOUT it a freshly installed plugin's
+    hooks do not fire AT ALL. Measured by running the identical install and
+    prompt twice: 0 firings without, 1 with. That is a property of the harness,
+    not of this fixture, and it is filed as concern bb2d47396ba6 because a user
+    installing this plugin there gets no gates until the hooks are trusted.
+
+    `-s read-only` — the trigger IS a shell read, so the model must be allowed
+    to run one; read-only is the narrowest policy that permits it.
+
+    `input=""` — that CLI appends piped stdin to a prompt argument and waits on
+    it, so an unclosed stdin hangs the call until the timeout.
+
+    The read command is named EXACTLY, because `_READ_COMMANDS` whitelists eight
+    and a read by any other means fires nothing — which would report
+    not-measured for a reason unrelated to delivery.
+    """
+    fixture.child_cwd.mkdir(parents=True, exist_ok=True)
+    body = installed_root / "skills" / fixture.skill_name / "SKILL.md"
+    prompt = (
+        f"Run exactly this shell command: cat {body}\n"
+        "Then follow the instructions in the file you just printed."
+    )
+    argv = [
+        "codex",
+        "exec",
+        "-C",
+        str(fixture.child_cwd),
+        "--skip-git-repo-check",
+        "-s",
+        "read-only",
+        "--dangerously-bypass-hook-trust",
+        prompt,
+    ]
+    env = child_env(fixture)
+    with patch.dict(os.environ, {GUARD_ENV: "1"}):
+        try:
+            completed = subprocess.run(
+                argv,
+                input="",
                 capture_output=True,
                 text=True,
                 cwd=fixture.child_cwd,
@@ -359,38 +494,70 @@ def _hook_entries(probe: Path, *, inject: bool, shell_read: bool) -> list[dict]:
 
 
 def build_capstone_plugin(
-    root: Path, *, inject: bool = True, seed: str | None = None
+    root: Path,
+    *,
+    inject: bool = True,
+    seed: str | None = None,
+    plugin_name: str = OUR_PLUGIN_NAME,
 ) -> CapstonePlugin:
-    """Build the dual-manifest plugin at *root* and return a handle to it.
+    """Build a repo-shaped marketplace at *root* and return a handle to it.
 
     *inject* False builds AC2's control: same tree, same skill, same probe, no
     handler. *seed* is generated when absent; a caller passes one only to assert
     that two different seeds yield two different tokens.
+
+    *plugin_name* defaults to ours because the FIRST harness's Skill leg is
+    namespace-locked and injects nothing under any other name. The second
+    harness's leg is not (`_skill_name_from_path` returns a directory name), so
+    its fixture ships under a distinct name — which is what lets it install
+    beside a real xp-agents without colliding with it. Measured, 5aaeb8d68cfe.
     """
     seed = seed or secrets.token_hex(16)
     token = hashlib.sha256(seed.encode()).hexdigest()[:_TOKEN_CHARS]
+    marketplace_name = f"{plugin_name}-capstone-market"
+    plugin_root = root / "plugins" / plugin_name
 
-    probe = root / "hooks" / "firing_probe.py"
-    _write_executable(probe, _PROBE_BODY)
-    _write_executable(
-        root / "skills" / SKILL_NAME / "scripts" / "preload.sh", _PRELOAD_BODY
+    marketplace = root / ".claude-plugin" / "marketplace.json"
+    marketplace.parent.mkdir(parents=True, exist_ok=True)
+    marketplace.write_text(
+        json.dumps(
+            {
+                "name": marketplace_name,
+                "owner": {"name": "xp-agents capstone"},
+                "plugins": [
+                    {
+                        "name": plugin_name,
+                        "source": f"./plugins/{plugin_name}",
+                        "description": "Capstone fixture.",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n"
     )
 
-    skill_body = root / "skills" / SKILL_NAME / "SKILL.md"
+    probe = plugin_root / "hooks" / "firing_probe.py"
+    _write_executable(probe, _PROBE_BODY)
+    _write_executable(
+        plugin_root / "skills" / SKILL_NAME / "scripts" / "preload.sh", _PRELOAD_BODY
+    )
+
+    skill_body = plugin_root / "skills" / SKILL_NAME / "SKILL.md"
     skill_body.parent.mkdir(parents=True, exist_ok=True)
     skill_body.write_text(_SKILL_BODY)
 
     shared = {
-        "name": OUR_PLUGIN_NAME,
+        "name": plugin_name,
         "version": "0.0.0",
         "description": "Capstone fixture — does injected state reach a model?",
     }
 
     # Primary: directory discovery finds hooks/hooks.json, as the shipped pair does.
-    primary = root / ".claude-plugin" / "plugin.json"
+    primary = plugin_root / ".claude-plugin" / "plugin.json"
     primary.parent.mkdir(parents=True, exist_ok=True)
     primary.write_text(json.dumps(shared, indent=2) + "\n")
-    (root / "hooks" / "hooks.json").write_text(
+    (plugin_root / "hooks" / "hooks.json").write_text(
         json.dumps(
             {
                 "hooks": {
@@ -405,7 +572,7 @@ def build_capstone_plugin(
     # Derived: names its hooks file explicitly, because on that harness a
     # component key REPLACES directory discovery rather than merging — and adds
     # the shell-read trigger, its only way in.
-    derived = root / ".codex-plugin" / "plugin.json"
+    derived = plugin_root / ".codex-plugin" / "plugin.json"
     derived.parent.mkdir(parents=True, exist_ok=True)
     derived.write_text(
         json.dumps(
@@ -414,7 +581,7 @@ def build_capstone_plugin(
         )
         + "\n"
     )
-    (root / "hooks" / "hooks.codex.json").write_text(
+    (plugin_root / "hooks" / "hooks.codex.json").write_text(
         json.dumps(
             {
                 "hooks": {
@@ -428,6 +595,9 @@ def build_capstone_plugin(
 
     return CapstonePlugin(
         root=root,
+        plugin_dir=plugin_root,
+        plugin_name=plugin_name,
+        marketplace_name=marketplace_name,
         skill_name=SKILL_NAME,
         seed=seed,
         expected_token=token,
