@@ -36,7 +36,6 @@ caller wraps the returned reason.
 """
 
 import sys
-from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -44,51 +43,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 import declared_test_command
 import shell_exit_structure
 
-# A plain shell comment, so it is inert to the command it rides on. Three
-# properties earn it: it cannot change what runs, it forces the intent to be
-# stated rather than guessed at, and it is greppable in history, so routine
-# bypassing is visible rather than silent.
-#
-# It suppresses THIS gate only. The post-run advisory is untouched — an agent
-# that knowingly discards the exit status still gets told the concern is still
-# armed, which is information it needs and not a refusal it must route around.
-EXIT_STATUS_NOT_NEEDED_MARKER = "# exit-status-not-needed"
-
-
-def _exit_reaches_shell(command: str, runs_target: Callable[[str], bool]) -> bool:
-    """Does the declared command's own exit status become the shell's?
-
-    The same composition `shell_exit_structure.exit_reaches_shell` uses, with
-    the predicate that knows which segments are under measurement in place of
-    its every-segment one. NOT the composition the other consumer of
-    `outer_exit_reaches_shell` uses: that one omits the substitution rewrite,
-    and can, because its predicate matches a closed set of names rather than
-    the declaration's head token — so it cannot match the head of an argument
-    substitution that merely re-invokes the same executable, which a
-    declaration-keyed predicate routinely does. Three parts, none of them new
-    parsing:
-
-      * `argument_substitutions_as_words` first, or every substitution reads
-        as a capture. One that merely computes an ARGUMENT does not capture
-        the command's status — the command's own status is still what the
-        shell reports — and refusing those would refuse an ordinary declared
-        command whose arguments are computed. That direction is not a
-        theoretical worry: it silently disabled a different consumer for a
-        whole class of projects once already.
-      * the walk itself, which is pure shell grammar.
-      * the bodies of any `sh -c` wrappers, recursively. The outer walk
-        deliberately does not descend into them — it only notices that a body
-        runs the target, so the wrapper counts as a measured segment out
-        here. Without this leg a wrapper launders any operator INSIDE it.
-    """
-    if not shell_exit_structure.outer_exit_reaches_shell(
-        shell_exit_structure.argument_substitutions_as_words(command), runs_target
-    ):
-        return False
-    return all(
-        _exit_reaches_shell(body, runs_target)
-        for body in shell_exit_structure.shell_c_bodies(command)
-    )
+# Re-exported, not owned: the marker waives every pre-run refusal built on the
+# shared composition, so it lives with that composition. Named here because the
+# refusal text below has to quote it, and because a reader who arrives at this
+# gate looking for its escape hatch should find one.
+EXIT_STATUS_NOT_NEEDED_MARKER = shell_exit_structure.EXIT_STATUS_NOT_NEEDED_MARKER
 
 
 def _refusal(declared: str) -> str:
@@ -156,10 +115,16 @@ def captured_exit_block(smm_dir: Path, command: str) -> str | None:
     def runs_target(text: str) -> bool:
         return declared_test_command.runs_declared_test_command(text, declared)
 
-    if _exit_reaches_shell(command, runs_target):
+    # The FULL composition, not the walk alone: this predicate matches against
+    # the project's DECLARATION, head token and all, so it can match the head of
+    # an argument substitution that merely re-invokes the same executable.
+    # `test_attribution`'s predicate matches a closed set of names and cannot,
+    # which is why that consumer may omit the substitution rewrite and this one
+    # may not.
+    if shell_exit_structure.exit_reaches_shell_for(command, runs_target):
         return None
     # Asked only on the refusal path, where one more walk over one short string
     # costs nothing, rather than on every Bash call in the session.
-    if not _exit_reaches_shell(declared, runs_target):
+    if not shell_exit_structure.exit_reaches_shell_for(declared, runs_target):
         return None
     return _refusal(declared)

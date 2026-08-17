@@ -174,7 +174,13 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/retro_metrics.py": 130,
     "plugins/xp-agents/scripts/scaffold_apply.py": 128,
     "plugins/xp-agents/scripts/session_start.py": 164,
-    "plugins/xp-agents/scripts/shell_exit_structure.py": 257,
+    # 257 -> 290, and the tree's total moved by ~10, not 33: the composition's
+    # three-part rationale and the escape marker's four properties came here
+    # from `exit_capture_gate`, which fell 105 -> 82 prose lines in the same
+    # commit. Consumer-specific reasoning deliberately did NOT come with them —
+    # why a declaration-keyed predicate needs the substitution rewrite stays
+    # with the gate whose predicate it is.
+    "plugins/xp-agents/scripts/shell_exit_structure.py": 290,
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
     "plugins/xp-agents/scripts/staged_lint.py": 221,
     "plugins/xp-agents/scripts/tdd_check.py": 133,

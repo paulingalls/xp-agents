@@ -48,6 +48,14 @@ BAND_CEILINGS = {
     "plugins/xp-agents/smm/sprint_cli_mutate.py": 496,
     "plugins/xp-agents/scripts/in_place_marker.py": 490,
     "plugins/xp-agents/scripts/retro_metrics.py": 490,
+    # NEW entry, not a ratchet: 443 -> 486, crossing the 450 floor for the first
+    # time. `exit_reaches_shell_for` hoists the rewrite/walk/`sh -c`-recursion
+    # composition that `exit_capture_gate` held a private second copy of, and
+    # the shared escape marker moved here with it. A third copy was about to be
+    # written for the git-write gate, so the file grew by taking duplication
+    # OUT of the tree — `exit_capture_gate.py` fell 165 -> 131 in the same
+    # commit.
+    "plugins/xp-agents/scripts/shell_exit_structure.py": 486,
     "plugins/xp-agents/scripts/linter_tables.py": 482,
     "plugins/xp-agents/smm/event_schema.py": 480,
     # Ratcheted 477->482 (story-011): the three single-stream sites now route
