@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import concerns
 import exit_capture_gate
+import git_write_exit_gate
 import identity
 import markers
 import pre_tool_bash_branch_delete
@@ -226,15 +227,41 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             "Reviewer must not mutate git state — inspection is read-only.",
         )
 
+    tool_input = input_data.get("tool_input", {})
+    command = tool_input.get("command", "")
+
+    # Git-write exit refusal — ABOVE the skip, for the two reasons the guard
+    # above records: it needs no SMM, and a refusal that forks no agent has no
+    # recursion to prevent.
+    #
+    # What the placement actually buys is NOT the two git-touching reviewers.
+    # `reviewer_mutation_block` above already refuses their pushes and commits
+    # outright, so they never reach this line either way; the marginal coverage
+    # is every OTHER xp- agent — plan reviewer, retrospective, housekeeper,
+    # sprint reviewer, system analyzer — which the skip would otherwise wave
+    # past. A placement pin naming a guarded reviewer would pass on both sides
+    # of the skip and assert nothing, which is why the one below names the plan
+    # reviewer.
+    #
+    # Its sibling `captured_exit_block` stays BELOW the skip and the asymmetry
+    # is not an oversight: that gate reads the project's declared test command
+    # out of system_context, which lives in the SMM dir, so it cannot sit above
+    # `get_validated_smm_dir`. This one keys on git, which every project using
+    # this plugin has, so nothing forces it down there.
+    git_write_block = git_write_exit_gate.captured_git_write_block(command)
+    if git_write_block:
+        raise _common.BlockedError(
+            git_write_block,
+            "Git write's exit status cannot reach the shell.",
+        )
+
     if _common.is_xp_agent(input_data):
         return None
 
     smm_dir = _common.get_validated_smm_dir(smm_dir)
 
-    tool_input = input_data.get("tool_input", {})
     agent_id = identity.resolve_agent_id(input_data)
     cwd = input_data.get("cwd", ".")
-    command = tool_input.get("command", "")
 
     # Captured-exit refusal. BELOW the is_xp_agent skip, and the chain that
     # forces it is worth stating: the gate must key on the project's DECLARED

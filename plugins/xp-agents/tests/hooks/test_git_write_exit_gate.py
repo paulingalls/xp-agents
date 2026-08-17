@@ -23,9 +23,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
+import _common
 import git_write_exit_gate
+import pre_tool_bash
 import shell_exit_structure
 from _bases import _AssertNotNoneMixin
+from _hook_inputs import _make_bash_input
 
 # Every shape that loses the status. The first is the recorded defect verbatim.
 _MASKING_SHAPES = {
@@ -133,6 +136,39 @@ class TestTheFalsePositivesThatWouldRefuseOurOwnCommits(unittest.TestCase):
             "EOF"
         )
         self.assertIsNone(git_write_exit_gate.captured_git_write_block(command))
+
+    def test_a_config_value_naming_a_write_is_not_a_write(self):
+        """`git -c commit.gpgsign=false` and `git -c push.default=simple` are
+        CONFIG, and the commands here are reads. `\\b` sits happily between
+        `commit` and `.`, so the sibling's narrower `\\b(?!-)` lookahead read
+        both as writes — and this is the CI-identity form the project
+        documents, so the false positive lands on the path agents use most.
+        Caught by test_pre_tool_bash_git_c_target, not by foresight.
+        """
+        for command in (
+            "git -c commit.gpgsign=false log | tail -6",
+            "git -c push.default=simple status | head -20",
+        ):
+            with self.subTest(command=command):
+                self.assertIsNone(git_write_exit_gate.captured_git_write_block(command))
+
+    def test_a_wrapped_invocation_is_one_command_not_two(self):
+        """A `\\`-newline is a continuation the shell joins away, but the walk
+        splits on `\\n` regardless — so an unjoined wrap reads as two commands
+        with a status-discarding newline between them, and an honest wrapped
+        push is refused for an operator that is not there."""
+        self.assertIsNone(
+            git_write_exit_gate.captured_git_write_block("git push \\\n  origin HEAD")
+        )
+
+    def test_wrapping_is_not_a_way_around_the_gate(self):
+        """The other half. Joining must not be a laundering step: the same
+        wrapped push, piped, is still refused."""
+        self.assertIsNotNone(
+            git_write_exit_gate.captured_git_write_block(
+                "git push \\\n  origin HEAD | tail -6"
+            )
+        )
 
     def test_an_argument_substitution_is_not_a_capture(self):
         """`git commit -m "$(cat msg.txt)"` is ONE command whose exit status is
@@ -249,6 +285,52 @@ class TestThePredicateIsNotVacuous(unittest.TestCase):
         self.assertEqual(
             git_write_exit_gate.git_write_named("sh -c 'git push'"), "push"
         )
+
+
+class TestItIsWiredInAboveTheRecursionSkip(unittest.TestCase):
+    """The load-bearing placement pin — and the reason it names THIS agent.
+
+    `reviewer_mutation_block` runs first and its guarded set is exactly
+    {xp-code-reviewer, xp-close-reviewer}, with a read-only allowlist containing
+    neither push nor commit. A piped push from either is therefore ALREADY
+    refused before this gate is reached, so a pin naming one would pass with the
+    call on EITHER side of `is_xp_agent` — green while asserting nothing, and
+    silently reporting that placement is proven when it is not. The plan
+    reviewer is unguarded, so it reaches the skip and discriminates.
+    """
+
+    _AGENT = "xp-agents:xp-plan-reviewer"
+
+    def _run(self, command: str):
+        return pre_tool_bash.run(
+            _make_bash_input(command, agent_type=self._AGENT, agent_id=self._AGENT),
+            smm_dir=None,
+        )
+
+    def test_an_xp_agent_piping_a_push_is_refused(self):
+        with self.assertRaises(_common.BlockedError) as caught:
+            self._run("git push origin HEAD | tail -6")
+        self.assertIn("push", str(caught.exception))
+
+    def test_the_same_agent_pushing_honestly_is_not(self):
+        """The control. Without it a hook that refused every payload — or
+        crashed on all of them — would pass the test above."""
+        self.assertIsNone(self._run("git push origin HEAD"))
+
+    def test_a_guarded_reviewer_would_not_have_discriminated(self):
+        """Pins the reason for the agent choice above, so a later edit that
+        'simplifies' it to xp-code-reviewer reddens here instead of quietly
+        hollowing out the pin."""
+        with self.assertRaises(_common.BlockedError) as caught:
+            pre_tool_bash.run(
+                _make_bash_input(
+                    "git push origin HEAD",
+                    agent_type="xp-agents:xp-code-reviewer",
+                    agent_id="xp-agents:xp-code-reviewer",
+                ),
+                smm_dir=None,
+            )
+        self.assertIn("read-only", str(caught.exception).lower())
 
 
 if __name__ == "__main__":

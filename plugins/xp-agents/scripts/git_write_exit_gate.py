@@ -47,12 +47,30 @@ import shell_exit_structure
 
 # `GIT_PREFIX` rather than a bare `git\s+`, because `git -C <path> push` is the
 # form agents adopt to avoid cd-poisoning the Stop hooks, and it is what the
-# shipped close skills instruct. `(?!-)` keeps `git commit-tree` out — the same
-# guard `git_commits._COMMIT_OR_MERGE_RE` uses ten lines from where this
-# borrows its prefix.
+# shipped close skills instruct.
+#
+# The trailing lookahead is WIDER than the `\b(?!-)` its sibling
+# `git_commits._COMMIT_OR_MERGE_RE` uses, and the extra characters are each
+# paying for a false positive that gate can afford and this one cannot. `-`
+# keeps `git commit-tree` out, as there. `.` and `=` keep a CONFIG VALUE out:
+# `git -c commit.gpgsign=false log` and `git -c push.default=simple log` are
+# reads, and `\b` sits happily between `commit` and `.`, so the narrower
+# lookahead read both as writes. That form is the CI identity this project
+# documents, so the false positive would have refused ordinary reads on the
+# path agents use most. `\w` completes the token boundary the other two imply.
 _GIT_WRITE_RE = re.compile(
-    git_commits.GIT_PREFIX + r"(?P<subcommand>push|commit)\b(?!-)"
+    git_commits.GIT_PREFIX + r"(?P<subcommand>push|commit)(?![\w.=-])"
 )
+
+# A `\`-newline is a line CONTINUATION, not a segment break: the shell joins it
+# away before git ever sees it. The walk splits on `\n` regardless, so left
+# alone every wrapped invocation reads as two commands with a status-discarding
+# newline between them — and an honest `git push \<nl> origin HEAD` is refused
+# for an operator that is not there. `git_commits.TOKEN_GAP` exists for the same
+# shape and says why: wrapping is ordinary formatting, not evasion. `[ \t]*`
+# rather than `\s*`, so a continuation followed by a BLANK line does not eat the
+# real break after it.
+_LINE_CONTINUATION_RE = re.compile(r"\\\n[ \t]*")
 
 
 def git_write_named(command: str) -> str | None:
@@ -121,10 +139,11 @@ def captured_git_write_block(command: str) -> str | None:
     """
     if not command or shell_exit_structure.EXIT_STATUS_NOT_NEEDED_MARKER in command:
         return None
-    subcommand = git_write_named(command)
+    joined = _LINE_CONTINUATION_RE.sub(" ", command)
+    subcommand = git_write_named(joined)
     if subcommand is None:
         return None
-    if shell_exit_structure.exit_reaches_shell_for(command, _runs_a_git_write):
+    if shell_exit_structure.exit_reaches_shell_for(joined, _runs_a_git_write):
         return None
     return _refusal(subcommand)
 
