@@ -84,6 +84,11 @@ BAND_CEILINGS = {
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
+    # Entered the band with `also_changed` on untouched_verify_paths: the
+    # keyword-only parameter, the union, and the one sentence naming who may
+    # pass it. The walk itself is unchanged, so this is the parameter's cost
+    # and not a growing function.
+    "plugins/xp-agents/scripts/verify_paths.py": 454,
     # RETIRED: verify_acceptance.py 455->434, under the 450 floor so the entry
     # is deleted rather than re-recorded. Deduping the sprint run to one
     # subprocess per DISTINCT command replaced the inline row-building loop
