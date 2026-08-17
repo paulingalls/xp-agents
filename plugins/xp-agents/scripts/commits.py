@@ -299,7 +299,7 @@ def get_code_files_for_review(
     # nothing to filter, no fork spent asking.
     #
     # Nor is anything a ghost when the command stages everything: `git add -A`
-    # makes each unstaged deletion one this commit performs (b9509b449417).
+    # makes each unstaged deletion one that this commit performs.
     widened = all_files - staged_names
     if widened and not git_commits.stages_all_tracked_changes(command):
         all_files -= widened & _unstaged_worktree_deletions(cwd)
