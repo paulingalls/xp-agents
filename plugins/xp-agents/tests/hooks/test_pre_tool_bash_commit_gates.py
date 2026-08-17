@@ -263,11 +263,15 @@ class TestCloseGateIgnoresStagedCoverage(_HookTestCase):
     By this module's naming logic this test belongs beside `verify_deferred`,
     not the commit gate. It lives here anyway, to avoid a third sprint
     file_domain amendment (story-006 already added two). Do not "tidy" it
-    into a verify_deferred test module without also moving it consciously —
-    it is what stops a future "just make staged the default" from letting a
-    story merge with its acceptance test staged and never committed: the
-    close gate and the story-close preload CLI both call this function
-    without `staged`, so its default must stay commit-only forever.
+    into a verify_deferred test module without also moving it consciously.
+
+    This covers ONE of the two merge-time layers: the post-commit
+    [verify-deferred] debt in commit_handling is the only other caller of
+    `untouched_paths_for_story`. The close gate and the story-close preload
+    CLI reach past it to `verify_paths.untouched_verify_paths` directly, so
+    THAT primitive's commit-only default is pinned separately by
+    test_verify_paths_extraction_and_git.py::TestUntouchedVerifyPaths::
+    test_staged_but_uncommitted_path_stays_untouched_by_default.
     """
 
     def test_close_gate_default_ignores_the_index(self):
@@ -280,9 +284,14 @@ class TestCloseGateIgnoresStagedCoverage(_HookTestCase):
         sprint = make_sprint_dict(stories=[story])
         sprint_store.save_sprint(self.smm_dir, sprint, enforce_budget=False)
 
+        # The index FULLY covers the declared path. Without this patch the
+        # test is vacuous against the mutation it names: making `staged`
+        # default to `commits.get_staged_files(cwd)` leaves it green,
+        # because a bare "/tmp" stages nothing.
         with (
             patch("branching.get_story_base_branch", return_value="base"),
             patch("verify_paths._changed_files", return_value=set()),
+            patch("commits.get_staged_files", return_value=["tests/a.py"]),
         ):
             untouched = verify_deferred.untouched_paths_for_story(
                 self.smm_dir, "/tmp", "story-001"

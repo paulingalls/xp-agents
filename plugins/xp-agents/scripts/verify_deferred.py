@@ -78,16 +78,17 @@ def untouched_paths_for_story(
 ) -> list[str]:
     """Verify paths the story declares that no commit on its branch touched.
 
-    The shared fail-open pipeline behind the pre-commit nudge, the
-    post-commit [verify-deferred] debt, and the story-close gate: returns []
-    (and never raises) when the story is gone, declares no verify paths, or
-    git can't be read.
+    The shared fail-open pipeline behind both the pre-commit nudge and the
+    post-commit [verify-deferred] debt: returns [] (and never raises) when
+    the story is gone, declares no verify paths, or git can't be read.
 
     `staged` is opt-in coverage from the index (the commit-time nudge's own
-    commit doesn't exist yet to be walked). Defaulting to None keeps every
-    other caller — the post-commit debt, the close gate, the CLI — reading
-    commit-only coverage, which merge time must never relax: a merge carries
-    commits, not the index.
+    commit doesn't exist yet to be walked). Defaulting to None keeps the
+    post-commit debt on commit-only coverage. The story-close gate and the
+    verify_paths CLI reach past this function straight to
+    `verify_paths.untouched_verify_paths`, whose own `also_changed` default
+    is the merge-time half of the same rule — and merge time must never
+    relax it: a merge carries commits, not the index.
     """
     import branching
     import sprint_store
