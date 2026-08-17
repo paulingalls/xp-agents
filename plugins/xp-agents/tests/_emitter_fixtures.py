@@ -142,13 +142,24 @@ EMITTER_BUDGETS: dict[str, int] = {
     "post_tool_exit_plan.py": 100,
     "pre_tool_bash.py": 100,
     "pre_tool_skill.py": 100,
-    # Measured 355 with the xp-schedule fixture. Unlike every sibling here,
+    # Measured 240 with the xp-schedule fixture. Unlike every sibling here,
     # these bytes are not this emitter's own prose — it injects another
     # script's output verbatim, so the number tracks that preload rather than
     # anything in preload_injection.py. The primary bound on the payload is
     # the per-skill preload budget in test_preload_budgets.py; this entry
     # exists so the injection surface is not the one emitter with no ceiling
     # at all, and it moves when the chosen fixture's preload moves.
+    #
+    # Held at 400. A 400 -> 420 bump was made and REVERTED: the 392 that
+    # prompted it was not growth in xp-schedule's preload but the teammate
+    # worktree's longer checkout path leaking into the measurement — measured
+    # in the main checkout the number had not moved from the then-recorded 355.
+    # Both dead guards are fixed in `_budget_helpers` (see the note on
+    # `_WORKTREE_SEGMENT_RE`), and the second fix — `normalize_paths` on the
+    # emitter assert, which this and `subagent_start.py` are the only two
+    # entries to feel — is what took 355 down to 240. The ceiling is left at
+    # the pre-normalization calibration rather than re-ratcheted here, so read
+    # it as slack, not headroom earned.
     "preload_injection.py": 400,
     "pre_tool_write.py": 100,
     "prompt_nugget.py": 100,
@@ -161,7 +172,9 @@ EMITTER_BUDGETS: dict[str, int] = {
     # reads a TOP-LEVEL `agent_type`, so it lands on that fallback and its
     # measurement fell 3,209 -> 1,815. Left at 3700 the saving would be
     # silently re-spendable, which is the failure mode the band exists to
-    # prevent.
+    # prevent. Now 1,639: `normalize_paths` on the emitter assert took the
+    # remaining 184 chars of checkout path out of the count, so this ceiling
+    # too is slack against its calibration rather than headroom.
     "subagent_start.py": 2100,
     "subagent_stop.py": 300,
     "user_prompt_log.py": 100,

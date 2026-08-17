@@ -118,7 +118,7 @@ Seven suites: `tests/hooks/` (unit), `tests/integration/` (subprocess pipeline),
 - Python 3.11+, stdlib only, zero dependencies
 - Four-file architecture: events.jsonl + system_context.json + execution_plan.json + sprint.json (all JSON with schema validation and CLI; reversed three-file decision — product_spec was too monolithic for change-request workflows)
 - Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
-- Most skills run inline; exactly three carry `context: fork` (`/xp-review-plan`, `/xp-sprint-review`, `/xp-system-context`). The close skills are inline and *spawn* a reviewer rather than being forked themselves
+- Every skill runs inline; none carries `context: fork` (story-013 converted the last three — `/xp-review-plan`, `/xp-sprint-review`, `/xp-system-context` — because hook-side preload injection cannot cross a fork boundary). A delegating skill *spawns* its subagent with the Agent tool rather than being forked itself
 - Teammates detected by `is_worktree_teammate()` — two legs: the cwd `worktree-story-` path segment (location-independent; worktrees live out of the repo, a sibling of the SMM dir), plus an in-place leg keyed on `XP_TEAMMATE_NAME` and guarded on a live `.in-place-active-*` marker, which is what catches solo-delegation teammates running in the main checkout
 - `/xp-assign`'s preload computes the teammate batch and tier vars deterministically; the domain analysis on top of it is LLM judgment
 - Commit-gated review cycle (not stop-gated) — enforced at commit time via PreToolUse:Bash, which blocks on `/xp-quality-review` alone at 2+ changed code files. See PROCESS_GUIDE.md §When to Run XP Skills for the cadence split

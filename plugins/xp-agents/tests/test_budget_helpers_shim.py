@@ -59,3 +59,44 @@ def test_direct_imports_from_module():
             _bootstrap_seeded_smm,
         ]
     )
+
+
+def test_measured_len_normalizes_the_real_worktree_layout():
+    """The location guard must match where worktrees ACTUALLY live.
+
+    `_WORKTREE_SEGMENT_RE` was written for `/.claude/worktrees/<dir>`. Worktrees
+    have lived under `${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/worktrees/`
+    since the v5.0.0 SMM root move, so the guard matched nothing and every
+    emitter budget measured longer inside a teammate worktree than in the main
+    checkout — purely from path length. Two teammates in one session each
+    misdiagnosed that drift as real growth (one bypassed the gate, one banked a
+    permanent budget bump), which is what a guard that silently matches nothing
+    costs.
+    """
+    from _budget_helpers import _measured_len
+
+    root = "/Users/x/.xp-agents/data/abc123"
+    plain = f"SMM_DIR={root}/smm\n".encode()
+    inside_worktree = f"SMM_DIR={root}/worktrees/worktree-story-004/smm\n".encode()
+
+    assert _measured_len(inside_worktree) == _measured_len(plain), (
+        "the worktrees segment under the data root must be stripped — it was "
+        "only ever matched under .claude/, which is not where worktrees live"
+    )
+
+
+def test_emitter_budgets_normalize_checkout_paths():
+    """`assert_emitter_under_budgets` must pass `normalize_paths`, as its
+    preload sibling does. Without it the base checkout path length leaks into
+    every emitter measurement, so the same code scores differently depending on
+    where the checkout lives.
+    """
+    import inspect
+
+    from conftest import assert_emitter_under_budgets
+
+    source = inspect.getsource(assert_emitter_under_budgets)
+    assert "normalize_paths" in source, (
+        "emitter budgets must normalize checkout-variable paths before "
+        "measuring — the preload helper already does"
+    )

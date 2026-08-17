@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for xp-system-context forked skill: preload and file structure."""
+"""Tests for the xp-system-context skill: preload and file structure."""
 
 import sys
 import unittest
@@ -28,10 +28,11 @@ class TestSystemContextFileStructure(unittest.TestCase):
         """SKILL.md exists for xp-system-context."""
         self.assertTrue(_SKILL_MD.exists(), f"Missing {_SKILL_MD}")
 
-    def test_skill_md_is_forked(self):
-        """SKILL.md declares context: fork."""
+    def test_skill_md_is_no_longer_forked(self):
+        """story-013: converted to inline-spawns-subagent — injection cannot
+        cross a fork boundary, so no shipped skill declares one anymore."""
         content = _SKILL_MD.read_text()
-        self.assertIn("context: fork", content)
+        self.assertNotIn("context: fork", content)
 
     def test_skill_md_references_agent(self):
         """SKILL.md references xp-system-analyzer agent."""
