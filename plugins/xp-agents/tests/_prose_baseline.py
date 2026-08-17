@@ -163,7 +163,12 @@ PROSE_MEASURED: dict[str, int] = {
     # here. Story-004's brief demanded that warning in the docstring precisely
     # because a reader who "restores" the missing check silently reduces the
     # module to recording at most the newest commit.
-    "plugins/xp-agents/scripts/commit_observer.py": 130,
+    # 130 -> 135: `observe` now separates the two ways a reconcile ends. A
+    # DECLINE advances the marker (it was recorded, so re-filing it every Bash
+    # is noise); a RAISE must not (it recorded nothing, so advancing drops the
+    # range this module exists to catch). The pair reads alike from outside,
+    # which is why the distinction is written down rather than inferred.
+    "plugins/xp-agents/scripts/commit_observer.py": 135,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.

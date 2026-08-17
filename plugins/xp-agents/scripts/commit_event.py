@@ -36,12 +36,13 @@ from event_schema import (
 def recorded_commit_hashes(events: list[dict]) -> set[str]:
     """Every commit hash the LIVE log already carries a commit event for.
 
-    One home for the index, because three callers now dedup against it and each
+    One home for the index, because two callers build it and each had
     hand-rolled the same `(e.get("metadata") or {}).get("commit_hash")` walk:
     `commit_emit.merge_resolves` (which trailers a merge may re-derive) and
-    `commit_observer` (which commits in a range still need recording). A fourth
-    copy is how these drift, and drift here is silent — a missed entry
-    re-records a commit, a spurious one drops it.
+    `commit_observer` (which commits in a range still need recording).
+    `commit_handling._commit_hash_recorded` asks the same question one hash at a
+    time and stays separate. A THIRD set-builder is how these drift, and drift
+    here is silent — a missed entry re-records a commit, a spurious one drops it.
 
     LIVE log only, and the bound is real: compaction archives commit events once
     their sprint leaves the retention window, and a rebased branch's hashes

@@ -161,9 +161,13 @@ def observe(
     bound would otherwise be unbounded and the first Bash of every session
     would walk the repo's whole history.
 
-    The marker advances even when the reconcile declines. A decline that left
+    The marker advances even when the reconcile DECLINES. A decline that left
     the marker behind would re-file its concern on every subsequent Bash, which
     is how an advisory becomes noise nobody reads.
+
+    It does NOT advance when the reconcile RAISES: that recorded nothing, so
+    advancing would silently drop the range this exists to catch. The
+    per-commit dedup makes the next Bash's retry resume rather than duplicate.
     """
     head = git_head.read_head(cwd)
     if head is None:
@@ -171,18 +175,16 @@ def observe(
     last_seen = read_last_seen_head(smm_dir, cwd)
     if last_seen == head:
         return
-    try:
-        if last_seen is not None:
-            _reconcile(
-                smm_dir,
-                agent_id,
-                cwd,
-                last_seen,
-                head,
-                is_xp_agent_leak=is_xp_agent_leak,
-            )
-    finally:
-        _write_last_seen_head(smm_dir, cwd, head)
+    if last_seen is not None:
+        _reconcile(
+            smm_dir,
+            agent_id,
+            cwd,
+            last_seen,
+            head,
+            is_xp_agent_leak=is_xp_agent_leak,
+        )
+    _write_last_seen_head(smm_dir, cwd, head)
 
 
 def _reconcile(

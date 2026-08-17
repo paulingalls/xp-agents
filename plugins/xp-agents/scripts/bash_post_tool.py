@@ -199,14 +199,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # BEFORE the xp-agent return, for the reason the commit branch above also
     # runs on a leak: the commit event always lands, and only the state
     # mutations are gated on the identity being wrong.
+    leaked_identity = _common.is_xp_agent(input_data)
     commit_observer.observe(
         smm_dir,
         agent_id,
         cwd,
-        is_xp_agent_leak=_common.is_xp_agent(input_data),
+        is_xp_agent_leak=leaked_identity,
     )
 
-    if _common.is_xp_agent(input_data):
+    if leaked_identity:
         return None
 
     # Test run detection

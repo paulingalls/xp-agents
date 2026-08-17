@@ -197,6 +197,27 @@ class TestDeclinesAreReported(_ObserverCase):
         self.observe()
         self.assertEqual(len(self.concerns()), 1)
 
+    def test_a_reconcile_that_raises_leaves_the_range_open(self):
+        """The counterpart to the case above, and the reason the two must not
+        share a path: a decline is a decision somebody can read, while a raise
+        decided nothing and said nothing. Advancing the marker past it would
+        drop the range this module exists to catch — silently, which is the
+        original defect rather than a variation on it. The per-commit dedup is
+        what makes walking the same range again idempotent.
+        """
+        self.seed_observer()
+        landed = self.commit("feat: x")
+        with (
+            patch(
+                "_common.load_events_with_resolutions",
+                side_effect=RuntimeError("events lock timed out"),
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            self.observe()
+        self.observe()
+        self.assertEqual(self.recorded_hashes(), [landed])
+
     def test_a_decline_names_the_observer_not_the_bash_it_rode_on(self):
         """The observing command did not make the commit. Stamping `ls -la`
         onto it is the misattribution the older trace's `Command:` label
