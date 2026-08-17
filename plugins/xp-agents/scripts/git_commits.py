@@ -54,8 +54,25 @@ _MERGE_NON_COMMITTING_RE = re.compile(
 )
 
 
+# One heredoc: the `<<DELIM` operator, the REST of the line that introduces it,
+# the body, and the terminator. `rest` is captured because it is the one part of
+# the span that is CODE — `2>&1 | tail -20`, `&& git branch -D story-1` and any
+# other operator an agent writes on the line it opens a message on. Deleting it
+# with the body made every one of them invisible: `git commit -F - <<'EOF' |
+# tail -20` reached the exit-status gate as a bare `git commit -F -` and was
+# allowed, and the same span hid a chained branch delete from its refusal.
+#
+# Either quoting of the delimiter, or none: `<<"EOF"` is as ordinary as `<<'EOF'`
+# and left the BODY visible to every scanner routed through here, so a message
+# mentioning a piped push read as one. The two quote characters are not required
+# to match — a mismatched pair is not a form the shell accepts, so accepting it
+# here costs nothing and enumerating the pairs buys nothing.
+_HEREDOC_RE = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?(?P<rest>[^\n]*)\n.*?\1", re.DOTALL)
+
+
 def strip_heredocs(command: str) -> str:
-    """Remove heredoc bodies (`<<'DELIM'...DELIM` / `<<DELIM...DELIM`).
+    """Remove heredoc BODIES, keeping the line that opened them (`<<'DELIM'
+    ...DELIM` / `<<DELIM...DELIM`).
 
     Split out of `strip_quoted` so a caller that must keep quoted arguments can
     still drop heredoc BODIES. A heredoc body is prose the shell passes as data —
@@ -65,7 +82,7 @@ def strip_heredocs(command: str) -> str:
     intact (a quoted branch name is a real argument), so it cannot use
     `strip_quoted`, but it must not see a message body either.
     """
-    return re.sub(r"<<-?\s*'?(\w+)'?.*?\n.*?\1", "", command, flags=re.DOTALL)
+    return _HEREDOC_RE.sub(lambda m: m.group("rest"), command)
 
 
 # One quoted span, EITHER kind, matched in source order. The alternation is

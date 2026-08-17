@@ -48,6 +48,19 @@ BAND_CEILINGS = {
     "plugins/xp-agents/smm/sprint_cli_mutate.py": 496,
     "plugins/xp-agents/scripts/in_place_marker.py": 490,
     "plugins/xp-agents/scripts/retro_metrics.py": 490,
+    # NEW entry, not a ratchet: 443 -> 486, crossing the 450 floor for the first
+    # time. `exit_reaches_shell_for` hoists the rewrite/walk/`sh -c`-recursion
+    # composition that `exit_capture_gate` held a private second copy of, and
+    # the shared escape marker moved here with it. A third copy was about to be
+    # written for the git-write gate, so the file grew by taking duplication
+    # OUT of the tree — `exit_capture_gate.py` fell 165 -> 131 in the same
+    # commit.
+    # Ratcheted 486 -> 491 at the close review: `exit_status_waived` reads the
+    # marker off a data-stripped view, so a commit MESSAGE quoting the marker no
+    # longer waives a gate, and it belongs beside the marker it reads. Nine
+    # lines from the tree-wide cap now, so the next thing this file gains is an
+    # extraction rather than another raise.
+    "plugins/xp-agents/scripts/shell_exit_structure.py": 491,
     "plugins/xp-agents/scripts/linter_tables.py": 482,
     "plugins/xp-agents/smm/event_schema.py": 480,
     # Ratcheted 477->482 (story-011): the three single-stream sites now route
@@ -160,7 +173,13 @@ BAND_CEILINGS = {
     # masking-declaration case added alongside. The cohesive group to extract
     # when it next grows is `TestEndToEndThroughTheRealHook`, once a second
     # suite needs the same real-runner-with-a-sentinel fixture.
-    "plugins/xp-agents/tests/hooks/test_exit_capture_gate.py": 470,
+    # Ratcheted 470 -> 481 for the two honest shapes the close review found this
+    # gate refusing: `<declared> && <read> | <pager>`, where `|` binds tighter
+    # so a failed run short-circuits and its status still reaches the shell.
+    # They go in _HONEST_SHAPES rather than a new class because that table IS
+    # the statement of what must not be refused, and the refusal text has
+    # recommended a trailing `&& <next>` since this gate shipped.
+    "plugins/xp-agents/tests/hooks/test_exit_capture_gate.py": 481,
     # RETIRED (story-019 follow-up): test_sprint_frontier.py 470->283. The
     # unscoped-verdict tests had already moved to test_frontier_unprovable.py;
     # the dependency-edge / treat_as_done group moved to
@@ -213,7 +232,15 @@ BAND_CEILINGS = {
     # the twelve rejection cases they extend.
     "plugins/xp-agents/tests/smm/test_append_safety.py": 472,
     "plugins/xp-agents/tests/scaffold/test_scaffold_cli_detect.py": 452,
-    "plugins/xp-agents/tests/hooks/test_pre_tool_bash_branch_delete.py": 451,
+    # Ratcheted 451 -> 478 at the v5.19.0 close review, for the one test that
+    # covers the INTERSECTION of two shapes this file already pinned separately:
+    # a heredoc body naming a delete (allowed) and a delete chained after a
+    # quoted mention (blocked). `strip_heredocs` deleted the remainder of the
+    # heredoc's introducing line along with the body, so a delete chained THERE
+    # was invisible — and neither existing half could see it. Its docstring
+    # carries the mutation check, because the first draft put the chain after the
+    # terminator instead, where both the fixed and unfixed helper block it.
+    "plugins/xp-agents/tests/hooks/test_pre_tool_bash_branch_delete.py": 478,
     # Entered the band with story-011's stream-relay proofs (both-streams +
     # tail-eviction) added to TestBootstrapFailure's sibling classes.
     "plugins/xp-agents/tests/hooks/test_spawn_teammate_bootstrap.py": 461,

@@ -69,6 +69,17 @@ _HONEST_SHAPES = {
     "redirect-only": "pytest -n auto > /tmp/suite.log",
     "redirect-both-streams": "pytest -n auto > /tmp/suite.log 2>&1",
     "redirect-merged-form": "pytest -n auto &> /tmp/suite.log",
+    # `|` binds TIGHTER than `&&`, so these are `<runner> && (<read> | <pager>)`:
+    # a failed run short-circuits the list and its non-zero IS the shell's. The
+    # walk reads operators in sequence with no precedence and refused them —
+    # while THIS GATE'S OWN refusal text recommends a trailing `&& <next>`, so
+    # reading the advice and retyping it earned a second refusal. Found at the
+    # v5.19.0 close review, after the same bug was fixed in the sibling git-write
+    # gate and left standing here.
+    "and-then-piped-read": "pytest -n auto && cat /tmp/suite.log | tail -5",
+    "and-then-piped-read-both": (
+        "cd plugins && pytest -n auto && git status --short | head -20"
+    ),
 }
 
 

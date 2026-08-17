@@ -247,6 +247,33 @@ class TestProseAboutADeleteIsNotADelete(_BranchDeleteGateCase):
                 f"&& git branch -D {_STORY_BRANCH}"
             )
 
+    def test_a_delete_chained_on_a_HEREDOC_OPERATORS_OWN_LINE_blocks(self):
+        """The intersection of the two cases above, which neither covered.
+
+        `strip_heredocs` used to delete from `<<DELIM` to the terminator
+        INCLUDING THE REMAINDER OF THE INTRODUCING LINE, so a command chained
+        after the operator vanished along with the body and this gate never saw
+        the delete. Each half was already pinned — a heredoc body naming a delete
+        is allowed, a delete chained after a quoted mention blocks — and their
+        intersection was the hole. Found at the v5.19.0 close review, where the
+        sibling write gate was blind to its own primary shape for the same
+        reason.
+
+        THE CHAIN MUST SIT ON THE OPERATOR'S LINE. A first draft of this test put
+        `&& git branch -D` on the line after the terminator; both the fixed and
+        the unfixed helper block that, so it asserted nothing. Verified against
+        the pre-fix helper: this command strips to `git commit -F- ` (no delete
+        visible), the fixed one to `git commit -F-  && git branch -D <branch>`.
+        """
+        self._make_story_branch()
+        self._seed_sprint()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run(
+                f"git commit -F- <<'EOF' && git branch -D {_STORY_BRANCH}\n"
+                f"chore: stop this\n\ngit branch -D {_STORY_BRANCH}\nEOF"
+            )
+
 
 class TestDeleteIsJudgedInTheTargetedRepo(_BranchDeleteGateCase):
     """`git -C <dir>` retargets the REPO, so the merge proof must be evaluated
