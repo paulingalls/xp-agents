@@ -392,10 +392,20 @@ def _is_touched(declared: str, changed: set[str]) -> bool:
 
 
 def untouched_verify_paths(
-    paths: set[str], cwd: str, base: str, head: str = "HEAD"
+    paths: set[str],
+    cwd: str,
+    base: str,
+    head: str = "HEAD",
+    *,
+    also_changed: set[str] | None = None,
 ) -> list[str]:
-    """Sorted declared paths that no commit on base..head touched."""
-    changed = _changed_files(cwd, base, head)
+    """Sorted declared paths that no commit on base..head touched.
+
+    `also_changed` widens the changed set; the walk stays commit-based. Who may
+    pass it, and why merge time never may, is stated once in
+    `verify_deferred.untouched_paths_for_story`.
+    """
+    changed = _changed_files(cwd, base, head) | (also_changed or set())
     return sorted(p for p in paths if not _is_touched(p, changed))
 
 

@@ -198,9 +198,9 @@ class TestBatchTimeoutCutShortVsHang(unittest.TestCase):
 
 class TestBatchTimeoutMarginIsNotABareLessThan(unittest.TestCase):
     """N >= 40 saturates own_ceiling to the CAP, so on a real first batch
-    `budget_s` is necessarily a hair under it — staged_lint sets the deadline
-    (staged_lint.py:345) BEFORE the git read in `_divergent_from_index` and
-    grouping, and that alone must not misread as cut short.
+    `budget_s` is necessarily a hair under it — staged_lint sets its deadline
+    BEFORE the git read in `_divergent_from_index` and grouping, and that
+    alone must not misread as cut short.
 
     Both fixtures are derived from `_MATERIALLY_SHORT_S` itself, not a
     hand-picked number, so this pair fails if the margin is ever weakened to

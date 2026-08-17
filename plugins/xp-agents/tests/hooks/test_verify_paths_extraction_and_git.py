@@ -345,6 +345,41 @@ class TestUntouchedVerifyPaths(_GitRepoCase):
             [],
         )
 
+    def test_staged_but_uncommitted_path_stays_untouched_by_default(self):
+        # Merge-time fail-open guard. close_verify_gate.py and this module's
+        # CLI (the story-close preload's) both call this primitive with no
+        # `also_changed`, and a merge carries commits, not the index — so a
+        # staged-only acceptance test must still report untouched. Only the
+        # commit-time nudge may widen, and it does so by passing the set in.
+        self._commit_file("seed_staged.txt", "x", "seed")
+        base = self._head()
+        (self.tmpdir / "staged_only").mkdir(parents=True, exist_ok=True)
+        (self.tmpdir / "staged_only" / "acc.py").write_text("code")
+        self._git("add", "staged_only/acc.py")
+        try:
+            self.assertEqual(
+                verify_paths.untouched_verify_paths(
+                    {"staged_only/acc.py"}, str(self.tmpdir), base
+                ),
+                ["staged_only/acc.py"],
+            )
+            self.assertEqual(
+                verify_paths.untouched_verify_paths(
+                    {"staged_only/acc.py"},
+                    str(self.tmpdir),
+                    base,
+                    also_changed={"staged_only/acc.py"},
+                ),
+                [],
+            )
+        finally:
+            # The class shares one repo and `_commit_file` commits the whole
+            # index — leaving this staged would smuggle it into a sibling's
+            # seed commit.
+            self._git("reset", "HEAD", "--", "staged_only/acc.py")
+            (self.tmpdir / "staged_only" / "acc.py").unlink()
+            (self.tmpdir / "staged_only").rmdir()
+
     def test_git_failure_raises(self):
         with self.assertRaises(ValueError):
             verify_paths.untouched_verify_paths(

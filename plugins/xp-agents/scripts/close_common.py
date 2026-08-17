@@ -256,9 +256,9 @@ def cmd_merge(args: argparse.Namespace) -> int:
     # ONE locked events read + ONE sprint load shared by both post-merge
     # consumers (the merge-event append below and trailer_gate.advisory),
     # replacing the prior double-read/double-load. Taken
-    # BEFORE the append: the advisory's denominator excludes is_merge events and
-    # the dedup scan only needs prior events, so one pre-append snapshot is
-    # correct for both. Fail-open: if the locked read raises (LockTimeoutError
+    # BEFORE the append, which is what both want: the dedup scan needs only PRIOR
+    # events, and the advisory scores the commits already in the log rather than
+    # the one about to join them. Fail-open: if the locked read raises (LockTimeoutError
     # under parallel-teammate flock contention), shared_kwargs stays empty and
     # each consumer re-reads its own — never more fragile than the old baseline.
     shared_kwargs: dict = {}

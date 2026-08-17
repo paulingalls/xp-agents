@@ -220,14 +220,13 @@ class TestLefthookMirrorsTheStrip(unittest.TestCase):
             if "pytest" in line and "env -u" in line
         ]
         # Without this the loop below is vacuous: reword the `run:` lines and
-        # the agreement check silently stops checking anything. Three today —
-        # pre-commit `staged-tests`, pre-push `all-tests`, pre-push `perf`.
-        # The membership changed when the full suite moved off the commit gate
-        # (pre-push `integration` was subsumed by `all-tests` rather than kept
-        # beside it, which would have run tests/integration twice) but the
-        # COUNT did not: pre-commit still runs pytest, now over staged test
-        # files only, and it needs the strip for exactly the same reason.
-        self.assertEqual(len(pytest_lines), 3, lefthook)
+        # the agreement check silently stops checking anything. Two today —
+        # pre-commit `staged-tests` and pre-push `all-tests`. It was three until
+        # the wall-clock perf tier was retired (a blocking timer cannot survive
+        # load it does not control; see test_lefthook_perf_gate.py, which now
+        # pins the tier's ABSENCE). The count is asserted rather than trusted
+        # precisely so a removal like that has to be acknowledged here.
+        self.assertEqual(len(pytest_lines), 2, lefthook)
         for line in pytest_lines:
             for name in hook_liveness.SESSION_ID_ENV_CANDIDATES:
                 with self.subTest(var=name, line=line.strip()[:40]):

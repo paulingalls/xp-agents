@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import lint_check
+import lint_grouping
 import linters
 import worktree
 
@@ -247,33 +248,21 @@ def _group_staged_by_linter(
 ) -> dict[tuple[str, str], list[str]]:
     """Group staged paths by the (linter, config) that claims them.
 
-    lang-ok: the routing is a TABLE LOOKUP, not a language test. Each staged file
-    is handed to detect_linter_config, which walks up from it for any ecosystem's
-    config file and answers off the `linters` tables. A TypeScript repo finds
-    eslint, a Go repo finds golangci-lint, a Python repo finds ruff — the same
-    code path, no branch per language. Supporting one more language is a ROW in
-    linters.py. A file whose ecosystem has no configured linter finds nothing and
-    is skipped: a missing linter is not a finding.
+    Lint only what the commit CARRIES. A staged DELETION still names its path,
+    and a linter handed a path with no staged blob reports a read error and
+    exits non-zero — which the exit-code contract reads as a FINDING, blocking
+    the very commit that removes the file, with nothing the agent could fix.
+    The predicate is INDEX membership, not working-tree existence: once the
+    gate lints the staged blob (below), `.exists()` is the wrong test — a
+    staged-new-then-worktree-deleted file is in the index but off disk, and a
+    staged deletion is on disk but gone from the index. Index membership is a
+    byte-level git fact, true in every language.
+
+    The routing itself lives in `lint_grouping`, shared with the post-commit
+    sweep, which must not inherit this index filter.
     """
-    groups: dict[tuple[str, str], list[str]] = {}
-    for path in staged_files:
-        # Lint only what the commit CARRIES. A staged DELETION still names its
-        # path, and a linter handed a path with no staged blob reports a read
-        # error and exits non-zero — which the exit-code contract reads as a
-        # FINDING, blocking the very commit that removes the file, with nothing
-        # the agent could fix. The predicate is INDEX membership, not
-        # working-tree existence: once the gate lints the staged blob (below),
-        # `.exists()` is the wrong test — a staged-new-then-worktree-deleted
-        # file is in the index but off disk, and a staged deletion is on disk
-        # but gone from the index. Index membership is a byte-level git fact,
-        # true in every language.
-        if not path_in_index(root, path):
-            continue
-        config = lint_check.detect_linter_config(root, root, file_path=path)
-        if config is None:
-            continue
-        groups.setdefault(config, []).append(path)
-    return groups
+    in_index = [p for p in staged_files if path_in_index(root, p)]
+    return lint_grouping.group_paths_by_linter(in_index, root, root)
 
 
 def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:

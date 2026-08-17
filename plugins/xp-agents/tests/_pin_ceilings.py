@@ -91,6 +91,11 @@ BAND_CEILINGS = {
     # moved to scripts/marker_claim.py and the file is back at 388. A ceiling
     # entry here would have quietly overridden a stricter rule that already
     # existed.
+    # Entered the band with `also_changed` on untouched_verify_paths: the
+    # keyword-only parameter, the union, and the one sentence naming who may
+    # pass it. The walk itself is unchanged, so this is the parameter's cost
+    # and not a growing function.
+    "plugins/xp-agents/scripts/verify_paths.py": 454,
     # RETIRED: verify_acceptance.py 455->434, under the 450 floor so the entry
     # is deleted rather than re-recorded. Deduping the sprint run to one
     # subprocess per DISTINCT command replaced the inline row-building loop
@@ -158,6 +163,18 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/skills/test_scaffold_worktree_skill.py": 475,
     "plugins/xp-agents/tests/engine/test_compact_concurrency.py": 473,
     "plugins/xp-agents/tests/smm/test_integration_branch_ref.py": 470,
+    # Entered the band on arrival (story-004). Recorded rather than split
+    # because the obvious cut — the hook-wiring and E2E classes into a sibling
+    # — would move AC5's only evidence out of the file this story's
+    # acceptance_execution actually runs, which is the gap kickoff triage
+    # raised against this story in the first place. Unchanged across review:
+    # the duplicate runner-name scan left for the sibling suite that now
+    # sweeps for it, and a declare() mixin replaced three copies of one
+    # fixture write, which between them paid for the redirect shapes and the
+    # masking-declaration case added alongside. The cohesive group to extract
+    # when it next grows is `TestEndToEndThroughTheRealHook`, once a second
+    # suite needs the same real-runner-with-a-sentinel fixture.
+    "plugins/xp-agents/tests/hooks/test_exit_capture_gate.py": 470,
     # RETIRED (story-019 follow-up): test_sprint_frontier.py 470->283. The
     # unscoped-verdict tests had already moved to test_frontier_unprovable.py;
     # the dependency-edge / treat_as_done group moved to

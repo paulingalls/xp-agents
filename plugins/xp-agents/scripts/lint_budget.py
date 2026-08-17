@@ -49,11 +49,11 @@ BATCH_TIMEOUT_CAP_S: float = 40.0
 # How far short of its own ceiling a run must have stopped before its timeout
 # message calls it "cut short" instead of "hung". Must exceed staged_lint's
 # pre-batch overhead — the git subprocess in `_divergent_from_index` plus
-# grouping, spent between `deadline = now + CAP` (staged_lint.py:345) and the
-# first batch's own subprocess.run — or a saturated first batch (budget_s
-# necessarily a hair under its own ceiling, purely from that overhead) would
-# misread as cut short. Kept well above a typical local git-status cost so the
-# margin holds on a slower disk too.
+# grouping, spent between staged_lint's deadline (set before that git read)
+# and the first batch's own subprocess.run — or a saturated first batch
+# (budget_s necessarily a hair under its own ceiling, purely from that
+# overhead) would misread as cut short. Kept well above a typical local
+# git-status cost so the margin holds on a slower disk too.
 _MATERIALLY_SHORT_S: float = 5.0
 
 
