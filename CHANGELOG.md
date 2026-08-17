@@ -2,6 +2,254 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.18.0 — One linter process per config group, not one per file
+
+**A commit no longer pays a linter process per file.** Post-commit lint
+resolution called the linter once for every committed file, serially, on the
+synchronous PostToolUse hook path while the agent waited. Both loops now group
+by the `(linter, config)` pair the file resolves to and run one batch per group
+— and a commit whose files carry no unresolved lint concern spawns **zero** on
+this path, because those files are dropped before grouping. (The commit-time
+staged gate still runs once per group; it lints what is about to land, so it has
+nothing to skip.) The loop can only ever *resolve*, so
+linting a file with nothing to clear was always work for nothing.
+
+Measured end to end rather than asserted: reverting the emitter to its previous
+form makes the composition test fail `3 != 1`, with the log showing three
+separate `ruff check` invocations where there is now one.
+
+**A commit made from a subdirectory clears its lint concerns.** `git -C sub
+commit` and `cd sub && git commit` hand the hook a cwd below the repo root,
+while git still names the committed files relative to the root. Resolution
+normalized them against the cwd, doubling the prefix — `pkg/src/a.py` became
+`pkg/pkg/src/a.py`, which matches no recorded concern, so the file was dropped
+before the linter ever ran and its concern never cleared. Nothing errored; the
+work simply did not happen. Everything on this path is now resolved against the
+repo root, which the orphan sweep's own `.exists()` check already assumed.
+
+**Grouping is one implementation, shared, and it is not ruff-shaped.** The
+routing was fused to the commit-time gate's git-index filter; it now lives in
+`lint_grouping.group_paths_by_linter`, filter-free, with each caller bringing
+its own eligibility test — the staged gate wants index membership, the
+post-commit sweep wants `.exists()` and must not inherit the other. Grouping is
+a table lookup on the ecosystem's own config file, so eslint, rubocop and
+clang-format batch identically; supporting one more language is a row, not a
+branch.
+
+**A batch's exit code names no file, and the code now says so in three places
+instead of guessing.** A clean batch vouches for every path in it and resolves
+the group in one append; a batch reporting findings falls back to one run per
+file *in that group only*, because knowing *which* file was dirty would need a
+per-language parser; an unverified batch — missing binary, timeout, a path the
+argument guard refused — resolves nothing at all. A bad read is not a pass.
+
+**The composition is proven at the process boundary.** The two legs share a
+helper and a runner, and nothing exercised both against a real repo. They now
+are, by a test that counts processes that actually started: a fake linter on
+`PATH` logging its argv, rather than a patched `subprocess.run`, which cannot
+cross a subprocess boundary at all. It also caught what the unit tests could
+not — that a batch's argv must be asserted to *contain* its group, not merely
+to exclude the other group's files.
+
+### Known residuals
+
+v5.15.0 disclosed its `is_merge` gap rather than arguing it away, which is the
+only reason this release gets to say that residual is closed. The same courtesy,
+for what is still open on the code above:
+
+- **Closing that residual opened a narrower one.** `story_metrics` reads a story
+  as shipped from `is_merge` **and** the close-cycle agent id. Now that the tag
+  is honest, an "Already up to date" close — which creates no commit — emits an
+  untagged event, so the story reads *unshipped* and the plain commit it landed
+  on is counted as a story commit. The old hardcoded `True` produced the right
+  metric by asserting something false. Tracked, not fixed here.
+- **The verify-touch union has two path sources that disagree on encoding.**
+  `git log --name-only` C-quotes a non-ASCII path; `git diff --cached --name-only`
+  is asked with `-z` and does not. A path with non-ASCII bytes can therefore clear
+  the advisory from the index and then re-fire once committed.
+- **Batching bounds processes, not wall clock.** Post-commit resolution passes no
+  shared deadline, so a polyglot repo can pay each group's own ceiling in
+  sequence on the synchronous hook path. The commit-time gate threads a deadline;
+  this path does not yet.
+
+### Also in this release
+
+**The wall-clock performance tier is retired.** Three pre-push timers measured
+the machine, not the diff. Serializing them after the suite controlled only the
+contention that run created; a concurrent CLI teammate — a recorded design
+decision of this project — was invisible to them. Because story close pushes,
+a blocking timer failed closes whose diff touched none of it: measured at
+`read_delta` 108 ms against a 100 ms bound, at load average 94.89, on a bound
+with 75× headroom when measured serially at 1.3 ms. What the timers stood in
+for is now asserted structurally, on **what gets parsed** rather than how long
+it took — and those run everywhere, including CI, where `XP_PERF` was never set
+and the timers therefore never ran at all.
+
+**The close-cycle merge emitter derives `is_merge` instead of asserting it.**
+v5.15.0 disclosed this as a tracked residual: the emitter passed `is_merge=True`
+by hand because it "knows structurally that it just made a merge", and the merge
+helper also reports success on **"Already up to date"**, which creates no commit.
+That residual is closed. The tag now comes from HEAD's parent count, matching
+the shared builder's own definition of the flag, and the emitter stores the
+cleaned commit body like its two siblings rather than the raw one. The tag is
+not cosmetic — it exempts an event from the commit-size concern and drops it
+from the resolves-link-rate denominator, so a wrongly tagged plain commit
+silently suppressed a real warning.
+
+**A commit is refused when it masks its test runner's exit status.** Piping a
+declared test command into `tail`, or capturing it in `$(...)`, makes the
+shell's status the pipe's — so a red suite reads as green and a green one
+cannot clear a failure concern. The gate keys on the project's *declared*
+command rather than a list of runner names, which would be inert for every
+project whose runner is not in it. It over-matches by design on the declared
+executable; `# exit-status-not-needed` is the release valve.
+
+**The acceptance-path advisory counts staged files.** It ran at PreToolUse —
+before the commit under evaluation exists — but read coverage from a walk over
+`base..HEAD` commits. On a story's first commit those are the same, so the range
+was empty and every declared path reported untouched while sitting fully staged
+in the index. It fired on the first commit of a story that had both its test
+files in that very commit. Staged coverage is opt-in at every layer and never a
+default: the close gate and the story-close preload stay commit-only, because a
+merge carries commits, not the index.
+
+## v5.17.0 — Measuring which hook actually fires, and covering a review's own fixes
+
+**v5.16.0's central fix did not work, and this release says so first.** That
+note claimed `quality_review_done` had moved onto a completion signal by keying
+it on the `xp-code-reviewer` agent instead of the skill. Measured live the hour
+after release: `PostToolUse:Agent` fires when the Agent **tool call** returns,
+and this harness backgrounds subagents, so that is launch too. The reviewer's
+own start event was stamped 70ms *after* the `qr_complete` the hook had already
+emitted for it. v5.16.0 moved the defect from skill-launch to agent-launch.
+
+The flag and its `qr_complete` event now ride **`SubagentStop`**, which fires
+when a subagent has genuinely finished. That is not an assumption this time:
+`xp-close-reviewer`'s SubagentStop handler is already recording completions for
+an Agent-tool subagent in this same harness. `review_cycle_done`'s allowlist now
+carries the rule that cost two releases to learn — *every* entry in it records at
+LAUNCH, so nothing that gates a commit may live there. The one exception is the
+forked `/xp-review-plan`, and `simplify_done` depends on launch timing
+deliberately, since `review_mid_cycle` reads it as "the workflow is still
+running".
+
+**A review's own fixes no longer demand a second review.** The gate blocks at
+`REVIEW_CYCLE_THRESHOLD` changed code files unless a review ran, and a landed
+commit clears the flag — so the fixes a review produced arrived at the next
+commit as unreviewed changes and demanded another review, whose fixes demanded a
+third. It terminated only when a review came back clean or touched fewer than
+two files. Reproduced live during the previous release's own close, when the
+close-reviewer's Step 5c fixes were blocked.
+
+A completed review now records the code files in its scope, and commits stop
+counting those files until the record is spent. State the exemption at its real
+width, not its intended one: **two** commit gates read the record, not one — it
+is written with age 0, the commit that ends the review's own cycle ages it to 1,
+and the commit after that consumes it. And it is keyed on PATHS, not content, so
+the second gate forgives whatever those files hold by then, including work
+written after the review ended.
+
+"The files it looked at" is also generous. The scope is measured when the
+reviewer finishes, deliberately, because at launch its fixes do not yet exist —
+so the set knowingly contains edits the review made rather than read. It never
+contains files outside the scope, which is the property the gate depends on.
+
+It is keyed on the repo rather than the session, because the paths are
+repo-relative and the same relative path in another checkout is other work.
+
+This is a **workflow-cost repayment, not a new hole**. Before v5.16.0 the gate
+could be satisfied by merely invoking the review skill, so the loop was a speed
+bump; closing that hole turned it into a wall. The two changes belong together.
+
+One cost this release CREATES rather than inherits: `SubagentStop` does not
+fire for a reviewer that is interrupted or crashes, and `review_flag_cli` has
+no `quality_review_done` leg — deliberately, since a prose-invocable writer for
+the gate's own flag is the hole both releases exist to close. So an aborted
+review leaves the commit gate armed with no manual recovery; re-running the
+review is the only way through. v5.16.0's `PostToolUse:Agent` always fired,
+which is what made that state unreachable before.
+
+Known and tracked rather than claimed fixed: the recorded scope is computed from
+staged and committed files, so in commit cadence — where the reviewed work is
+typically unstaged — it can come back empty and forgive nothing
+(`156d4cdddce4`). It fails safe. The two-gate width and the path keying stated
+above are disclosed, not fixed (`86c30b9d2712`). A reviewer spawned for an unrelated purpose
+now writes coverage as well as clearing the flag (`2cc9b891a249`, extending
+`6552b06d04a3`). And the record is spent by the commit sites, so a commit that
+never reaches one leaves its paths exempt indefinitely (`250a3e1b41a6`)
+— the one disclosed cost here that fails open rather than safe.
+
+`subagent_stop.py` crossed both the 450-line band and the prose floor with the
+new leg, so the review-cycle legs moved to `scripts/review_cycle_legs.py` rather
+than taking two new recorded ceilings.
+
+## v5.16.0 — A review is done when the reviewer says so
+
+> **Partly superseded by v5.17.0.** The diagnosis below is right and the
+> skill-launch hole is really closed. The REMEDY is not: keying the flag on the
+> `xp-code-reviewer` agent moved it onto another launch-time signal, because
+> `PostToolUse:Agent` also fires when the tool call returns. Read "the reviewer
+> returning" below as "the reviewer being spawned". v5.17.0 moves it to
+> `SubagentStop`.
+
+Minor rather than patch: the per-commit review gate now clears at a different
+moment, which anyone who watches the gate will notice.
+
+`PostToolUse:Skill` fires when the Skill **tool** returns. For an INLINE skill —
+which `/xp-quality-review` is — that is at LAUNCH, not at completion. So
+`review_cycle_done.py` set `quality_review_done` before `xp-code-reviewer` had
+been spawned, and emitted "Quality review complete" alongside it. Both were
+observed live this release: the hook's own "commit your changes now" text
+arrived while the skill had not yet run its first step.
+
+Two holes followed from one mistake. Invoking `/xp-quality-review` and
+abandoning it cleared the commit gate. And a commit landing **during** a review
+cleared the flag — the commit path resets the cycle — with nothing left to set
+it again when the review actually finished, so the review's own edits arrived at
+the next commit as unreviewed changes. That is the re-arming loop where a
+review's fixes demand another review.
+
+**The flag moves to the reviewer.** `_TARGET_BY_NAME` now maps the
+`xp-code-reviewer` agent rather than the skill that spawns it; the skill's Step 2
+spawns it exactly once per cycle, so the count is unchanged and no consumer sees
+fewer events — which holds only while that skill is the only spawn site in the
+tree, a property nothing pins. The same unpinned assumption has a second edge: a
+future skill spawning the reviewer for its own reasons would clear the commit
+gate as a side effect. Tracked as `6552b06d04a3`, unreachable today.
+
+Forked skills are a different case and are untouched — a
+`context: fork` skill's Skill call **does** return at completion, so the
+`xp-review-plan` entry beside it is correct as it stands. The distinction is
+written into the comment, because the categorical version of the claim invites a
+maintainer to "fix" the forked entry too.
+
+The `qr_complete` **event** moves with the flag, not just the flag.
+`commit_event.py` reads that event as a second, independent "was there a review
+since the last commit" advisory; emitted at launch, that advisory was satisfied
+by merely invoking the skill. (Superseded with the rest: moving it onto the
+Agent tool left it firing at launch too, so this stated purpose was equally
+unmet until v5.17.0.)
+
+A residual remains and is not claimed fixed: the calling skill's act-on-findings
+step lands after the reviewer returns, so those edits are still made while the
+gate is disarmed. Under v5.16.0's agent-launch keying that window was the whole
+review PLUS this step; it is now this step alone.
+Nothing yet teaches the gate that a change was produced BY the review that just
+ran, which is what a fix for the separated-commit half of the loop would need.
+
+Also: `_AGENT_ID_RE` refused nothing ending in a newline. `$` matches just
+before a final newline, so `"agent\n"` cleared the allowlist and reached the
+marker filenames agent ids are interpolated into (`.watermark-<id>`, built
+literally in `_append_lock.write_watermark`). `\Z` refuses it, and the degrade
+path falls back to the default rather than naming a file no other caller reads.
+Eight sibling allowlists still spell `$`; none has a traced failure path, so
+none was changed — the rule is recorded as a decision instead.
+
+Comments in files this change did not otherwise touch stated the old rule and
+are corrected rather than deleted, and `docs/ideas/4-CLOSE_GATE_HONESTY.md`
+§6 — which told a future implementer **not** to make this change — is marked
+superseded with its reasoning kept.
+
 ## v5.15.0 — One merge policy, three emitters
 
 Minor rather than patch. Most of it is defect fixes, but two changes are ones a

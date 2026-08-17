@@ -53,14 +53,24 @@ from commit_command import cd_target_unreachable
 
 
 def _verify_touch_nudge(
-    smm_dir: Path, effective_cwd: str, command: str, branch: str
+    smm_dir: Path,
+    effective_cwd: str,
+    command: str,
+    branch: str,
+    staged: list[str],
 ) -> str | None:
     """Advisory when the active story's declared verify paths are untouched.
 
     Fails open at every step — this is a nudge, never a block. Suppressed by
     a [verify-deferred] commit (which records its own debt post-commit) and
     silent off a story branch, when the story declares no verify paths, when
-    every path is already touched, or when git can't be read.
+    every path is already touched (by a prior commit OR the staged diff this
+    commit is about to create), or when git can't be read.
+
+    `staged` counts as coverage HERE ONLY — the commit this nudge evaluates
+    doesn't exist yet, so base..HEAD can't see it (a first commit has
+    base == HEAD). Every other consumer of untouched_paths_for_story omits
+    it and must keep doing so; see that function's docstring.
 
     verify_deferred is imported lazily (not top-level): pre_tool_bash loads on
     every Bash call, but only commits reach this helper, so we avoid pulling
@@ -73,7 +83,9 @@ def _verify_touch_nudge(
     story_id = identity.extract_story_id(branch)
     if not story_id:
         return None
-    untouched = untouched_paths_for_story(smm_dir, effective_cwd, story_id)
+    untouched = untouched_paths_for_story(
+        smm_dir, effective_cwd, story_id, staged=staged
+    )
     if not untouched:
         return None
     return (
@@ -182,24 +194,37 @@ def commit_gate_parts(smm_dir: Path, command: str, cwd: str) -> list[str]:
     # session did run — and no rerun clears it, because the writers keep
     # writing the other record.
     flags = review_records.read_review_flags(smm_dir, identity.review_flags_key(cwd))
+    repo_key = identity.review_watermark_key(effective_cwd)
     code_files = commits.get_code_files_for_review(
         effective_cwd,
-        review_records.read_review_watermark(
-            smm_dir, identity.review_watermark_key(effective_cwd)
-        ),
+        review_records.read_review_watermark(smm_dir, repo_key),
         command,
         staged_diff=diff,
     )
 
-    if len(code_files) >= commits.REVIEW_CYCLE_THRESHOLD:
+    # Subtract what the last review already looked at. A review's own fixes —
+    # the reviewer's edits, and the act-on-findings edits the calling skill
+    # makes after it returns — otherwise arrive here as unreviewed changes and
+    # demand a second review, whose fixes demand a third; it terminates only
+    # when a review comes back clean. Coverage survives the commit that ends
+    # its own review cycle and is spent by the one after, so the exemption
+    # cannot outlive the cleanup it exists for. It reads under the REPO key,
+    # like the watermark above: the recorded paths are repo-relative, so they
+    # only describe a commit landing in the checkout that review ran against.
+    # See review_records and test_review_coverage.py.
+    uncovered = review_records.uncovered_count(
+        code_files, review_records.read_review_coverage(smm_dir, repo_key)
+    )
+
+    if uncovered >= commits.REVIEW_CYCLE_THRESHOLD:
         if markers.read_review_cadence(smm_dir) == "story":
             # Story cadence: review relocates to /xp-story-close (merge).
             # Emit a visible deferral advisory instead of blocking — the
             # tier-1 security and lint gates above stay unconditional.
             parts.append(
                 f"Story cadence: per-commit review deferred to "
-                f"/xp-story-close ({len(code_files)} code files changed "
-                f"since last review). /xp-quality-review runs at story "
+                f"/xp-story-close ({uncovered} code files the last review "
+                f"did not cover). /xp-quality-review runs at story "
                 f"close."
             )
         elif not flags.get("quality_review_done"):
@@ -208,7 +233,7 @@ def commit_gate_parts(smm_dir: Path, command: str, cwd: str) -> list[str]:
             # workflow /code-review runs once at sprint/plan/free close.
             raise _common.BlockedError(
                 f"Run /xp-quality-review before committing — "
-                f"{len(code_files)} code files changed since last review.",
+                f"{uncovered} code files the last review did not cover.",
                 "Quality review required before committing.",
             )
 
@@ -231,7 +256,7 @@ def commit_gate_parts(smm_dir: Path, command: str, cwd: str) -> list[str]:
                 f"legitimate post-merge work."
             )
 
-        nudge = _verify_touch_nudge(smm_dir, effective_cwd, command, branch)
+        nudge = _verify_touch_nudge(smm_dir, effective_cwd, command, branch, staged)
         if nudge:
             parts.append(nudge)
 

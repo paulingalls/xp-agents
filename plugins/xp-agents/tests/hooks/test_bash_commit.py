@@ -44,10 +44,10 @@ class TestCommitRecordingDespiteXpAgentType(_HookTestCase):
     recursion-inducing — every git commit must leave a trace, regardless of
     which agent's stack the Bash call originated from.
 
-    Established precedent: `subagent_stop.py:162-182` runs review-cycle flag
-    handling above the same `is_xp_agent` skip with the comment "Review cycle
-    flags must run before is_xp_agent skip because xp-quality-review starts
-    with 'xp-' but still needs flag set." Same shape.
+    Established precedent: `subagent_stop.run` calls
+    `_update_review_cycle_flags` above the same `is_xp_agent` skip, because
+    the agent_types it matches start with "xp-" and still need their flag
+    set. Same shape.
     """
 
     _LEAKED_AGENT_TYPE = "xp-leaked"

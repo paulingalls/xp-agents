@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import concerns
+import exit_capture_gate
 import identity
 import markers
 import pre_tool_bash_branch_delete
@@ -234,6 +235,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     agent_id = identity.resolve_agent_id(input_data)
     cwd = input_data.get("cwd", ".")
     command = tool_input.get("command", "")
+
+    # Captured-exit refusal. BELOW the is_xp_agent skip, and the chain that
+    # forces it is worth stating: the gate must key on the project's DECLARED
+    # test command (a list of runner names is inert for every project whose
+    # runner is not in it), the declaration lives in system_context, and that
+    # lives in the SMM dir — so this cannot sit above `get_validated_smm_dir`
+    # the way the reviewer guard does, and therefore cannot sit above the skip
+    # either. Accepted consequence: an `xp-` subagent piping the declared test
+    # command is not refused.
+    if smm_dir is not None:
+        capture_block = exit_capture_gate.captured_exit_block(smm_dir, command)
+        if capture_block:
+            raise _common.BlockedError(capture_block)
 
     parts: list[str] = []
 

@@ -1,0 +1,470 @@
+#!/usr/bin/env python3
+"""Tests for exit_capture_gate.py — refuse a runner whose exit status is lost.
+
+The gate answers one question: if this command runs, will the shell's exit
+status be the runner's? When it will not, a passing suite cannot clear an open
+test-failure concern, so the agent is told tests are failing while they pass
+and burns a whole run chasing it. That happened twelve times across three
+sessions before this gate existed.
+
+Structure of the suite mirrors the gate's four inputs: is there a declaration,
+does the command invoke it, is the escape marker present, and does the exit
+survive. Each gets a class, plus one for the refusal text — a refusal that does
+not say what to run instead is a dead end, not a gate.
+"""
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+import _common
+import exit_capture_gate
+import pre_tool_bash
+from _system_context_fixtures import valid_doc, write_doc
+from conftest import _HookTestCase, _make_bash_input, _SMMTestCase
+from system_context_schema import SYSTEM_CONTEXT_FILENAME
+
+_DECLARED = "pytest -n auto"
+
+# Every shape recorded on the concern this story closes, plus the ones the
+# structural walk already knew about. Keyed by what swallowed the status.
+_MASKING_SHAPES = {
+    "pipe": "pytest -n auto | tail -20",
+    "pipe-with-stderr": "pytest -n auto 2>&1 | tee /tmp/suite.log",
+    "redirect-then-echo": "pytest -n auto > /tmp/suite.log\necho $?",
+    "assignment-capture": "OUT=$(pytest -n auto)",
+    "consumed-capture": "echo $(pytest -n auto)",
+    "backtick-capture": "echo `pytest -n auto`",
+    "background": "pytest -n auto &",
+    "semicolon": "pytest -n auto; echo done",
+    "or-mask": "pytest -n auto || true",
+}
+
+# Shapes that keep the runner's exit status. `&&` short-circuits, so the
+# runner's non-zero IS the shell's — refusing these would deadlock the gate
+# against the ordinary `cd <dir> && <runner>` every worktree run uses.
+_HONEST_SHAPES = {
+    "bare": "pytest -n auto",
+    "narrowed": "pytest plugins/xp-agents/tests/hooks/test_x.py",
+    "leading-cd": "cd plugins && pytest -n auto",
+    "trailing-and": "pytest -n auto && echo green",
+    "both": "cd plugins && pytest -n auto && echo green",
+    "trailing-newline": "pytest -n auto\n",
+    "argument-substitution": "pytest -n $(nproc)",
+    "argument-substitution-flag": "pytest --rootdir=$(pwd) tests/",
+    # A redirect alone moves the OUTPUT, not the status — the shell still
+    # exits the runner's code. This is the form the refusal text names as the
+    # answer for a suite whose output is too large to read as it comes, so it
+    # has to actually be allowed, or the refusal sends the reader into a
+    # second one.
+    "redirect-only": "pytest -n auto > /tmp/suite.log",
+    "redirect-both-streams": "pytest -n auto > /tmp/suite.log 2>&1",
+    "redirect-merged-form": "pytest -n auto &> /tmp/suite.log",
+}
+
+
+class _Declares:
+    """Writes the one thing every class here needs: a system_context declaring
+    a test command. A mixin rather than a base, because the three suites below
+    sit on two different bases and share only this."""
+
+    smm_dir: Path  # supplied by whichever base this is mixed into
+
+    def declare(self, command: str = _DECLARED, language: str = "Python") -> None:
+        write_doc(
+            self.smm_dir,
+            valid_doc(stack={"languages": [language], "test_command": command}),
+        )
+
+
+class _GateCase(_Declares, _SMMTestCase):
+    """An SMM whose system_context may declare a test command."""
+
+    def block(self, command: str) -> str | None:
+        return exit_capture_gate.captured_exit_block(self.smm_dir, command)
+
+    def assert_refused(self, command: str) -> str:
+        reason = self.block(command)
+        self.assertIsNotNone(reason, msg=f"expected a refusal for: {command!r}")
+        assert reason is not None
+        return reason
+
+    def assert_allowed(self, command: str) -> None:
+        self.assertIsNone(
+            self.block(command), msg=f"expected no refusal for: {command!r}"
+        )
+
+
+class TestMaskedExitIsRefused(_GateCase):
+    """AC1: the runner runs, but its exit status never reaches the shell."""
+
+    def test_every_masking_shape_is_refused(self):
+        self.declare()
+        for name, command in _MASKING_SHAPES.items():
+            with self.subTest(shape=name):
+                self.assert_refused(command)
+
+    def test_a_narrowed_invocation_is_refused_too(self):
+        """The declaration supplies the executable, not the whole command —
+        so the shapes an agent actually types are covered, not just the CI
+        form. This is the case a token-prefix match would have missed."""
+        self.declare()
+        self.assert_refused("pytest tests/hooks/test_x.py | tail -30")
+        self.assert_refused("pytest x.py::TestClass::test_y > out.txt\necho $?")
+
+    def test_a_wrapped_invocation_is_refused(self):
+        self.declare()
+        self.assert_refused("cd plugins && pytest -n auto | tail -5")
+
+
+class TestHonestShapesProceed(_GateCase):
+    """AC2, and the deadlock this gate must not create.
+
+    A gate that refuses `cd <dir> && <runner>` refuses the shape every
+    worktree run takes, and there is then no command left that clears the
+    concern.
+    """
+
+    def test_every_honest_shape_proceeds(self):
+        self.declare()
+        for name, command in _HONEST_SHAPES.items():
+            with self.subTest(shape=name):
+                self.assert_allowed(command)
+
+    def test_a_substitution_that_closes_before_the_runner_proceeds(self):
+        self.declare()
+        self.assert_allowed("cd $(git rev-parse --show-toplevel) && pytest -n auto")
+
+    def test_an_argument_substitution_running_the_same_executable_proceeds(self):
+        """The shape that makes reusing the argument-substitution rewrite
+        load-bearing rather than decorative: the substitution computes an
+        ARGUMENT, and its head token is the declared executable, so a walk
+        that read every `$(...)` as a capture would refuse a command whose
+        exit status is perfectly honest."""
+        write_doc(
+            self.smm_dir,
+            valid_doc(stack={"languages": ["Go"], "test_command": "go test ./..."}),
+        )
+        self.assert_allowed("go test $(go list ./...)")
+
+
+class TestCommandsThatDoNotRunTheRunner(_GateCase):
+    """AC4: a command the gate cannot classify as a runner invocation is not
+    this gate's business, however badly it treats its own exit status. The
+    post-hoc advisory remains the fallback for those."""
+
+    def test_unrelated_masked_commands_proceed(self):
+        self.declare()
+        for command in (
+            "make build | tail -20",
+            "grep -rn pytest plugins/ | head",
+            "cat pytest.ini > /tmp/x\necho $?",
+            "OUT=$(git status --short)",
+            "npm run lint &",
+        ):
+            with self.subTest(command=command):
+                self.assert_allowed(command)
+
+
+class TestNoDeclarationMeansNoGate(_GateCase):
+    """AC: a project that declares nothing gets today's behaviour exactly.
+
+    Not a degradation to tolerate but the correct answer: with no
+    declaration there is no way to tell a runner invocation from any other
+    command, and refusing on a guess would refuse ordinary work.
+    """
+
+    def test_absent_system_context_no_ops(self):
+        for command in _MASKING_SHAPES.values():
+            with self.subTest(command=command):
+                self.assert_allowed(command)
+
+    def test_unset_test_command_no_ops(self):
+        write_doc(self.smm_dir, valid_doc())
+        for command in _MASKING_SHAPES.values():
+            with self.subTest(command=command):
+                self.assert_allowed(command)
+
+    def test_blank_test_command_no_ops(self):
+        self.declare("   ")
+        self.assert_allowed("pytest -n auto | tail")
+
+    def test_corrupt_system_context_no_ops_without_raising(self):
+        """A PreToolUse hook that raises does not block — it errors, the
+        command runs anyway, and the raise repeats on every later Bash call.
+        So the unreadable-declaration path must be a no-op, and must be
+        reached without an exception escaping."""
+        (self.smm_dir / SYSTEM_CONTEXT_FILENAME).write_text("{ not json")
+        self.assert_allowed("pytest -n auto | tail -20")
+
+    def test_schema_invalid_system_context_no_ops_without_raising(self):
+        (self.smm_dir / SYSTEM_CONTEXT_FILENAME).write_text(
+            json.dumps({"product": "only this"})
+        )
+        self.assert_allowed("pytest -n auto | tail -20")
+
+    def test_empty_command_no_ops(self):
+        self.declare()
+        self.assert_allowed("")
+
+    def test_a_declaration_that_masks_its_own_status_no_ops(self):
+        """The deadlock: nothing stops a project declaring a command that
+        discards its own exit status, and the schema does not look. Refusing
+        on it would refuse the declared command under a reason naming that
+        same command as the fix — every invocation, forever, with the escape
+        hatch as the only way out. No honest form exists to name here, so the
+        gate stands down and the post-run advisory takes it."""
+        self.declare("pytest -n auto 2>&1 | tail -50")
+        for command in ("pytest -n auto 2>&1 | tail -50", "pytest tests/ | tail"):
+            with self.subTest(command=command):
+                self.assert_allowed(command)
+
+
+class TestEscapeHatch(_GateCase):
+    """A refusal an author cannot override is a refusal that gets routed
+    around invisibly. The marker is a plain shell comment — inert to the
+    command, greppable in history, and it forces the intent to be stated.
+    """
+
+    def test_the_marker_suppresses_an_otherwise_refused_command(self):
+        self.declare()
+        marker = exit_capture_gate.EXIT_STATUS_NOT_NEEDED_MARKER
+        for name, command in _MASKING_SHAPES.items():
+            with self.subTest(shape=name):
+                self.assert_refused(command)
+                self.assert_allowed(f"{command}  {marker}")
+
+    def test_its_absence_does_not_suppress(self):
+        """A near-miss must not work, or the marker stops being a statement
+        of intent and becomes a spelling exercise."""
+        self.declare()
+        for near_miss in (
+            "# exit status not needed",
+            "# exit-status-not-required",
+            "# no-exit-status",
+        ):
+            with self.subTest(near_miss=near_miss):
+                self.assert_refused(f"pytest -n auto | tail  {near_miss}")
+
+    def test_the_marker_is_a_shell_comment(self):
+        """Inert to the command it rides on — otherwise the escape hatch
+        changes what runs, which no escape hatch may do."""
+        self.assertTrue(exit_capture_gate.EXIT_STATUS_NOT_NEEDED_MARKER.startswith("#"))
+
+
+class TestTheRefusalIsActionable(_GateCase):
+    """AC1's second half: the reason must name the bare form to run instead.
+
+    The failure this gate exists to prevent is an agent burning a run on a
+    phantom. A refusal that does not say what to type next spends the same
+    run a different way.
+    """
+
+    def test_the_reason_names_the_declared_command(self):
+        self.declare()
+        reason = self.assert_refused("pytest -n auto | tail -20")
+        self.assertIn(_DECLARED, reason)
+
+    def test_the_reason_names_the_escape_marker(self):
+        self.declare()
+        reason = self.assert_refused("pytest -n auto | tail -20")
+        self.assertIn(exit_capture_gate.EXIT_STATUS_NOT_NEEDED_MARKER, reason)
+
+    def test_the_reason_names_the_projects_own_command_not_a_builtin_one(self):
+        """The reason is built from the declaration, so a project running
+        something the plugin has never heard of is told to run ITS command."""
+        write_doc(
+            self.smm_dir,
+            valid_doc(stack={"languages": ["Elixir"], "test_command": "mix test"}),
+        )
+        reason = self.assert_refused("mix test | tail -20")
+        self.assertIn("mix test", reason)
+
+    def test_the_reason_offers_a_form_the_gate_actually_allows(self):
+        """The reason names a redirect as the way to keep the output; that is
+        only advice if the gate lets it through. Pinned as a pair so the text
+        and the rule cannot drift into contradicting each other."""
+        self.declare()
+        reason = self.assert_refused("pytest -n auto | tail -20")
+        self.assertIn("> <file> 2>&1", reason)
+        self.assert_allowed("pytest -n auto > /tmp/suite.log 2>&1")
+
+    def test_the_reason_says_that_an_and_chain_is_still_fine(self):
+        """Without this the obvious reading of the refusal is "never compose
+        the test command", and the next command tried is a bare re-run that
+        drops the `cd` the worktree needs."""
+        self.declare()
+        reason = self.assert_refused("pytest -n auto | tail -20")
+        self.assertIn("&&", reason)
+
+
+class TestShellWrappersCannotLaunder(_GateCase):
+    """`sh -c` is code, not data, so it may not become a way to hide either
+    the runner or the operator that swallowed its status."""
+
+    def test_a_pipe_outside_the_wrapper_is_refused(self):
+        self.declare()
+        self.assert_refused('sh -c "cd plugins && pytest -n auto" | tail -20')
+
+    def test_a_pipe_inside_the_wrapper_is_refused(self):
+        self.declare()
+        self.assert_refused('bash -c "pytest -n auto | tail -20"')
+
+    def test_an_honest_wrapper_body_proceeds(self):
+        self.declare()
+        self.assert_allowed('sh -c "cd plugins && pytest -n auto"')
+
+    def test_a_quoted_mention_is_not_a_wrapper(self):
+        """`python3 -c` and `git commit -m` quote text they never execute as
+        shell code; only a POSIX shell's `-c` body is code."""
+        self.declare()
+        self.assert_allowed('git commit -m "stop piping pytest | tail"')
+
+
+# AC3's literal half — that this module names no runner either — is not here.
+# `test_declared_test_command` sweeps every shipped module importing the
+# declaration reader, which is this one; a second copy of the same name list
+# beside it is what drifts.
+
+
+class TestWiredIntoPreToolUse(_Declares, _HookTestCase):
+    """The gate reaching the hook, in process.
+
+    Separate from the gate's own tests because the interesting facts here are
+    about POSITION, not detection: below the recursion skip, above the commit
+    gates, and refusing by raising the exception the hook's `__main__` turns
+    into exit 2.
+    """
+
+    def test_a_masked_run_raises_blocked(self):
+        self.declare()
+        with self.assertRaises(_common.BlockedError) as caught:
+            pre_tool_bash.run(
+                _make_bash_input("pytest -n auto | tail -20"), smm_dir=self.smm_dir
+            )
+        self.assertIn(_DECLARED, str(caught.exception))
+
+    def test_the_refusal_text_is_the_first_argument(self):
+        """`__main__` prints `str(e)` and nothing else — all three PreToolUse
+        handlers do — so a reason parked in the second argument reaches
+        nobody."""
+        self.declare()
+        with self.assertRaises(_common.BlockedError) as caught:
+            pre_tool_bash.run(
+                _make_bash_input("pytest -n auto | tail -20"), smm_dir=self.smm_dir
+            )
+        self.assertIn(
+            exit_capture_gate.EXIT_STATUS_NOT_NEEDED_MARKER, str(caught.exception)
+        )
+
+    def test_a_bare_run_passes_through(self):
+        self.declare()
+        self.assertIsNone(
+            pre_tool_bash.run(_make_bash_input(_DECLARED), smm_dir=self.smm_dir)
+        )
+
+    def test_no_declaration_leaves_the_hook_as_it_was(self):
+        pre_tool_bash.run(
+            _make_bash_input("pytest -n auto | tail -20"), smm_dir=self.smm_dir
+        )
+
+    def test_corrupt_system_context_does_not_break_the_hook(self):
+        """The reason the loader swallows its errors: a PreToolUse exit that
+        is not 2 does not block, so a raise here would let the command run
+        anyway AND repeat on every Bash call for the rest of the session."""
+        (self.smm_dir / SYSTEM_CONTEXT_FILENAME).write_text("{ not json")
+        pre_tool_bash.run(
+            _make_bash_input("pytest -n auto | tail -20"), smm_dir=self.smm_dir
+        )
+
+    def test_xp_agents_skip_the_gate(self):
+        """Sitting below the recursion skip is forced — the gate reads
+        system_context, which lives in the SMM dir — so this is the accepted
+        consequence, pinned rather than assumed."""
+        self.declare()
+        self.assertIsNone(
+            pre_tool_bash.run(
+                _make_bash_input(
+                    "pytest -n auto | tail -20", agent_type="xp-agents:xp-code-reviewer"
+                ),
+                smm_dir=self.smm_dir,
+            )
+        )
+
+
+class TestEndToEndThroughTheRealHook(_Declares, _SMMTestCase):
+    """AC5: the real hook, as a subprocess, with a runner that would leave
+    evidence if it ran.
+
+    The sentinel is what makes this more than a restatement of the in-process
+    test: the refusal is only worth anything if it lands BEFORE the runner
+    spends the wall clock this story exists to save.
+    """
+
+    SCRIPTS = Path(__file__).parent.parent.parent / "scripts"
+
+    def setUp(self):
+        super().setUp()
+        self.workdir = Path(tempfile.mkdtemp())
+        self.sentinel = self.workdir / "the-runner-ran"
+        self.runner = self.workdir / "run-suite.sh"
+        self.runner.write_text(f"#!/bin/sh\ntouch {self.sentinel}\nexit 1\n")
+        self.runner.chmod(0o755)
+        self.declare(str(self.runner), language="Shell")
+
+    def tearDown(self):
+        shutil.rmtree(self.workdir, ignore_errors=True)
+        super().tearDown()
+
+    def run_hook(self, command: str) -> subprocess.CompletedProcess:
+        env = os.environ.copy()
+        env["SMM_DIR"] = str(self.smm_dir)
+        return subprocess.run(
+            ["python3", str(self.SCRIPTS / "pre_tool_bash.py")],
+            input=json.dumps(_make_bash_input(command, cwd=str(self.workdir))),
+            capture_output=True,
+            text=True,
+            cwd=self.workdir,
+            env=env,
+        )
+
+    def test_a_masked_run_exits_2_with_the_reason_on_stderr(self):
+        result = self.run_hook(f"{self.runner} | tail -20")
+        self.assertEqual(result.returncode, 2, msg=result.stderr)
+        self.assertIn(str(self.runner), result.stderr)
+        self.assertIn(exit_capture_gate.EXIT_STATUS_NOT_NEEDED_MARKER, result.stderr)
+
+    def test_the_runner_never_executes(self):
+        self.run_hook(f"{self.runner} > out.log\necho $?")
+        self.assertFalse(
+            self.sentinel.exists(),
+            msg=(
+                "the runner left its sentinel — the refusal landed after the "
+                "run, which is the post-hoc advisory this story replaced"
+            ),
+        )
+
+    def test_the_bare_form_is_not_refused(self):
+        """The control. Without it, a hook that refused everything — or
+        crashed on every payload — would pass the test above."""
+        result = self.run_hook(str(self.runner))
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertEqual(result.stderr, "")
+
+    def test_the_escape_marker_is_honoured_end_to_end(self):
+        marker = exit_capture_gate.EXIT_STATUS_NOT_NEEDED_MARKER
+        result = self.run_hook(f"{self.runner} | tail -20  {marker}")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

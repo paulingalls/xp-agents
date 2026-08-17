@@ -2,8 +2,9 @@
 """Tests asserting that the QR skill prompt does not instruct the LLM to
 author lifecycle status events.
 
-Sprint-041 / story-003 — the hook (review_cycle_done.py) is the single
-producer of `qr_complete` events. The skill prompt must not double-emit.
+Sprint-041 / story-003 — a hook is the single producer of `qr_complete`
+events (today `review_cycle_legs`, off the reviewer's SubagentStop). The skill
+prompt must not double-emit.
 
 Sprint-052 / M-5 — the sibling assertion for xp-security-reviewer was
 removed alongside the agent itself.

@@ -246,6 +246,20 @@ class TestMergeEmitsCommitEvent(unittest.TestCase):
         )
         return r.stdout.strip()
 
+    def _head_parent_count(self, td: str) -> int:
+        """Git's own count of HEAD's parents — read independently of anything
+        `merge_commit_event.py` imports, so this is a black-box proof that
+        `is_merge` matches reality rather than an internal helper's opinion."""
+        r = subprocess.run(
+            ["git", "show", "-s", "--format=%P", "HEAD"],
+            cwd=td,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=_bf.GIT_ENV,
+        )
+        return len(r.stdout.split())
+
     def test_merge_emits_commit_event(self):
         import close_common
 
@@ -266,7 +280,16 @@ class TestMergeEmitsCommitEvent(unittest.TestCase):
         self.assertEqual(meta["story_id"], "story-007")  # from _SOURCE shape
         # is_merge flag excludes this event from resolves_link_rate accounting
         # (merge commits aggregate story commits that carry their own trailers).
+        # Checked against git's OWN parent count, not just truthiness — story-005
+        # AC4: is_merge must match reality, not a hardcoded True.
+        self.assertEqual(self._head_parent_count(td), 2, "premise: a real merge")
         self.assertTrue(meta["is_merge"])
+        # story-005 AC2/AC4: content is the cleaned body — close_common's merge
+        # always writes a plain "Merge <source>" subject with no trailer, so
+        # this is also the regression guard that a trailer block never leaks
+        # into a close-cycle merge event's stored content.
+        self.assertNotIn("Resolves-Event", ev["content"])
+        self.assertNotIn("Co-Authored-By", ev["content"])
 
     def test_merge_with_sprint_source_not_tagged_free_session(self):
         """The default _SOURCE is a story-shaped branch, not a free branch.

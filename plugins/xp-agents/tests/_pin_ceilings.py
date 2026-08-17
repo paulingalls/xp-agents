@@ -84,6 +84,11 @@ BAND_CEILINGS = {
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
+    # Entered the band with `also_changed` on untouched_verify_paths: the
+    # keyword-only parameter, the union, and the one sentence naming who may
+    # pass it. The walk itself is unchanged, so this is the parameter's cost
+    # and not a growing function.
+    "plugins/xp-agents/scripts/verify_paths.py": 454,
     # RETIRED: verify_acceptance.py 455->434, under the 450 floor so the entry
     # is deleted rather than re-recorded. Deduping the sprint run to one
     # subprocess per DISTINCT command replaced the inline row-building loop
@@ -144,6 +149,18 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/skills/test_scaffold_worktree_skill.py": 475,
     "plugins/xp-agents/tests/engine/test_compact_concurrency.py": 473,
     "plugins/xp-agents/tests/smm/test_integration_branch_ref.py": 470,
+    # Entered the band on arrival (story-004). Recorded rather than split
+    # because the obvious cut — the hook-wiring and E2E classes into a sibling
+    # — would move AC5's only evidence out of the file this story's
+    # acceptance_execution actually runs, which is the gap kickoff triage
+    # raised against this story in the first place. Unchanged across review:
+    # the duplicate runner-name scan left for the sibling suite that now
+    # sweeps for it, and a declare() mixin replaced three copies of one
+    # fixture write, which between them paid for the redirect shapes and the
+    # masking-declaration case added alongside. The cohesive group to extract
+    # when it next grows is `TestEndToEndThroughTheRealHook`, once a second
+    # suite needs the same real-runner-with-a-sentinel fixture.
+    "plugins/xp-agents/tests/hooks/test_exit_capture_gate.py": 470,
     # RETIRED (story-019 follow-up): test_sprint_frontier.py 470->283. The
     # unscoped-verdict tests had already moved to test_frontier_unprovable.py;
     # the dependency-edge / treat_as_done group moved to
@@ -188,7 +205,13 @@ BAND_CEILINGS = {
     # not express: the incoming COUNT, and that the merge commit itself is filtered
     # out of its own range. Trimmed the prose first; the remainder is assertions.
     "plugins/xp-agents/tests/hooks/test_commits_git_helpers.py": 459,
-    "plugins/xp-agents/tests/smm/test_append_safety.py": 452,
+    # 452 -> 472 for the trailing-newline pins on the agent-id allowlist (`$`
+    # matched before a final newline; `\Z` does not). The file sat at exactly
+    # its own ceiling, and the cheapest way to stay under it was to put the
+    # pins in a file that does not test this validator — the relocation debt
+    # 22abb3a8d214 names. Raised instead, because the two pins belong beside
+    # the twelve rejection cases they extend.
+    "plugins/xp-agents/tests/smm/test_append_safety.py": 472,
     "plugins/xp-agents/tests/scaffold/test_scaffold_cli_detect.py": 452,
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_branch_delete.py": 451,
     # Entered the band with story-011's stream-relay proofs (both-streams +
