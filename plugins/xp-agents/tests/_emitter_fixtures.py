@@ -150,12 +150,12 @@ EMITTER_BUDGETS: dict[str, int] = {
     # exists so the injection surface is not the one emitter with no ceiling
     # at all, and it moves when the chosen fixture's preload moves.
     #
-    # Bumped 400 -> 420 (story-013, unrelated drift found blocking the commit
-    # gate): xp-schedule's own preload grew to 392 chars since this was last
-    # measured, landing inside the 98% band of 400. Not this story's surface —
-    # bumped by the file's own deliberate-bump convention rather than left
-    # blocking every commit on the branch.
-    "preload_injection.py": 420,
+    # Held at 400. A 400 -> 420 bump was made and REVERTED: the 392 that
+    # prompted it was not growth in xp-schedule's preload but the teammate
+    # worktree's longer checkout path leaking into the measurement. Measured in
+    # the main checkout the number had not moved from 355. Both dead guards are
+    # fixed in `_budget_helpers` — see the note on `_WORKTREE_SEGMENT_RE`.
+    "preload_injection.py": 400,
     "pre_tool_write.py": 100,
     "prompt_nugget.py": 100,
     "retrospective.py": 100,

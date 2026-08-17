@@ -105,6 +105,12 @@ BAND_CEILINGS = {
     # TestShippedRootFloorRedProof) — they share a temp-tree idiom and touch no
     # real-tree state, unlike everything else in the file.
     "plugins/xp-agents/tests/test_file_size_pin.py": 474,
+    # Crossed 450 (446 -> 461) when both band proofs stopped measuring their
+    # surface by a second bootstrap and started reading the assert's own
+    # number. The 25-line helper that does it went to `_band_proof`, beside
+    # the other band helpers, rather than staying here — that split is why
+    # this lands at 461 and not 486.
+    "plugins/xp-agents/tests/test_budget_measurement.py": 461,
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
     "plugins/xp-agents/tests/hooks/test_branch_lifecycle.py": 494,

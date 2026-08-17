@@ -25,7 +25,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 # Imported directly because only pytest loads `conftest` for us — under the
 # unittest fallback the pin would ride on some unrelated module's import.
 import _env_hygiene  # noqa: F401
-from _band_proof import assert_band_fired, below_band_budget, in_band_budget
+from _band_proof import (
+    _measure_via_assert,
+    assert_band_fired,
+    below_band_budget,
+    in_band_budget,
+)
 from _bases import _PLUGIN_ROOT
 from _budget_helpers import (
     _bootstrap_seeded_smm,
@@ -392,7 +397,12 @@ class TestEmitterBandWiring(_StdoutBandProof, unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.actual = _measure_emitter(cls._SURFACE)
+        cls.actual = _measure_via_assert(
+            lambda budget: assert_emitter_under_budgets(
+                _SpyCase(), _SCRIPTS_DIR, {cls._SURFACE: budget}, "emitter"
+            ),
+            cls._SURFACE,
+        )
 
     def _assert_under_budget(self, budget: int) -> None:
         assert_emitter_under_budgets(
@@ -413,7 +423,12 @@ class TestPreloadBandWiring(_StdoutBandProof, unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.actual = _measure_preload(cls._SURFACE)
+        cls.actual = _measure_via_assert(
+            lambda budget: assert_preload_under_budgets(
+                _SpyCase(), {cls._SURFACE: budget}, "preload"
+            ),
+            cls._SURFACE,
+        )
 
     def _assert_under_budget(self, budget: int) -> None:
         assert_preload_under_budgets(_SpyCase(), {self._SURFACE: budget}, "preload")
