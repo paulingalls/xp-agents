@@ -431,6 +431,13 @@ def argument_substitutions_as_words(command: str) -> str:
 EXIT_STATUS_NOT_NEEDED_MARKER = "# exit-status-not-needed"
 
 
+def exit_status_waived(command: str) -> bool:
+    """True when *command* DECLARES the marker, rather than quoting it in a
+    message body or argument the way a commit ABOUT one of these gates does —
+    see `test_the_marker_cannot_be_forged_by_a_message_body`."""
+    return EXIT_STATUS_NOT_NEEDED_MARKER in git_commits.strip_quoted(command)
+
+
 def exit_reaches_shell_for(command: str, runs_target: Callable[[str], bool]) -> bool:
     """True when the exit status of the segments *runs_target* names survives.
 
@@ -473,11 +480,9 @@ def exit_reaches_shell(command: str) -> bool:
     the caller might have wanted to read?
 
     Conservative by construction, because a wrong True is what lets a caller
-    compare two runs on a number that means nothing. What it will NOT refuse is
-    a substitution that merely computes an ARGUMENT — `pytest -n $(nproc)` is one
-    command and the shell reports pytest's status. A capture whose value is what
-    the shell actually reports (`OUT=$(tsc --noEmit)`, `echo $(make build)`)
-    stays refused.
+    compare two runs on a number that means nothing — bounded on the other side
+    by the ARGUMENT-substitution line `argument_substitutions_as_words` draws and
+    argues, which this inherits from the composition above rather than restates.
 
     A command that runs nothing is vacuously True — there is no exit status here
     to have been swallowed. Callers that need "this is a runnable command" must

@@ -30,6 +30,16 @@ WHAT IT WILL NOT CATCH, deliberately. Reads. A piped `git log`, `git status` or
 `git diff` loses a status nobody needed, and spreading to the whole git
 vocabulary would refuse ordinary work to protect nothing.
 
+WHAT IT MISSES AND WHAT IT OVER-REFUSES, measured at the close review rather
+than assumed. `eval "git push | tail"` launders the pipe: only a `sh -c` body is
+recursed into, so this joins the deliberate-evasion class the spike catalogues
+beside aliases and `$GIT` — and the marker below is the honest way to say "I
+meant it". In the other direction, a write inside a compound statement
+(`if ...; then git commit; fi`, `for ...; do git push; done`) is refused for the
+`;` before `fi` or `done`, which is shell SYNTAX and discards nothing; telling
+that apart needs keyword knowledge the shared walk has not got, and over-
+refusing a shape agents rarely type is the safe direction.
+
 Reason-returning, like `pre_tool_bash_reviewer_guard`: this module never raises,
 never reads or writes a stream, and never decides an exit code. The caller wraps
 the returned reason. It needs no shared-model directory, which is what lets the
@@ -72,6 +82,15 @@ _GIT_WRITE_RE = re.compile(
 # real break after it.
 _LINE_CONTINUATION_RE = re.compile(r"\\\n[ \t]*")
 
+# The operators the shell binds LOOSER than a pipe, and a single `|`, which it
+# binds tighter. Both are read only by `_reads_piped_as_words`, whose whole
+# subject is that difference in precedence.
+_LOOSE_BREAK_RE = re.compile(r"(&&|\|\||;|\n)")
+_PIPE_RE = re.compile(r"(?<!\|)\|(?!\|)")
+# What an elided read's pipeline leaves behind — any operator-free token would
+# do, as in `shell_exit_structure.argument_substitutions_as_words`.
+_READ_WORD = " x "
+
 
 def git_write_named(command: str) -> str | None:
     """The write subcommand *command* names, or None when it names none.
@@ -92,6 +111,42 @@ def git_write_named(command: str) -> str | None:
         if match is not None:
             return match.group("subcommand")
     return None
+
+
+def _reads_piped_as_words(command: str) -> str:
+    """*command* with every pipeline that runs no git write reduced to one word.
+
+    `|` binds TIGHTER than `&&`, so `git push && git log | cat` is
+    `git push && (git log | cat)`: a failed push short-circuits the list and its
+    non-zero IS the shell's, which is the whole reason `&&` is permitted. The
+    shared walk cannot see that — it reads operators in sequence with no
+    precedence and refuses the first discard anywhere after the write — so the
+    composition this refusal PRESCRIBES was itself refused, and the next attempt
+    reads the advice, retypes it and is refused again.
+
+    A rewrite rather than a second walk, for the reason
+    `argument_substitutions_as_words` is one: the same command, restated without
+    a pipe that was never the write's. Four things are left alone, each because
+    eliding it would answer a different question than the one asked:
+
+      * a pipeline that RUNS a write — `git push | tail` is the shape this gate
+        exists for.
+      * a background `&`, which applies to the whole list, write included.
+      * a substitution, whose opener the walk must still see and balance.
+      * an odd quote count, which means a quoted span crosses this operator, so
+        the split did not land where the shell would put it.
+    """
+    parts = _LOOSE_BREAK_RE.split(command)
+    for i in range(0, len(parts), 2):
+        part = parts[i]
+        if not _PIPE_RE.search(part) or git_write_named(part) is not None:
+            continue
+        if shell_exit_structure.ASYNC_RE.search(part) or "$(" in part or "`" in part:
+            continue
+        if part.count('"') % 2 or part.count("'") % 2:
+            continue
+        parts[i] = _READ_WORD
+    return "".join(parts)
 
 
 def _refusal(subcommand: str) -> str:
@@ -128,8 +183,9 @@ def captured_git_write_block(command: str) -> str | None:
     """Reason to refuse *command*, or None to let it proceed.
 
     Three conditions, all of which must hold: the command names a write, the
-    escape marker is absent, and the write's exit status does not survive to the
-    shell.
+    escape marker is not DECLARED (a message body that merely quotes it is data,
+    not a waiver — see `shell_exit_structure.exit_status_waived`), and the
+    write's exit status does not survive to the shell.
 
     The name is read BEFORE the walk rather than after it, and does double duty:
     it is the cheap pre-filter that keeps this off every Bash call that is not a
@@ -137,13 +193,15 @@ def captured_git_write_block(command: str) -> str | None:
     would need a second search that could, in principle, find nothing — an
     unreachable branch nothing could test.
     """
-    if not command or shell_exit_structure.EXIT_STATUS_NOT_NEEDED_MARKER in command:
+    if not command or shell_exit_structure.exit_status_waived(command):
         return None
     joined = _LINE_CONTINUATION_RE.sub(" ", command)
     subcommand = git_write_named(joined)
     if subcommand is None:
         return None
-    if shell_exit_structure.exit_reaches_shell_for(joined, _runs_a_git_write):
+    if shell_exit_structure.exit_reaches_shell_for(
+        _reads_piped_as_words(joined), _runs_a_git_write
+    ):
         return None
     return _refusal(subcommand)
 

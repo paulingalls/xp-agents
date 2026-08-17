@@ -4,7 +4,8 @@ History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
 ## v5.19.0 — A review covers the fixes it made, and a piped push cannot lie
 
-**A completed review now records what the reviewer actually changed.** v5.17.0
+**A completed review now records the files the reviewer actually changed or
+created.** v5.17.0
 shipped a coverage record so a reviewer's own fixes would not re-arm the commit
 gate. In the dominant flow it recorded **nothing**: the scan reads staged and
 committed files, and a reviewer edits files and returns — nothing stages them. So
@@ -22,8 +23,8 @@ is not a blanket exemption: an untouched tree still covers nothing, and a file t
 reviewer left alone stays uncovered.
 
 **That scan now fits the budget its hook actually has.** `SubagentStop` is given
-5000 ms in total; the git helper bounds each *call* at 5 s, not the set. Three
-scan legs plus the record's HEAD read therefore allowed 20 s inside a 5 s budget,
+5000 ms in total; the git helper bounds each *call* at 5 s, not the set. Four scan
+legs plus the record's HEAD read therefore allowed 25 s inside a 5 s budget,
 and a handler killed part-way through leaves the gate armed with no flag — where
 the only recovery is another full review, because that flag has exactly one
 writer. The whole scan now takes one budget, split across the legs that will
@@ -80,7 +81,8 @@ time. It now has one home, `exit_reaches_shell_for`, and the escape marker moved
 beside it: every gate built on that composition refuses the same shape and must be
 waived by the same words, and an agent made to remember which marker suppresses
 which gate will type the wrong one. The extraction landed on its own, and its
-proof is that the existing checks passed **with no test file edited**.
+proof is that the existing checks passed **with no behavioural assertion
+edited** — only the size and prose pins moved.
 
 **Two false positives found by reading a failing test, not by foresight.**
 `git -c push.default=simple log` was read as a *push* — `\b` sits happily between
@@ -92,6 +94,48 @@ wrapped invocation read as two commands with a status-discarding newline between
 them, and an honest wrapped push was refused for an operator that was not there.
 Both fixed, with the wrap pinned in both directions: joining must not launder a
 wrapped push through a pipe.
+
+**The close review found five more, and they are fixed here rather than
+disclosed.** Two fail-opens in what the gate reads, one false positive that made
+the gate self-contradictory, and two in the coverage record.
+
+*The refusal prescribed a shape it then refused.* `|` binds tighter than `&&`, so
+`git commit -m x && git status | head` is `git commit -m x && (git status | head)`
+— a failed commit short-circuits and its non-zero IS the shell's. The shared walk
+reads operators in sequence with no precedence, so it refused the pipe as though
+the write sat inside it, while `_refusal` told the agent an `&&` chain was fine:
+read the advice, retype it, be refused again. Pipelines that run no write are now
+elided before the walk, a rewrite in the spirit of the argument-substitution one,
+and the two laundering shapes are pinned — a `;` after the chain and a `&` around
+it both still refuse.
+
+*Coverage missed the file a reviewer CREATED.* `git diff` lists an untracked path
+at no stage, so a reviewer that writes a test recorded nothing for it and the next
+`git add -A` counted it unreviewed: the same defect this release fixes for edits,
+surviving for additions. A fourth scan leg (`ls-files --others
+--exclude-standard`) now runs inside the same budget, split five ways.
+
+*And the HEAD-distance expiry counted commits nobody landed.* `rev-list --count`
+counts everything reachable, so a `git merge <base>` bringing three commits read
+as four landings and discarded a review just earned — the loop this record exists
+to break, entered from the other side. It counts first parents now, so a merge is
+the one commit it is.
+
+*The operator on a heredoc's own line was invisible.* `strip_heredocs` deleted the
+whole span from `<<DELIM` to the terminator, the remainder of the introducing line
+included, so `git commit -F - <<'EOF' | tail -20` — the form every commit in this
+repo is written in — arrived at the walk as a bare `git commit -F -` and was
+allowed. The body is still data; what follows the operator on that line is code,
+and is now kept. The same span hid a chained `&& git branch -D <branch>` from the
+branch-delete refusal, which shares that helper.
+
+*And the escape marker was matched anywhere in the command text*, so a commit
+*message* quoting `# exit-status-not-needed` — which the notes describing it do —
+waived the gate on exactly the command whose pre-commit hooks exist to fail. It is
+now read off a data-stripped view, so a declaration outside the message still
+waives and a mention inside it does not. One predicate, shared by both gates,
+beside the marker it reads. `<<"DELIM"` is read as a heredoc too, which it was
+not, so a double-quoted message body no longer reaches any scanner as code.
 
 ### Known residuals
 
@@ -105,6 +149,15 @@ wrapped push through a pipe.
   regex carries the same `\b(?!-)`, so every gate keyed on that detection can fire
   on `git -c commit.gpgsign=false log`. It feeds the commit-event recorder and the
   review-cycle gate, so it gets its own test rather than a drive-by fix here.
+- **`eval` launders the write gate where `sh -c` does not.** `eval "git push |
+  tail -6"` is allowed: only a `sh -c` body is recursed into. It joins the
+  deliberate-evasion class the spike catalogues beside aliases and `$GIT` — one
+  word to type, and nothing an agent reaching for a pager would reach for.
+- **A write inside a compound statement is over-refused.** `if ...; then git
+  commit; fi` and `for ...; do git push; done` are refused for the `;` before `fi`
+  or `done`, which is shell syntax and discards nothing. Telling that apart needs
+  keyword knowledge the shared walk has not got; the marker is the release valve
+  until it does.
 - **The coverage widening is honest on the per-increment path only.** The two
   close-path preload branches hand the reviewer a *committed range*, so there the
   unstaged leg can forgive a tracked working-tree file the reviewer was never

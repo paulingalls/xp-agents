@@ -199,6 +199,10 @@ def _commits_since_write(data: dict, cwd: str) -> int:
     absence of information, and the write-driven ageing still governs there;
     expiring on them would drop coverage the review genuinely earned.
 
+    MISLEADING information is a third case, refused at the source rather than
+    read as absence: `count_commits_since` counts first parents, so a base merge
+    is one landing and not the range it carried in.
+
     `commits` is imported lazily: `review_records` is on the import path of
     nearly every hook, and only this read needs git.
     """

@@ -145,13 +145,24 @@ PROSE_MEASURED: dict[str, int] = {
     # landed, and after `get_filenames_from_diff` left for `diff_filenames.py` —
     # the extraction took prose out of this file, so the number is a re-measure
     # of what remains, not a straight allowance for what was added.
-    "plugins/xp-agents/scripts/commits.py": 179,
+    # 179 -> 190 for the close review's two fixes, each of which a future reader
+    # would otherwise undo: `include_untracked` is a separate flag because a
+    # wider set FORGIVES for one caller and BLOCKS for the other, and
+    # `count_commits_since` counts first parents because counting a merge's whole
+    # range measured 6 landings against a cap of 2.
+    "plugins/xp-agents/scripts/commits.py": 190,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.
     "plugins/xp-agents/scripts/coordination.py": 169,
     "plugins/xp-agents/scripts/dash_c_tokens.py": 129,
     "plugins/xp-agents/scripts/framework_detect.py": 122,
+    # Crossed the floor at the close review, at 130. Two thirds of it is the
+    # gate's own boundary: which shapes it misses (`eval`), which it over-refuses
+    # (a `;` that is compound-statement syntax), and why `|` after `&&` is not a
+    # discard — the last of which it had refused, while its refusal text
+    # prescribed that exact shape.
+    "plugins/xp-agents/scripts/git_write_exit_gate.py": 130,
     "plugins/xp-agents/scripts/hook_liveness.py": 196,
     # 227 -> 239: CLOSE_CYCLE_AGENT_ID lands here rather than in
     # `event_metadata` — it is an agent identity, not an event metadata key, and
@@ -170,7 +181,13 @@ PROSE_MEASURED: dict[str, int] = {
     # its own reason recorded: the write-driven ageing it backstops fails open,
     # and the docstring that called that "tracked debt" is now the one saying
     # how it is closed.
-    "plugins/xp-agents/scripts/review_records.py": 132,
+    # 132 -> 134: the number was recorded BEFORE the two lines naming why the
+    # sha's field is `written_at_commit` and not `written_at`, so the table was
+    # already two behind its own file — inside the slack, and therefore silent.
+    # 134 -> 138: MISLEADING evidence is now named as a third case beside the two
+    # absences, because the docstring claimed only absence could fail to expire
+    # while a base merge was supplying a distance of its own.
+    "plugins/xp-agents/scripts/review_records.py": 138,
     "plugins/xp-agents/scripts/retro_metrics.py": 130,
     "plugins/xp-agents/scripts/scaffold_apply.py": 128,
     "plugins/xp-agents/scripts/session_start.py": 164,
@@ -180,7 +197,11 @@ PROSE_MEASURED: dict[str, int] = {
     # commit. Consumer-specific reasoning deliberately did NOT come with them —
     # why a declaration-keyed predicate needs the substitution rewrite stays
     # with the gate whose predicate it is.
-    "plugins/xp-agents/scripts/shell_exit_structure.py": 290,
+    # 290 -> 291 at the close review, and net of a deletion: `exit_status_waived`
+    # arrived with three lines, while `exit_reaches_shell` stopped restating the
+    # argument-substitution line `argument_substitutions_as_words` already argues
+    # twenty lines above it — the duplication the extraction itself introduced.
+    "plugins/xp-agents/scripts/shell_exit_structure.py": 291,
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
     "plugins/xp-agents/scripts/staged_lint.py": 221,
     "plugins/xp-agents/scripts/tdd_check.py": 133,

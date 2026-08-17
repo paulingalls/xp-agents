@@ -105,6 +105,26 @@ class TestTheScopeIsMeasuredAgainstARealTree(_RealTreeCase):
         changed nothing forgives nothing, so the gate is unaffected."""
         self.assertEqual(self._reviewer_stops(), set())
 
+    def test_a_file_the_reviewer_CREATED_is_covered(self):
+        """`git diff` lists a created file at no stage, staged or not, so the
+        unstaged leg alone recorded nothing for the test a reviewer writes —
+        the same defect as v5.17.0's, for additions instead of edits. The next
+        `git add -A` stages it and the gate then counts it unreviewed."""
+        Path(self.repo, "test_new.py").write_text("def test_x():\n    pass\n")
+
+        self.assertEqual(self._reviewer_stops(), {"test_new.py"})
+
+    def test_ignored_output_is_not_mistaken_for_created_work(self):
+        """`--exclude-standard`, or the created-files leg hands back every build
+        artefact in the tree and the exemption stops meaning anything."""
+        Path(self.repo, ".gitignore").write_text("build/\n")
+        repo_fixtures.git_in(self.repo, "add", ".gitignore")
+        repo_fixtures.git_in(self.repo, "commit", "-m", "ignore build")
+        Path(self.repo, "build").mkdir()
+        Path(self.repo, "build", "generated.py").write_text("x = 1\n")
+
+        self.assertEqual(self._reviewer_stops(), set())
+
     def test_a_file_the_reviewer_left_alone_is_not_covered(self):
         """Membership, not just count — the assertion a set-size check would
         pass while exempting the wrong file."""
@@ -118,8 +138,8 @@ class TestTheScanFitsTheHookBudget(_RealTreeCase):
 
     `_run_git` allows 5s PER CALL and `hooks.json` gives SubagentStop 5000ms
     TOTAL, so one slow read could spend the whole allowance and the rest could
-    not run at all. The handler makes four: three scan legs (staged, the
-    watermark range, unstaged) plus the HEAD read that stamps the record. A
+    not run at all. The handler makes five: four scan legs (staged, the watermark
+    range, unstaged, created) plus the HEAD read that stamps the record. A
     handler killed part-way leaves the gate armed with no flag, whose only
     recovery is another full review.
 
@@ -133,7 +153,7 @@ class TestTheScanFitsTheHookBudget(_RealTreeCase):
     """
 
     _HOOK_BUDGET_S = 5.0
-    _EXPECTED_READS = 4
+    _EXPECTED_READS = 5
 
     def _timeouts_during_a_completion(self) -> list[float]:
         """Each git read's timeout, an absent one recorded as `inf`.
@@ -237,6 +257,24 @@ class TestCoverageExpiresOnCommitsThatMissTheCommitSites(_RealTreeCase):
         self._cover_a_py()
 
         self.assertEqual(self._coverage(), {"a.py"})
+        self.assertEqual(self._coverage(), {"a.py"})
+
+    def test_a_base_merge_is_one_landing_and_not_the_range_it_carried(self):
+        """`rev-list --count` counts everything reachable, so a `git merge <base>`
+        bringing three commits read as four landings and threw away a review just
+        earned — the loop this record exists to break, entered from the other
+        side. `--first-parent` counts what landed on THIS line."""
+        start = repo_fixtures.git_in(self.repo, "rev-parse", "HEAD").strip()
+        repo_fixtures.git_in(self.repo, "checkout", "-q", "-b", "base-work")
+        for i in range(3):
+            Path(self.repo, f"base{i}.py").write_text("1\n")
+            repo_fixtures.git_in(self.repo, "add", "-A")
+            repo_fixtures.git_in(self.repo, "commit", "-m", f"base{i}")
+        repo_fixtures.git_in(self.repo, "checkout", "-q", "-B", "work", start)
+
+        self._cover_a_py()
+        repo_fixtures.git_in(self.repo, "merge", "--no-ff", "-m", "merge", "base-work")
+
         self.assertEqual(self._coverage(), {"a.py"})
 
     def test_a_caller_with_no_repo_reads_the_record_as_it_stands(self):

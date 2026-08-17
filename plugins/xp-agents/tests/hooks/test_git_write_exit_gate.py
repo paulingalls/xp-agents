@@ -47,6 +47,18 @@ _MASKING_SHAPES = {
     # `GIT_PREFIX` a bare `git\\s+` would walk straight past every one of them.
     "dash-C-push": "git -C /tmp/wt push | tail -6",
     "dash-C-commit": "git -C /tmp/wt commit -m x | tail -6",
+    # The operator rides on the line that OPENS the message, which is the form
+    # every commit in this repo is written in. `strip_heredocs` used to delete
+    # the rest of that line along with the body, so this arrived at the walk as
+    # a bare `git commit -F -` and was allowed — the gate's own shape, missed.
+    "heredoc-piped": "git commit -F - <<'EOF' | tail -20\nmsg\nEOF",
+    "heredoc-redirect-then-pipe": "git commit -F - <<'EOF' 2>&1 | tail -5\nmsg\nEOF",
+    # The two that keep the read-pipeline elision honest. `;` binds LOOSER than
+    # `&&`, so a failed write skips the read and the `;` then makes the last
+    # command's status the shell's; a `&` backgrounds the whole list, write
+    # included. An elision that dropped either would launder both.
+    "and-chain-then-discard": "git push && git status | head; echo done",
+    "and-chain-backgrounded": "git push && git status | head &",
 }
 
 # Shapes that keep git's exit status, and must not be refused.
@@ -57,6 +69,13 @@ _HONEST_SHAPES = {
     "trailing-and": "git push && echo pushed",
     "both": "cd repo && git add -A && git commit -m x && git push",
     "dash-C-chain": "git -C /tmp/wt add -A && git -C /tmp/wt commit -m x",
+    # A read PIPED AFTER an honest write. `|` binds tighter than `&&`, so a
+    # failed write short-circuits the list and its non-zero is the shell's —
+    # nothing is hidden, and the refusal below prescribes this exact shape, so
+    # refusing it sends an agent back to the advice that produced it.
+    "and-then-piped-read": "git commit -m x && git status --short | head -20",
+    "and-then-piped-log": "git push && git log --oneline -3 | cat",
+    "and-then-piped-read-with-quotes": 'git commit -m x && git log --format="%h" | cat',
     # A redirect alone moves the OUTPUT, not the status — which is exactly what
     # the refusal below offers as the answer, so it has to actually be allowed.
     "redirect-only": "git push > push.log",
@@ -137,6 +156,20 @@ class TestTheFalsePositivesThatWouldRefuseOurOwnCommits(unittest.TestCase):
         )
         self.assertIsNone(git_write_exit_gate.captured_git_write_block(command))
 
+    def test_a_double_quoted_heredoc_delimiter_hides_its_body_too(self):
+        """`<<"EOF"` is as ordinary as `<<'EOF'`, and the delimiter pattern read
+        only the single-quoted and bare forms — so the BODY stayed visible and a
+        message mentioning a piped push was refused. The sibling test above pins
+        the same claim for the form that already worked."""
+        command = (
+            'git commit -F - <<"EOF"\n'
+            "Refuse a push whose status is lost\n"
+            "\n"
+            "`git push | tail -6` reported tail's exit 0 while the push failed.\n"
+            "EOF"
+        )
+        self.assertIsNone(git_write_exit_gate.captured_git_write_block(command))
+
     def test_a_config_value_naming_a_write_is_not_a_write(self):
         """`git -c commit.gpgsign=false` and `git -c push.default=simple` are
         CONFIG, and the commands here are reads. `\\b` sits happily between
@@ -151,6 +184,34 @@ class TestTheFalsePositivesThatWouldRefuseOurOwnCommits(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 self.assertIsNone(git_write_exit_gate.captured_git_write_block(command))
+
+    def test_a_read_piped_after_an_honest_write_is_not_refused(self):
+        """The shape the refusal itself prescribes. `|` binds tighter than `&&`,
+        so `git push && git log | cat` is `git push && (git log | cat)`: a failed
+        push short-circuits and its non-zero IS the shell's. The shared walk
+        reads operators in sequence with no precedence, so it refused the pipe as
+        though the push were inside it — and an agent that reads the refusal,
+        retypes the `&&` form it recommends, and is refused again learns that the
+        gate cannot be satisfied."""
+        self.assertIsNone(
+            git_write_exit_gate.captured_git_write_block(
+                "git commit -m x && git status --short | head -20"
+            )
+        )
+
+    def test_the_elision_cannot_launder_a_loose_operator(self):
+        """The control, in both shapes that matter: `;` after the `&&` chain
+        makes the last command's status the shell's, and a `&` backgrounds the
+        whole list. Without these the test above passes against a gate that
+        stopped reading anything after an `&&`."""
+        for command in (
+            "git push && git status | head; echo done",
+            "git push && git status | head &",
+        ):
+            with self.subTest(command=command):
+                self.assertIsNotNone(
+                    git_write_exit_gate.captured_git_write_block(command)
+                )
 
     def test_a_wrapped_invocation_is_one_command_not_two(self):
         """A `\\`-newline is a continuation the shell joins away, but the walk
@@ -196,6 +257,38 @@ class TestTheEscapeHatch(unittest.TestCase):
         refuses nothing."""
         self.assertIsNotNone(
             git_write_exit_gate.captured_git_write_block("git push | tail -6")
+        )
+
+    def test_the_marker_cannot_be_forged_by_a_message_body(self):
+        """A COMMIT MESSAGE that quotes the marker is data, and the waiver has
+        to read it as data. This is not a hypothetical shape: the release notes
+        for this gate name the marker, so the commit that ships them would have
+        waived the gate on the one command whose pre-commit hooks exist to fail.
+        The same door was closed once already for a range record a body could
+        forge — an author who genuinely does not need the status still declares
+        it outside the message, where the shell reads it as a comment."""
+        marker = shell_exit_structure.EXIT_STATUS_NOT_NEEDED_MARKER
+        for name, command in {
+            "heredoc-body": (
+                f"git commit -F - <<'EOF' | tail -20\n`{marker}` is the valve.\nEOF"
+            ),
+            "dash-m-message": f'git commit -m "note: {marker} is the valve" | tail -20',
+        }.items():
+            with self.subTest(shape=name):
+                self.assertIsNotNone(
+                    git_write_exit_gate.captured_git_write_block(command),
+                    msg="a quoted marker waived the gate",
+                )
+
+    def test_a_declared_marker_beside_a_message_that_quotes_it_still_waives(self):
+        """The control for the test above: stripping data must not strip the
+        real declaration, or the escape hatch stops working for exactly the
+        command that needs to talk about it."""
+        marker = shell_exit_structure.EXIT_STATUS_NOT_NEEDED_MARKER
+        self.assertIsNone(
+            git_write_exit_gate.captured_git_write_block(
+                f'git commit -m "note: {marker} is the valve" | tail -20  {marker}'
+            )
         )
 
     def test_the_marker_is_a_shell_comment_so_it_cannot_change_what_runs(self):

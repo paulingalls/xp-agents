@@ -55,7 +55,12 @@ BAND_CEILINGS = {
     # written for the git-write gate, so the file grew by taking duplication
     # OUT of the tree — `exit_capture_gate.py` fell 165 -> 131 in the same
     # commit.
-    "plugins/xp-agents/scripts/shell_exit_structure.py": 486,
+    # Ratcheted 486 -> 491 at the close review: `exit_status_waived` reads the
+    # marker off a data-stripped view, so a commit MESSAGE quoting the marker no
+    # longer waives a gate, and it belongs beside the marker it reads. Nine
+    # lines from the tree-wide cap now, so the next thing this file gains is an
+    # extraction rather than another raise.
+    "plugins/xp-agents/scripts/shell_exit_structure.py": 491,
     "plugins/xp-agents/scripts/linter_tables.py": 482,
     "plugins/xp-agents/smm/event_schema.py": 480,
     # Ratcheted 477->482 (story-011): the three single-stream sites now route

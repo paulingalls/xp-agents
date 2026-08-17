@@ -92,7 +92,8 @@ def captured_exit_block(smm_dir: Path, command: str) -> str | None:
     """Reason to refuse *command*, or None to let it proceed.
 
     Five conditions, and all five must hold: the project declares a test
-    command, *command* invokes it, the escape marker is absent, the declared
+    command, *command* invokes it, the escape marker is not declared (quoting it
+    in an argument is data, not a waiver), the declared
     command's exit status does not survive to the shell — and the DECLARATION
     ITSELF survives it. Any of them failing is a no-op, which is what keeps
     this off every command that is not the one shape it exists for.
@@ -106,7 +107,7 @@ def captured_exit_block(smm_dir: Path, command: str) -> str | None:
     it is for everything else this gate declines to classify, and the real fix
     is to the declaration, which is not a thing to say inside a Bash refusal.
     """
-    if not command or EXIT_STATUS_NOT_NEEDED_MARKER in command:
+    if not command or shell_exit_structure.exit_status_waived(command):
         return None
     declared = declared_test_command.declared_test_command(smm_dir)
     if declared is None:

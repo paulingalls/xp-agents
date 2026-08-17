@@ -29,8 +29,8 @@ import target_routing
 from event_schema import STATUS_ACTION_QR_COMPLETE
 
 # How the SubagentStop budget is divided. hooks.json gives this handler 5000ms
-# TOTAL and `commits._run_git` bounds each CALL, so the four reads below would
-# allow 20s unbounded and get the handler killed part-way; what is left of the
+# TOTAL and `commits._run_git` bounds each CALL, so the five reads below would
+# allow 25s unbounded and get the handler killed part-way; what is left of the
 # 5000ms pays for the two marker writes and the event append after them. Kept
 # here, not in `commits`: the number is a property of THIS registration, and
 # `commits` serves callers with no budget at all.
@@ -158,16 +158,16 @@ def _record_completed_quality_review(smm_dir: Path, cwd: str, input_data: dict) 
     exist. Recorded at launch the set would omit exactly the files it exists to
     forgive.
 
-    UNSTAGED IS THE POINT, not an extra. A reviewer edits files and returns;
-    nothing stages them. v5.17.0 asked for the default scan, which reads staged
+    UNSTAGED AND CREATED WORK IS THE POINT, not an extra. A reviewer edits and
+    writes files and returns; nothing stages either, and `git diff` never lists
+    a created one at all. v5.17.0 asked for the default scan, which reads staged
     + committed only, so in the dominant flow it recorded an EMPTY set and the
-    fix it shipped did nothing — the next `git add -A && git commit` counted
-    the reviewer's own fixes unreviewed and demanded another review. Honest
-    scope, not a loosening, ON THE PER-INCREMENT PATH: that preload hands the
-    reviewer `git diff HEAD`, staged and unstaged both. The two close branches
-    (`MODE=consume-findings`, `CADENCE=story`) hand it a committed range, so
-    there the leg can forgive a file it never saw — accepted: story cadence
-    only advises at the gate, and a close range forgives more than this leg.
+    fix it shipped did nothing — the next `git add -A && git commit` counted the
+    reviewer's own fixes unreviewed and demanded another review. Honest scope,
+    not a loosening, ON THE PER-INCREMENT PATH: that preload hands the reviewer
+    `git diff HEAD`, and it wrote whatever it created. The two close branches
+    hand it a committed range, so there the leg can forgive a file it never saw
+    — accepted: a close range forgives more than this leg does.
 
     Keyed on the repo, like the watermark, because the paths are repo-relative.
     `commits` is imported lazily — every subagent completion reaches this
@@ -184,7 +184,11 @@ def _record_completed_quality_review(smm_dir: Path, cwd: str, input_data: dict) 
     repo_key = identity.review_watermark_key(cwd)
     watermark = review_records.read_review_watermark(smm_dir, repo_key)
     scope = commits.get_code_files_for_review(
-        cwd, watermark, include_unstaged=True, scan_budget_s=_SCAN_BUDGET_S
+        cwd,
+        watermark,
+        include_unstaged=True,
+        include_untracked=True,
+        scan_budget_s=_SCAN_BUDGET_S,
     )
     # The commit this coverage describes, so the read can expire it when HEAD
     # has moved past it without any commit site spending it. Empty when git

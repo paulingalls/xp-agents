@@ -107,14 +107,20 @@ def get_head_commit_hash(cwd: str, timeout: float = 5) -> str | None:
 
 
 def count_commits_since(cwd: str, rev: str) -> int | None:
-    """How many commits HEAD is ahead of ``rev``, or None if git cannot say.
+    """How many commits have LANDED on HEAD's own line since ``rev``, or None if
+    git cannot say.
 
-    `rev..HEAD` counts only what is reachable from HEAD, so a branch switch
-    reads as the distance between tips. None — not 0 — when the range does not
-    resolve (rewritten, pruned or foreign sha): a caller deciding whether
-    something aged must tell "nothing landed" from "cannot tell".
+    `--first-parent`, so a merge counts as the one commit it is rather than as
+    the range it brought in: without it a five-commit base merge measured 6
+    landings against callers' caps of 2, discarding what they were ageing.
+
+    None — not 0 — when the range does not resolve (rewritten, pruned or foreign
+    sha): a caller deciding whether something aged must tell "nothing landed"
+    from "cannot tell".
     """
-    out = _run_git(["git", "rev-list", "--count", f"{rev}..HEAD"], cwd)
+    out = _run_git(
+        ["git", "rev-list", "--count", "--first-parent", f"{rev}..HEAD"], cwd
+    )
     if out is None:
         return None
     try:
@@ -184,6 +190,7 @@ def get_code_files_for_review(
     *,
     staged_diff: str | None = None,
     include_unstaged: bool = False,
+    include_untracked: bool = False,
     scan_budget_s: float | None = None,
 ) -> list[str]:
     """Get deduplicated code files changed since last review + staged.
@@ -201,6 +208,11 @@ def get_code_files_for_review(
     to infer it from — the ``command`` route below is the pre-commit gate's.
     A flag, not a fake command, which would put a lie in what the regex reads.
 
+    ``include_untracked`` adds CREATED files, which `git diff` never lists at any
+    stage. Its own flag: a caller recording what a review COVERED wants the file
+    the reviewer wrote, while the gate infers ``include_unstaged`` from a
+    `git add <path>` that may stage none of them — and there a wider set BLOCKS.
+
     ``scan_budget_s`` bounds the WHOLE scan, for a caller inside a hook that
     has a budget: `_run_git`'s timeout is per call, so three legs at the default
     allow 15s inside a 5s SubagentStop, and the handler is killed mid-write.
@@ -216,7 +228,10 @@ def get_code_files_for_review(
         or re.search(git_commits.GIT_PREFIX + r"commit\s+-a", command)
     )
     legs = (
-        int(staged_diff is None) + int(bool(last_review_commit)) + int(wants_unstaged)
+        int(staged_diff is None)
+        + int(bool(last_review_commit))
+        + int(wants_unstaged)
+        + int(include_untracked)
     )
     per_leg = scan_budget_s / legs if scan_budget_s is not None and legs else None
     read = (
@@ -244,6 +259,13 @@ def get_code_files_for_review(
     # above, with the leg count, so the budget split sees the same answer.
     if wants_unstaged:
         extra_commands.append(["git", "diff", "--name-only", "-z"])
+
+    # Created files. `--exclude-standard` so .gitignore'd build output is not
+    # read as work; `--others` alone would hand back every artefact in the tree.
+    if include_untracked:
+        extra_commands.append(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"]
+        )
 
     for cmd in extra_commands:
         out = read(cmd)
@@ -387,6 +409,7 @@ from merged_range import (  # noqa: E402  intentional mid-file re-export
 __all__ = [
     "REVIEW_CYCLE_THRESHOLD",
     "commit_repo_candidates",
+    "count_commits_since",
     "dash_c_unreachable",
     "extract_commit_message",
     "extract_implicit_event_ids",
