@@ -144,11 +144,11 @@ def observe(
 ) -> None:
     """Record every commit that reached HEAD since this checkout was last seen.
 
-    The common path is ONE file read and one string compare: HEAD is unchanged
-    on the overwhelming majority of Bash calls, and this returns before the
-    event log — or any git subprocess — is touched. `git_head.read_head` is a
-    plain read of `.git/HEAD` and the ref it names, precisely so that the price
-    of watching every Bash is not a fork per Bash.
+    The common path is a handful of small file reads and one string compare:
+    HEAD is unchanged on the overwhelming majority of Bash calls, and this
+    returns before the event log — or any git subprocess — is touched.
+    `git_head.read_head` is a plain read of `.git/HEAD` and the ref it names,
+    precisely so that the price of watching every Bash is not a fork per Bash.
 
     There is deliberately NO fork fallback when the reader cannot answer. Most
     "cannot say" answers are a cwd that is not a repo at all — extremely common
@@ -282,8 +282,9 @@ def _record_one(
         _record_unreadable_body(smm_dir, agent_id, rev)
         return False
     _common.bulk_append_safe(smm_dir, [event])
-    # So a later commit in the SAME range is not re-recorded against a stale
-    # read, and so the dedup set the caller built stays true.
+    # So a later commit in the SAME range is not read against a stale log: a
+    # merge later in the range rebuilds its own recorded-hash index off this
+    # list, and would otherwise re-derive trailers from a commit just recorded.
     events.append(event)
     return True
 

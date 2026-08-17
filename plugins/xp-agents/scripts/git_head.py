@@ -27,10 +27,7 @@ make; this module's job is to answer cheaply or not at all.
 """
 
 import re
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 __all__ = ["read_head", "resolve_git_dirs"]
 

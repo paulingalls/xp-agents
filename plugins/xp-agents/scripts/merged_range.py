@@ -43,7 +43,7 @@ def first_parent_range(
     guard, asked once for the range instead of once per commit.
 
     `--first-parent` is load-bearing, and this is where it differs from
-    `merged_range_commits` directly above. Without it a back-merge enumerates
+    `merged_range_commits` directly below. Without it a back-merge enumerates
     every commit the merged branch brought in: dozens whose own events landed
     weeks ago and may since have been compacted out of the LIVE log, which is
     the only index a caller can dedup against — so it would re-record them. The
