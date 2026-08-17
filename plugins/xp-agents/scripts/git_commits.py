@@ -129,32 +129,39 @@ def is_git_commit(command: str, *, scan_target: str | None = None) -> bool:
     return bool(_COMMIT_OR_MERGE_RE.search(remaining))
 
 
+# Characters reachable without leaving the CURRENT shell command. A bare
+# newline terminates one exactly as `;` does, and omitting it read `git commit
+# -m x<newline>ls -la` as a stage-all. A `\`-newline is the one crossable form:
+# the shell joins it away, as `TOKEN_GAP` also allows.
+_ONE_COMMAND = r"(?:\\\n|[^;&|\n])*?"
+
 # Whether a command stages EVERY tracked change, not merely some. The review
 # gate needs the distinction because a "ghost" — a deletion sitting unstaged in
 # the working tree — stops being one the moment the command about to run stages
 # it. `git add -A` turns three unstaged deletions into three code files the
 # commit removes; `git add notes.md` leaves them ghosts.
 #
-# `[^;&|]*?` bounds each arm to ONE shell command, so a trailing `&& git add -A`
-# cannot vouch for an earlier narrow `git add`, and an `-A` in a later unrelated
-# word cannot either. Callers pass a quote-stripped scan target, so `git commit
-# -m 'add -A everywhere'` reads as the message it is.
+# `_ONE_COMMAND` bounds each arm, so a trailing `&& git add -A` cannot vouch for
+# an earlier narrow `git add`. Callers pass a quote-stripped scan target, so
+# `git commit -m 'add -A everywhere'` reads as the message it is.
 #
-# `(?<!\S)` on every short form is load-bearing: without it the `-a` inside
-# `--amend` matches, and `git commit --amend` stages nothing new.
+# Short forms match as a CLUSTER, because `git add -Av` and `git commit -qa`
+# stage everything too. `(?<!\S)` pins the cluster to a token start: without it
+# the `-a` inside `--amend` matches, and `--amend` stages nothing new.
 #
-# `-u`/`--update` belong here even though they skip UNTRACKED files: a ghost is
-# a tracked deletion by construction, so `-u` stages every one of them.
-#
-# The asymmetry is deliberate. A false YES over-counts and costs one extra
-# review; a false NO is a gate that goes silent on a commit deleting code. So
-# the forms are enumerated generously, and `git add .` counts despite meaning
-# only "this subtree" when run from a subdirectory.
+# The judgement leans YES: a false yes costs one extra review, a false no is a
+# gate gone silent on deleted code. So `-u` counts (a ghost is a tracked
+# deletion by construction, and untracked files cannot be ghosts), and so do
+# `git add .` and `git add -u src/`, which name one subtree, not the tree.
 _STAGES_ALL_RE = re.compile(
     GIT_PREFIX
-    + r"(?:add\b[^;&|]*?(?:(?<!\S)-A\b|(?<!\S)--all\b|(?<!\S)-u\b"
-    + r"|(?<!\S)--update\b|(?<!\S)\.(?=\s|$))"
-    + r"|commit\b[^;&|]*?(?:(?<!\S)--all\b|(?<!\S)-(?!-)[A-Za-z]*a))"
+    + r"(?:add\b"
+    + _ONE_COMMAND
+    + r"(?:(?<!\S)-(?!-)[A-Za-z]*[Au]|(?<!\S)--(?:all|update)\b"
+    + r"|(?<!\S)\.(?=\s|$))"
+    + r"|commit\b"
+    + _ONE_COMMAND
+    + r"(?:(?<!\S)--all\b|(?<!\S)-(?!-)[A-Za-z]*a))"
 )
 
 

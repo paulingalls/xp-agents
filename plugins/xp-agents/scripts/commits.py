@@ -279,12 +279,12 @@ def get_code_files_for_review(
             ["git", "diff", "--name-only", "-z", f"{last_review_commit}..HEAD"]
         )
 
-    # If the command includes 'git add' or 'git commit -a', also check
-    # unstaged tracked changes — those will be staged by the command itself.
-    # GIT_PREFIX tolerates `git -C <path>` for both subcommands.
-    if re.search(git_commits.GIT_PREFIX + r"add\b", command) or re.search(
-        git_commits.GIT_PREFIX + r"commit\s+-a", command
-    ):
+    # If the command includes 'git add', or stages everything on its own, also
+    # check unstaged tracked changes — those will be staged by the command
+    # itself. Asked once, so the filter below cannot use a second spelling of
+    # "stages everything": the one that lived here missed `commit -q -a`.
+    stages_all = git_commits.stages_all_tracked_changes(command)
+    if re.search(git_commits.GIT_PREFIX + r"add\b", command) or stages_all:
         extra_commands.append(["git", "diff", "--name-only", "-z"])
 
     for cmd in extra_commands:
@@ -301,7 +301,7 @@ def get_code_files_for_review(
     # Nor is anything a ghost when the command stages everything: `git add -A`
     # makes each unstaged deletion one that this commit performs.
     widened = all_files - staged_names
-    if widened and not git_commits.stages_all_tracked_changes(command):
+    if widened and not stages_all:
         all_files -= widened & _unstaged_worktree_deletions(cwd)
 
     return [f for f in sorted(all_files) if code_files.is_code_file(f)]
