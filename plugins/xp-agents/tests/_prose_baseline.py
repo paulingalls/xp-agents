@@ -154,7 +154,22 @@ PROSE_MEASURED: dict[str, int] = {
     # say why it is not a rev argument on `get_committed_files` — that one
     # diffs against the WORKING TREE, so the obvious merge of the two would
     # silently change an existing caller's answer on a dirty checkout.
-    "plugins/xp-agents/scripts/commits.py": 182,
+    # Re-recorded for the ghost filter: the rule it applies is narrower than the
+    # obvious one and the difference is invisible from the code, so the reader
+    # needs to be told what is NOT excluded (a staged `git rm`, a deletion
+    # already committed) or the next edit widens it back and quietly stops
+    # counting deletions.
+    # 202 -> 164: the working-tree question moved to worktree_state.py, and
+    # its prose went with it. Banked rather than left at 202 — a ceiling kept
+    # above a completed split hands back the ground the split just won.
+    # 164 -> 171: the ghost rule gained its third clause, and the reason it has
+    # one is not derivable from the code. A path is only a ghost while the
+    # command leaves it unstaged, so the docstring must say that membership in
+    # the deletion set is necessary and NOT sufficient — the first rule read it
+    # as sufficient and the gate went silent on a commit deleting three code
+    # files. The call site's own note is three lines because the enumeration of
+    # stage-all forms lives beside the regex in git_commits.py, not restated.
+    "plugins/xp-agents/scripts/commits.py": 171,
     # Arrives above the floor, so it records a ceiling on its first commit —
     # no absolute quoted here, per this file's own rule that prose ABOUT the
     # numbers goes stale exactly the way the numbers do.
@@ -175,6 +190,14 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/coordination.py": 169,
     "plugins/xp-agents/scripts/dash_c_tokens.py": 129,
     "plugins/xp-agents/scripts/framework_detect.py": 122,
+    # Crossed the floor on gaining `stages_all_tracked_changes`, so it records a
+    # ceiling on arrival rather than being golfed back under. Every regex in
+    # this module carries the bug it was written for, and the new one carries
+    # two that a reader cannot see: `(?<!\S)` exists because `--amend` contains
+    # `-a`, and the `[^;&|]*?` bound exists so a trailing `&& git add -A` cannot
+    # vouch for an earlier narrow `git add`. Delete either note and the next
+    # simplification reintroduces a silent gate failure.
+    "plugins/xp-agents/scripts/git_commits.py": 125,
     "plugins/xp-agents/scripts/hook_liveness.py": 196,
     # 227 -> 239: CLOSE_CYCLE_AGENT_ID lands here rather than in
     # `event_metadata` — it is an agent identity, not an event metadata key, and

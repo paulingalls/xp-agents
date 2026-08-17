@@ -134,7 +134,10 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_spawn_teammate.py": 488,
     "plugins/xp-agents/tests/engine/test_compact.py": 488,
     "plugins/xp-agents/tests/smm/test_smm_store.py": 487,
-    "plugins/xp-agents/tests/hooks/test_commits_issues.py": 486,
+    # RETIRED (story-016): test_commits_issues.py 495->359. The two
+    # uncommitted-state classes moved to test_worktree_state.py beside the
+    # module they now test. Below the 450 floor, so the entry is deleted
+    # rather than lowered.
     "plugins/xp-agents/tests/hooks/test_lang_leak_scan.py": 486,
     "plugins/xp-agents/tests/smm/test_session_history.py": 484,
     "plugins/xp-agents/tests/hooks/test_lint_config_style_flags.py": 483,

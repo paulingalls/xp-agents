@@ -39,6 +39,7 @@ import identity
 import lint_resolution
 import markers
 import review_records
+import worktree_state
 from event_schema import METADATA_KEY_COMMIT_HASH
 from pre_tool_write import is_test_file
 from verify_deferred import (
@@ -352,7 +353,7 @@ def _working_tree_is_test_only(cwd: str) -> bool:
     returns False — fail safe, same default as
     ``_prior_commit_was_test_only``.
     """
-    files = commits.get_uncommitted_files(cwd)
+    files = worktree_state.get_uncommitted_files(cwd)
     if not files:
         return False
     return all(is_test_file(f) for f in files)

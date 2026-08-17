@@ -218,6 +218,28 @@ def head_parent_count(cwd: str, rev: str) -> int | None:
     return len(out.split())
 
 
+def _unstaged_worktree_deletions(cwd: str) -> set[str]:
+    """Paths git still holds in the INDEX that are gone from the working tree.
+
+    The ghost the review gate used to bill for: a spike file that was
+    committed, then removed from the working tree with the removal left
+    unstaged. Deliberately NOT "everything absent from disk" — a staged `git rm`
+    is absent too, and deleting a code file is a real change that deserves
+    review. The index tells them apart: every deletion a commit actually makes
+    is gone from it as well, so it is never in this set. Empty on git failure,
+    which counts everything and fails toward one extra review, like every other
+    leg here. Measured in test_review_ghosts.py.
+
+    Being in this set is necessary but NOT sufficient: a path here is only a
+    ghost while the command about to run leaves it unstaged, which is why the
+    caller also asks `git_commits.stages_all_tracked_changes`.
+    """
+    out = _run_git(["git", "diff", "--name-only", "-z", "--diff-filter=D"], cwd)
+    if out is None:
+        return set()
+    return set(_nul_paths(out))
+
+
 def get_code_files_for_review(
     cwd: str,
     last_review_commit: str,
@@ -235,16 +257,21 @@ def get_code_files_for_review(
 
     ``staged_diff`` is ``get_staged_diff``'s text, for a caller that already
     holds it: the staged names are parsed from it instead of re-shelling.
-    """
-    all_files: set[str] = set()
 
+    Ghosts are dropped — ``_unstaged_worktree_deletions`` says what one is and
+    what one is not. Every caller wants that: the coverage record is written
+    from this same scan, so excluding on one side alone would shift the gate's
+    current-minus-coverage arithmetic rather than fix it.
+    """
     if staged_diff is not None:
-        all_files.update(get_filenames_from_diff(staged_diff))
+        staged_names = set(get_filenames_from_diff(staged_diff))
     else:
         out = _run_git(["git", "diff", "--cached", "--name-only", "-z"], cwd)
         if out is None:
             return []
-        all_files.update(_nul_paths(out))
+        staged_names = set(_nul_paths(out))
+
+    all_files: set[str] = set(staged_names)
 
     extra_commands: list[list[str]] = []
     if last_review_commit:
@@ -252,12 +279,12 @@ def get_code_files_for_review(
             ["git", "diff", "--name-only", "-z", f"{last_review_commit}..HEAD"]
         )
 
-    # If the command includes 'git add' or 'git commit -a', also check
-    # unstaged tracked changes — those will be staged by the command itself.
-    # GIT_PREFIX tolerates `git -C <path>` for both subcommands.
-    if re.search(git_commits.GIT_PREFIX + r"add\b", command) or re.search(
-        git_commits.GIT_PREFIX + r"commit\s+-a", command
-    ):
+    # If the command includes 'git add', or stages everything on its own, also
+    # check unstaged tracked changes — those will be staged by the command
+    # itself. Asked once, so the filter below cannot use a second spelling of
+    # "stages everything": the one that lived here missed `commit -q -a`.
+    stages_all = git_commits.stages_all_tracked_changes(command)
+    if re.search(git_commits.GIT_PREFIX + r"add\b", command) or stages_all:
         extra_commands.append(["git", "diff", "--name-only", "-z"])
 
     for cmd in extra_commands:
@@ -265,6 +292,17 @@ def get_code_files_for_review(
         if out is None:
             continue
         all_files.update(_nul_paths(out))
+
+    # Only the WIDENED names can be ghosts: a staged path is part of the commit
+    # by definition, including `git add x.py && rm x.py`, where git reports an
+    # unstaged deletion for content the index is about to commit. No widening,
+    # nothing to filter, no fork spent asking.
+    #
+    # Nor is anything a ghost when the command stages everything: `git add -A`
+    # makes each unstaged deletion one that this commit performs.
+    widened = all_files - staged_names
+    if widened and not stages_all:
+        all_files -= widened & _unstaged_worktree_deletions(cwd)
 
     return [f for f in sorted(all_files) if code_files.is_code_file(f)]
 
@@ -288,81 +326,6 @@ def get_code_files_in_range(cwd: str, base: str) -> list[str]:
 # `is_code_file`'s extension test (it ends `.js"`), so the file silently drops out
 # of the review scope these feed. NUL separation also keeps a path with a space
 # in one piece. `ls-files` spells the same flag the same way.
-_GIT_STAGED = ["git", "diff", "--cached", "--name-only", "-z"]
-_GIT_UNSTAGED = ["git", "diff", "--name-only", "-z"]
-_GIT_UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard", "-z"]
-# O(1) repo probe — unlike the scans above it does not walk the worktree, so it
-# still answers when they time out. That asymmetry is the whole point: it tells
-# "no repo to ask about" apart from "this scan failed".
-_GIT_IS_REPO = ["git", "rev-parse", "--is-inside-work-tree"]
-
-
-def _changed_paths(cwd: str, cmds: list[list[str]]) -> set[str] | None:
-    """Union of the path lines emitted by several git commands.
-
-    None (not an empty set) when any git call failed, so callers can tell
-    "git could not answer" apart from "nothing changed".
-    """
-    paths: set[str] = set()
-    for cmd in cmds:
-        out = _run_git(cmd, cwd)
-        if out is None:
-            return None
-        paths.update(_nul_paths(out))
-    return paths
-
-
-def get_uncommitted_files(cwd: str) -> list[str] | None:
-    """Every code file in flight in the working tree: staged, unstaged, OR
-    untracked. Test files INCLUDED. This is the "is the tree dirty?" signal.
-
-    Deliberately wider than ``get_uncommitted_code_files``, which answers a
-    different question ("is a commit of *production* code warranted?") and so
-    drops test files. Dirtiness must not: a tree dirty with only a broken test
-    file is still broken work in flight, and an untracked brand-new failing
-    test is the single most common shape of the TDD red step. Both read as
-    CLEAN under the narrower helper — which, for the TDD gate
-    (``tdd_check.find_last_test_signal``), is the disarm direction.
-
-    Two ways to not get an answer, and they must not be conflated:
-
-    * **There is no repo** (git absent, or not a work tree). Structural and
-      permanent. Reads as CLEAN — a project git cannot answer for at all must
-      not gate on a prior-session failure forever.
-    * **This scan failed** (timeout). Transient, and the untracked scan walks
-      the WHOLE worktree, so it is by far the likeliest ``_run_git`` timeout
-      here. Returns **None** = "could not answer". Collapsing that to "no
-      files" reads as a clean tree and UN-GATES a real failure, so the caller
-      must be able to fail safe.
-
-    The O(1) repo probe discriminates them: it still answers when a
-    worktree-walking scan times out.
-    """
-    paths = _changed_paths(cwd, [_GIT_STAGED, _GIT_UNSTAGED, _GIT_UNTRACKED])
-    if paths is None:
-        if _run_git(_GIT_IS_REPO, cwd) is None:
-            return []
-        return None
-    return sorted(f for f in paths if code_files.is_code_file(f))
-
-
-def get_uncommitted_code_files(cwd: str) -> list[str]:
-    """Get non-test code files with uncommitted changes (staged + unstaged).
-
-    Used by the post-green-tests nudge to determine if a commit is warranted.
-    Returns empty list on any git failure.
-    """
-    paths = _changed_paths(cwd, [_GIT_STAGED, _GIT_UNSTAGED])
-    if not paths:
-        return []
-
-    from pre_tool_write import is_test_file
-
-    return [
-        f for f in sorted(paths) if code_files.is_code_file(f) and not is_test_file(f)
-    ]
-
-
 # -------------------------------------------------------------------
 # Bash-command parsing — re-exported from commit_command
 # -------------------------------------------------------------------
@@ -417,8 +380,6 @@ __all__ = [
     "get_head_commit_hash",
     "get_staged_diff",
     "get_staged_files",
-    "get_uncommitted_code_files",
-    "get_uncommitted_files",
     "head_landing_facts",
     "is_escape_hatch_commit",
     "is_escape_hatch_message",

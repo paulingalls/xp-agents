@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import commit_observer
-import commits
 import concerns
 import git_commits
 import hook_liveness
@@ -22,6 +21,7 @@ import identity
 import markers
 import run_attribution
 import test_attribution
+import worktree_state
 from commit_handling import (
     _handle_commit,
     _working_tree_is_test_only,
@@ -332,7 +332,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 # is one marker read, while the uncommitted probe spawns git
                 # subprocesses on every green test run.
                 cadence = markers.read_review_cadence(smm_dir)
-                if cadence != "story" and commits.get_uncommitted_code_files(cwd):
+                if cadence != "story" and worktree_state.get_uncommitted_code_files(
+                    cwd
+                ):
                     parts.append("Commit now to trigger /xp-quality-review.")
                 if parts:
                     return " ".join(parts)
