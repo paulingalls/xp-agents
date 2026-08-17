@@ -5,9 +5,10 @@ The gate maps a staged `.py` that is not a `test_*.py` to its containing
 DIRECTORY, because a broken helper fails tests that match no `test_*` name. In
 a leaf package that is exactly right and cheap. At the tests ROOT the directory
 IS the whole suite, so staging four root-level helpers ran every test in the
-tree at commit — measured 414s by the concern (377a33831d31) and 450s here on
-this machine — and then `git push` ran them again. That double run is precisely
-what the commit/push split exists to remove.
+tree at commit — 414s when the concern (377a33831d31) recorded it, and 590s
+(9946 tests) re-measured here on 2026-08-16 — and then `git push` ran them
+again. That double run is precisely what the commit/push split exists to
+remove.
 
 **Why the existing suite did not catch it.**
 `test_lefthook_commit_gate.py::test_never_a_bare_whole_tree_pytest` asserts the
@@ -32,6 +33,7 @@ consumers span many directories, so following imports lands back near
 whole-tree cost. It solves coverage by recreating the problem.)
 """
 
+import re
 import sys
 import tempfile
 import unittest
@@ -185,6 +187,60 @@ class TestClassificationIsUnchanged(_ExpansionCase):
 
         self.assertEqual(argv, [])
         self.assertEqual(rc, 0)
+
+
+class TestEveryTimingFigureIsQualified(unittest.TestCase):
+    """AC5 — no bare number survives in the gate configuration.
+
+    A bare "432s" led a reader to blame a 6m40s commit entirely on core
+    contention rather than on a genuinely slow baseline (debt f428fe8cffb7).
+    The number was true of some tree on some machine, and the comment said
+    which of neither. This machine runs endpoint AV that taxes every file
+    access, which is exactly why an unqualified figure misleads.
+
+    The convention this enforces: a timing figure is immediately followed by a
+    parenthetical giving the test count it covers and the machine it was
+    measured on. A figure that measures no tests says `0 tests` and what it
+    measured instead — the point is that the reader is never left guessing what
+    the number is OF.
+    """
+
+    _LEFTHOOK = REPO_ROOT / "lefthook.yml"
+    _FIGURE = re.compile(r"(?<![\w.])~?\d+(?:\.\d+)?s(?!\w)")
+    _QUALIFIER = re.compile(r"\s*\(\d[\d,]* tests[^)]*this machine", re.DOTALL)
+
+    # A YAML comment's line continuation is not part of its prose: without this
+    # a qualifier that wraps reads as "this # machine" and the pin rejects the
+    # very form it is asking for, which would push the rationale onto one
+    # unreadable line.
+    _CONTINUATION = re.compile(r"\n\s*#\s*")
+
+    def _unqualified(self) -> list[str]:
+        text = self._CONTINUATION.sub(" ", self._LEFTHOOK.read_text())
+        return [
+            text[m.start() : m.end() + 70].replace("\n", " ")
+            for m in self._FIGURE.finditer(text)
+            if not self._QUALIFIER.match(text, m.end())
+        ]
+
+    def test_no_timing_figure_stands_bare(self):
+        self.assertEqual(
+            self._unqualified(),
+            [],
+            "each timing figure must be followed by `(<N> tests, … this "
+            "machine …)`, or be deleted",
+        )
+
+    def test_the_file_still_states_what_the_gates_cost(self):
+        """Non-vacuity: deleting every number passes the pin above too, and
+        would leave the gate's cost undocumented rather than honest."""
+        self.assertTrue(self._FIGURE.search(self._LEFTHOOK.read_text()))
+
+    def test_a_bare_figure_would_still_be_caught(self):
+        """Non-vacuity for the CONTINUATION rewrite: joining comment lines must
+        not turn an unqualified figure into a qualified one by dragging in the
+        next comment's words."""
+        self.assertIsNone(self._QUALIFIER.match(" 432s costs too much", 5))
 
 
 if __name__ == "__main__":

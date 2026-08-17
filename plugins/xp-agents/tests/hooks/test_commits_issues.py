@@ -96,6 +96,12 @@ class TestGetCodeFilesForReview(unittest.TestCase):
             r = SimpleNamespace(returncode=0, stdout="")
             if "--cached" in cmd:
                 r.stdout = "src/a.py\n"
+            elif "--diff-filter=D" in cmd:
+                # The ghost probe: paths in the index but gone from the working
+                # tree. A subset of the unstaged listing below, and empty here —
+                # nothing was deleted. Answering it with that listing instead
+                # would call every unstaged CHANGE a deletion.
+                r.stdout = ""
             elif "--name-only" in cmd and ".." not in cmd[-1]:
                 # git diff --name-only (unstaged)
                 r.stdout = "src/b.py\n"

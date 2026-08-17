@@ -122,7 +122,11 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_spawn_teammate.py": 488,
     "plugins/xp-agents/tests/engine/test_compact.py": 488,
     "plugins/xp-agents/tests/smm/test_smm_store.py": 487,
-    "plugins/xp-agents/tests/hooks/test_commits_issues.py": 486,
+    # Ratcheted for the ghost filter: this file's `subprocess.run` stub answered
+    # the new `--diff-filter=D` probe with the UNSTAGED listing, which calls
+    # every unstaged change a deletion. The branch that fixes it needs the note,
+    # or the next reader deletes it as redundant with the branch below.
+    "plugins/xp-agents/tests/hooks/test_commits_issues.py": 492,
     "plugins/xp-agents/tests/hooks/test_lang_leak_scan.py": 486,
     "plugins/xp-agents/tests/smm/test_session_history.py": 484,
     "plugins/xp-agents/tests/hooks/test_lint_config_style_flags.py": 483,

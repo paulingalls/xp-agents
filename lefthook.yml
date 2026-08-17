@@ -11,10 +11,15 @@
 #  - Everything is sequential, pyright included.
 #
 # The commit gate is lint, format, types, and the test files you staged — the
-# full suite moved to pre-push. It was measured at 432s (9188 tests) on this
-# machine, which is 36x the ~12s the remaining commands cost and made every
-# increment expensive enough to push toward batching several changes into one
-# commit. Nothing is ungated:
+# full suite moved to pre-push. Re-measured 2026-08-16 at 590s (9946 tests, this
+# machine, `-n auto` on 16 cores, endpoint AV taxing every file access; an
+# unqualified figure is what made an earlier reader blame a slow commit entirely
+# on core contention). That is 22x the 27s (0 tests, this machine — ruff
+# check/format plus pyright, the commands that remain) and made every increment
+# expensive enough to push toward batching several changes into one commit.
+# Every figure below is stated the same way, or deleted; see
+# test_lefthook_staged_expansion.py, which fails on a bare one.
+# Nothing is ungated:
 # `git push` fires on every story close (xp-story-close Step 2) and again on the
 # post-merge target push, so the suite runs on the story tip AND on the merged
 # result — the latter is combination coverage a pre-commit hook never gave,
@@ -82,7 +87,8 @@ pre-commit:
     # that was DELETED still reaches {staged_files}, so pytest would fail
     # collection on a path that is gone; filtering fixes that but can leave the
     # list EMPTY, and `pytest` with no paths collects the WHOLE tree — silently
-    # restoring the 432s gate this file removed. Hence: filter, then bail.
+    # restoring the 590s (9946 tests, this machine) gate this file removed.
+    # Hence: filter, then bail.
     #
     # `|| [ $? -eq 5 ]` tolerates pytest's "no tests collected". A directory
     # target that happens to contain none (a new package, or one emptied by a
@@ -95,10 +101,10 @@ pre-commit:
     #   * Shared fixtures must be covered. A broken conftest.py or _*.py
     #     helper fails thousands of tests while matching no test_* name, so
     #     it ran ZERO tests and committed green. They map to their containing
-    #     DIRECTORY in the body — a file target collects nothing — and a
-    #     directory target carries `-n auto`, because the tree sequentially
-    #     is the 432s run this gate exists to remove while the same tree
-    #     under xdist is seconds.
+    #     DIRECTORY in the body — a file target collects nothing — and any
+    #     multi-test target carries `-n auto`, because the same work
+    #     sequentially is the 590s (9946 tests, this machine) run this gate
+    #     exists to remove.
     #   * A narrower pattern would have to encode the shapes in glob syntax,
     #     and a form this engine does not support matches NOTHING — the gate
     #     would stop firing silently, which no test here can catch (they
@@ -112,6 +118,21 @@ pre-commit:
     # file target, where pytest collects nothing and exits 5 and lefthook
     # refuses the commit. That is the same defect this command fixes for
     # scripts/test_parsing.py, one directory over.
+    #
+    # The tests ROOT is the one place that mapping degenerates: there the
+    # containing directory IS the whole suite, so staging a root-level helper
+    # ran everything at commit and `git push` then ran it again — the double
+    # run the commit/push split exists to remove. At the root the expansion
+    # STOPS and selects the root's own test_*.py instead: 92s (409 tests, this
+    # machine) against 174s (409 tests, this machine) sequentially, which is why
+    # that selection carries `-n auto` too despite being a file list.
+    #
+    # It is BOUNDED COST, not coverage, and the difference is not a quibble: 23
+    # of the 51 root-level helpers have no consumer among those 33 test files at
+    # all, and `_branching_fixtures.py` has 78 consumers, every one of them in a
+    # subdirectory. PRE-PUSH OWNS REAL COVERAGE FOR A ROOT-LEVEL HELPER. Do not
+    # restore the comfortable claim that a broken root helper still gets signal
+    # here — it was measured, and it is false for nearly half of them.
     #
     # The body's `plugins/xp-agents/tests/` prefix filter is what keeps this
     # off shipped code — `smm/_common.py`, and `scripts/test_parsing.py`,

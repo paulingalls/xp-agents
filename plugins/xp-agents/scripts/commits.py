@@ -199,19 +199,14 @@ def head_parent_count(cwd: str, rev: str) -> int | None:
 def _unstaged_worktree_deletions(cwd: str) -> set[str]:
     """Paths git still holds in the INDEX that are gone from the working tree.
 
-    The ghost the review gate used to bill for (concern 64c18a0a3a48): a spike
-    committed, then removed from the working tree with the removal never staged.
-    The widening leg names it on its own, so no `git add` in the command is
-    needed to produce one.
-
-    This is deliberately NOT "everything absent from disk". Deleting a code file
-    is a real change that deserves review, and from the filesystem a staged
-    `git rm` looks exactly like a ghost. The index is what tells them apart:
-    every deletion a commit actually makes is gone from the index too, and so is
-    never in this set.
-
-    Empty on git failure, which counts everything and fails toward one extra
-    review — the same direction every other leg here fails in.
+    The ghost the review gate used to bill for: a spike file that was
+    committed, then removed from the working tree with the removal left
+    unstaged. Deliberately NOT "everything absent from disk" — a staged `git rm`
+    is absent too, and deleting a code file is a real change that deserves
+    review. The index tells them apart: every deletion a commit actually makes
+    is gone from it as well, so it is never in this set. Empty on git failure,
+    which counts everything and fails toward one extra review, like every other
+    leg here. Measured in test_review_ghosts.py.
     """
     out = _run_git(["git", "diff", "--name-only", "-z", "--diff-filter=D"], cwd)
     if out is None:
@@ -237,11 +232,10 @@ def get_code_files_for_review(
     ``staged_diff`` is ``get_staged_diff``'s text, for a caller that already
     holds it: the staged names are parsed from it instead of re-shelling.
 
-    Ghosts are dropped — see ``_unstaged_worktree_deletions`` for what counts as
-    one and, more importantly, for what does not. Every caller wants this: the
-    gate bills against the count, and the coverage record is written from the
-    same scan, so an exclusion reaching only one of them would shift the
-    subtraction instead of fixing it.
+    Ghosts are dropped — ``_unstaged_worktree_deletions`` says what one is and
+    what one is not. Every caller wants that: the coverage record is written
+    from this same scan, so excluding on one side alone would shift the gate's
+    current-minus-coverage arithmetic rather than fix it.
     """
     if staged_diff is not None:
         staged_names = set(get_filenames_from_diff(staged_diff))
@@ -273,10 +267,10 @@ def get_code_files_for_review(
             continue
         all_files.update(_nul_paths(out))
 
-    # Only the WIDENED names can be ghosts — a staged path is by definition part
-    # of the commit, including `git add x.py && rm x.py`, where git reports an
-    # unstaged deletion for content the index really is about to commit. No
-    # widening, nothing to filter, and no fork spent asking.
+    # Only the WIDENED names can be ghosts: a staged path is part of the commit
+    # by definition, including `git add x.py && rm x.py`, where git reports an
+    # unstaged deletion for content the index is about to commit. No widening,
+    # nothing to filter, no fork spent asking.
     widened = all_files - staged_names
     if widened:
         all_files -= widened & _unstaged_worktree_deletions(cwd)

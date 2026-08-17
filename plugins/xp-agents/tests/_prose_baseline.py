@@ -142,7 +142,12 @@ PROSE_MEASURED: dict[str, int] = {
     # arrows are hand-typed while the pin is generated — the third stale number in
     # this table in one sprint. The rule the table already states (numbers come
     # from `_prose_scan`, never a keyboard) applies to prose ABOUT the numbers too.
-    "plugins/xp-agents/scripts/commits.py": 167,
+    # Re-recorded for the ghost filter: the rule it applies is narrower than the
+    # obvious one and the difference is invisible from the code, so the reader
+    # needs to be told what is NOT excluded (a staged `git rm`, a deletion
+    # already committed) or the next edit widens it back and quietly stops
+    # counting deletions.
+    "plugins/xp-agents/scripts/commits.py": 187,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.
