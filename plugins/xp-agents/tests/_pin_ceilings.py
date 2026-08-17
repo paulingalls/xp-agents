@@ -200,6 +200,13 @@ BAND_CEILINGS = {
     # not express: the incoming COUNT, and that the merge commit itself is filtered
     # out of its own range. Trimmed the prose first; the remainder is assertions.
     "plugins/xp-agents/tests/hooks/test_commits_git_helpers.py": 459,
+    # Entered the band at 435 -> 469 when is_merge stopped being hardcoded: this
+    # is the only suite that drives append_merge_commit_event (17 call sites),
+    # so every case asserting the old unconditional True had to say what it now
+    # expects. story-005's NEW cases went to test_merge_event_convergence.py
+    # precisely to keep this file out of the band; the existing ones could not
+    # move, because a test belongs with the behaviour it pins.
+    "plugins/xp-agents/tests/hooks/test_process_commit_response_merge.py": 469,
     # 452 -> 472 for the trailing-newline pins on the agent-id allowlist (`$`
     # matched before a final newline; `\Z` does not). The file sat at exactly
     # its own ceiling, and the cheapest way to stay under it was to put the
