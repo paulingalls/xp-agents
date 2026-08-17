@@ -85,15 +85,14 @@ def append_merge_commit_event(
     files = commits.get_committed_files(cwd)
     raw_body = commits.get_commit_message_body(cwd) or f"Merge {source}"
     code_file_count = code_files.count_code_files(files)
-    # `is_merge` derivation and content cleaning both mirror commit_emit.
-    # build_commit_event (commit_emit.py:191-212) exactly — this emitter is
-    # the one caller that used to invent a second answer for each. See that
-    # docstring for the full rationale (fail-safe direction on an unknown
-    # parent count, `is None` vs truthiness for a root commit).
-    is_merge = False
-    if commit_hash:
-        parent_count = commits.head_parent_count(cwd, commit_hash)
-        is_merge = parent_count is not None and parent_count > 1
+    # `is_merge` derivation and content cleaning both mirror
+    # `commit_emit.build_commit_event` — this emitter is the one caller that
+    # used to invent a second answer for each. See that function for the full
+    # rationale (fail-safe direction on an unknown parent count, `is None` vs
+    # truthiness for a root commit). No `if commit_hash` guard as there: the
+    # early return above already left it truthy.
+    parent_count = commits.head_parent_count(cwd, commit_hash)
+    is_merge = parent_count is not None and parent_count > 1
     authored, body, has_resolves_trailer = commit_emit.parse_commit_body(raw_body)
     resolves = authored
     # AUTHORED first, then the bounded merged-range derivation unioned onto it, via
@@ -107,10 +106,12 @@ def append_merge_commit_event(
     # same unbounded-derivation defect the hook routes were just fixed for.
     #
     # `has_resolves_trailer` is AUTHORED-only: it RECORDS that somebody wrote a
-    # trailer, and a re-parsed id is not one. No rate moves either way — the
-    # `is_merge` exclusion below keeps merge events out of every trailer metric —
-    # so what taking it from the derivation cost was the truth of the record, for
-    # anyone reading the log and for any later metric that does not exclude merges.
+    # trailer, and a re-parsed id is not one. Taking it from the derivation cost
+    # the truth of the record — and now that the tag is derived rather than
+    # asserted, it costs a rate too: an untagged event (unknown parent count, or
+    # a plain HEAD after an "Already up to date" merge) is IN the trailer
+    # metrics. Which is also why the derivation below is gated on the tag: on an
+    # event that counts, a re-parsed id would score as a link nobody authored.
     if is_merge:
         resolves = commit_emit.merge_resolves(cwd, commit_hash, resolves, events=events)
     # Degrade gracefully on a corrupt/schema-invalid sprint.json: the merge
@@ -120,9 +121,8 @@ def append_merge_commit_event(
     if sprint is _UNSET:
         sprint = sprint_store.load_sprint_fail_open(smm_dir)
     # What the tag means, and what it excludes, is stated once in
-    # `commit_emit.rebuild_at_head` — this emitter now derives it the same way,
-    # so it has nothing of its own to add. (It used to say "is_merge=True still
-    # excludes…", which stopped being true the moment the value was derived.)
+    # `commit_emit.build_commit_event` — this emitter now derives it the same
+    # way, so it has nothing of its own to add.
     # Tag merges whose source is a free branch —
     # honored by retro_metrics alongside is_merge. (A free→primary merge is
     # both: it carries is_merge from this code path AND should be flagged as

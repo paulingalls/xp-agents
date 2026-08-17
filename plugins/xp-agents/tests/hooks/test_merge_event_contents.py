@@ -37,7 +37,7 @@ class TestWhatTheMergeEventResolves(_MergeCase):
     That derivation must ADD to the merge body's own trailer, never replace it.
     Replacing was never safe in `merge_commit_event` either (story-005): its body
     is read back from HEAD, so it is whatever actually landed there, not a
-    generated subject — see `merge_commit_event.py:99-107` for the corrected
+    generated subject — see `append_merge_commit_event` for the corrected
     rationale. An operator's `-m` can carry a trailer same as here, and dropping
     what they typed is the same silent loss the tag exists to prevent.
 

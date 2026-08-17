@@ -6,16 +6,15 @@ story-005: the close-cycle emitter hardcoded `is_merge=True` — false when
 commit, leaving HEAD on a plain single-parent commit that then gets
 mis-tagged as a merge. It also stored the RAW commit body instead of the
 cleaned one both hook routes (`commit_emit.build_commit_event`) already
-store. `commit_emit.py:196-212` already derives `is_merge` from the parent
-count and cleans the body via `parse_commit_body` — this suite pins that
-`append_merge_commit_event` now does the same, rather than inventing a
-second answer.
+store. That builder derives `is_merge` from the parent count and cleans the
+body via `parse_commit_body` — this suite pins that `append_merge_commit_event`
+now does the same, rather than inventing a second answer.
 
 A new file rather than an addition to `test_process_commit_response_merge.py`
-(the file that actually drives this function): that file sits at 435 lines
-against the 450-line band floor, so a new class would push it into the band.
-Splitting by question is this repo's convention — `test_merge_event_contents.py`
-was itself split off for the same reason.
+(the file that actually drives this function): that file is close enough to the
+450-line band floor that a new class would push it into the band. Splitting by
+question is this repo's convention — `test_merge_event_contents.py` was itself
+split off for the same reason.
 """
 
 import sys
@@ -34,14 +33,34 @@ from _commit_repo_case import _MergeCase
 from merge_commit_event import append_merge_commit_event
 
 
+def _merge_a_side_commit_carrying(case: _MergeCase, trailer_id: str) -> None:
+    """Land a real two-parent merge whose INCOMING commit carries a trailer no
+    event ever recorded.
+
+    The only shape in which the merged-range derivation has anything to add, so
+    the only shape either derived-id question below is answerable in: with an
+    empty incoming range both a gated and an ungated `merge_resolves` return the
+    authored ids unchanged.
+    """
+    case.git("checkout", "-q", "-b", "side")
+    (case.repo / "src").mkdir(parents=True, exist_ok=True)
+    (case.repo / "src" / "side.py").write_text("side\n")
+    case.git("add", "-A")
+    case.git("commit", "-q", "-m", f"side work\n\nResolves-Event: {trailer_id}")
+    case.git("checkout", "-q", "main")
+    case.commit("main work", path="src/main.py", content="main")
+    result = case.merge("--no-ff", "side", "-m", "Merge side")
+    case.assertEqual(result.returncode, 0, result.stderr)
+
+
 class TestIsMergeIsDerivedNotHardcoded(_MergeCase):
     """AC1 + AC3: `is_merge` reflects HEAD's actual parent count."""
 
     def test_already_up_to_date_head_is_not_tagged_a_merge(self):
         """ "Already up to date" creates no commit — HEAD is the PRIOR, plain
         commit. If that commit's own event never landed (the reachable case:
-        dedup at :79-84 only blocks when HEAD already carries a commit event),
-        this emitter must not tag it as a merge just because it ran after a
+        the emitter's dedup only returns early when HEAD already carries a
+        commit event), it must not tag it as a merge just because it ran after a
         `branching.merge_branch` call."""
         debt_id = self.seed_concern()
         self.commit(
@@ -96,6 +115,27 @@ class TestIsMergeIsDerivedNotHardcoded(_MergeCase):
         events = self.commit_events()
         self.assertEqual(len(events), 1, f"expected one commit event: {events}")
         self.assertNotIn("is_merge", events[0]["metadata"])
+
+    def test_an_unknown_parent_count_also_skips_the_range_derivation(self):
+        """The `if is_merge` gate on `merge_resolves` is REACHABLE, so it is
+        pinned rather than assumed decorative: an unknown parent count on a
+        genuine merge leaves the event untagged, and an untagged event is IN
+        the trailer metrics — where `retro_metrics.has_resolves_trailer` scores
+        a non-empty `resolves` as a numerator hit. Ungated, a re-parsed id
+        nobody wrote on this commit would raise the link rate."""
+        debt_id = self.seed_concern()
+        _merge_a_side_commit_carrying(self, debt_id)
+
+        with patch("commits.head_parent_count", return_value=None):
+            append_merge_commit_event(
+                str(self.repo), self.smm_dir, "paulingalls/story-side"
+            )
+
+        events = self.commit_events()
+        self.assertEqual(len(events), 1, f"expected one commit event: {events}")
+        meta = events[0]["metadata"]
+        self.assertNotIn("is_merge", meta)
+        self.assertNotIn(debt_id, meta.get("resolves") or [])
 
     def test_a_root_commit_is_not_tagged(self):
         """`is None`, not truthiness: a root commit's `%P` is legitimately
@@ -221,22 +261,14 @@ class TestContentIsTheCleanedBody(_MergeCase):
 
 
 class TestHasResolvesTrailerStaysAuthoredOnly(_MergeCase):
-    """Regression guard on `commit_emit.py:98-102` — easy to lose when
-    swapping in `parse_commit_body`. `has_resolves_trailer` records that
-    somebody WROTE a trailer; a re-parsed id from the merged-in range must
+    """Regression guard on the third element of `commit_emit.parse_commit_body`
+    — easy to lose when swapping that helper in. `has_resolves_trailer` records
+    that somebody WROTE a trailer; a re-parsed id from the merged-in range must
     never set it."""
 
     def test_has_resolves_trailer_stays_authored_only(self):
         debt_id = self.seed_concern()
-        self.git("checkout", "-q", "-b", "side")
-        (self.repo / "src" / "side.py").parent.mkdir(parents=True, exist_ok=True)
-        (self.repo / "src" / "side.py").write_text("side\n")
-        self.git("add", "-A")
-        self.git("commit", "-q", "-m", f"side work\n\nResolves-Event: {debt_id}")
-        self.git("checkout", "-q", "main")
-        self.commit("main work", path="src/main.py", content="main")
-        result = self.merge("--no-ff", "side", "-m", "Merge side")
-        self.assertEqual(result.returncode, 0, result.stderr)
+        _merge_a_side_commit_carrying(self, debt_id)
 
         append_merge_commit_event(
             str(self.repo), self.smm_dir, "paulingalls/story-side"
