@@ -29,6 +29,15 @@ def _no_env() -> dict:
     return {}
 
 
+# Non-vacuity: a glob that silently stops matching must fail loudly rather
+# than report a green scan of nothing (the story-001 lesson). Duplicated
+# across test_preload_wiring.py and test_skill_preload_map.py used to be two
+# copies of this same number (concern f81a974e98e8) — homed here, beside
+# REFUSAL_HEADER, for the same reason: importing a `test_*` module for a
+# constant makes pytest execute that file under a second module name.
+_EXPECTED_PRELOADS = 17
+
+
 # The liveness refusal's own heading, as `skills/_preload_liveness.sh` echoes
 # it. It must not be confusable with the base's pre-existing no-SMM-at-all exit:
 # "there is no shared model here" and "the shared model is here but the runtime

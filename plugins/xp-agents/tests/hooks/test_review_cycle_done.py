@@ -161,11 +161,15 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertFalse(cycle["simplify_done"])
         self.assertEqual(len(self._action_events("simplify_complete")), 0)
 
-    def test_plan_review_emits_action_event(self):
-        """/xp-review-plan completion appends action=plan_reviewed."""
+    def test_plan_review_skill_emits_no_action_event(self):
+        """/xp-review-plan is inline now (story-013): its Skill-tool call
+        returns at LAUNCH, before xp-plan-reviewer has reviewed anything.
+        plan_reviewed now lives on subagent_stop's SubagentStop leg — same
+        shape as quality_review_done — so this hook must route it nowhere.
+        """
         review_cycle_done.run(_make_skill_input("xp-review-plan"), smm_dir=self.smm_dir)
         emitted = self._action_events("plan_reviewed")
-        self.assertEqual(len(emitted), 1)
+        self.assertEqual(len(emitted), 0)
 
     def test_housekeeping_emits_action_event(self):
         """xp-housekeeper agent completion appends action=housekeeping_complete."""
@@ -300,7 +304,6 @@ class TestDetectTargetAllowlist(unittest.TestCase):
     _KNOWN_TARGETS = (
         ("code-review", review_cycle_done._TARGET_SIMPLIFY),
         ("security-review", review_cycle_done._TARGET_SECURITY_REVIEW),
-        ("xp-review-plan", review_cycle_done._TARGET_PLAN_REVIEW),
         ("xp-assign", review_cycle_done._TARGET_ASSIGN),
         ("xp-housekeeper", review_cycle_done._TARGET_HOUSEKEEPING),
     )

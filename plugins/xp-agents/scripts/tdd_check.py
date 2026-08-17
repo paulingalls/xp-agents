@@ -14,9 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import commits
 import concerns
 import resolution
+import worktree_state
 from identity import extract_worktree_name, in_place_teammate_name, is_teammate_agent_id
 
 # Patterns that indicate test results in status/concern events
@@ -193,7 +193,7 @@ def find_last_test_signal(
             # None means git could not answer (timeout, not a repo), which is
             # NOT the same as a clean tree. Only a positive CLEAN reading may
             # un-gate a real failure; absence of evidence keeps the teeth.
-            dirty = commits.get_uncommitted_files(cwd)
+            dirty = worktree_state.get_uncommitted_files(cwd)
             return "fail" if dirty is None or dirty else None
         if etype == _common.STATUS and TEST_PASS_RE.search(content):
             return "pass"

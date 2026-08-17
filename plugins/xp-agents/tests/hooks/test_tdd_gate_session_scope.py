@@ -139,7 +139,7 @@ class TestGateStillBlocks(_GateTestCase):
         """
         events = [failing_tests_concern(), session_anchor(), *filler(3)]
         self._write_events(events)
-        with patch("commits.get_uncommitted_files", return_value=None):
+        with patch("worktree_state.get_uncommitted_files", return_value=None):
             self.assertIsNotNone(
                 tdd_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
             )
@@ -161,7 +161,7 @@ class TestGateStillBlocks(_GateTestCase):
         ):
             with self.subTest(gate=gate.__name__):
                 with patch(
-                    "commits.get_uncommitted_files", return_value=[]
+                    "worktree_state.get_uncommitted_files", return_value=[]
                 ) as mock_tree:
                     # A LEAD session cwd (no `worktree-story-` segment) — the
                     # gates run for the lead and must thread this cwd into the
@@ -174,13 +174,13 @@ class TestGateStillBlocks(_GateTestCase):
         """AC4. Fixed at the source — the sibling gates need no code change."""
         clean = [failing_tests_concern(), session_anchor(), *filler(3)]
         self._write_events(clean)
-        with patch("commits.get_uncommitted_files", return_value=[]):
+        with patch("worktree_state.get_uncommitted_files", return_value=[]):
             self.assertIsNone(
                 teammate_idle.run(_make_teammate_idle_input(), smm_dir=self.smm_dir)
             )
 
         self._write_events([session_anchor(), failing_tests_concern()])
-        with patch("commits.get_uncommitted_files", return_value=[]):
+        with patch("worktree_state.get_uncommitted_files", return_value=[]):
             self.assertIsNotNone(
                 teammate_idle.run(_make_teammate_idle_input(), smm_dir=self.smm_dir)
             )
@@ -189,13 +189,13 @@ class TestGateStillBlocks(_GateTestCase):
         """AC4, the other sibling gate."""
         clean = [failing_tests_concern(), session_anchor(), *filler(3)]
         self._write_events(clean)
-        with patch("commits.get_uncommitted_files", return_value=[]):
+        with patch("worktree_state.get_uncommitted_files", return_value=[]):
             self.assertIsNone(
                 task_completed.run(_make_task_completed_input(), smm_dir=self.smm_dir)
             )
 
         self._write_events([session_anchor(), failing_tests_concern()])
-        with patch("commits.get_uncommitted_files", return_value=[]):
+        with patch("worktree_state.get_uncommitted_files", return_value=[]):
             self.assertIsNotNone(
                 task_completed.run(_make_task_completed_input(), smm_dir=self.smm_dir)
             )
@@ -301,7 +301,7 @@ class TestTeammateWindowE2E(_HookTestCase):
             *filler(3),
         ]
         self._write_events(events)
-        with patch("commits.get_uncommitted_files", return_value=[]):
+        with patch("worktree_state.get_uncommitted_files", return_value=[]):
             result = teammate_idle.run(
                 _make_teammate_idle_input(cwd=TEAMMATE_CWD), smm_dir=self.smm_dir
             )
@@ -326,7 +326,7 @@ class TestKickoffOnlySessionE2E(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        with patch("commits.get_uncommitted_files", return_value=[]):
+        with patch("worktree_state.get_uncommitted_files", return_value=[]):
             return tdd_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
 
     def _observed_failure(self) -> dict:

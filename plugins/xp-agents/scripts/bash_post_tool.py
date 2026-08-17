@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import commits
+import commit_observer
 import concerns
 import git_commits
 import hook_liveness
@@ -21,6 +21,7 @@ import identity
 import markers
 import run_attribution
 import test_attribution
+import worktree_state
 from commit_handling import (
     _handle_commit,
     _working_tree_is_test_only,
@@ -188,7 +189,25 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 result = f"{result} {nudge}" if result is not None else nudge
         return result
 
-    if _common.is_xp_agent(input_data):
+    # Any OTHER Bash: catch up on commits that moved HEAD while nothing was
+    # watching. A commit-shaped command was compared against HEAD above and is
+    # deliberately not re-examined here — `_handle_commit` owns its own
+    # decisions, including the ones it refuses on purpose. See
+    # `commit_observer`'s docstring for why leaving the marker un-advanced on
+    # that branch is what keeps the range open rather than losing it.
+    #
+    # BEFORE the xp-agent return, for the reason the commit branch above also
+    # runs on a leak: the commit event always lands, and only the state
+    # mutations are gated on the identity being wrong.
+    leaked_identity = _common.is_xp_agent(input_data)
+    commit_observer.observe(
+        smm_dir,
+        agent_id,
+        cwd,
+        is_xp_agent_leak=leaked_identity,
+    )
+
+    if leaked_identity:
         return None
 
     # Test run detection
@@ -313,7 +332,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 # is one marker read, while the uncommitted probe spawns git
                 # subprocesses on every green test run.
                 cadence = markers.read_review_cadence(smm_dir)
-                if cadence != "story" and commits.get_uncommitted_code_files(cwd):
+                if cadence != "story" and worktree_state.get_uncommitted_code_files(
+                    cwd
+                ):
                     parts.append("Commit now to trigger /xp-quality-review.")
                 if parts:
                     return " ".join(parts)

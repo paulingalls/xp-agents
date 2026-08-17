@@ -132,9 +132,31 @@ def get_staged_diff(cwd: str) -> str | None:
     return _run_git(["git", "diff", "--cached"], cwd)
 
 
-def get_commit_message_body(cwd: str) -> str | None:
-    """Get full commit message body of HEAD. Returns None on failure."""
-    return _run_git(["git", "log", "-1", "--format=%B"], cwd)
+def get_commit_message_body(cwd: str, rev: str = "HEAD") -> str | None:
+    """Get full commit message body of `rev` (HEAD by default). None on failure.
+
+    The default spells out the implicit rev the argument-less form already
+    resolved, so every existing caller runs the identical git command.
+    """
+    return _run_git(["git", "log", "-1", "--format=%B", rev], cwd)
+
+
+def get_commit_files(cwd: str, rev: str) -> list[str]:
+    """Files `rev` changed against its first parent. Empty on git failure.
+
+    Deliberately NOT a rev parameter on `get_committed_files`: that one runs
+    `git diff HEAD~1`, which compares against the WORKING TREE, so a dirty
+    checkout legitimately changes its answer. Naming both sides here asks the
+    different question a recorder of a specific past commit needs — what that
+    commit changed, whatever the tree looks like now.
+
+    A root commit has no `~1` and reports nothing, matching what
+    `get_committed_files` already does for a root HEAD.
+    """
+    out = _run_git(["git", "diff", "--name-only", "-z", f"{rev}~1", rev], cwd)
+    if out is None:
+        return []
+    return _nul_paths(out)
 
 
 def get_head_commit_hash(cwd: str) -> str | None:
@@ -297,81 +319,6 @@ def get_code_files_in_range(cwd: str, base: str) -> list[str]:
 # `is_code_file`'s extension test (it ends `.js"`), so the file silently drops out
 # of the review scope these feed. NUL separation also keeps a path with a space
 # in one piece. `ls-files` spells the same flag the same way.
-_GIT_STAGED = ["git", "diff", "--cached", "--name-only", "-z"]
-_GIT_UNSTAGED = ["git", "diff", "--name-only", "-z"]
-_GIT_UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard", "-z"]
-# O(1) repo probe — unlike the scans above it does not walk the worktree, so it
-# still answers when they time out. That asymmetry is the whole point: it tells
-# "no repo to ask about" apart from "this scan failed".
-_GIT_IS_REPO = ["git", "rev-parse", "--is-inside-work-tree"]
-
-
-def _changed_paths(cwd: str, cmds: list[list[str]]) -> set[str] | None:
-    """Union of the path lines emitted by several git commands.
-
-    None (not an empty set) when any git call failed, so callers can tell
-    "git could not answer" apart from "nothing changed".
-    """
-    paths: set[str] = set()
-    for cmd in cmds:
-        out = _run_git(cmd, cwd)
-        if out is None:
-            return None
-        paths.update(_nul_paths(out))
-    return paths
-
-
-def get_uncommitted_files(cwd: str) -> list[str] | None:
-    """Every code file in flight in the working tree: staged, unstaged, OR
-    untracked. Test files INCLUDED. This is the "is the tree dirty?" signal.
-
-    Deliberately wider than ``get_uncommitted_code_files``, which answers a
-    different question ("is a commit of *production* code warranted?") and so
-    drops test files. Dirtiness must not: a tree dirty with only a broken test
-    file is still broken work in flight, and an untracked brand-new failing
-    test is the single most common shape of the TDD red step. Both read as
-    CLEAN under the narrower helper — which, for the TDD gate
-    (``tdd_check.find_last_test_signal``), is the disarm direction.
-
-    Two ways to not get an answer, and they must not be conflated:
-
-    * **There is no repo** (git absent, or not a work tree). Structural and
-      permanent. Reads as CLEAN — a project git cannot answer for at all must
-      not gate on a prior-session failure forever.
-    * **This scan failed** (timeout). Transient, and the untracked scan walks
-      the WHOLE worktree, so it is by far the likeliest ``_run_git`` timeout
-      here. Returns **None** = "could not answer". Collapsing that to "no
-      files" reads as a clean tree and UN-GATES a real failure, so the caller
-      must be able to fail safe.
-
-    The O(1) repo probe discriminates them: it still answers when a
-    worktree-walking scan times out.
-    """
-    paths = _changed_paths(cwd, [_GIT_STAGED, _GIT_UNSTAGED, _GIT_UNTRACKED])
-    if paths is None:
-        if _run_git(_GIT_IS_REPO, cwd) is None:
-            return []
-        return None
-    return sorted(f for f in paths if code_files.is_code_file(f))
-
-
-def get_uncommitted_code_files(cwd: str) -> list[str]:
-    """Get non-test code files with uncommitted changes (staged + unstaged).
-
-    Used by the post-green-tests nudge to determine if a commit is warranted.
-    Returns empty list on any git failure.
-    """
-    paths = _changed_paths(cwd, [_GIT_STAGED, _GIT_UNSTAGED])
-    if not paths:
-        return []
-
-    from pre_tool_write import is_test_file
-
-    return [
-        f for f in sorted(paths) if code_files.is_code_file(f) and not is_test_file(f)
-    ]
-
-
 # -------------------------------------------------------------------
 # Bash-command parsing — re-exported from commit_command
 # -------------------------------------------------------------------
@@ -419,14 +366,13 @@ __all__ = [
     "format_maybe_addressed_line",
     "get_code_files_for_review",
     "get_code_files_in_range",
+    "get_commit_files",
     "get_commit_message_body",
     "get_committed_files",
     "get_filenames_from_diff",
     "get_head_commit_hash",
     "get_staged_diff",
     "get_staged_files",
-    "get_uncommitted_code_files",
-    "get_uncommitted_files",
     "head_landing_facts",
     "is_escape_hatch_commit",
     "is_escape_hatch_message",

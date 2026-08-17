@@ -105,6 +105,13 @@ BAND_CEILINGS = {
     # TestShippedRootFloorRedProof) — they share a temp-tree idiom and touch no
     # real-tree state, unlike everything else in the file.
     "plugins/xp-agents/tests/test_file_size_pin.py": 474,
+    # NOT ENTERED: test_budget_measurement.py crossed 450 (446 -> 461) when both
+    # band proofs stopped measuring their surface by a second bootstrap and
+    # started reading the assert's own number, and took a ceiling here. But that
+    # change left `_measure_emitter`/`_measure_preload` with no callers at all;
+    # deleting the dead pair put the file at 421, back under the floor. A ceiling
+    # recorded over dead code would have made the file's growth room its reward
+    # for keeping it.
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
     "plugins/xp-agents/tests/hooks/test_branch_lifecycle.py": 494,
@@ -126,7 +133,10 @@ BAND_CEILINGS = {
     # the new `--diff-filter=D` probe with the UNSTAGED listing, which calls
     # every unstaged change a deletion. The branch that fixes it needs the note,
     # or the next reader deletes it as redundant with the branch below.
-    "plugins/xp-agents/tests/hooks/test_commits_issues.py": 492,
+    # RETIRED (story-016): test_commits_issues.py 495->359. The two
+    # uncommitted-state classes moved to test_worktree_state.py beside the
+    # module they now test. Below the 450 floor, so the entry is deleted
+    # rather than lowered.
     "plugins/xp-agents/tests/hooks/test_lang_leak_scan.py": 486,
     "plugins/xp-agents/tests/smm/test_session_history.py": 484,
     "plugins/xp-agents/tests/hooks/test_lint_config_style_flags.py": 483,

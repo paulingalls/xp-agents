@@ -4,21 +4,46 @@ description: >-
   Review the completed sprint: what shipped vs planned, update milestone
   delivery, record velocity. Use when all stories are done.
 effort: high
-context: fork
-agent: xp-agents:xp-sprint-reviewer
 allowed-tools:
+  - Agent
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
   - Bash(python3 */smm/plan_cli.py *)
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
+# Sprint Review
 
-This skill should run as a forked subagent (xp-sprint-reviewer). Your agent definition contains all instructions — follow them, record the result, and then report back your full findings to the main agent.
+> **Sequential discipline.** Spawn the xp-sprint-reviewer subagent once, wait
+> for it to complete, report its findings back, THEN chain into the close
+> step below — never batch the spawn with a step that depends on it, and
+> never spawn it more than once.
 
-If you are the main agent and see this: do not do this work yourself. This skill must run as the xp-sprint-reviewer subagent. The subagent result is returned as a tool result which is NOT visible to the user — you must output the key findings as text in your response.
+The injected preload state names `SMM_DIR` and, once a sprint has ended,
+`REVIEW_INPUT` (the path to prepared review data).
 
-The reviewer also reruns every verify-bearing acceptance item across the sprint (`verify_acceptance.py --sprint`) **before** `/xp-sprint-close` — that rerun emits the deterministic verify event the close gate reads. Surface its per-surface PASS/FAIL matrix to the user alongside the findings.
+## Step 1: Spawn the Reviewer (single unconditional spawn)
+
+Spawn `xp-agents:xp-sprint-reviewer` unconditionally, threading the
+preload's state into its prompt:
+
+```
+Agent(
+  subagent_type: "xp-agents:xp-sprint-reviewer",
+  prompt: "SMM_DIR=<SMM_DIR>\nREVIEW_INPUT=<path, or omit if absent>\n\nReview the sprint per your instructions and report back."
+)
+```
+
+Wait for the subagent to complete; its report returns as a tool result.
+
+If you are the main agent and see this: do not do this work yourself — the
+review must run in the xp-sprint-reviewer subagent's own isolated context,
+not merged into yours. The subagent's result is NOT visible to the user —
+you must output its full report as text in your response.
+
+The reviewer also reruns every verify-bearing acceptance item across the
+sprint (`verify_acceptance.py --sprint`) **before** `/xp-sprint-close` — that
+rerun emits the deterministic verify event the close gate reads. Surface its
+per-surface PASS/FAIL matrix to the user alongside the findings.
 
 Then invoke `/xp-sprint-close`.

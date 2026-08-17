@@ -404,7 +404,9 @@ class TestBashPostToolCodeReviewMentionsAreCadenceHonest(_HookTestCase):
         self.assertNotIn("/code-review", doc)
 
     def test_green_commit_nudge_names_only_quality_review(self):
-        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+        with patch(
+            "worktree_state.get_uncommitted_code_files", return_value=["src/app.py"]
+        ):
             result = bash_post_tool.run(
                 _make_bash_input(
                     command="python3 -m pytest tests/",
