@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """Cross-cutting sweep: shipped mentions of /code-review are tool-honest.
 
-story-011. /code-review runs via the Workflow tool, not Skill (fixed for the
-close pipeline in v4.14.6; scripts/_close_pipeline_shared.md and
-skills/xp-quality-review/SKILL.md already say so correctly). Surrounding
-guidance never caught up — some mentions leave the tool unstated, others
-still imply /code-review fires on every commit, contradicting the per-commit
-cadence (xp-quality-review only; /code-review once at sprint/plan/free-close).
+story-011 built this sweep to enforce that /code-review runs via the Workflow
+tool and never the Skill tool. That was the belief across the whole tree, and it
+was wrong: `Workflow({name: "code-review"})` errors because no such workflow is
+registered in the shipped build, while the Skill launches and forks. Close
+Step 4b therefore instructed a call that could not run, and the one broad
+correctness pass silently did not happen.
 
-This is the grep-equivalent invariant sweep only: no shipped mention may
-suggest launching /code-review with the Skill tool, and none may imply a
-per-commit cadence. Individual wordings are pinned where they already live —
-tests/hooks/test_post_tool.py, tests/smm/test_seed.py.
+So the tool half of this sweep is INVERTED rather than removed, and deliberately
+not to its mirror image — "every mention names Skill" would be vacuous, since
+most mentions name no tool at all. It now pins that exactly one shipped line
+launches it, that the line is the close review reference, and that no line denies
+the Skill can. The per-commit-cadence half is untouched and was always right:
+/xp-quality-review is the per-commit review; the broad pass runs once at
+sprint/plan/free-close.
+
+Individual wordings stay pinned where they live — tests/hooks/test_post_tool.py,
+tests/smm/test_seed.py.
 """
 
 import re
@@ -154,11 +160,19 @@ class TestNoPerCommitImplication(unittest.TestCase):
         )
 
 
-class TestGuidesNameTheWorkflowTool(unittest.TestCase):
-    """AC: PROCESS_GUIDE and TEAMMATE_GUIDE name the Workflow tool rather
-    than leaving /code-review's launch mechanism unstated."""
+class TestGuidesNameTheLauncher(unittest.TestCase):
+    """AC: PROCESS_GUIDE and TEAMMATE_GUIDE name what launches /code-review
+    rather than leaving its launch mechanism unstated."""
 
-    def test_broad_review_guides_name_the_workflow_tool(self):
+    def test_broad_review_guides_name_the_skill_tool(self):
+        """A guide that names the broad review must name what launches it.
+
+        The requirement is unchanged and the answer is not: it was the Workflow
+        tool, which turned out to have no registered name for this review, so
+        the guides documented a launch that errors. Naming SOMETHING remains
+        mandatory — a guide that mentions the pass and leaves the reader to
+        guess is how the wrong tool got reached for in the first place.
+        """
         for name in _GUIDE_NAMES:
             path = _PLUGIN_ROOT / name
             text = path.read_text()
@@ -169,9 +183,9 @@ class TestGuidesNameTheWorkflowTool(unittest.TestCase):
                     continue
                 window = text[max(0, m.start() - 200) : m.end() + 200]
                 self.assertIn(
-                    "Workflow tool",
+                    "Skill tool",
                     window,
-                    f"{name}: /code-review mention not paired with 'Workflow "
+                    f"{name}: /code-review mention not paired with 'Skill "
                     f"tool' naming: ...{window}...",
                 )
 

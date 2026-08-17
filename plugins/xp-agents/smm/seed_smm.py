@@ -179,7 +179,7 @@ def generate_smm(root: Path) -> dict:
             "cadence run /xp-quality-review before each commit; in story "
             "cadence the per-commit gate defers and /xp-quality-review runs "
             "at /xp-story-close on the cumulative diff. /code-review "
-            "(Workflow tool) runs once at free/sprint/plan close; LLM "
+            "(Skill tool) runs once at free/sprint/plan close; LLM "
             "/security-review fires at close Step 4.",
         ),
         _seed_entry(
