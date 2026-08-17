@@ -96,22 +96,19 @@ def append_merge_commit_event(
     authored, body, has_resolves_trailer = commit_emit.parse_commit_body(raw_body)
     resolves = authored
     # AUTHORED first, then the bounded merged-range derivation unioned onto it, via
-    # the same helper both hook routes use. This emitter used to REPLACE with the
-    # derivation and to take `has_resolves_trailer` from it, on the argument that
-    # "the merge HEAD's own body (the `Merge <source>` subject) never carries one".
-    # Two things were wrong with that. `raw_body` above is read back from HEAD, so
-    # it is whatever actually landed rather than the generated subject; and the
-    # range was only ever bounded by the source/target relationship, so a story
-    # branch that back-merged `main` brings main's commits into it at close — the
-    # same unbounded-derivation defect the hook routes were just fixed for.
+    # the same helper both hook routes use. Never REPLACE with the derivation:
+    # `raw_body` is read back from HEAD, so it is whatever actually landed and can
+    # carry a trailer; and the range is bounded only by the source/target
+    # relationship, so a story branch that back-merged `main` drags main's commits
+    # in at close.
     #
     # `has_resolves_trailer` is AUTHORED-only: it RECORDS that somebody wrote a
-    # trailer, and a re-parsed id is not one. Taking it from the derivation cost
-    # the truth of the record — and now that the tag is derived rather than
-    # asserted, it costs a rate too: an untagged event (unknown parent count, or
-    # a plain HEAD after an "Already up to date" merge) is IN the trailer
-    # metrics. Which is also why the derivation below is gated on the tag: on an
-    # event that counts, a re-parsed id would score as a link nobody authored.
+    # trailer, and a re-parsed id is not one. Now that the tag is derived rather
+    # than asserted, that costs a rate as well as the truth of the record — an
+    # untagged event (unknown parent count, or a plain HEAD after an "Already up
+    # to date" merge) is IN the trailer metrics. Which is why the derivation below
+    # is gated on the tag: on an event that counts, a re-parsed id would score as
+    # a link nobody authored.
     if is_merge:
         resolves = commit_emit.merge_resolves(cwd, commit_hash, resolves, events=events)
     # Degrade gracefully on a corrupt/schema-invalid sprint.json: the merge

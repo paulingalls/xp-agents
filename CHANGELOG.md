@@ -8,8 +8,10 @@ History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 resolution called the linter once for every committed file, serially, on the
 synchronous PostToolUse hook path while the agent waited. Both loops now group
 by the `(linter, config)` pair the file resolves to and run one batch per group
-— and the common commit spawns **zero**, because a file carrying no unresolved
-lint concern is dropped before grouping. The loop can only ever *resolve*, so
+— and a commit whose files carry no unresolved lint concern spawns **zero** on
+this path, because those files are dropped before grouping. (The commit-time
+staged gate still runs once per group; it lints what is about to land, so it has
+nothing to skip.) The loop can only ever *resolve*, so
 linting a file with nothing to clear was always work for nothing.
 
 Measured end to end rather than asserted: reverting the emitter to its previous
@@ -49,7 +51,28 @@ cross a subprocess boundary at all. It also caught what the unit tests could
 not — that a batch's argv must be asserted to *contain* its group, not merely
 to exclude the other group's files.
 
-## Also in this release
+### Known residuals
+
+v5.15.0 disclosed its `is_merge` gap rather than arguing it away, which is the
+only reason this release gets to say that residual is closed. The same courtesy,
+for what is still open on the code above:
+
+- **Closing that residual opened a narrower one.** `story_metrics` reads a story
+  as shipped from `is_merge` **and** the close-cycle agent id. Now that the tag
+  is honest, an "Already up to date" close — which creates no commit — emits an
+  untagged event, so the story reads *unshipped* and the plain commit it landed
+  on is counted as a story commit. The old hardcoded `True` produced the right
+  metric by asserting something false. Tracked, not fixed here.
+- **The verify-touch union has two path sources that disagree on encoding.**
+  `git log --name-only` C-quotes a non-ASCII path; `git diff --cached --name-only`
+  is asked with `-z` and does not. A path with non-ASCII bytes can therefore clear
+  the advisory from the index and then re-fire once committed.
+- **Batching bounds processes, not wall clock.** Post-commit resolution passes no
+  shared deadline, so a polyglot repo can pay each group's own ceiling in
+  sequence on the synchronous hook path. The commit-time gate threads a deadline;
+  this path does not yet.
+
+### Also in this release
 
 **The wall-clock performance tier is retired.** Three pre-push timers measured
 the machine, not the diff. Serializing them after the suite controlled only the
