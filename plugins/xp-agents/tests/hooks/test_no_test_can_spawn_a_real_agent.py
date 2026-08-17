@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import in_place_marker
 import spawn_teammate
+from _spawn_guard import _is_real_agent
 from conftest import CHILD_WAIT_TIMEOUT_S, RealAgentSpawnBlocked
 
 _TESTS_DIR = Path(__file__).resolve().parent.parent
@@ -125,6 +126,59 @@ class TestRealAgentSpawnIsBlocked(unittest.TestCase):
                 self.assertRaises(RealAgentSpawnBlocked),
             ):
                 launch(["claude", "-p"])
+
+    def test_the_second_harness_binary_is_blocked_too(self):
+        """The guard covered ONE harness's binary while the plugin ships for two.
+
+        Story-014's capstone drives a real model on both, so the second harness's
+        spawns were backed by nothing but a timeout — and the recursion the
+        docstring records is not harness-specific: a child on either harness comes
+        up in the repo with the plugin loaded and can run this suite.
+        """
+        for args in (
+            ["codex", "exec", "do a thing"],
+            ["/opt/homebrew/bin/codex", "exec"],
+        ):
+            with self.subTest(args=args), self.assertRaises(RealAgentSpawnBlocked):
+                subprocess.Popen(args)
+
+    def test_a_shell_line_naming_the_second_harness_is_blocked(self):
+        """Same first-token reasoning as the sibling row above, which the second
+        binary would otherwise have to re-learn the hard way."""
+        with self.assertRaises(RealAgentSpawnBlocked):
+            subprocess.Popen("codex exec 'do a thing'", shell=True)
+
+    def test_the_second_harnesss_management_commands_still_run(self):
+        """The regression widening the guard actually caused, pinned.
+
+        That binary is not one thing: `codex exec` runs a model, `codex plugin
+        add` installs a plugin and runs none. Three packaging suites drive the
+        latter through `_codex_harness._harness`, and blocking the binary
+        wholesale turned six of their rows red. So the block is by (binary,
+        subcommand), and this row is what stops a future simplification back to
+        the binary alone from silently breaking them again.
+        """
+        for args in (
+            ["codex", "plugin", "marketplace", "add", "."],
+            ["codex", "--version"],
+            "codex plugin list",
+        ):
+            with self.subTest(args=args):
+                self.assertFalse(
+                    _is_real_agent(args),
+                    f"{args} is a management command and must not be blocked",
+                )
+
+    def test_a_bare_second_harness_invocation_fails_closed(self):
+        """No subcommand means an interactive model session, so absence must be
+        blocked rather than treated as "not a model run"."""
+        self.assertTrue(_is_real_agent(["codex"]))
+
+    def test_an_unknown_second_harness_subcommand_fails_closed(self):
+        """The exemption is an allowlist. A subcommand nobody has classified is
+        blocked, because the wrong guess in that direction bills for a recursive
+        agent while the other merely inconveniences a test."""
+        self.assertTrue(_is_real_agent(["codex", "some-future-subcommand"]))
 
     def test_ordinary_subprocesses_still_run(self):
         """The guard must be surgical: the suite spawns real python, git and bash

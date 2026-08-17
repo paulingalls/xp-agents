@@ -33,10 +33,26 @@ platform assumption into a suite that runs on both.
 
 import hashlib
 import json
+import os
 import secrets
+import shutil
 import stat
+import unittest
 from pathlib import Path
 from typing import NamedTuple
+
+# Opt-in, because a live row costs real model calls on two harnesses and the
+# suite runs on every commit and every push (customer answer af6d7b1b0c4d).
+LIVE_ENV = "XP_CAPSTONE_LIVE"
+
+# `_spawn_guard`'s escape hatch, read from the TEST process's os.environ. The
+# test sets it; the CHILD must never see it. See `child_env`.
+GUARD_ENV = "XP_ALLOW_REAL_AGENT_SPAWN"
+
+# Every withheld row opens with this. "Not measured" and "measured and absent"
+# are opposite findings and only one is evidence, so AC3 requires a withheld row
+# to say which it is — in words, where a reader sees it.
+NOT_MEASURED_PREFIX = "not measured:"
 
 # The namespace `strip_our_namespace` accepts. Not a preference — see §1 above.
 OUR_PLUGIN_NAME = "xp-agents"
@@ -47,7 +63,13 @@ OUR_PLUGIN_NAME = "xp-agents"
 SKILL_NAME = "xp-capstone-probe"
 
 _TOKEN_KEY = "CAPSTONE_TOKEN"
-_SEED_ENV = "XP_CAPSTONE_SEED"
+
+# The seed lives ONLY here. Putting it in a file would make the token derivable
+# from disk, and the token being underivable is the whole measurement.
+SEED_ENV = "XP_CAPSTONE_SEED"
+_SEED_ENV = SEED_ENV
+
+FIRING_LOG_ENV = "XP_CAPSTONE_FIRING_LOG"
 
 # Long enough that a model cannot land on it by chance, short enough to read in a
 # transcript. 16 hex = 64 bits.
@@ -142,12 +164,83 @@ class CapstonePlugin(NamedTuple):
 
     def env(self) -> dict:
         """The two variables the built tree reads at run time."""
-        return {_SEED_ENV: self.seed, "XP_CAPSTONE_FIRING_LOG": str(self.firing_log)}
+        return {SEED_ENV: self.seed, FIRING_LOG_ENV: str(self.firing_log)}
+
+    @property
+    def child_cwd(self) -> Path:
+        """Where a real harness child runs: inside the fixture, never the repo.
+
+        A child whose cwd is this checkout can reach the suite, and a child that
+        can run the suite is the recursion `_spawn_guard` was written about.
+        """
+        return self.root.parent / "child-cwd"
 
     def firings(self) -> int:
         if not self.firing_log.exists():
             return 0
         return len([line for line in self.firing_log.read_text().splitlines() if line])
+
+
+def live_gate_reason(harness: str) -> str | None:
+    """None when *harness*'s live row may run; otherwise why it was NOT measured.
+
+    Two conditions, and the reason distinguishes them, because they mean
+    different things to a reader: the operator did not ask for a live run, versus
+    the operator asked and the harness is not installed. Neither is a negative
+    result about the mechanism — which is why both answers open with
+    `NOT_MEASURED_PREFIX` and neither can be read as a pass.
+    """
+    if os.environ.get(LIVE_ENV) != "1":
+        return (
+            f"{NOT_MEASURED_PREFIX} {LIVE_ENV}=1 was not set, so no model was put "
+            f"in the loop for {harness}"
+        )
+    if shutil.which(harness) is None:
+        return f"{NOT_MEASURED_PREFIX} {harness} is not on PATH"
+    return None
+
+
+def requires_live(harness: str):
+    """Skip the decorated row, with its not-measured reason, unless live.
+
+    Evaluated at call time rather than import time: a module-level decorator
+    computed once would bake in whatever the environment looked like when pytest
+    collected, which is not necessarily what it looks like when the row runs.
+    """
+
+    def decorate(func):
+        def wrapper(self, *args, **kwargs):
+            reason = live_gate_reason(harness)
+            if reason is not None:
+                raise unittest.SkipTest(reason)
+            return func(self, *args, **kwargs)
+
+        wrapper.__name__ = func.__name__
+        wrapper.__doc__ = func.__doc__
+        return wrapper
+
+    return decorate
+
+
+def child_env(fixture: "CapstonePlugin", **extra: str) -> dict:
+    """The environment for a REAL harness child.
+
+    Both opt-in variables are REMOVED. Environment is inherited, so a child that
+    kept them could run the suite, re-enter the capstone, and spawn again — with
+    `GUARD_ENV` inherited the backstop would already be disarmed. `_spawn_guard`
+    records where that went: ~20 real, billable, recursive agents, one alive 22
+    minutes.
+
+    The seed and the firing-log path DO travel: a seedless child gets a refusing
+    preload, which looks exactly like a delivery failure, and a probe with no log
+    cannot tell "injected nothing" from "never fired".
+    """
+    env = os.environ.copy()
+    for inherited in (LIVE_ENV, GUARD_ENV):
+        env.pop(inherited, None)
+    env.update(fixture.env())
+    env.update(extra)
+    return env
 
 
 def _write_executable(path: Path, body: str) -> None:

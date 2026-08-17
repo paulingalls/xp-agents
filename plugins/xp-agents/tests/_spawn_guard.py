@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Backstop: no test may launch the real `claude` agent binary.
+"""Backstop: no test may launch either harness's real agent binary.
 
 Imported by conftest for its SIDE EFFECT — importing this module patches
 subprocess.Popen for the whole test session. It lives apart from conftest only to
@@ -28,6 +28,11 @@ every main()-driving module does, which is what makes the unittest path airtight
 
 Scoped to argv[0]'s basename: the suite spawns real python, git and bash children
 constantly (dead_pid/live_pid, the integration pipeline) and those are untouched.
+
+One binary is not one thing, though. The second harness's CLI both runs models
+and manages plugins, so the block is by (binary, subcommand) rather than by
+binary — see `_NON_MODEL_SUBCOMMANDS` for which forms are exempt and why absence
+of a subcommand fails closed.
 """
 
 import os
@@ -35,8 +40,28 @@ import shlex
 import subprocess
 from pathlib import Path
 
-REAL_AGENT_BINARY = "claude"
+# BOTH harnesses' binaries. The plugin ships for two, and the recursion below is
+# not harness-specific: a child on either one comes up in the repo with the plugin
+# loaded and can run this suite. The guard covered only the first until story-014's
+# capstone began driving a real model on both, leaving the second's spawns backed
+# by nothing but a subprocess timeout.
+REAL_AGENT_BINARIES = ("claude", "codex")
 ALLOW_REAL_AGENT_ENV = "XP_ALLOW_REAL_AGENT_SPAWN"
+
+# The second harness's binary is BOTH a model runner and a package manager:
+# `codex exec` runs a model, `codex plugin add` installs a plugin and runs none.
+# Three suites legitimately drive the latter (`_codex_harness._harness`), and
+# blocking the binary wholesale broke six of their rows — measured, not predicted.
+#
+# So a named subcommand is exempt and everything else is blocked: an unrecognised
+# subcommand fails CLOSED, which is the direction that cannot leak a billable
+# recursive agent. The first harness gets no exemptions because nothing in the
+# suite drives it for anything but a model run.
+_NON_MODEL_SUBCOMMANDS: dict[str, frozenset[str]] = {
+    "codex": frozenset(
+        {"plugin", "mcp", "app-server", "--version", "-V", "--help", "-h"}
+    ),
+}
 
 
 class RealAgentSpawnBlocked(RuntimeError):
@@ -71,10 +96,36 @@ def _is_real_agent(args) -> bool:
         return False
     text = os.fsdecode(argv0)
     try:
-        first_token = shlex.split(text)[:1]
+        tokens = shlex.split(text)
     except ValueError:  # unbalanced quotes — not a command line we can parse
-        first_token = []
-    return any(Path(c).name == REAL_AGENT_BINARY for c in (text, *first_token))
+        tokens = []
+
+    for candidate in (text, *tokens[:1]):
+        binary = Path(candidate).name
+        if binary not in REAL_AGENT_BINARIES:
+            continue
+        return not _is_non_model_invocation(binary, args, tokens)
+    return False
+
+
+def _is_non_model_invocation(binary: str, args, shell_tokens: list[str]) -> bool:
+    """Whether this invocation of *binary* is a management command, not a model.
+
+    The subcommand sits one token after the program, in whichever of Popen's
+    three shapes was used — element 1 of a list, or the second shell token. A
+    flagless invocation (`codex` alone) has no subcommand and is NOT exempt: bare
+    `codex` opens an interactive model session, so absence must fail closed.
+    """
+    exempt = _NON_MODEL_SUBCOMMANDS.get(binary)
+    if not exempt:
+        return False
+    if isinstance(args, (list, tuple)):
+        rest = [
+            os.fsdecode(a) for a in args[1:] if isinstance(a, (str, bytes, os.PathLike))
+        ]
+    else:
+        rest = shell_tokens[1:]
+    return bool(rest) and rest[0] in exempt
 
 
 _RealPopen = subprocess.Popen
@@ -90,8 +141,9 @@ class _NoRealAgentPopen(_RealPopen):
     def __init__(self, args, *rest, **kwargs):
         if _is_real_agent(args) and os.environ.get(ALLOW_REAL_AGENT_ENV) != "1":
             raise RealAgentSpawnBlocked(
-                f"a test tried to launch the real {REAL_AGENT_BINARY!r} binary "
-                f"({args!r}). Tests must stub spawn_teammate.run_with_tee — "
+                f"a test tried to launch a real agent binary, one of "
+                f"{REAL_AGENT_BINARIES} ({args!r}). Tests must stub "
+                "spawn_teammate.run_with_tee — "
                 "including tests that expect main() to refuse before spawning, "
                 "because a test's safety must never depend on the correctness of "
                 "the code it is testing. A real spawn recursively re-runs this "

@@ -40,18 +40,32 @@ and cost a second place to keep true.
 """
 
 import json
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import preload_injection
-from _bases import _IntegrationTestCase
-from _capstone_plugin import OUR_PLUGIN_NAME, build_capstone_plugin
+from _bases import _AssertNotNoneMixin, _IntegrationTestCase
+from _capstone_plugin import (
+    FIRING_LOG_ENV,
+    GUARD_ENV,
+    LIVE_ENV,
+    NOT_MEASURED_PREFIX,
+    OUR_PLUGIN_NAME,
+    SEED_ENV,
+    build_capstone_plugin,
+    child_env,
+    live_gate_reason,
+)
 
 
 def _drive_handler(
@@ -266,6 +280,113 @@ class TestBothManifestsCarryWhatEachHarnessReads(_IntegrationTestCase):
         named = Path(handler.split()[-1])
 
         self.assertEqual(named.resolve(), Path(preload_injection.__file__).resolve())
+
+
+class TestTheLiveGateCannotReadAsAPass(_AssertNotNoneMixin, unittest.TestCase):
+    """AC3 and AC4: an unrun harness is never reported as passing.
+
+    The live rows cost real model calls on two harnesses, so they are opt-in
+    (customer decision, answer af6d7b1b0c4d). That makes the gate itself
+    load-bearing: a gate that silently took the run branch, or that reported a
+    skip as a pass, would leave the sprint's headline claim resting on nothing —
+    which is precisely how concern 789c6f3f6ed0 came about.
+    """
+
+    def test_no_variable_means_not_measured(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(LIVE_ENV, None)
+            reason = self._assert_not_none(live_gate_reason("claude"))
+
+        self.assertIn(LIVE_ENV, reason)
+
+    def test_the_reason_says_not_measured_rather_than_failed(self):
+        """AC3's wording. "Not measured" and "measured and absent" are opposite
+        findings, and only one of them is evidence about the mechanism."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(LIVE_ENV, None)
+            reason = self._assert_not_none(live_gate_reason("claude"))
+
+        self.assertTrue(
+            reason.startswith(NOT_MEASURED_PREFIX),
+            f"a withheld row must announce itself as not-measured: {reason!r}",
+        )
+
+    def test_the_reason_names_the_harness_it_did_not_measure(self):
+        """AC4: "the second harness was not measured" is only useful if the row
+        says WHICH. A shared reason string would let one harness's skip stand in
+        for the other's."""
+        with patch.dict(os.environ, {LIVE_ENV: "1"}):
+            reasons = {h: live_gate_reason(h) for h in ("claude", "codex")}
+
+        for harness, reason in reasons.items():
+            if reason is not None:
+                self.assertIn(harness, reason)
+
+    def test_an_absent_harness_is_not_measured_not_passed(self):
+        with patch.dict(os.environ, {LIVE_ENV: "1"}):
+            reason = self._assert_not_none(
+                live_gate_reason("a-harness-that-is-not-installed")
+            )
+
+        self.assertTrue(reason.startswith(NOT_MEASURED_PREFIX))
+
+    def test_the_gate_opens_only_when_both_conditions_hold(self):
+        with patch.dict(os.environ, {LIVE_ENV: "1"}):
+            if shutil.which("claude"):
+                self.assertIsNone(live_gate_reason("claude"))
+            else:
+                self.skipTest("claude not on PATH; the open branch is unreachable")
+
+
+class TestTheChildEnvironmentCannotRecurse(unittest.TestCase):
+    """Safety §1. `_spawn_guard` records what this prevents: a spawned agent came
+    up with the plugin loaded, ran the suite as part of its own lifecycle,
+    re-entered the test that spawned it, and did it again — ~20 real, billable,
+    recursive agents, one alive 22 minutes.
+
+    Environment is INHERITED, so both opt-in variables must be absent from the
+    child. `XP_ALLOW_REAL_AGENT_SPAWN` is the dangerous one: it is the guard's own
+    escape hatch, so a child that inherited it would spawn with the backstop
+    already disarmed. Asserted rather than trusted to the construction, which is
+    the same reason `assert_module_skips_without_harness` refuses to ride on an
+    inherited sentinel.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.fixture = build_capstone_plugin(self.tmp / "capstone")
+
+    def test_neither_opt_in_variable_reaches_the_child(self):
+        with patch.dict(os.environ, {LIVE_ENV: "1", GUARD_ENV: "1"}):
+            env = child_env(self.fixture)
+
+        self.assertNotIn(LIVE_ENV, env)
+        self.assertNotIn(GUARD_ENV, env)
+
+    def test_the_seed_does_reach_the_child(self):
+        """The strip must not take the seed with it: a seedless child gets a
+        refusing preload, which reads as "delivered nothing" — a false negative
+        wearing the same face as a real one."""
+        env = child_env(self.fixture)
+
+        self.assertEqual(env.get(SEED_ENV), self.fixture.seed)
+
+    def test_the_firing_log_reaches_the_child(self):
+        """Without it the probe cannot record, and the control loses the only
+        thing that tells "injected nothing" from "never fired"."""
+        env = child_env(self.fixture)
+
+        self.assertEqual(env.get(FIRING_LOG_ENV), str(self.fixture.firing_log))
+
+    def test_the_child_runs_outside_this_repo(self):
+        """A child whose cwd is this checkout can reach the suite. The cwd the
+        drivers use is the fixture's own temp tree."""
+        self.assertFalse(
+            str(self.fixture.child_cwd).startswith(str(Path.cwd())),
+            "the child's cwd is inside this checkout, so a child with shell "
+            "access could re-enter the suite",
+        )
 
 
 if __name__ == "__main__":
