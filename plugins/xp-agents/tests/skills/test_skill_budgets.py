@@ -71,7 +71,7 @@ SKILL_BUDGETS: dict[str, int] = {
     # Bumped 1420 -> 1990 (story-013): converted from context: fork to the
     # inline-spawns-subagent shape — the body gained the spawn block and the
     # do-not-do-this-yourself clause the fork used to give for free. Measured
-    # 1768.
+    # 1774.
     "xp-sprint-review": 1990,
     "xp-sprint-start": 12560,
     "xp-stage-migration": 2420,

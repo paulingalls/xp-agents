@@ -39,15 +39,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import skill_preload_map
+from _preload_fixtures import _EXPECTED_PRELOADS
 from conftest import _PLUGIN_ROOT
 
 _SKILLS_DIR = _PLUGIN_ROOT / "skills"
 _HOOKS_DIR = _PLUGIN_ROOT / "hooks"
 _HANDLER = "scripts/preload_injection.py"
-
-# Non-vacuity: a glob that silently stops matching must fail loudly rather than
-# report a green scan of nothing (the same guard the frontmatter suite keeps).
-_EXPECTED_PRELOADS = 17
 
 
 def _preload_scripts() -> list[Path]:

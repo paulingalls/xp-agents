@@ -19,13 +19,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import skill_preload_map
+from _preload_fixtures import _EXPECTED_PRELOADS
 from conftest import _PLUGIN_ROOT
 
 _SKILLS_DIR = _PLUGIN_ROOT / "skills"
-
-# Same non-vacuity guard as test_preload_wiring.py: a scan of nothing must not
-# read as green.
-_EXPECTED_PRELOADS = 17
 
 # The two skills that ship no scripts/*.sh at all — absence, not failure.
 _NO_PRELOAD_SKILLS = ("xp-scaffold-acceptance", "xp-stage-migration")

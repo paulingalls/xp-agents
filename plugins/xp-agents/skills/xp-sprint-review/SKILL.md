@@ -15,9 +15,9 @@ allowed-tools:
 # Sprint Review
 
 > **Sequential discipline.** Spawn the xp-sprint-reviewer subagent once, wait
-> for it to complete, report its findings back, THEN invoke `/xp-sprint-close`
-> — never batch the spawn with a step that depends on it, and never spawn it
-> more than once.
+> for it to complete, report its findings back, THEN chain into the close
+> step below — never batch the spawn with a step that depends on it, and
+> never spawn it more than once.
 
 The injected preload state names `SMM_DIR` and, once a sprint has ended,
 `REVIEW_INPUT` (the path to prepared review data).
