@@ -401,10 +401,9 @@ def untouched_verify_paths(
 ) -> list[str]:
     """Sorted declared paths that no commit on base..head touched.
 
-    `also_changed` widens the changed set without touching the walk itself —
-    the commit-time nudge unions in the staged files (its commit doesn't
-    exist yet to be walked); every other caller omits it, so the walk stays
-    commit-only for them.
+    `also_changed` widens the changed set; the walk stays commit-based. Who may
+    pass it, and why merge time never may, is stated once in
+    `verify_deferred.untouched_paths_for_story`.
     """
     changed = _changed_files(cwd, base, head) | (also_changed or set())
     return sorted(p for p in paths if not _is_touched(p, changed))
