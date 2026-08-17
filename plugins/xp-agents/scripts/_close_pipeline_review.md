@@ -44,23 +44,24 @@ Run only when the preload emitted `RUN_FULL_CODE_REVIEW=true` (cumulative close
 diff ≥ `REVIEW_CYCLE_THRESHOLD` code files) — the one broad multi-agent
 correctness pass.
 
-`/code-review` runs via the **Workflow tool** (async), not the `Skill` tool —
-and a Workflow completion does not arm the review-cycle marker. So:
+`/code-review` runs via the `Skill` tool. It FORKS, so the call returns at once
+and its PostToolUse arms the review-cycle marker there and then — which is what
+defers the close Stop gate for the window and makes `/xp-quality-review` read
+`MODE=consume-findings`. Do not arm it by hand as well: two writers put two
+`simplify_complete` events on one review and the retro counts both. So:
 
-1. **Arm the marker** (defers the close Stop gate during the async window; makes
-   `/xp-quality-review` read `MODE=consume-findings`), cwd `${TEAMMATE_CWD:-.}`:
-   `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_flag_cli.py --smm-dir <SMM_DIR> --cwd <cwd> simplify_done`
-2. Launch `Workflow({ name: "code-review", args: "high <TARGET_BRANCH>...HEAD" })`
-   (background; findings arrive as a task-notification).
+1. Launch `Skill(skill: "code-review", args: "high <TARGET_BRANCH>...HEAD")`.
 
    **Cost bound.** Scale: candidate locations in the diff range —
    pass the close's own range, not wider. Tier: do not raise it —
    more finder agents, a sweep pass. First word `args`; else does
    not error, falls to default tier, absorbed into the diff range.
-   Use the named `Workflow` call — a hand-authored substitute has
-   none of it.
-3. **Wait** for the notification; read its `findings` array.
-4. `Skill(skill: "xp-quality-review")` — preload emits `consume-findings`; pass
+   Invoke the named skill — a hand-authored substitute has none of
+   it.
+2. **Wait** for it to finish, then read its findings. They come back as PROSE in
+   the result, not as a structured array — reformat them yourself for the next
+   item.
+3. `Skill(skill: "xp-quality-review")` — preload emits `consume-findings`; pass
    the findings to the xp-code-reviewer it spawns to validate & fix (+ quality/
    drift/debt). Fix inline or record as debt. Handled here, not Step 5c.
 

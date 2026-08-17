@@ -148,13 +148,13 @@ class TestStep4bCostBoundProse(unittest.TestCase):
             "range, corrupting the review target",
         )
 
-    # --- AC-4 companion: invoke the named workflow, never a substitute ----
+    # --- AC-4 companion: invoke the named launcher, never a substitute ----
     def test_directs_against_substitute_fanout(self):
         self.assertRegex(
             self.section,
-            r"(?i)named `Workflow` call",
-            "Step 4b must direct the caller to invoke the named Workflow "
-            "call rather than authoring a substitute",
+            r"(?i)named skill",
+            "Step 4b must direct the caller to invoke the named skill rather "
+            "than authoring a substitute",
         )
         self.assertRegex(
             self.section,
@@ -165,7 +165,7 @@ class TestStep4bCostBoundProse(unittest.TestCase):
 
     # --- AC-1 placement: alongside the invocation it prescribes ------------
     def test_bound_sits_alongside_the_launch_line(self):
-        launch_pos = self.section.index('Workflow({ name: "code-review"')
+        launch_pos = self.section.index('Skill(skill: "code-review"')
         bound_pos = self.section.index("Cost bound")
         self.assertLess(
             launch_pos,
@@ -174,8 +174,8 @@ class TestStep4bCostBoundProse(unittest.TestCase):
         )
         # And it must not have fallen so far away that an unrelated step
         # heading (there are none inside this slice, but the ordered-list
-        # items 3/4 are the nearest landmark) sits between them.
-        wait_pos = self.section.index("**Wait** for the notification")
+        # items 2/3 are the nearest landmark) sits between them.
+        wait_pos = self.section.index("**Wait**")
         self.assertLess(
             bound_pos,
             wait_pos,
@@ -184,24 +184,54 @@ class TestStep4bCostBoundProse(unittest.TestCase):
         )
 
     # --- Ordered list survives the insertion --------------------------------
-    def test_ordered_list_still_has_all_four_items_in_order(self):
-        # A top-level paragraph inserted after item 2 would terminate the
-        # list and restart items 3-4 as a fresh "1." / "2." — corrupting the
-        # arm -> launch -> wait -> consume sequence the orchestrator follows.
+    def test_ordered_list_still_has_all_three_items_in_order(self):
+        # A top-level paragraph inserted after item 1 would terminate the
+        # list and restart items 2-3 as a fresh "1." / "2." — corrupting the
+        # launch -> wait -> consume sequence the orchestrator follows.
+        #
+        # THREE items, not four: the manual arm was item 1 until the built-in
+        # became a Skill. `review_cycle_done` routes a `code-review` Skill to
+        # the simplify target at launch (pinned in
+        # tests/hooks/test_review_cycle_done.py), so arming by hand as well put
+        # TWO writers on one review.
         positions = [
             self.section.index(marker)
             for marker in (
-                "1. **Arm the marker**",
-                "2. Launch `Workflow(",
-                "3. **Wait** for the notification",
-                '4. `Skill(skill: "xp-quality-review")`',
+                '1. Launch `Skill(skill: "code-review"',
+                "2. **Wait**",
+                '3. `Skill(skill: "xp-quality-review")`',
             )
         ]
         self.assertEqual(
             positions,
             sorted(positions),
-            "the arm -> launch -> wait -> consume list must stay intact "
-            "and in order after the cost-bound insertion",
+            "the launch -> wait -> consume list must stay intact and in "
+            "order after the cost-bound insertion",
+        )
+
+    # --- The second writer that double-counted every close ------------------
+    def test_does_not_arm_the_marker_by_hand_as_well(self):
+        """One review, one `simplify_complete`.
+
+        The launcher's own PostToolUse arms the review-cycle marker — that is
+        `review_cycle_done`'s `code-review` routing, pinned in
+        tests/hooks/test_review_cycle_done.py. Step 4b used to ALSO instruct a
+        manual `review_flag_cli.py ... simplify_done`, which was right while the
+        launcher was a Workflow (a Workflow completion never reaches a
+        PostToolUse:Skill|Agent hook) and became a double-write the moment it
+        was not.
+
+        `retro_metrics._classify_lifecycle_events` increments with no dedup, so
+        the retro reported two simplifies per review. Measured on this repo's
+        own SMM before the fix: `simplify_complete` at 20:14:37 (the manual arm)
+        and again at 20:18:32 (the hook, on the Skill launch), for one review.
+        """
+        self.assertNotIn(
+            "review_flag_cli",
+            self.section,
+            "Step 4b must not arm the review-cycle marker by hand: the "
+            "launcher's own PostToolUse already does, and two writers "
+            "double-count the review in the retro",
         )
 
     # --- AC-4: no copied-out internal numbers -------------------------------

@@ -30,8 +30,9 @@ allowed-tools:
 The preload's `MODE` line selects Step 1's correctness handling:
 **`MODE=self-find`** (per-increment, `/code-review` did NOT run) — the
 xp-code-reviewer **self-finds correctness** itself; **`MODE=consume-findings`**
-(close path, `/code-review` ran first) — Step 1 reads its JSON findings array
-and the reviewer validates & fixes them. Both modes also cover quality/drift/debt.
+(close path, `/code-review` ran first) — Step 1 reads the findings out of its
+result prose and the reviewer validates & fixes them. Both modes also cover
+quality/drift/debt.
 
 ## Step 1: Gather Reviewer Inputs
 
@@ -41,7 +42,7 @@ Pass the relevant existing concerns and debts in the prompt — the reviewer can
 
 ### Gather Code-Review Findings (consume-findings mode only)
 
-When `MODE=consume-findings`: `/code-review` runs via the Workflow tool, so its verified findings arrive in the **task-notification result** (a `findings` array; each entry: `file`, `line`, `summary`, `failure_scenario`) — read them from there, not from a Skill result. All are unaddressed; pass them to the subagent to validate and fix. If the array is empty, say so in the prompt.
+When `MODE=consume-findings`: `/code-review` was launched at close Step 4b and its verified findings come back as **prose in its result** — it forks, and the structured findings channel is not available to it, so there is no array to read. Take each finding's file, line, summary and failure scenario out of that prose yourself. All are unaddressed; pass them to the subagent to validate and fix. If it reported none, say so in the prompt rather than omitting the section — an empty section reads as a step that was skipped.
 
 Format as a numbered list for the prompt:
 ```

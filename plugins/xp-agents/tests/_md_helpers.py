@@ -52,6 +52,19 @@ CORPUS_WIDE_FORBIDDEN: tuple[str, ...] = (
     "accept_in_flight",
     "close_cycle_stop_gate",
     "quality_review_done",
+    # PROMOTED from SECTION_SCOPED_FORBIDDEN, by leg 3 rather than by choice.
+    # Its one legitimate use was close Step 4b's manual arm line, which existed
+    # because a Workflow completion reaches no PostToolUse:Skill|Agent hook. The
+    # launcher is a forked Skill now and arms the marker itself, so instructing
+    # a second arm double-counted the review — the line went, and with it the
+    # only shipped prose naming this internal flag. It now sits beside the
+    # sibling flag it was always the twin of.
+    #
+    # If a launcher that cannot arm itself ever returns, this demotes back —
+    # but prefer a CLI invocation that does not spell the flag in prose, since
+    # naming an internal state field in shipped instructions is what this whole
+    # table exists to discourage.
+    "simplify_done",
     "review_cycle_done",
     ".rs",
     # Boundary matching stops the singular forms above from covering their
@@ -87,7 +100,6 @@ SECTION_SCOPED_FORBIDDEN: tuple[str, ...] = (
     "class ",
     "function ",
     "ACCEPT_IN_FLIGHT",
-    "simplify_done",
     "assign-pending",
 )
 

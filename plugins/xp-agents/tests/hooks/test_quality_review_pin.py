@@ -28,15 +28,35 @@ class TestQualityReviewPin(unittest.TestCase):
         _, cls.body = _split_frontmatter_body(_SKILL_PATH.read_text())
         cls.body_lower = cls.body.lower()
 
-    def test_step1_reads_json_findings_array(self):
-        # In consume-findings mode the orchestrator reads the JSON array
-        # /code-review returns (it does not reconstruct from memory).
-        self.assertIn(
-            "json",
-            self.body_lower,
-            "xp-quality-review consume-findings branch must instruct reading "
-            "/code-review's JSON findings array",
-        )
+    def test_step1_reads_the_findings_out_of_the_result_prose(self):
+        """Consume-findings reads what /code-review actually returned.
+
+        It used to say a JSON findings array, which was true while the launcher
+        was a Workflow. The launcher is a forked Skill and returns PROSE — the
+        structured findings channel is not available to it — so an instruction
+        to read an array sends the orchestrator looking for something that is
+        not there, and the likeliest recovery is to reconstruct from memory,
+        which is the one thing this pin has always existed to prevent.
+        """
+        self.assertIn("prose", self.body_lower)
+
+    def test_no_sentence_still_promises_a_structured_array(self):
+        """The stale-sibling guard, and the reason this pin was nearly vacuous.
+
+        TWO sentences described the channel — the mode summary and the Step 1
+        gather block. The old assertion was a bare substring over the WHOLE
+        body, so correcting one of them left it green while the other still
+        promised an array. Assert the absence across the body instead, which no
+        single-site edit can satisfy on its own.
+        """
+        for stale in ("json", "findings array"):
+            self.assertNotIn(
+                stale,
+                self.body_lower,
+                f"a sentence still promises {stale!r}; /code-review forks and "
+                "returns prose, so no part of this skill may describe a "
+                "structured findings channel",
+            )
 
     def test_branches_on_mode(self):
         # The preload emits MODE; Step 1 must branch on both values.

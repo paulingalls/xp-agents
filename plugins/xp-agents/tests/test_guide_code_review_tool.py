@@ -71,25 +71,62 @@ def _code_review_lines(path: Path) -> list[tuple[int, str, str]]:
     return out
 
 
-class TestNoSkillLaunchSuggestion(unittest.TestCase):
-    """AC: no path suggests launching /code-review with the Skill tool."""
+class TestTheSkillLaunchIsNamedExactlyOnce(unittest.TestCase):
+    """AC: the Skill launch is the ONE launch site, and nothing denies it.
 
-    def test_no_shipped_mention_suggests_skill_launch(self):
-        violations = []
+    INVERTED, not deleted. This class used to forbid `Skill(... code-review`
+    anywhere in shipped prose, because launching that way was believed
+    impossible — a belief that came from the same place as
+    `pre_tool_skill`'s "cannot be launched with the Skill tool" and that is
+    what made close Step 4b unrunnable: the Workflow name it named is not
+    registered in the shipped build, so the one broad correctness pass silently
+    did not run.
+
+    The mirror image ("every mention must name Skill") would be VACUOUS — most
+    mentions name no tool at all, so it would pass against prose that launches
+    nothing. The replacement invariant is therefore three specific claims,
+    each with its own failure it is there to catch.
+    """
+
+    def _mentions(self):
         for f in _shipped_files():
             for lineno, line, scannable in _code_review_lines(f):
-                loc = f"{rel(f, _PLUGIN_ROOT)}:{lineno}: {line.strip()}"
-                if _SKILL_CALL_RE.search(scannable):
-                    violations.append(loc)
-                    continue
-                if re.search(r"\bSkill\b", scannable) and not _NEGATION_RE.search(
-                    scannable
-                ):
-                    violations.append(loc)
+                yield f, lineno, line, scannable
+
+    def test_exactly_one_shipped_line_launches_it(self):
+        """Two launch sites drift apart; zero means the pass never runs."""
+        launches = [
+            f"{rel(f, _PLUGIN_ROOT)}:{lineno}: {line.strip()}"
+            for f, lineno, line, scannable in self._mentions()
+            if _SKILL_CALL_RE.search(scannable)
+        ]
+        self.assertEqual(
+            len(launches),
+            1,
+            "expected exactly one shipped Skill launch of /code-review, got "
+            f"{len(launches)}:\n" + "\n".join(launches),
+        )
+
+    def test_the_launch_site_is_the_close_review_reference(self):
+        """It belongs beside the cost bound that governs it, not in a guide."""
+        for f, _lineno, _line, scannable in self._mentions():
+            if _SKILL_CALL_RE.search(scannable):
+                self.assertEqual(f.name, "_close_pipeline_review.md")
+
+    def test_no_shipped_line_denies_the_skill_can_launch_it(self):
+        """The exact claim that broke Step 4b. A line may still say the
+        Workflow tool cannot launch it — that one is true — so the negation
+        only counts when `Skill` is the thing being denied."""
+        violations = [
+            f"{rel(f, _PLUGIN_ROOT)}:{lineno}: {line.strip()}"
+            for f, lineno, line, scannable in self._mentions()
+            if re.search(r"\bSkill\b", scannable) and _NEGATION_RE.search(scannable)
+        ]
         self.assertEqual(
             violations,
             [],
-            "shipped mention(s) suggest Skill-launching /code-review:\n"
+            "shipped mention(s) deny that the Skill tool can launch "
+            "/code-review, which is false and is what broke close Step 4b:\n"
             + "\n".join(violations),
         )
 
