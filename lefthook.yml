@@ -122,15 +122,25 @@ pre-commit:
       run: |
         files=""
         dirs=""
+        wide=""
+        add_file() {
+          [ -f "$1" ] || return 0
+          case " $files " in *" $1 "*) ;; *) files="$files $1" ;; esac
+        }
         for f in {staged_files}; do
           case "$f" in plugins/xp-agents/tests/*) ;; *) continue ;; esac
           case "${f##*/}" in
             test_*.py)
-              [ -f "$f" ] && files="$files $f"
+              add_file "$f"
               ;;
             *.py)
               d="${f%/*}"
               [ -d "$d" ] || continue
+              if [ "$d" = plugins/xp-agents/tests ]; then
+                for t in plugins/xp-agents/tests/test_*.py; do add_file "$t"; done
+                wide=1
+                continue
+              fi
               case " $dirs " in *" $d "*) ;; *) dirs="$dirs $d" ;; esac
               ;;
             *) continue ;;
@@ -159,7 +169,7 @@ pre-commit:
           echo "no staged test files survive the filter — skipping"
         else
           par=""
-          [ -n "$dirs" ] && par="-n auto"
+          [ -n "$dirs$wide" ] && par="-n auto"
           env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u SMM_DIR -u XP_AGENTS_DATA -u XP_FILE_DOMAIN_DRIFT_TOLERANCE -u XP_LOCK_TIMEOUT_SECONDS -u XP_SMM_MIGRATE -u XP_TEAMMATE_NAME -u XP_PERF -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest $dirs $files $par -q || [ $? -eq 5 ]
         fi
 
