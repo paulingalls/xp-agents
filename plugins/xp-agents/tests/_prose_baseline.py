@@ -57,7 +57,11 @@ the entry to go, which banks the deletion as the new bound.
 # from a raised one.
 PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/_common.py": 164,
-    "plugins/xp-agents/scripts/bash_post_tool.py": 123,
+    # 123 -> 133: the non-commit branch now says why the catch-up observer sits
+    # there rather than on every Bash, and why it runs before the xp-agent
+    # return. Both are decisions a reader would otherwise reverse — the first
+    # looks like an oversight, the second like a leak.
+    "plugins/xp-agents/scripts/bash_post_tool.py": 133,
     "plugins/xp-agents/scripts/branch_lifecycle.py": 149,
     "plugins/xp-agents/scripts/branch_resolution.py": 207,
     "plugins/xp-agents/scripts/branching.py": 180,
@@ -116,7 +120,11 @@ PROSE_MEASURED: dict[str, int] = {
     # 167 -> 170: `is_merge` in the metadata table now says ANY merge HEAD, not
     # "close cycle, or the rebuild's merge arm" — that reading is what produced
     # the story_metrics defect.
-    "plugins/xp-agents/scripts/commit_event.py": 170,
+    # 170 -> 184: `recorded_commit_hashes` arrives with the live-log bound
+    # written down. Three callers now dedup against this index and each had
+    # hand-rolled the walk; the caveat that "absent" means "not visible from
+    # here" rather than "never recorded" is the part a fourth copy would drop.
+    "plugins/xp-agents/scripts/commit_event.py": 184,
     # 161 -> 168: the commit-size gate now states why a merge is exempt, which
     # is where that reasoning belongs — it was asserted in commit_emit.py while
     # no code implemented it.
@@ -142,7 +150,20 @@ PROSE_MEASURED: dict[str, int] = {
     # arrows are hand-typed while the pin is generated — the third stale number in
     # this table in one sprint. The rule the table already states (numbers come
     # from `_prose_scan`, never a keyboard) applies to prose ABOUT the numbers too.
-    "plugins/xp-agents/scripts/commits.py": 167,
+    # 167 -> 182 for the two rev-parameterized reads. `get_commit_files` has to
+    # say why it is not a rev argument on `get_committed_files` — that one
+    # diffs against the WORKING TREE, so the obvious merge of the two would
+    # silently change an existing caller's answer on a dirty checkout.
+    "plugins/xp-agents/scripts/commits.py": 182,
+    # Arrives above the floor, so it records a ceiling on its first commit —
+    # no absolute quoted here, per this file's own rule that prose ABOUT the
+    # numbers goes stale exactly the way the numbers do.
+    # Most of it is one warning: the observer's guard is REACHABILITY
+    # and the reflog check that guards the attributed path must not be added
+    # here. Story-004's brief demanded that warning in the docstring precisely
+    # because a reader who "restores" the missing check silently reduces the
+    # module to recording at most the newest commit.
+    "plugins/xp-agents/scripts/commit_observer.py": 130,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.
@@ -160,7 +181,11 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/lint_runners.py": 177,
     "plugins/xp-agents/scripts/linter_invocation.py": 201,
     "plugins/xp-agents/scripts/linter_tables.py": 290,
-    "plugins/xp-agents/scripts/markers.py": 123,
+    # 123 -> 131: LAST_SEEN_HEAD records that it is keyed on the REPO, not the
+    # session. The SMM is shared across worktrees, so the wrong keying is not a
+    # style question — every checkout would read every other's HEAD as an
+    # unexplained jump.
+    "plugins/xp-agents/scripts/markers.py": 131,
     "plugins/xp-agents/scripts/migration_lock.py": 121,
     "plugins/xp-agents/scripts/result_counts.py": 126,
     "plugins/xp-agents/scripts/retro_metrics.py": 130,

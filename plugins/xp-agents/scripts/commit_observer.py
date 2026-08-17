@@ -150,6 +150,13 @@ def observe(
     plain read of `.git/HEAD` and the ref it names, precisely so that the price
     of watching every Bash is not a fork per Bash.
 
+    There is deliberately NO fork fallback when the reader cannot answer. Most
+    "cannot say" answers are a cwd that is not a repo at all — extremely common
+    — and forking there would put the full `git rev-parse` cost on precisely
+    the calls with nothing to observe. The cost of the choice is that a repo
+    layout `git_head` does not cross goes unobserved, which is the behaviour
+    that shipped before this module rather than a new loss.
+
     A first observation with no marker SEEDS and reconciles nothing: the lower
     bound would otherwise be unbounded and the first Bash of every session
     would walk the repo's whole history.
