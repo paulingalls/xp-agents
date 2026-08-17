@@ -9,8 +9,8 @@ wrong question.
 
 These do not patch it. Each runs a real reviewer completion against a real git
 repo, so the legs actually run — which is what makes them able to fail on WHAT
-the scan reads (the reviewer's own unstaged fixes) and on what it SPENDS (three
-git calls inside a 5s hook budget).
+the scan reads (the reviewer's own unstaged and untracked fixes) and on what it
+SPENDS (five git reads inside a 5s hook budget).
 """
 
 import math
@@ -64,13 +64,13 @@ class _RealTreeCase(_HookTestCase):
 
 
 class TestTheScopeIsMeasuredAgainstARealTree(_RealTreeCase):
-    """The one class here that does NOT patch the scan.
+    """What the scan actually reads, against a tree it did not choose.
 
-    Every other test in this file hands `_record_completed_quality_review` its
-    answer, so all of them pass against a recorder that asks git the wrong
-    question. That is how v5.17.0 shipped a coverage record which, in the
-    dominant flow, is empty: the reviewer's fixes are UNSTAGED when it stops,
-    and the scan was reading staged + committed only.
+    The contrast is with test_review_coverage.py, not with this file — no test
+    HERE patches the scan. Every test THERE hands the recorder its answer, which
+    is right for pinning set arithmetic and is exactly how v5.17.0 shipped a
+    coverage record that is empty in the dominant flow: the reviewer's fixes are
+    UNSTAGED when it stops, and the scan read staged + committed only.
 
     Unstaged is not an edge case here, it is the normal state. The reviewer
     edits files and returns; nothing stages them. And they are exactly the

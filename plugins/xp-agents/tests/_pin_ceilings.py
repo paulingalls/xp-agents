@@ -226,7 +226,15 @@ BAND_CEILINGS = {
     # the twelve rejection cases they extend.
     "plugins/xp-agents/tests/smm/test_append_safety.py": 472,
     "plugins/xp-agents/tests/scaffold/test_scaffold_cli_detect.py": 452,
-    "plugins/xp-agents/tests/hooks/test_pre_tool_bash_branch_delete.py": 451,
+    # Ratcheted 451 -> 478 at the v5.19.0 close review, for the one test that
+    # covers the INTERSECTION of two shapes this file already pinned separately:
+    # a heredoc body naming a delete (allowed) and a delete chained after a
+    # quoted mention (blocked). `strip_heredocs` deleted the remainder of the
+    # heredoc's introducing line along with the body, so a delete chained THERE
+    # was invisible — and neither existing half could see it. Its docstring
+    # carries the mutation check, because the first draft put the chain after the
+    # terminator instead, where both the fixed and unfixed helper block it.
+    "plugins/xp-agents/tests/hooks/test_pre_tool_bash_branch_delete.py": 478,
     # Entered the band with story-011's stream-relay proofs (both-streams +
     # tail-eviction) added to TestBootstrapFailure's sibling classes.
     "plugins/xp-agents/tests/hooks/test_spawn_teammate_bootstrap.py": 461,

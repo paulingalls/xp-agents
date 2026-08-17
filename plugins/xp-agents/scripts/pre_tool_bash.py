@@ -243,6 +243,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # of the skip and assert nothing, which is why the one below names the plan
     # reviewer.
     #
+    # And it buys one thing the two paragraphs above do not mention, which is
+    # the larger half: sitting above `get_validated_smm_dir` too, it refuses in
+    # projects with NO shared model, so the set it binds is every Bash command in
+    # an installed project — not only this plugin's agents. The guard above sits
+    # here on the same reasoning but matches two agent names, so its precedent
+    # covers the position and not the reach. `git_write_exit_gate`'s own
+    # docstring argues why that is deliberate.
+    #
     # Its sibling `captured_exit_block` stays BELOW the skip and the asymmetry
     # is not an oversight: that gate reads the project's declared test command
     # out of system_context, which lives in the SMM dir, so it cannot sit above

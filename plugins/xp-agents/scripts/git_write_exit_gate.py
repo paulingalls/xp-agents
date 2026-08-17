@@ -40,6 +40,17 @@ meant it". In the other direction, a write inside a compound statement
 that apart needs keyword knowledge the shared walk has not got, and over-
 refusing a shape agents rarely type is the safe direction.
 
+WHOSE COMMANDS IT BINDS, stated because "needs no shared-model directory" is a
+narrower claim than the placement makes. Needing none is what lets the caller put
+this above its recursion skip AND above the shared-model lookup — and above that
+lookup means it refuses in projects that have no shared model at all, so the
+group it binds is EVERY Bash command in an installed project, not just this
+plugin's own agents. Its sibling `pre_tool_bash_reviewer_guard` sits in the same
+position on the same reasoning but only ever matches two agent names, so the
+precedent does not carry the footprint. Deliberate: the status a pipe throws away
+is thrown away whether or not a project tracks work here, and the marker is the
+release valve. Not free, and not the reviewer guard's blast radius.
+
 Reason-returning, like `pre_tool_bash_reviewer_guard`: this module never raises,
 never reads or writes a stream, and never decides an exit code. The caller wraps
 the returned reason. It needs no shared-model directory, which is what lets the
@@ -154,11 +165,10 @@ def _refusal(subcommand: str) -> str:
 
     The failure this prevents is an agent trusting a wrapper's exit status; a
     refusal that does not name the command to type next spends the same time a
-    different way. Four things it has to carry: which subcommand was refused,
-    that `&&` on either side is still fine (without it the reading is "never
-    compose a push", and the next attempt drops the `cd <dir> &&` or the
-    `git -C <path>` a worktree run needs), the redirect — which is what the
-    agent reaching for `| tail` actually wanted — and the escape marker.
+    different way. What it must carry, and why each part earns its place, is
+    pinned one assertion at a time in `TestTheRefusalSaysWhatToTypeNext` — read
+    there rather than here, since a second copy of those four reasons is prose
+    that rots against the tests stating them.
     """
     return (
         f"Refusing this `git {subcommand}`: its exit status cannot reach the "

@@ -113,7 +113,8 @@ it both still refuse.
 at no stage, so a reviewer that writes a test recorded nothing for it and the next
 `git add -A` counted it unreviewed: the same defect this release fixes for edits,
 surviving for additions. A fourth scan leg (`ls-files --others
---exclude-standard`) now runs inside the same budget, split five ways.
+--exclude-standard`) now runs inside the same budget — five reads, but four
+shares: the HEAD read keeps its own second for the reason above.
 
 *And the HEAD-distance expiry counted commits nobody landed.* `rev-list --count`
 counts everything reachable, so a `git merge <base>` bringing three commits read
@@ -139,6 +140,28 @@ not, so a double-quoted message body no longer reaches any scanner as code.
 
 ### Known residuals
 
+Three of these are the same shape — a fix that landed in one consumer of a
+composition this release exists to share — and listing them together is the point
+rather than an accident of drafting. The close review found the third by asking
+why the first two were listed and a fourth was not.
+
+- **The read-pipeline elision is fixed in the write gate only, and this is the
+  one a user will hit.** `|` binds tighter than `&&`, so the walk misreads
+  `<runner> && cat out.log | tail -5` as a captured runner. The write gate elides
+  read-only pipelines before the walk; `exit_capture_gate` does not, so with a
+  test command declared **that command is still refused — and its own refusal text
+  recommends exactly that shape.** Measured on the branch, not inferred. The fix
+  is to share the elision, which needs a home in a file now nine lines from its
+  cap, hence an extraction first.
+- **A completed review credits the wrong tree for a teammate story.** The
+  reviewer's diff is taken in `TEAMMATE_CWD` — a live worktree — while this record
+  keys on the `SubagentStop` payload's cwd, the orchestrator checkout. So the
+  widened scan can record the ORCHESTRATOR's unstaged and untracked files as
+  reviewed, and the gate then forgives exactly what the next main-checkout commit
+  touches. The review FLAG has mis-targeted this way since before this release;
+  what is new is that coverage adds a path-keyed, two-commit exemption on top of
+  it. Closing it needs the reviewed root in the payload, which that payload does
+  not carry — the same wall as the close-range divergence below.
 - **The line-continuation bug is fixed in one consumer, not in the walk.** The
   join belongs in `shell_exit_structure`, whose three other consumers still have
   it — so **v5.19.0 ships a captured-exit gate that falsely refuses a wrapped

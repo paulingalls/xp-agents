@@ -162,7 +162,16 @@ PROSE_MEASURED: dict[str, int] = {
     # (a `;` that is compound-statement syntax), and why `|` after `&&` is not a
     # discard — the last of which it had refused, while its refusal text
     # prescribed that exact shape.
-    "plugins/xp-agents/scripts/git_write_exit_gate.py": 130,
+    # 130 -> 140 at the close review, and this one is a NET trade rather than an
+    # allowance: `_refusal`'s docstring stopped restating the four things four
+    # tests already pin (-4), and the module gained the paragraph naming WHOSE
+    # commands it binds (+14). The reviewer's finding was that "needs no
+    # shared-model directory" is a narrower claim than the placement makes — the
+    # gate also sits above the shared-model lookup, so it refuses in projects
+    # with none, which is every Bash command in an installed project and not
+    # just this plugin's agents. A footprint that wide, recorded nowhere, is
+    # what this table exists to stop being cheap to leave out.
+    "plugins/xp-agents/scripts/git_write_exit_gate.py": 140,
     "plugins/xp-agents/scripts/hook_liveness.py": 196,
     # 227 -> 239: CLOSE_CYCLE_AGENT_ID lands here rather than in
     # `event_metadata` — it is an agent identity, not an event metadata key, and
