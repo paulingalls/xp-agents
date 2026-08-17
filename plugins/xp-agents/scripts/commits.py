@@ -202,6 +202,7 @@ def get_code_files_for_review(
     command: str = "",
     *,
     staged_diff: str | None = None,
+    include_unstaged: bool = False,
 ) -> list[str]:
     """Get deduplicated code files changed since last review + staged.
 
@@ -213,6 +214,13 @@ def get_code_files_for_review(
 
     ``staged_diff`` is ``get_staged_diff``'s text, for a caller that already
     holds it: the staged names are parsed from it instead of re-shelling.
+
+    ``include_unstaged`` adds the unstaged leg unconditionally, for a caller
+    that is not looking at a command at all. The ``command`` route below infers
+    the same leg from a shell string, which only the pre-commit gate has; the
+    recorder in `review_cycle_legs` runs at a subagent's completion and knows
+    the leg is wanted outright. It asks with this instead of passing a fake
+    command, which would put a lie in the argument the regex reads.
     """
     all_files: set[str] = set()
 
@@ -233,8 +241,10 @@ def get_code_files_for_review(
     # If the command includes 'git add' or 'git commit -a', also check
     # unstaged tracked changes — those will be staged by the command itself.
     # GIT_PREFIX tolerates `git -C <path>` for both subcommands.
-    if re.search(git_commits.GIT_PREFIX + r"add\b", command) or re.search(
-        git_commits.GIT_PREFIX + r"commit\s+-a", command
+    if (
+        include_unstaged
+        or re.search(git_commits.GIT_PREFIX + r"add\b", command)
+        or re.search(git_commits.GIT_PREFIX + r"commit\s+-a", command)
     ):
         extra_commands.append(["git", "diff", "--name-only", "-z"])
 

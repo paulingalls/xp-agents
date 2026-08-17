@@ -142,12 +142,20 @@ def _record_completed_quality_review(smm_dir: Path, cwd: str, input_data: dict) 
     The COVERAGE has to be written at completion for a second reason: the
     reviewer's fixes are in the working tree by now, and at launch they did not
     exist. Recorded at launch the set would omit exactly the files it exists to
-    forgive. Only the STAGED and committed ones, though — the scan does not
-    read unstaged work, so in commit cadence the set is often empty and
-    forgives nothing, which is the safe direction. Keyed on the repo, like the
-    watermark, because the paths are repo-relative. `commits` is imported
-    lazily — every subagent completion reaches this module, only this one needs
-    git.
+    forgive.
+
+    UNSTAGED IS THE POINT, not an extra. A reviewer edits files and returns;
+    nothing stages them. v5.17.0 asked for the default scan, which reads staged
+    + committed only, so in the dominant flow it recorded an EMPTY set and the
+    fix it shipped did nothing — the next `git add -A && git commit` counted
+    the reviewer's own fixes unreviewed and demanded another review. Widening
+    is also the honest scope rather than a loosening: the diff the review was
+    handed is the working tree's (`git diff HEAD`, staged and unstaged both),
+    so the narrower set claimed less than was actually looked at.
+
+    Keyed on the repo, like the watermark, because the paths are repo-relative.
+    `commits` is imported lazily — every subagent completion reaches this
+    module, only this one needs git.
 
     ORDER: the two git reads run FIRST and the flag last, so an interrupt
     between them leaves the gate armed rather than cleared — the same direction
@@ -159,7 +167,7 @@ def _record_completed_quality_review(smm_dir: Path, cwd: str, input_data: dict) 
 
     repo_key = identity.review_watermark_key(cwd)
     watermark = review_records.read_review_watermark(smm_dir, repo_key)
-    scope = commits.get_code_files_for_review(cwd, watermark)
+    scope = commits.get_code_files_for_review(cwd, watermark, include_unstaged=True)
     review_records.write_review_coverage(smm_dir, repo_key, scope)
     review_records.set_review_flag(
         smm_dir, identity.review_flags_key(cwd), "quality_review_done"

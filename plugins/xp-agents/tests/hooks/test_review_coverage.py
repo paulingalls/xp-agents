@@ -30,6 +30,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import _repo_fixtures as repo_fixtures
+import identity
 import pre_tool_bash_commit_gates
 import review_cycle_done
 import review_records
@@ -352,6 +354,77 @@ class TestCoverageBelongsToTheRepoItWasMeasuredIn(_HookTestCase):
         self.assertEqual(
             review_records.read_review_coverage(self.smm_dir, _KEY), {"a.py"}
         )
+
+
+class TestTheScopeIsMeasuredAgainstARealTree(_HookTestCase):
+    """The one class here that does NOT patch the scan.
+
+    Every other test in this file hands `_record_completed_quality_review` its
+    answer, so all of them pass against a recorder that asks git the wrong
+    question. That is how v5.17.0 shipped a coverage record which, in the
+    dominant flow, is empty: the reviewer's fixes are UNSTAGED when it stops,
+    and the scan was reading staged + committed only.
+
+    Unstaged is not an edge case here, it is the normal state. The reviewer
+    edits files and returns; nothing stages them. And they are exactly the
+    files the exemption exists to forgive — so an empty set means the next
+    `git add -A && git commit` counts them unreviewed and demands another
+    review, whose fixes demand another. The review the preload hands it is the
+    working-tree diff (`git diff HEAD`, staged and unstaged both), so a scope
+    that omits unstaged work is also narrower than what was actually reviewed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = self._tmp.name
+        repo_fixtures.init_repo(self.repo)
+        Path(self.repo, "a.py").write_text("x = 1\n")
+        Path(self.repo, "b.py").write_text("y = 1\n")
+        repo_fixtures.git_in(self.repo, "add", "-A")
+        repo_fixtures.git_in(self.repo, "commit", "-m", "base")
+        self.key = identity.review_watermark_key(self.repo)
+        self.addCleanup(self._tmp.cleanup)
+
+    def _reviewer_stops(self) -> set[str]:
+        subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "rev-1",
+                "agent_type": "xp-agents:xp-code-reviewer",
+                "cwd": self.repo,
+                "last_assistant_message": "Done",
+            },
+            smm_dir=self.smm_dir,
+        )
+        return review_records.read_review_coverage(self.smm_dir, self.key)
+
+    def test_the_reviewers_own_unstaged_fix_is_covered(self):
+        """The dominant flow, and the one v5.17.0 missed."""
+        Path(self.repo, "a.py").write_text("x = 2\n")
+
+        self.assertEqual(self._reviewer_stops(), {"a.py"})
+
+    def test_staged_and_unstaged_fixes_are_both_covered(self):
+        """A reviewer that staged some of its edits and not others — the set is
+        the union, not whichever half the scan happens to read."""
+        Path(self.repo, "a.py").write_text("x = 2\n")
+        repo_fixtures.git_in(self.repo, "add", "a.py")
+        Path(self.repo, "b.py").write_text("y = 2\n")
+
+        self.assertEqual(self._reviewer_stops(), {"a.py", "b.py"})
+
+    def test_an_untouched_tree_still_covers_nothing(self):
+        """The widening must not become a blanket exemption: a review that
+        changed nothing forgives nothing, so the gate is unaffected."""
+        self.assertEqual(self._reviewer_stops(), set())
+
+    def test_a_file_the_reviewer_left_alone_is_not_covered(self):
+        """Membership, not just count — the assertion a set-size check would
+        pass while exempting the wrong file."""
+        Path(self.repo, "a.py").write_text("x = 2\n")
+
+        self.assertNotIn("b.py", self._reviewer_stops())
 
 
 if __name__ == "__main__":
