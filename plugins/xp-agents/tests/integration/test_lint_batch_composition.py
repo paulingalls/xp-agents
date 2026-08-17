@@ -123,8 +123,15 @@ class _LintedRepoCase(_IntegrationTestCase):
     # -- driving the hooks ---------------------------------------------------
 
     def _run_hook(self, script: str, command: str) -> subprocess.CompletedProcess:
-        """Drive a hook as a real subprocess with the shims ahead on PATH."""
-        return self._run_script_with_env(
+        """Drive a hook as a real subprocess with the shims ahead on PATH.
+
+        The exit code is checked because a hook that dies mid-run spawns
+        nothing, and every "zero spawns" assertion below reads an empty log as
+        "correctly declined to run". 0 (allow) and 2 (block) are the only codes
+        these hooks are allowed to produce; 1 is an unhandled traceback, which
+        the harness would also read as non-blocking.
+        """
+        result = self._run_script_with_env(
             script,
             {
                 "session_id": "int-test",
@@ -137,6 +144,14 @@ class _LintedRepoCase(_IntegrationTestCase):
             {"PATH": f"{self.bin}:{self._test_env.get('PATH', '')}"},
             cwd=self.repo,
         )
+        self.assertIn(
+            result.returncode,
+            (0, 2),
+            f"{script} exited {result.returncode} — it crashed rather than "
+            f"running the lint leg, so any count below is read off an empty "
+            f"log: {result.stderr}",
+        )
+        return result
 
     def _seed_lint_concerns(self, *rel_paths: str) -> dict[str, str]:
         """One unresolved lint concern per path; returns {path: event id}.
@@ -326,6 +341,12 @@ class TestTwoConfigsDoNotLeakIntoEachOther(_LintedRepoCase):
         self.assertEqual(len(npx_spawns), 1, f"eslint: {npx_spawns}")
 
         for name in _TS_FILES:
+            self.assertIn(
+                name,
+                npx_spawns[0],
+                f"eslint's single batch skipped {name} — one process is only "
+                f"correct if it covers the whole group: {npx_spawns}",
+            )
             self.assertNotIn(
                 name,
                 ruff_spawns[0],
@@ -333,6 +354,11 @@ class TestTwoConfigsDoNotLeakIntoEachOther(_LintedRepoCase):
                 f"are keyed on (linter, config) and must not blend: {ruff_spawns}",
             )
         for name in _PY_FILES:
+            self.assertIn(
+                name,
+                ruff_spawns[0],
+                f"ruff's single batch skipped {name}: {ruff_spawns}",
+            )
             self.assertNotIn(
                 name,
                 npx_spawns[0],
