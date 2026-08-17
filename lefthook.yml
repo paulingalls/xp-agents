@@ -171,9 +171,10 @@ pre-commit:
 # controls the contention THIS run creates; another process on the box is
 # invisible to it. Concurrent CLI teammates are a recorded Key Decision of this
 # project, so that case is normal operation — and because story close pushes, a
-# blocking timer here failed closes whose diff touched none of it. Measured:
-# read_delta 108ms against a 100ms bound (75x headroom) at load average 94.89,
-# while the full suite passed.
+# blocking timer here failed closes whose diff touched none of it. Measured: the
+# read_delta bound was set at 100ms against a 1.3ms serial reading — 75x headroom
+# — and still went red at 108ms under load average 94.89, while the full suite
+# passed. Headroom that wide not being enough is the point: no bound is.
 #
 # What those timers stood in for is now asserted structurally, on WHAT gets
 # parsed rather than how long it took: TestReadDeltaParseCost and
