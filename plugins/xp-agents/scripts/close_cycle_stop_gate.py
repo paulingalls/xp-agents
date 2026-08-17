@@ -88,7 +88,7 @@ _CLOSE_CYCLE_DEFER_WINDOW_SEC = 1800
 
 _BLOCK_MESSAGE = (
     "Close cycle mid-flight. Run /security-review (Step 4) then "
-    "/code-review high via the Workflow tool (Step 4b, if "
+    "/code-review high via the Skill tool (Step 4b, if "
     "RUN_FULL_CODE_REVIEW=true) then invoke xp-close-reviewer (Agent tool, "
     "Step 4.5); then continue Steps 5-7."
 )

@@ -64,6 +64,37 @@ class _ReviewPipelineAssertions(_ClosePreloadCommonTests):
             "preload must emit the Step 4b (full code review) heading",
         )
 
+    def test_the_emitted_step4b_carries_a_launch_that_runs(self):
+        """The only end-to-end check on Step 4b, and the gap it closes.
+
+        Every other assertion about this step reads the SOURCE file, so all of
+        them pass equally against a launch literal that is well-formed and
+        wrong — which is exactly what shipped: Step 4b named
+        `Workflow({name: "code-review"})` for releases, that name is registered
+        nowhere, and the one broad correctness pass silently did not run. No pin
+        noticed, because every pin was checking that the string was present
+        rather than that it was deliverable.
+
+        This asserts the launch survives `cat` into the preload's own stdout,
+        for each close mode that emits it. It still cannot execute the launch —
+        but it fails if the reference file stops being emitted at all, which is
+        the other way this step goes quiet.
+        """
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            'Skill(skill: "code-review"',
+            result.stdout,
+            "preload must emit Step 4b's actual launch call, not just its "
+            "heading — a heading with no launch is a step that reads as run",
+        )
+        self.assertNotIn(
+            'Workflow({ name: "code-review"',
+            result.stdout,
+            "the emitted Step 4b must not name a workflow that is registered "
+            "nowhere in the shipped build",
+        )
+
     def test_emits_step4_security_concern_metadata_kind(self):
         # Security findings file as concerns with metadata.kind=security
         # so the structural commit-link probe AND any future "filter by

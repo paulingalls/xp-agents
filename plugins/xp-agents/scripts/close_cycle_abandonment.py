@@ -71,7 +71,7 @@ DETECTORS = (DETECTOR_AGED_STOP, DETECTOR_SESSION_SWEEP, DETECTOR_CLOSE_RESTART)
 # operator to re-run it would be sending them to the wrong close.
 RECOVERY = (
     "Recovery: next session, run /security-review then /code-review high via "
-    "the Workflow tool (if RUN_FULL_CODE_REVIEW=true) then invoke "
+    "the Skill tool (if RUN_FULL_CODE_REVIEW=true) then invoke "
     "xp-close-reviewer (Agent tool); then re-attempt /xp-{sprint,plan,free}-close."
 )
 CONCERN_CONTENT = (
