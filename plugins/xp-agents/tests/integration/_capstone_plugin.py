@@ -37,9 +37,11 @@ import os
 import secrets
 import shutil
 import stat
+import subprocess
 import unittest
 from pathlib import Path
 from typing import NamedTuple
+from unittest.mock import patch
 
 # Opt-in, because a live row costs real model calls on two harnesses and the
 # suite runs on every commit and every push (customer answer af6d7b1b0c4d).
@@ -241,6 +243,88 @@ def child_env(fixture: "CapstonePlugin", **extra: str) -> dict:
     env.update(fixture.env())
     env.update(extra)
     return env
+
+
+# A live row is bounded by this and nothing else: the first harness exposes no
+# `--max-turns`, so an unbounded call would hang the whole suite instead of
+# failing one row. `_codex_harness` records what that cost once (a 600s run).
+LIVE_TIMEOUT_SECONDS = 300
+
+DELIVERED = "delivered"
+WITHHELD = "withheld"
+NOT_MEASURED = "not-measured"
+
+
+class ModelRun(NamedTuple):
+    """What one real model invocation produced."""
+
+    stdout: str
+    firings: int
+    timed_out: bool
+
+
+def verdict(run: ModelRun, token: str) -> str:
+    """Classify a live run into exactly one of three outcomes.
+
+    A pure function, so AC3's not-measured branch is assertable WITHOUT paying
+    for a model call — the branch that only appears when something went wrong is
+    otherwise the one branch never exercised.
+
+    The ordering is the substance. A run where the handler never fired, or which
+    died on the clock, tells us nothing about delivery and must never be recorded
+    as a negative: `NOT_MEASURED` is not a weaker `WITHHELD`, it is a different
+    claim. Only once the probe confirms the skill really engaged does the
+    presence of the token mean anything either way.
+    """
+    if run.timed_out or run.firings == 0:
+        return NOT_MEASURED
+    return DELIVERED if token in run.stdout else WITHHELD
+
+
+def run_first_harness(
+    fixture: "CapstonePlugin",
+    prompt: str,
+    *,
+    timeout: int = LIVE_TIMEOUT_SECONDS,
+) -> ModelRun:
+    """Put a REAL model in the loop on the first harness.
+
+    `--allowed-tools Skill` is the control that makes the measurement mean
+    something: with no Read, Bash or Grep there is no channel to the token except
+    the injected context. The digest is ungreppable anyway, but a model that
+    cannot read at all removes the question.
+
+    The guard's escape hatch is set on THIS process only, for the duration of the
+    call — `_spawn_guard` reads it from `os.environ` at Popen time, while
+    `child_env` strips it from what the child inherits. That asymmetry is the
+    whole safety property: the spawn is permitted here and impossible there.
+    """
+    fixture.child_cwd.mkdir(parents=True, exist_ok=True)
+    env = child_env(fixture)
+    argv = [
+        "claude",
+        "-p",
+        "--plugin-dir",
+        str(fixture.root),
+        "--allowed-tools",
+        "Skill",
+        "--dangerously-skip-permissions",
+    ]
+    with patch.dict(os.environ, {GUARD_ENV: "1"}):
+        try:
+            completed = subprocess.run(
+                argv,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                cwd=fixture.child_cwd,
+                env=env,
+                check=False,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return ModelRun(stdout="", firings=fixture.firings(), timed_out=True)
+    return ModelRun(stdout=completed.stdout, firings=fixture.firings(), timed_out=False)
 
 
 def _write_executable(path: Path, body: str) -> None:

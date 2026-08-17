@@ -56,15 +56,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 import preload_injection
 from _bases import _AssertNotNoneMixin, _IntegrationTestCase
 from _capstone_plugin import (
+    DELIVERED,
     FIRING_LOG_ENV,
     GUARD_ENV,
     LIVE_ENV,
+    NOT_MEASURED,
     NOT_MEASURED_PREFIX,
     OUR_PLUGIN_NAME,
     SEED_ENV,
+    WITHHELD,
+    ModelRun,
     build_capstone_plugin,
     child_env,
     live_gate_reason,
+    requires_live,
+    run_first_harness,
+    verdict,
 )
 
 
@@ -386,6 +393,96 @@ class TestTheChildEnvironmentCannotRecurse(unittest.TestCase):
             str(self.fixture.child_cwd).startswith(str(Path.cwd())),
             "the child's cwd is inside this checkout, so a child with shell "
             "access could re-enter the suite",
+        )
+
+
+class TestNotMeasuredIsNeverANegative(unittest.TestCase):
+    """AC3, pinned WITHOUT paying for a model call.
+
+    The branch that only appears when something went wrong is otherwise the one
+    branch a green suite never exercises. `verdict` is a pure function precisely
+    so this is assertable: a run that never fired, or that died on the clock,
+    says nothing about delivery, and recording it as a negative would be a claim
+    the run does not support.
+    """
+
+    def test_a_handler_that_never_fired_is_not_measured(self):
+        run = ModelRun(stdout="", firings=0, timed_out=False)
+
+        self.assertEqual(verdict(run, "abc123"), NOT_MEASURED)
+
+    def test_a_timeout_is_not_measured_even_if_something_fired(self):
+        run = ModelRun(stdout="", firings=1, timed_out=True)
+
+        self.assertEqual(verdict(run, "abc123"), NOT_MEASURED)
+
+    def test_a_token_present_after_a_confirmed_firing_is_delivery(self):
+        run = ModelRun(stdout="the value is abc123", firings=1, timed_out=False)
+
+        self.assertEqual(verdict(run, "abc123"), DELIVERED)
+
+    def test_a_token_absent_after_a_confirmed_firing_is_withheld(self):
+        """The control's expected outcome, and the one that must NOT collapse
+        into not-measured: the skill ran and the token did not arrive, which is
+        a real finding about the handler."""
+        run = ModelRun(stdout="NO-TOKEN", firings=1, timed_out=False)
+
+        self.assertEqual(verdict(run, "abc123"), WITHHELD)
+
+    def test_the_three_outcomes_are_distinct(self):
+        """A refactor collapsing two of them would silently turn "we did not
+        measure" into "we measured nothing arriving"."""
+        self.assertEqual(len({DELIVERED, WITHHELD, NOT_MEASURED}), 3)
+
+
+class TestTheFirstHarnessPutsAModelInTheLoop(unittest.TestCase):
+    """The sprint's actual question, measured — not the process boundary.
+
+    Costs real model calls, so it is opt-in. `--allowed-tools Skill` leaves the
+    model no Read, Bash or Grep, so injected context is its only possible route
+    to the token; the token is a computed digest, so there is nothing to grep
+    even if it had the tools.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _prompt(self, fixture) -> str:
+        return (
+            f"Use the {OUR_PLUGIN_NAME}:{fixture.skill_name} skill, then follow "
+            "its instructions exactly."
+        )
+
+    @requires_live("claude")
+    def test_the_token_reaches_the_model(self):
+        """AC1. A value minted inside the handler's own run, present in no file,
+        arrives in a real model's context and is dereferenceable by the name the
+        skill body uses."""
+        fixture = build_capstone_plugin(self.tmp / "live")
+        run = run_first_harness(fixture, self._prompt(fixture))
+
+        self.assertEqual(
+            verdict(run, fixture.expected_token),
+            DELIVERED,
+            f"firings={run.firings} timed_out={run.timed_out} "
+            f"stdout={run.stdout[-400:]!r}",
+        )
+
+    @requires_live("claude")
+    def test_the_control_withholds_it(self):
+        """AC2. Identical tree, identical skill, handler removed from the
+        manifest. Without this the positive above proves nothing — and the
+        firing probe is what makes the difference legible, since it shows the
+        skill still engaged."""
+        fixture = build_capstone_plugin(self.tmp / "control", inject=False)
+        run = run_first_harness(fixture, self._prompt(fixture))
+
+        self.assertEqual(
+            verdict(run, fixture.expected_token),
+            WITHHELD,
+            f"firings={run.firings} timed_out={run.timed_out} "
+            f"stdout={run.stdout[-400:]!r}",
         )
 
 
