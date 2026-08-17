@@ -20,6 +20,7 @@ from commits_issues import (
     format_maybe_addressed_line,
     open_issues_matching_commit,
 )
+from diff_filenames import get_filenames_from_diff
 
 REVIEW_CYCLE_THRESHOLD: int = 2
 
@@ -82,50 +83,6 @@ def get_staged_files(cwd: str) -> list[str]:
     return sorted(_nul_paths(out))
 
 
-def get_filenames_from_diff(diff_text: str) -> list[str]:
-    """Parse post-image filenames from a unified diff, deduped, in first-seen order.
-
-    Approximates `git diff --cached --name-only` for the common case:
-    emits the new-side path for modifications and additions, the old-
-    side path for deletions (where post is /dev/null), and the rename
-    destination for renames. Does NOT parse `copy from`/`copy to` git
-    copy-detection headers (rare for `--cached` since copy detection
-    is off by default; cross-check before threading through copy-aware
-    flows). Used to avoid re-shelling for filenames when the caller
-    already has the cached unified diff in hand.
-    """
-    if not diff_text:
-        return []
-
-    out: list[str] = []
-    seen: set[str] = set()
-
-    def _add(path: str) -> None:
-        if path and path not in seen:
-            seen.add(path)
-            out.append(path)
-
-    # Walk line-by-line so we can pair `+++ /dev/null` (deleted file) with
-    # the immediately-preceding `--- a/<path>` line.
-    last_pre: str | None = None
-    for line in diff_text.splitlines():
-        if line.startswith("--- a/"):
-            last_pre = line[len("--- a/") :]
-        elif line == "--- /dev/null":
-            last_pre = None
-        elif line.startswith("+++ b/"):
-            _add(line[len("+++ b/") :])
-            last_pre = None
-        elif line == "+++ /dev/null":
-            if last_pre is not None:
-                _add(last_pre)
-            last_pre = None
-        elif line.startswith("rename to "):
-            _add(line[len("rename to ") :])
-
-    return out
-
-
 def get_staged_diff(cwd: str) -> str | None:
     """Get unified diff of staged changes via git diff --cached.
 
@@ -142,9 +99,32 @@ def get_commit_message_body(cwd: str) -> str | None:
     return _run_git(["git", "log", "-1", "--format=%B"], cwd)
 
 
-def get_head_commit_hash(cwd: str) -> str | None:
-    """Get current HEAD commit hash. Returns None on failure."""
-    return _run_git(["git", "rev-parse", "HEAD"], cwd)
+def get_head_commit_hash(cwd: str, timeout: float = 5) -> str | None:
+    """Get current HEAD commit hash. Returns None on failure.
+
+    ``timeout`` for the same reason `get_code_files_for_review` takes a budget:
+    a caller inside a bounded hook has to pay for this read out of its own
+    allowance, not out of the per-call default.
+    """
+    return _run_git(["git", "rev-parse", "HEAD"], cwd, timeout=timeout)
+
+
+def count_commits_since(cwd: str, rev: str) -> int | None:
+    """How many commits HEAD is ahead of ``rev``, or None if git cannot say.
+
+    `rev..HEAD`, so only what is reachable from HEAD counts: after a branch
+    switch the answer is the distance between the two tips, not a walk through
+    shared history. None — not 0 — when the range does not resolve (a rewritten,
+    pruned or foreign sha), because a caller deciding whether something has
+    aged must be able to tell "nothing has landed" from "cannot tell".
+    """
+    out = _run_git(["git", "rev-list", "--count", f"{rev}..HEAD"], cwd)
+    if out is None:
+        return None
+    try:
+        return int(out)
+    except ValueError:
+        return None
 
 
 def head_landing_facts(cwd: str, rev: str) -> tuple[int, int, str | None] | None:

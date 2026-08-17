@@ -36,6 +36,10 @@ from event_schema import STATUS_ACTION_QR_COMPLETE
 # Kept here rather than in `commits`: the number is a property of THIS hook's
 # registration, and `commits` serves callers with no budget at all.
 _SCAN_BUDGET_S = 3.0
+# The HEAD read that stamps the coverage record comes out of the same 5000ms.
+# `rev-parse HEAD` is the cheapest read git has, so it gets the smallest share
+# that is still an honest bound; 3.0 + 0.5 leaves the writes their room.
+_HEAD_BUDGET_S = 0.5
 
 
 def _is_code_review(name: str) -> bool:
@@ -179,7 +183,12 @@ def _record_completed_quality_review(smm_dir: Path, cwd: str, input_data: dict) 
     scope = commits.get_code_files_for_review(
         cwd, watermark, include_unstaged=True, scan_budget_s=_SCAN_BUDGET_S
     )
-    review_records.write_review_coverage(smm_dir, repo_key, scope)
+    # The commit this coverage describes, so the read can expire it when HEAD
+    # has moved past it without any commit site spending it. Empty when git
+    # cannot say, which `read_review_coverage` treats as "no evidence to expire
+    # on" rather than as distance.
+    head = commits.get_head_commit_hash(cwd, timeout=_HEAD_BUDGET_S) or ""
+    review_records.write_review_coverage(smm_dir, repo_key, scope, head)
     review_records.set_review_flag(
         smm_dir, identity.review_flags_key(cwd), "quality_review_done"
     )

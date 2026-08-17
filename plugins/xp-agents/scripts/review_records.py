@@ -127,6 +127,7 @@ def write_review_watermark(smm_dir: Path, agent_id: str, commit_hash: str) -> No
 
 _COVERAGE_PATHS = "paths"
 _COVERAGE_AGE = "commits_survived"
+_COVERAGE_HEAD = "written_at"
 
 # A review's coverage outlives the commit that ends its own cycle, and is spent
 # by the next one. Two, not one: the reviewed work lands first, so spending it
@@ -136,31 +137,48 @@ _COVERAGE_AGE = "commits_survived"
 _COVERAGE_MAX_AGE = 2
 
 
-def write_review_coverage(smm_dir: Path, agent_id: str, paths: list[str]) -> None:
+def write_review_coverage(
+    smm_dir: Path, agent_id: str, paths: list[str], head: str = ""
+) -> None:
     """Record the code files a completed review looked at.
 
     REPLACES any older set rather than merging: coverage is the LAST review's
     scope, and a union would forgive files the current review never opened. The
     age restarts with it, so a fresh review always covers its own fixes.
+
+    ``head`` is the commit the review was recorded at, and is what lets
+    `read_review_coverage` expire a record no commit site ever spent. Optional
+    because a caller that cannot resolve one is better off writing coverage
+    without it than not at all: the write-driven ageing below still applies,
+    which is exactly the behaviour before this field existed.
     """
-    marker_write(
-        smm_dir,
-        REVIEW_COVERAGE,
-        {_COVERAGE_PATHS: sorted(set(paths)), _COVERAGE_AGE: 0},
-        agent_id,
-    )
+    record = {_COVERAGE_PATHS: sorted(set(paths)), _COVERAGE_AGE: 0}
+    if head:
+        record[_COVERAGE_HEAD] = head
+    marker_write(smm_dir, REVIEW_COVERAGE, record, agent_id)
 
 
-def read_review_coverage(smm_dir: Path, agent_id: str) -> set[str]:
-    """The paths recorded for the last review, whatever their age.
+def read_review_coverage(smm_dir: Path, agent_id: str, cwd: str = "") -> set[str]:
+    """The paths recorded for the last review, expired if HEAD has moved on.
 
-    Expiry is WRITE-driven — `_age_review_coverage` drops the record on the
-    commit that spends it, and this read enforces nothing. That fails OPEN,
-    unlike the flags: a commit that lands without reaching a commit site never
-    ages the record, so its paths stay exempt indefinitely. Tracked as debt —
-    a read-time age check cannot close it, because the write that fails to age
-    is the same one that fails to advance the watermark, leaving nothing in
-    the SMM that moved. Closing it needs the commit that landed, i.e. git.
+    Two expiries, because there are two ways a commit can land. The
+    WRITE-driven one is `_age_review_coverage`, on the commit sites' path. It
+    fails open on its own: a commit that reaches no commit site — an xp-
+    subagent's, which `is_xp_agent` skips — never spends the record, so its
+    paths would stay exempt with no bound, and a later session could rewrite
+    every one of them and commit unreviewed.
+
+    A counter cannot close that, because the write that fails to age is the
+    same one that fails to advance the watermark: nothing in the SMM moved.
+    HEAD did, so the second expiry asks git directly — how many commits since
+    the record was written — and drops it at the same cap. `..HEAD` counts only
+    what is reachable from here, so a branch switch reads as distance rather
+    than as history to forgive.
+
+    ``cwd`` is what makes that possible and is optional for the callers who
+    have no repo to name; without it, or without a recorded commit, or when git
+    cannot answer, the record reads as it stands — the pre-existing behaviour,
+    kept rather than expiring coverage on an unanswerable question.
 
     Empty on anything unreadable — a malformed record forgives nothing, which
     fails toward one extra review rather than toward an unreviewed commit.
@@ -171,7 +189,30 @@ def read_review_coverage(smm_dir: Path, agent_id: str) -> set[str]:
     paths = data.get(_COVERAGE_PATHS)
     if not isinstance(paths, list):
         return set()
+    if _commits_since_write(data, cwd) >= _COVERAGE_MAX_AGE:
+        return set()
     return {p for p in paths if isinstance(p, str) and p}
+
+
+def _commits_since_write(data: dict, cwd: str) -> int:
+    """Commits landed since the coverage record was written, or 0 if unknown.
+
+    0 is "do not expire on this evidence" — the answer for a record with no
+    recorded commit, a caller with no repo, and a git that could not answer
+    (a rewritten or pruned sha, a detached state). Every one of those is an
+    absence of information, and the write-driven ageing still governs there;
+    expiring on them would drop coverage the review genuinely earned.
+
+    `commits` is imported lazily: `review_records` is on the import path of
+    nearly every hook, and only this read needs git.
+    """
+    head = data.get(_COVERAGE_HEAD)
+    if not cwd or not isinstance(head, str) or not head:
+        return 0
+    import commits
+
+    out = commits.count_commits_since(cwd, head)
+    return out if out is not None else 0
 
 
 def uncovered_count(changed: list[str], covered: set[str]) -> int:
