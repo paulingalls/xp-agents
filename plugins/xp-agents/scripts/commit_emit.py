@@ -150,11 +150,7 @@ def merge_resolves(
 
     `events` is the caller's already-locked read, so the filter costs no lock.
     """
-    recorded = {
-        (e.get("metadata") or {}).get("commit_hash")
-        for e in events
-        if e.get("type") == _common.COMMIT
-    }
+    recorded = commit_event.recorded_commit_hashes(events)
     unrecorded = [
         body
         for landed, body in commits.merged_range_commits(cwd, commit_hash)

@@ -76,7 +76,7 @@ All three are JSON with schema validation and CLI tools (`system_context_cli.py`
 | `answer` | Agent | Response to a question event |
 | `assumption` | Agent + subagent (plan reviewer) | Stated beliefs — escalates if contradicted |
 | `debt` | Subagent (quality reviewer, retrospective) | Acknowledged tradeoff |
-| `commit` | Hook (PostToolUse:Bash, auto) | One record per `git commit` — sha, message, story id |
+| `commit` | Hook (PostToolUse:Bash, auto) | One record per `git commit` — sha, message, story id. Emitted by three paths that all share `commit_event.make_commit_event`: the attributed commit path, the catch-up observer, and the close-cycle merge emitter |
 | `sprint` | Hook (subagent_stop._handle_sprint_review_done) | Sprint lifecycle events (start/end with velocity data) |
 | `session_started` | Hook (SessionStart) | Session boundary anchor — bounds "this session's" event reads |
 | `session_end` | Hook (SessionEnd) | Duration, unresolved items, final status flag |
@@ -121,7 +121,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **PreToolUse** | `EnterPlanMode` | `pre_tool_plan_mode.py` | Schedule gate — block plan entry until `/xp-schedule` promotes a frontier |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, inject errors as additionalContext |
-| **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit bookkeeping (review cycle reset), test result parsing |
+| **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit bookkeeping (review cycle reset), test result parsing. On a commit-shaped command `commit_handling._handle_commit` records the commit it can ATTRIBUTE to that command. On every OTHER Bash `commit_observer.observe` catches up on commits that moved HEAD while nothing was watching — a backgrounded commit lands after its own tool call returned, so the launching hook cannot see it. The two make different claims and carry different guards: the first proves "this command produced this commit" (reflog, freshness, message), the second only "a commit is reachable from HEAD with no event, and here is its message read back from git". The observer's cheap path is a `.git/HEAD` file read (`git_head.py`), ~0.2 ms, so watching every Bash costs no fork |
 | **PostToolUse** | `Skill\|Agent` | `review_cycle_done.py` | Set review cycle flags — `simplify_done` from the `/code-review` skill only. Every entry in this hook's allowlist records at LAUNCH (a Skill/Agent call returns when the tool returns, which for an inline skill and for a backgrounded Agent-tool subagent is before any work has run), so nothing that gates a commit may live here: `quality_review_done` is set on `SubagentStop` instead. Emits canonical lifecycle events (simplify/security-review/plan-review/assign/housekeeping); nudges next step via `additionalContext`; injects PROCESS_GUIDE.md after `xp-housekeeper` completes |
 | **PostToolUse** | `Skill\|Agent` | `accept_terminal.py` | Drain the accept-in-flight marker on `/xp-accept`'s terminal dispatch (`/xp-schedule` or `/xp-sprint-review`), via exact-match allowlist |
 | **PostToolUse** | `ExitPlanMode` | `post_tool_exit_plan.py` | Write `.plan-awaiting-review` marker, capture plan file path, nudge `/xp-review-plan` |

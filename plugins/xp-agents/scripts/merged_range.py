@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""What a merge brought in: the commits reachable from it but not from `^1`.
+"""Which commits a RANGE contains — the two range questions the hooks ask.
 
 Split from `commits.py`, which crossed its 450-line sub-cap when the per-commit
-reader arrived. One job, asked by every merge emitter, so it lives here rather
-than beside every other git read.
+reader arrived, and stayed split when the second range question arrived for the
+same reason. Both are `git rev-list`/`git log` walks whose subtlety is in the
+revision arguments, so they live together rather than beside every other git
+read.
 
-`<merge> --not <merge>^1`, NOT `^1..^2`. The two agree for an ordinary two-parent
-merge and diverge for an octopus: `^1..^2` sees only the second parent's work, so a
-`git merge feat-a feat-b` silently dropped feat-b's commits while the merge still
-counted as one. Asking for "reachable from the merge, not from the first parent"
-covers every incoming parent by construction.
+* `merged_range_commits` — what a MERGE brought in, for the merge emitters.
+* `first_parent_range` — what moved HEAD on THIS branch between two revisions,
+  for `commit_observer`'s catch-up walk.
+
+They are near-opposites and must not be confused: the first deliberately
+crosses into the merged branch, the second deliberately refuses to.
 """
 
 import re
@@ -23,6 +26,47 @@ from commits import _run_git
 # A full git object name. Anchored at both ends, because its whole job is to
 # refuse a hash-shaped span a commit BODY supplied — see the parse below.
 _OBJECT_NAME_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def first_parent_range(
+    cwd: str, base: str, head: str, *, limit: int
+) -> list[str] | None:
+    """Commits on `head`'s first-parent chain that `base` cannot reach, oldest first.
+
+    None when git cannot answer — which is the meaningful case, not an empty
+    one: `base` unknown to this repo (rewritten by a rebase, garbage-collected,
+    or a marker written by another checkout) is a state the caller must report,
+    while "nothing new" is a legitimate empty list.
+
+    Every commit returned is reachable from `head` BY CONSTRUCTION — that is
+    what `base..head` means — so this query IS `commit_observer`'s reachability
+    guard, asked once for the range instead of once per commit.
+
+    `--first-parent` is load-bearing, and this is where it differs from
+    `merged_range_commits` directly below. Without it a back-merge enumerates
+    every commit the merged branch brought in: dozens whose own events landed
+    weeks ago and may since have been compacted out of the LIVE log, which is
+    the only index a caller can dedup against — so it would re-record them. The
+    first-parent chain is what moved HEAD *here*, which is the question asked.
+
+    `limit` bounds the walk. Pass one MORE than you will accept, so an over-long
+    range is visible as such rather than silently truncated: git applies the
+    count to the newest commits before `--reverse` orders them.
+    """
+    out = _run_git(
+        [
+            "git",
+            "rev-list",
+            "--first-parent",
+            "--reverse",
+            f"--max-count={limit}",
+            f"{base}..{head}",
+        ],
+        cwd,
+    )
+    if out is None:
+        return None
+    return out.split()
 
 
 def merged_range_commits(cwd: str, merge_hash: str) -> list[tuple[str, str]]:
