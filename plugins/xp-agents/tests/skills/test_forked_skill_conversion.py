@@ -8,12 +8,13 @@ measurement, `docs/completed/PRELOAD_DELIVERY_MECHANISM.md`). `TestRouting...`
 below pins the routing consequence (increment 1, landed already).
 
 The conversion-shape classes land ONE PER SKILL, in the same commit as that
-skill's own SKILL.md edit — not as a single class loping over all three. The
-commit gate runs the full suite on every commit (see CLAUDE.md), so a shared
-loop asserting a frontmatter change ahead of two of the three frontmatters
-would leave every commit red until the last skill converts. Per-skill classes
-let each of the three land its own green commit, per the story's own
-"three small commits, not one" instruction.
+skill's own SKILL.md edit — not as a single class looping over all three. A
+shared loop asserting a frontmatter change ahead of two of the three
+frontmatters would be red from the first commit until the last skill
+converts — red in the staged file the commit gate does run, and red for
+anyone running the suite in between. Per-skill classes let each of the three
+land its own green commit, per the story's own "three small commits, not one"
+instruction.
 """
 
 import re

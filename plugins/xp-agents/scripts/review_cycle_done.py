@@ -116,7 +116,7 @@ _TARGET_LIFECYCLE: dict[str, tuple[str, str]] = {
 
 
 # Per-commit review-cycle targets — set the marker flag that clears the
-# commit gate. plan-review/housekeeping are lifecycle-only, don't gate commits.
+# commit gate. Housekeeping is lifecycle-only and doesn't gate commits.
 _TARGET_FLAG: dict[str, str] = {
     _TARGET_SIMPLIFY: "simplify_done",
 }

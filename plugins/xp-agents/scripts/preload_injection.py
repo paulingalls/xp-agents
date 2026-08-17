@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Deliver a skill's preload state by injecting it, instead of by an expanded line.
 
-Seventeen of nineteen shipped skills get their state from a `!` shell line in
-`SKILL.md`, expanded at instruction time. The second harness never expands that
-line — only the skill's LOCATOR reaches the model there, never the body — so
-every one of those skills runs blind on it. This handler is the one mechanism
-that replaces that channel on both harnesses: it runs a skill's own preload and
-injects the output as context.
+Seventeen of nineteen shipped skills carry a preload. Each used to get its
+state from a `!` shell line in `SKILL.md`, expanded at instruction time; the
+second harness never expands that line — only the skill's LOCATOR reaches the
+model there, never the body — so every one of those skills ran blind on it.
+This handler is the one mechanism that replaced that channel on both harnesses:
+it runs a skill's own preload and injects the output as context. No skill
+carries the line any more, so there is no second channel to fall back on.
 
 Two triggers, one mechanism. On the first harness a skill invocation is a tool
 call, so the identity arrives as `tool_input.skill`. On the second there is no

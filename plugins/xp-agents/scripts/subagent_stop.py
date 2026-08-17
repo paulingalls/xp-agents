@@ -225,41 +225,33 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> None:
     promoted = sprint_status.select_promoted_teammate_stories(
         sprint_data.get("stories", [])
     )
-    if not promoted:
-        solo_event = _common.make_event(
-            _common.STATUS,
-            agent_id,
-            "Plan reviewed",
-            working_on=[],
-            metadata={"action": STATUS_ACTION_PLAN_REVIEWED},
+    content = "Plan reviewed"
+    if promoted:
+        # SCOPE the marker to the stories this review covered, so a marker that
+        # goes moot cannot gate an unrelated frontier promoted later. Only the
+        # promoted set — deliberately NOT also filtered by "already spawned":
+        # the reader applies that, and re-deriving it here would put a
+        # `git worktree list` subprocess on the SubagentStop path. The simpler
+        # form is also the safer one — a worktree that vanished while its story
+        # is still in flight keeps the marker ARMED.
+        markers.marker_write(
+            smm_dir,
+            markers.ASSIGN_PENDING,
+            assign_scope.format_assign_scope(
+                sprint_data.get("sprint_id") or "",
+                [story.get("id", "") for story in promoted],
+            ),
         )
-        _common.append_safe(smm_dir, solo_event)
-        _emit_subagent_complete(smm_dir, input_data)
-        return None
-    # SCOPE the marker to the stories this review covered, so a marker that
-    # goes moot cannot gate an unrelated frontier promoted later. Only the
-    # promoted set — deliberately NOT also filtered by "already spawned":
-    # the reader applies that, and re-deriving it here would put a
-    # `git worktree list` subprocess on the SubagentStop path. The simpler
-    # form is also the safer one — a worktree that vanished while its story
-    # is still in flight keeps the marker ARMED.
-    markers.marker_write(
-        smm_dir,
-        markers.ASSIGN_PENDING,
-        assign_scope.format_assign_scope(
-            sprint_data.get("sprint_id") or "",
-            [story.get("id", "") for story in promoted],
-        ),
-    )
+        content = "assign_pending: Plan reviewed, run /xp-assign"
 
-    gate_event = _common.make_event(
+    event = _common.make_event(
         _common.STATUS,
         agent_id,
-        "assign_pending: Plan reviewed, run /xp-assign",
+        content,
         working_on=[],
         metadata={"action": STATUS_ACTION_PLAN_REVIEWED},
     )
-    _common.append_safe(smm_dir, gate_event)
+    _common.append_safe(smm_dir, event)
 
     _emit_subagent_complete(smm_dir, input_data)
 

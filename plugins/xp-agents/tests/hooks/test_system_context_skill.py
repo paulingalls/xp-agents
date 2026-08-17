@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for xp-system-context forked skill: preload and file structure."""
+"""Tests for the xp-system-context skill: preload and file structure."""
 
 import sys
 import unittest

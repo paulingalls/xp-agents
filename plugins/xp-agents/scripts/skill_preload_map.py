@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """The skill-to-preload-invocation mapping, in one place.
 
-Deleting a skill's `!`...`` SKILL.md line (a later story's job, not this
-module's) removes the only existing record of which command that skill's
-preload is. This module is the resolver that replaces that record for BOTH
-harnesses this plugin ships to: one expands the `!`...`` line itself, the
-other places only the skill locator in context and needs a hook to run the
-preload and inject its output instead.
+A skill's `!`...`` SKILL.md line used to be the only existing record of which
+command that skill's preload is; no skill carries one any more. This module is
+the resolver that replaced that record for BOTH harnesses this plugin ships
+to: one expands the `!`...`` line itself, the other places only the skill
+locator in context and needs a hook to run the preload and inject its output
+instead.
 
 Derivation, not a maintained registry: the script name comes from the
 `skills/*/scripts/*.sh` glob (so a differently-named entry point, like
@@ -14,12 +14,11 @@ Derivation, not a maintained registry: the script name comes from the
 keep in sync, nothing to drift), and only the ARGUMENTS a script needs beyond
 its own path live in a hand-maintained table (`_EXTRA_ARGS`, one entry today).
 
-Conformance pin (`tests/skills/test_skill_preload_map.py`): its oracle is the
-`!`...`` line text — it parses each line's env assignment and arguments and
-compares against what this module returns. That oracle disappears the day a
-later story deletes the `!` lines; when that happens, the pin must be
-retired DELIBERATELY (removed or repointed to a new oracle), not left in
-place quietly checking nothing.
+The conformance pin that compared this resolver against each `!`...`` line
+(`tests/skills/test_skill_preload_map.py`) was retired with the last line
+(story-013), as its own docstring required — removed rather than left scanning
+an empty set. What it proved is asserted directly against the resolver now:
+per-skill script name, `_EXTRA_ARGS`, and the env-name contract.
 
 `CLAUDE_PLUGIN_DATA` is the one name every shipped invocation requires
 forwarded, and an empty value is a SUPPORTED state, not a failure: it is
