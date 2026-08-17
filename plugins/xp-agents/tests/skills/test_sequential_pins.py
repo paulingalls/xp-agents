@@ -2,11 +2,13 @@
 """Per-skill sequential-discipline pin presence (story-003, sprint-098).
 
 Every INLINE skill (step-gated, main-agent-driven) carries a self-contained
-"Sequential discipline" pin countering the harness parallel-batch instinct;
-the FORKED delegation skills (xp-review-plan, xp-sprint-review,
-xp-system-context) have no inline steps and carry no pin. See SMM risk
-9890b01327ad and PROCESS_GUIDE.md §Sequential Discipline (the canonical
-wording the pins reuse).
+"Sequential discipline" pin countering the harness parallel-batch instinct.
+story-013 converted the last three FORKED delegation skills (xp-review-plan,
+xp-sprint-review, xp-system-context) to the same inline-spawns-subagent
+shape, so every shipped skill is inline now and the forked branch below is
+empty by construction rather than by exemption. See SMM risk 9890b01327ad
+and PROCESS_GUIDE.md §Sequential Discipline (the canonical wording the pins
+reuse).
 
 Classification is derived, not hardcoded: a skill is forked iff its
 frontmatter declares ``context: fork`` (same signal as
@@ -29,8 +31,8 @@ from conftest import _PLUGIN_ROOT, _split_frontmatter_body
 MARKER = "Sequential discipline"
 
 _SKILLS_DIR = _PLUGIN_ROOT / "skills"
-_EXPECTED_INLINE = 16
-_EXPECTED_FORKED = 3
+_EXPECTED_INLINE = 19
+_EXPECTED_FORKED = 0
 
 
 def _classify_skills() -> tuple[dict[str, str], dict[str, str]]:
