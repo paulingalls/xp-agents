@@ -127,3 +127,48 @@ def is_git_commit(command: str, *, scan_target: str | None = None) -> bool:
         return False
     remaining = _MERGE_NON_COMMITTING_RE.sub("", scan_target)
     return bool(_COMMIT_OR_MERGE_RE.search(remaining))
+
+
+# Whether a command stages EVERY tracked change, not merely some. The review
+# gate needs the distinction because a "ghost" — a deletion sitting unstaged in
+# the working tree — stops being one the moment the command about to run stages
+# it. `git add -A` turns three unstaged deletions into three code files the
+# commit removes; `git add notes.md` leaves them ghosts.
+#
+# `[^;&|]*?` bounds each arm to ONE shell command, so a trailing `&& git add -A`
+# cannot vouch for an earlier narrow `git add`, and an `-A` in a later unrelated
+# word cannot either. Callers pass a quote-stripped scan target, so `git commit
+# -m 'add -A everywhere'` reads as the message it is.
+#
+# `(?<!\S)` on every short form is load-bearing: without it the `-a` inside
+# `--amend` matches, and `git commit --amend` stages nothing new.
+#
+# `-u`/`--update` belong here even though they skip UNTRACKED files: a ghost is
+# a tracked deletion by construction, so `-u` stages every one of them.
+#
+# The asymmetry is deliberate. A false YES over-counts and costs one extra
+# review; a false NO is a gate that goes silent on a commit deleting code. So
+# the forms are enumerated generously, and `git add .` counts despite meaning
+# only "this subtree" when run from a subdirectory.
+_STAGES_ALL_RE = re.compile(
+    GIT_PREFIX
+    + r"(?:add\b[^;&|]*?(?:(?<!\S)-A\b|(?<!\S)--all\b|(?<!\S)-u\b"
+    + r"|(?<!\S)--update\b|(?<!\S)\.(?=\s|$))"
+    + r"|commit\b[^;&|]*?(?:(?<!\S)--all\b|(?<!\S)-(?!-)[A-Za-z]*a))"
+)
+
+
+def stages_all_tracked_changes(command: str, *, scan_target: str | None = None) -> bool:
+    """Does this command stage every tracked change, deletions included?
+
+    Answers the one question `commits.get_code_files_for_review` cannot settle
+    from the working tree alone: whether an unstaged deletion is about to become
+    part of the commit. `_STAGES_ALL_RE` says which forms count and which way
+    the judgement leans.
+
+    `scan_target` shares one `strip_quoted` pass with `is_git_commit`, as that
+    function's own parameter does.
+    """
+    if scan_target is None:
+        scan_target = strip_quoted(command)
+    return bool(_STAGES_ALL_RE.search(scan_target))

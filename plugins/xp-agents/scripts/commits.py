@@ -229,6 +229,10 @@ def _unstaged_worktree_deletions(cwd: str) -> set[str]:
     is gone from it as well, so it is never in this set. Empty on git failure,
     which counts everything and fails toward one extra review, like every other
     leg here. Measured in test_review_ghosts.py.
+
+    Being in this set is necessary but NOT sufficient: a path here is only a
+    ghost while the command about to run leaves it unstaged, which is why the
+    caller also asks `git_commits.stages_all_tracked_changes`.
     """
     out = _run_git(["git", "diff", "--name-only", "-z", "--diff-filter=D"], cwd)
     if out is None:
@@ -293,8 +297,11 @@ def get_code_files_for_review(
     # by definition, including `git add x.py && rm x.py`, where git reports an
     # unstaged deletion for content the index is about to commit. No widening,
     # nothing to filter, no fork spent asking.
+    #
+    # Nor is anything a ghost when the command stages everything: `git add -A`
+    # makes each unstaged deletion one this commit performs (b9509b449417).
     widened = all_files - staged_names
-    if widened:
+    if widened and not git_commits.stages_all_tracked_changes(command):
         all_files -= widened & _unstaged_worktree_deletions(cwd)
 
     return [f for f in sorted(all_files) if code_files.is_code_file(f)]

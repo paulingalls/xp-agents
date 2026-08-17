@@ -16,7 +16,8 @@ index, removed from the WORKING TREE with the removal left unstaged.
 So the rule is:
 
     exclude a path git reports as an UNSTAGED working-tree deletion
-    (`git diff --diff-filter=D`) and that is not in the staged set.
+    (`git diff --diff-filter=D`), that is not in the staged set, and that the
+    command about to run will not itself stage.
 
 Emphatically NOT "exclude what is not on disk". Deleting a code file is a real
 change that deserves review, and from the filesystem a staged `git rm` looks
@@ -25,6 +26,12 @@ commit actually makes is gone from the INDEX too, so it survives the filter.
 The staged-set subtraction covers the other direction, `git add x.py && rm
 x.py`, where git reports an unstaged deletion for content the commit really is
 adding.
+
+The third clause arrived a revision late, and its absence was a live defect
+rather than an omission (concern b9509b449417): a ghost is defined by being
+unstaged, so a command that stages everything has no ghosts to filter. The
+first rule filtered them anyway and the gate went quiet on `rm a.py b.py &&
+git add -A && git commit`. Pinned in the last two classes below.
 
 These drive a REAL repo. Stubbing the three legs would only assert back
 whatever shape we guessed, which is how the concern's own explanation survived
@@ -41,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import commits
+import git_commits
 from _commit_repo_case import _RebuildTestCase
 
 _SPIKES = ("spike1.py", "spike2.py", "spike3.py")
@@ -133,13 +141,15 @@ class TestTheCountExcludesGhostsAndNothingElse(_GhostCase):
 
         self.assertEqual(self._scope(), [])
 
-    def test_the_unstaged_leg_is_filtered_too(self):
+    def test_a_narrow_add_leaves_the_ghosts_filtered(self):
         """`git add` in the command arms leg 3, which reads working-tree-vs-
         index and names the same deletions. Filtering only leg 2 would leave
-        the gate blocking on exactly the commands that stage anything."""
+        the gate blocking on the commonest commit idiom there is — staging the
+        one file you edited. A narrow pathspec stages nothing else, so the
+        ghosts stay ghosts."""
         self._bury_three_spikes()
 
-        self.assertEqual(self._scope("git add -A && git commit -m notes"), [])
+        self.assertEqual(self._scope("git add notes.md && git commit -m notes"), [])
 
     def test_a_changed_file_that_still_exists_is_still_counted(self):
         """AC2, the non-vacuity pin: the exclusion must not weaken the gate for
@@ -184,6 +194,115 @@ class TestTheCountExcludesGhostsAndNothingElse(_GhostCase):
         (self.repo / "added.py").unlink()
 
         self.assertEqual(self._scope(), ["added.py"])
+
+
+class TestADeletionTheCommandItselfStagesIsNoGhost(_GhostCase):
+    """The half the first rule got backwards (concern b9509b449417).
+
+    A ghost is an unstaged deletion — so whether a path IS one depends on what
+    the command about to run does with it. `git add -A` stages every tracked
+    deletion, which is precisely what turns these three from "a working-tree
+    edit nobody staged" into "three code files this commit removes". The first
+    rule filtered them anyway, and the gate went quiet on a commit deleting
+    three code files: an undercount to zero, the one direction
+    `get_code_files_for_review`'s own docstring forbids.
+
+    The tell is that the two halves of that function disagreed about one set.
+    Leg 3 reads unstaged changes *because* "those will be staged by the command
+    itself" — and the filter then dropped them for not being staged yet.
+    """
+
+    def test_stage_all_makes_the_deletions_real(self):
+        """The reported failure, inverted into a pin."""
+        self._bury_three_spikes()
+
+        self.assertEqual(
+            self._scope("git add -A && git commit -m notes"), list(_SPIKES)
+        )
+
+    def test_commit_dash_a_stages_them_without_any_add(self):
+        """`commit -a` stages tracked deletions on its own, so the rule cannot
+        key on the word `add`."""
+        self._bury_three_spikes()
+
+        self.assertEqual(self._scope("git commit -am notes"), list(_SPIKES))
+
+    def test_the_same_commit_content_gets_the_same_verdict(self):
+        """The discriminator that shows this was a defect and not a policy.
+
+        Two commands, byte-identical resulting commits — one stages the
+        deletions with `git rm` up front, the other lets `git add -A` do it.
+        A gate that counts two code files for one and zero for the other is
+        not measuring the commit.
+        """
+        for name in _SPIKES:
+            self._write(name, "print(1)\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "spikes")
+        self.watermark = self.head()
+
+        self.git("rm", "-q", "spike1.py")
+        staged_up_front = self._scope("git commit -m drop")
+
+        self.git("commit", "-q", "-m", "drop")
+        self.watermark = self.head()
+        (self.repo / "spike2.py").unlink()
+        staged_by_the_command = self._scope("git add -A && git commit -m drop")
+
+        self.assertEqual(staged_up_front, ["spike1.py"])
+        self.assertEqual(staged_by_the_command, ["spike2.py"])
+
+
+class TestWhichCommandsStageEverything(unittest.TestCase):
+    """`stages_all_tracked_changes`, the predicate the rule keys on.
+
+    A false YES over-counts, which costs one extra review; a false NO is the
+    silent under-block above. So the forms are enumerated generously, and the
+    pins below say which way each judgement leans.
+    """
+
+    def test_the_forms_that_stage_every_tracked_deletion(self):
+        for command in (
+            "git add -A",
+            "git add --all",
+            "git add -A .",
+            "git add -u",
+            "git add --update",
+            "git add .",
+            "git commit -a",
+            "git commit -am wip",
+            "git commit -q -a -m wip",
+            "git commit --all -m wip",
+            "git -C /some/worktree add -A",
+            "git add \\\n  -A",
+        ):
+            with self.subTest(command=command):
+                self.assertTrue(git_commits.stages_all_tracked_changes(command))
+
+    def test_the_forms_that_do_not(self):
+        for command in (
+            "git add notes.md",
+            "git add src/",
+            "git add ./src",
+            "git commit -m notes",
+            "git commit --amend --no-edit",
+            "git commit -m 'add -A everywhere'",
+            "git status",
+            "git add -p",
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(git_commits.stages_all_tracked_changes(command))
+
+    def test_it_cannot_reach_across_a_shell_operator(self):
+        """A stage-all in a LATER command says nothing about this one, and the
+        reverse would let any trailing `git add -A` disarm the filter for a
+        commit that stages one path."""
+        self.assertFalse(
+            git_commits.stages_all_tracked_changes("git add notes.md && echo -A")
+        )
+        self.assertFalse(
+            git_commits.stages_all_tracked_changes("git commit -m x; ls -a")
+        )
 
 
 if __name__ == "__main__":
