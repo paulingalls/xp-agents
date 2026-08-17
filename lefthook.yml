@@ -11,13 +11,15 @@
 #  - Everything is sequential, pyright included.
 #
 # The commit gate is lint, format, types, and the test files you staged — the
-# full suite moved to pre-push. Re-measured 2026-08-16 at 590s (9946 tests, this
-# machine, `-n auto` on 16 cores, endpoint AV taxing every file access; an
-# unqualified figure is what made an earlier reader blame a slow commit entirely
-# on core contention). That is 22x the 27s (0 tests, this machine — ruff
-# check/format plus pyright, the commands that remain) and made every increment
-# expensive enough to push toward batching several changes into one commit.
-# Every figure below is stated the same way, or deleted; see
+# full suite moved to pre-push. Re-measured 2026-08-16 on this machine, `-n
+# auto` across 16 cores: 590s (9946 tests, this machine) cold, 276s (9946 tests,
+# this machine) on a warm re-run minutes later. Treat the high end as the
+# number — the spread is this box's endpoint AV rescanning what the previous run
+# touched, and a figure quoted without it is what led a reader to blame a slow
+# commit entirely on core contention. Either way it dwarfs the 27s (0 tests,
+# this machine — ruff check/format plus pyright, the commands that remain), and
+# made every increment expensive enough to push toward batching several changes
+# into one commit. Every figure below is stated the same way, or deleted; see
 # test_lefthook_staged_expansion.py, which fails on a bare one.
 # Nothing is ungated:
 # `git push` fires on every story close (xp-story-close Step 2) and again on the
@@ -87,7 +89,7 @@ pre-commit:
     # that was DELETED still reaches {staged_files}, so pytest would fail
     # collection on a path that is gone; filtering fixes that but can leave the
     # list EMPTY, and `pytest` with no paths collects the WHOLE tree — silently
-    # restoring the 590s (9946 tests, this machine) gate this file removed.
+    # restoring the up-to-590s (9946 tests, this machine) gate this file removed.
     # Hence: filter, then bail.
     #
     # `|| [ $? -eq 5 ]` tolerates pytest's "no tests collected". A directory
@@ -103,7 +105,7 @@ pre-commit:
     #     it ran ZERO tests and committed green. They map to their containing
     #     DIRECTORY in the body — a file target collects nothing — and any
     #     multi-test target carries `-n auto`, because the same work
-    #     sequentially is the 590s (9946 tests, this machine) run this gate
+    #     sequentially is the up-to-590s (9946 tests, this machine) run this gate
     #     exists to remove.
     #   * A narrower pattern would have to encode the shapes in glob syntax,
     #     and a form this engine does not support matches NOTHING — the gate

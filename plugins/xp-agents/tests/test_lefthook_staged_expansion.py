@@ -6,9 +6,9 @@ DIRECTORY, because a broken helper fails tests that match no `test_*` name. In
 a leaf package that is exactly right and cheap. At the tests ROOT the directory
 IS the whole suite, so staging four root-level helpers ran every test in the
 tree at commit — 414s when the concern (377a33831d31) recorded it, and 590s
-(9946 tests) re-measured here on 2026-08-16 — and then `git push` ran them
-again. That double run is precisely what the commit/push split exists to
-remove.
+cold / 276s warm (9946 tests) re-measured here on 2026-08-16 — and then `git
+push` ran them again. That double run is precisely what the commit/push split
+exists to remove.
 
 **Why the existing suite did not catch it.**
 `test_lefthook_commit_gate.py::test_never_a_bare_whole_tree_pytest` asserts the
