@@ -160,3 +160,40 @@ class TestGetUncommittedFiles(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestThePatchTargetCannotDriftSilently(unittest.TestCase):
+    """The one way every test above could pass while proving nothing.
+
+    They patch `commits.subprocess.run`, because `worktree_state` shells out
+    through `commits._run_git` rather than calling subprocess itself. A reader
+    who "corrects" the target to `worktree_state.subprocess` would be aiming at
+    a name this module does not have — and the failure mode matters: if the
+    module ever grows its own `subprocess` import, that mis-aimed patch starts
+    binding a real object that nothing calls, and all ten tests above go green
+    against real git in whatever repo they happen to run in.
+
+    So the invariant is not "the target string is spelled thus" but "there is
+    no second plausible target here to aim at". `mock.patch` raises
+    AttributeError on a missing attribute, which is loud; a present-but-unused
+    one is what would be silent.
+    """
+
+    def test_the_module_owns_no_subprocess_of_its_own(self):
+        self.assertFalse(
+            hasattr(worktree_state, "subprocess"),
+            "worktree_state must not import subprocess: it delegates to "
+            "commits._run_git, and a second plausible patch target here is "
+            "what would let a mis-aimed patch pass against real git",
+        )
+
+    def test_the_declared_target_actually_intercepts_this_module(self):
+        """Non-vacuity for the target these tests do use."""
+        with patch(_SUBPROCESS) as mock_run:
+            mock_run.return_value = type("R", (), {"returncode": 0, "stdout": ""})()
+            worktree_state.get_uncommitted_code_files("/tmp")
+        self.assertTrue(
+            mock_run.called,
+            f"{_SUBPROCESS} did not intercept a worktree_state call — the "
+            "patch target no longer reaches the code under test",
+        )
