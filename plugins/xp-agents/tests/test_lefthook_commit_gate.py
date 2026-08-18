@@ -295,6 +295,44 @@ class TestGateSelectsTheRightTargets(unittest.TestCase):
         # every commit exactly as before.
         self.assertEqual(rc, 0, "the gate must not refuse the commit")
 
+    def test_a_staged_workflow_js_runs_the_module_that_drives_node(self):
+        """The `.js` branch, EXECUTED. Its only coverage was a regex over the
+        glob line, which cannot tell a `case` pattern that fires from one that
+        never does — the failure this whole class exists for, and the sibling
+        branches all have an execution test. Found by the broad review.
+
+        The mapping matters: JS maps to the pytest module that shells out to
+        `node --test`, not to node directly, because that module carries the
+        non-vacuity floor and `node --test` on a glob matching nothing exits 0.
+        """
+        argv, rc = _execute_gate(
+            self.cmd, ["plugins/xp-agents/workflows/code_review.js"], self.tmp
+        )
+        self.assertIn("plugins/xp-agents/tests/test_workflow_js_suite.py", argv)
+        self.assertEqual(rc, 0)
+
+    def test_a_staged_js_test_maps_to_the_same_driver_once(self):
+        """Both JavaScript locations map to one driver, and staging both must
+        not run it twice — the body dedupes, and nothing asserted that."""
+        argv, _ = _execute_gate(
+            self.cmd,
+            [
+                "plugins/xp-agents/workflows/code_review.js",
+                "plugins/xp-agents/tests/workflows/code_review_test.js",
+            ],
+            self.tmp,
+        )
+        driver = "plugins/xp-agents/tests/test_workflow_js_suite.py"
+        self.assertEqual(argv.count(driver), 1, f"argv: {argv}")
+
+    def test_an_unrelated_js_file_is_not_a_test_target(self):
+        """Non-vacuity for the pair above: the branch is scoped to the two
+        JavaScript locations, so a `.js` anywhere else must select nothing
+        rather than mapping to the driver by accident."""
+        argv, rc = _execute_gate(self.cmd, ["docs/example.js"], self.tmp)
+        self.assertEqual(argv, [])
+        self.assertEqual(rc, 0)
+
     def test_real_test_file_still_runs(self):
         argv, _ = _execute_gate(
             self.cmd, ["plugins/xp-agents/tests/test_dev_setup.py"], self.tmp

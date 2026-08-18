@@ -35,7 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from _pin_helpers import rel, shipped_files_to_scan
+from _pin_helpers import rel, shipped_files_to_scan, shipped_js_to_scan
 
 _PLUGIN_ROOT = Path(__file__).parent.parent
 
@@ -62,6 +62,10 @@ def _shipped_files() -> list[Path]:
     shipped-module surface the vocabulary pins scan; this adds the prose.
     """
     files: list[Path] = list(shipped_files_to_scan(_PLUGIN_ROOT))
+    # The shipped `.js` too: the branch's PRIMARY launcher is a JavaScript file
+    # and this sweep enumerated only Python and Markdown, so the one surface
+    # most likely to describe the launch was the one it never opened.
+    files += list(shipped_js_to_scan(_PLUGIN_ROOT))
     files += sorted(_PLUGIN_ROOT.glob("*.md"))
     files += sorted(_PLUGIN_ROOT.glob("agents/*.md"))
     files += sorted(_PLUGIN_ROOT.glob("skills/*/SKILL.md"))
@@ -128,9 +132,18 @@ class TestTheSkillLaunchIsNamedExactlyOnce(unittest.TestCase):
                 self.assertEqual(f.name, "_close_pipeline_review.md")
 
     def test_no_shipped_line_denies_the_skill_can_launch_it(self):
-        """The exact claim that broke Step 4b. A line may still say the
-        Workflow tool cannot launch it — that one is true — so the negation
-        only counts when `Skill` is the thing being denied."""
+        """The exact claim that broke Step 4b: shipped prose asserting the
+        Skill tool cannot launch /code-review, which is false.
+
+        A LINE-LEVEL HEURISTIC, and the docstring used to overclaim it — it
+        said the negation "only counts when `Skill` is the thing being denied",
+        which no line-level co-occurrence check can tell. Any /code-review line
+        carrying both `Skill` and a negation word trips this, including one
+        denying something else entirely. That is deliberate now rather than
+        accidental: the false-positive costs a rewording, the false-negative
+        cost a release where the one broad correctness pass silently did not
+        run. Stated accurately so nobody trusts it for more than it does.
+        """
         violations = [
             f"{rel(f, _PLUGIN_ROOT)}:{lineno}: {line.strip()}"
             for f, lineno, line, scannable in self._mentions()
@@ -209,15 +222,36 @@ class TestGuidesNameTheLauncher(unittest.TestCase):
         invites a reader to pick the built-in — the launcher whose fan-out
         nothing here can bound and whose findings come back as prose. Each
         guide must mark which is which.
+
+        ANCHORED TO THE MENTION. This searched the WHOLE guide for "as
+        fallback", so any unrelated sentence anywhere in the file satisfied it
+        — including one about a different subject entirely — and it never
+        checked that the primary was marked primary. Found by the broad review
+        reading the commit that added it. It now reads the same window the
+        sibling test uses and asserts the ORDER inside it: the script is named
+        before the thing called a fallback, which is what makes the pair read
+        as primary-then-stopgap rather than as two options.
         """
         for name in _GUIDE_NAMES:
             text = (_PLUGIN_ROOT / name).read_text()
-            self.assertRegex(
-                text,
-                r"(?is)as fallback|as its fallback",
-                f"{name}: must mark the Skill launcher as the fallback, not "
-                "as an equal alternative",
-            )
+            for m in re.finditer(r"/code-review\b", text):
+                if "xp-code-reviewer" in text[max(0, m.start() - 30) : m.start()]:
+                    continue
+                window = text[max(0, m.start() - 200) : m.end() + 200]
+                with self.subTest(guide=name):
+                    self.assertRegex(
+                        window,
+                        r"(?is)as (its )?fallback",
+                        f"{name}: the Skill launcher must be marked as the "
+                        f"fallback beside the mention: ...{window}...",
+                    )
+                    self.assertLess(
+                        window.index("Workflow script"),
+                        window.lower().index("fallback"),
+                        f"{name}: the primary must be named before the "
+                        f"fallback, or the pair reads as a free choice: "
+                        f"...{window}...",
+                    )
 
 
 if __name__ == "__main__":

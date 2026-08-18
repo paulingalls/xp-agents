@@ -79,11 +79,17 @@ class TestQualityReviewPin(unittest.TestCase):
         verifier cap dropped, and a close that reads only the findings treats a
         truncated pass as a complete one — which is the exact failure the cap
         was built to make impossible to hide."""
+        # ANCHORED. This was a bare `assertRegex(body_lower, r"cap")`, which
+        # any word containing those three letters satisfies — "capture",
+        # "capable", "capacity". It passed on prose that said nothing about a
+        # cap at all. Found by the broad review reading the commit that added
+        # it. The claim is that the SUMMARY is what carries the cap report, so
+        # the two have to appear together.
         self.assertRegex(
             self.body_lower,
-            r"cap",
-            "Step 1 must tell the reader the summary says whether the review "
-            "hit its cap",
+            r"summary.{0,160}\bcap\b",
+            "Step 1 must tell the reader the SUMMARY says whether the review "
+            "hit its cap — a capped pass covered less than it looks like",
         )
 
     def test_branches_on_mode(self):

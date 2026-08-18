@@ -26,11 +26,8 @@ floor protects.
 
 import shutil
 import subprocess
-import sys
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 _TESTS_ROOT = Path(__file__).parent
 _REPO_ROOT = _TESTS_ROOT.parent.parent.parent
@@ -47,7 +44,7 @@ def _run_node_test() -> subprocess.CompletedProcess:
         ["node", "--test", _JS_GLOB],
         capture_output=True,
         text=True,
-        cwd=_TESTS_ROOT.parent.parent.parent,
+        cwd=_REPO_ROOT,
     )
 
 

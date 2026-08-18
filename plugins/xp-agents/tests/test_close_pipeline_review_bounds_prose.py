@@ -155,12 +155,25 @@ class TestStep4bCostBoundProse(unittest.TestCase):
             r"(?i)args.{0,40}object|object.{0,40}args",
             "Step 4b must say args is an object, not a positional string",
         )
+        # THE LAUNCH LINE, not the section. `assertIn(field, self.section)`
+        # was satisfied by the surrounding prose — the paragraph below the call
+        # names `pluginRoot`, "level" appears in the cost bound, "range" in the
+        # scale sentence — so the pin passed against a launch literal carrying
+        # none of them. It is the literal an orchestrator copies. Found by the
+        # broad review reading the commit that added the pin.
+        launch = next(
+            (ln for ln in self.section.splitlines() if "Workflow({ scriptPath:" in ln),
+            None,
+        )
+        self.assertIsNotNone(launch, "Step 4b must carry the Workflow launch line")
+        assert launch is not None
         for field in ("level", "range", "pluginRoot"):
             with self.subTest(field=field):
                 self.assertIn(
                     field,
-                    self.section,
-                    f"Step 4b must name the {field!r} arg field",
+                    launch,
+                    f"the launch literal must carry the {field!r} arg field, "
+                    f"not merely mention it nearby: {launch.strip()}",
                 )
         self.assertNotRegex(
             self.section,

@@ -257,8 +257,12 @@ class TestPinDoesNotShip(unittest.TestCase):
         self.assertEqual(hits, [], msg="; ".join(hits))
 
     def _search(self, needle: str) -> list[str]:
+        # Every shipped surface the ratchet governs, including the `.js` one it
+        # gained this branch — a leak check that skips a surface the cap covers
+        # reports clean about a file it never opened.
         surfaces = shipped_files_to_scan(_PLUGIN_ROOT)
         surfaces += shipped_shell_to_scan(_PLUGIN_ROOT)
+        surfaces += shipped_js_to_scan(_PLUGIN_ROOT)
         for paths in shipped_prose_to_scan(_PLUGIN_ROOT).values():
             surfaces += paths
         return [

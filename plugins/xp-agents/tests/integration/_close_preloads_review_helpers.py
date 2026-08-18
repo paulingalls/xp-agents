@@ -86,10 +86,18 @@ class _ReviewPipelineAssertions(_ClosePreloadCommonTests):
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(
+            "Workflow({ scriptPath:",
+            result.stdout,
+            "preload must emit Step 4b's PRIMARY launch call. This asserted "
+            "only the fallback literal, so the launch the step actually "
+            "prescribes was the one line here never checked — which is the "
+            "same shape as the defect this test was written for",
+        )
+        self.assertIn(
             'Skill(skill: "code-review"',
             result.stdout,
-            "preload must emit Step 4b's actual launch call, not just its "
-            "heading — a heading with no launch is a step that reads as run",
+            "and the documented fallback, so a close that cannot reach the "
+            "Workflow tool still has a way through",
         )
         self.assertNotIn(
             'Workflow({ name: "code-review"',

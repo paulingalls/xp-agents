@@ -56,6 +56,13 @@ BAND_CEILINGS = {
     # cap; the next addition here extracts the report-assembly half, which is
     # already the one cohesive block (synthesis prompt, claim/merge, backfill,
     # summary) with no dependency on the finder or verifier phases.
+    # 447 -> 484, crossing the 450 floor: three execution tests for the `.js`
+    # branch of the staged-tests gate. Its only coverage was a regex over the
+    # glob line, which is exactly what this file's own harness exists to
+    # replace — a `case` pattern that never fires reads identically in the
+    # text. Mutation-verified: pointing the branch at a directory that does not
+    # exist leaves the regex pin green and reddens the two mapping tests.
+    "plugins/xp-agents/tests/test_lefthook_commit_gate.py": 484,
     "plugins/xp-agents/workflows/code_review.js": 474,
     "plugins/xp-agents/skills/_preload_base.sh": 483,
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
