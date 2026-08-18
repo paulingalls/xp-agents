@@ -13,16 +13,26 @@ write and clear of the flags. The first class below pins that agreement across
 the writer, the reader and the clear.
 """
 
+import io
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(
+    0,
+    str(
+        Path(__file__).parent.parent.parent / "skills" / "xp-quality-review" / "scripts"
+    ),
+)
 
 import _common
 import markers
 import review_flag_cli
+import review_mode
 import review_records
 from conftest import _HookTestCase, _make_stop_input
 from event_schema import STATUS_ACTION_SIMPLIFY_COMPLETE, event_action
@@ -159,6 +169,104 @@ class TestTheCliSubstitutesForTheHookExactly(unittest.TestCase):
         without a review; `review_cycle_legs` sets it from the reviewer's
         SubagentStop instead."""
         self.assertEqual(set(review_flag_cli._FLAG_LIFECYCLE), {"simplify_done"})
+
+
+class TestDisarmingAnAbandonedReview(_HookTestCase):
+    """Step 4b arms the flag at LAUNCH, so an errored or abandoned review leaves
+    it set with nothing able to clear it.
+
+    Only a landed commit clears the cycle (`end_review_cycle`, off the
+    reviewer's SubagentStop), and the arm's whole point is that the launcher
+    reaches no completion hook. So a workflow that dies takes the next
+    `/xp-quality-review` into consume-findings mode with nothing to consume: it
+    asks for a findings list that does not exist, and the reviewer's self-find
+    branch — the one that would have found the bugs itself — never runs.
+
+    The assertions below are on what the CLOSE SKILL observes, not on the
+    marker. A test that reads back the flag it just wrote proves the CLI can
+    write a flag; it says nothing about the mode the next preload emits, which
+    is the behaviour the disarm exists to restore.
+    """
+
+    def _arm(self) -> None:
+        review_flag_cli.main(
+            ["--smm-dir", str(self.smm_dir), "--cwd", ".", "simplify_done"]
+        )
+
+    def _disarm(self) -> None:
+        review_flag_cli.main(
+            ["--smm-dir", str(self.smm_dir), "--cwd", ".", "--disarm", "simplify_done"]
+        )
+
+    def _mode(self, cwd: str = ".") -> str:
+        argv = ["review_mode", "--smm-dir", str(self.smm_dir), "--cwd", cwd]
+        buf = io.StringIO()
+        with patch.object(sys, "argv", argv), redirect_stdout(buf):
+            review_mode.main()
+        return buf.getvalue().strip()
+
+    def _actions(self) -> list[str | None]:
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK)
+        return [event_action(e) for e in events]
+
+    def test_the_next_quality_review_is_self_find_again(self):
+        self._arm()
+        self.assertEqual(
+            self._mode(),
+            review_mode.CONSUME_FINDINGS,
+            "non-vacuity: the arm must reach the preload, or the disarm below "
+            "would pass against a mode that was never consume-findings",
+        )
+
+        self._disarm()
+
+        self.assertEqual(self._mode(), review_mode.SELF_FIND)
+
+    def test_the_close_gate_stops_deferring_on_a_review_that_is_not_coming(self):
+        """The other consumer of the same flag. Left armed, `review_mid_cycle`
+        stays True and the close's Stop gate defers every remaining Stop, so the
+        close ends without ever nudging its close-reviewer."""
+        self._arm()
+        self.assertTrue(review_records.review_mid_cycle(self.smm_dir, "main"))
+
+        self._disarm()
+
+        self.assertFalse(review_records.review_mid_cycle(self.smm_dir, "main"))
+
+    def test_disarming_emits_no_second_completion_event(self):
+        """The arm emits SIMPLIFY_COMPLETE for retro_metrics. The disarm must
+        not emit another — retro counts occurrences, so a disarm that reused the
+        arm's lifecycle entry would report two close-time reviews where one was
+        launched and none finished."""
+        self._arm()
+        self._disarm()
+
+        self.assertEqual(
+            self._actions().count(STATUS_ACTION_SIMPLIFY_COMPLETE),
+            1,
+            "the withdrawal is not a completion",
+        )
+
+    def test_disarming_leaves_the_commit_gate_flag_alone(self):
+        """`quality_review_done` is the flag the per-increment COMMIT gate reads,
+        and this CLI is prose-invoked. Clearing it from here would let anything
+        able to run a command re-open a gate a real review had closed — the hole
+        `_FLAG_LIFECYCLE`'s comment refuses a set-leg for."""
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        self._arm()
+
+        self._disarm()
+
+        flags = review_records.read_review_flags(self.smm_dir, "main")
+        self.assertTrue(flags["quality_review_done"])
+
+    def test_disarming_a_cycle_that_was_never_armed_is_a_no_op(self):
+        """Step 4b's error path cannot always know whether the arm landed — the
+        launch may be what failed. Disarming unconditionally must be safe."""
+        self._disarm()
+
+        self.assertEqual(self._mode(), review_mode.SELF_FIND)
+        self.assertNotIn(STATUS_ACTION_SIMPLIFY_COMPLETE, self._actions())
 
 
 class TestReviewFlagCli(_HookTestCase):

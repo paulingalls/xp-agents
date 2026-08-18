@@ -28,6 +28,21 @@ closing-story worktree, so ${TEAMMATE_CWD:-.} resolves to the orchestrator
 This CLI is the async-Step-4b substitute for review_cycle_done's simplify leg,
 so the two must emit the same action and content; pinned in
 test_review_flag_cli.py.
+
+`--disarm` withdraws the arm. It exists because the arm happens at LAUNCH and
+the only thing that clears the cycle is a landed commit (`end_review_cycle`,
+off the reviewer's SubagentStop) — so a launch that errors, or a review
+abandoned part-way, leaves the flag set for good. The next
+/xp-quality-review then reads consume-findings and asks for findings nobody
+produced, while the self-find branch that would have found the bugs itself
+never runs. The withdrawal emits NO lifecycle event: retro_metrics counts
+occurrences, so reusing the arm's entry would report two close-time reviews
+where one was launched and none finished.
+
+Accepted residual, recorded as debt: the arm's SIMPLIFY_COMPLETE was already
+emitted, so a disarmed cycle still reads to retro_metrics as one completed
+review. Splitting the arm from the emission (arm at launch, emit when findings
+return) is the fix, and it needs the launcher to call this CLI twice.
 """
 
 import argparse
@@ -69,6 +84,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--smm-dir", required=True)
     parser.add_argument("--cwd", default=".")
     parser.add_argument(
+        "--disarm",
+        action="store_true",
+        help=(
+            "clear the flag instead of setting it, and emit no lifecycle event "
+            "— for a launch that errored or a review abandoned part-way"
+        ),
+    )
+    parser.add_argument(
         "flag",
         choices=sorted(_FLAG_LIFECYCLE),
         help="the review-cycle flag to set (e.g. simplify_done)",
@@ -77,7 +100,13 @@ def main(argv: list[str] | None = None) -> None:
 
     smm_dir = Path(args.smm_dir)
     agent_id = identity.review_flags_key(args.cwd)
-    review_records.set_review_flag(smm_dir, agent_id, args.flag)
+    review_records.set_review_flag(smm_dir, agent_id, args.flag, value=not args.disarm)
+    if args.disarm:
+        # Clearing ONE flag, never the whole record: quality_review_done is the
+        # per-increment commit gate's flag, and this CLI is prose-invoked.
+        # clear_review_flags here would let anything able to run a command
+        # re-open a gate a real review had closed.
+        return
 
     action, content = _FLAG_LIFECYCLE[args.flag]
     event = _common.make_event(
