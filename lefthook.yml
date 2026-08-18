@@ -193,7 +193,7 @@ pre-commit:
         else
           par=""
           [ -n "$dirs$wide" ] && par="-n auto"
-          env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u SMM_DIR -u XP_AGENTS_DATA -u XP_FILE_DOMAIN_DRIFT_TOLERANCE -u XP_LOCK_TIMEOUT_SECONDS -u XP_SMM_MIGRATE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest $dirs $files $par -q || [ $? -eq 5 ]
+          env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u SMM_DIR -u XP_AGENTS_DATA -u XP_FILE_DOMAIN_DRIFT_TOLERANCE -u XP_LOCK_TIMEOUT_SECONDS -u XP_SMM_MIGRATE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID -u XP_CAPSTONE_LIVE -u XP_ALLOW_REAL_AGENT_SPAWN pytest $dirs $files $par -q || [ $? -eq 5 ]
         fi
 
 # There is no `perf` command here, and that is deliberate — see
@@ -233,4 +233,4 @@ pre-push:
     # tests/_env_hygiene.py pins the same chain in process; both places are
     # required and a test asserts they agree.
     all-tests:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u SMM_DIR -u XP_AGENTS_DATA -u XP_FILE_DOMAIN_DRIFT_TOLERANCE -u XP_LOCK_TIMEOUT_SECONDS -u XP_SMM_MIGRATE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID pytest -n auto -q
+      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u SMM_DIR -u XP_AGENTS_DATA -u XP_FILE_DOMAIN_DRIFT_TOLERANCE -u XP_LOCK_TIMEOUT_SECONDS -u XP_SMM_MIGRATE -u XP_TEAMMATE_NAME -u XP_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID -u XP_CAPSTONE_LIVE -u XP_ALLOW_REAL_AGENT_SPAWN pytest -n auto -q

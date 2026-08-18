@@ -46,6 +46,17 @@ _LEFTHOOK_ONLY_STRIPS = {
     # so it cannot appear there. lefthook strips it so the pin is what every
     # pytest process sees, not a dev shell's value.
     PINNED_SESSION_ID_VAR: "pinned by the registry, not stripped",
+    # The capstone's live rows put a REAL model in the loop on two harnesses.
+    # The registry cannot strip these two: it strips at IMPORT time, which would
+    # make a deliberate live run impossible to perform at all. Stripping them
+    # here instead is what makes "the commit and push gates never pay for a
+    # model call" an assertion rather than a hope — the gates run this suite on
+    # every commit and every push.
+    "XP_CAPSTONE_LIVE": "would bill a model call on every commit and push",
+    # Worse than billing: this is the spawn guard's own escape hatch. Inherited
+    # into a gate run it would disarm the backstop that exists because ~20 real
+    # recursive agents once escaped, one alive 22 minutes.
+    "XP_ALLOW_REAL_AGENT_SPAWN": "inheriting it disarms the spawn backstop",
 }
 
 
