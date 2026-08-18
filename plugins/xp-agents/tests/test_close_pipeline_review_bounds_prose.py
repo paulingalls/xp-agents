@@ -239,23 +239,24 @@ class TestStep4bCostBoundProse(unittest.TestCase):
         )
 
     # --- Ordered list survives the insertion --------------------------------
-    def test_ordered_list_still_has_all_four_items_in_order(self):
+    def test_ordered_list_still_has_all_five_items_in_order(self):
         # A top-level paragraph inserted mid-list would terminate it and
         # restart the remainder as a fresh "1." / "2." — corrupting the
         # arm -> launch -> wait -> consume sequence the orchestrator follows.
         #
-        # FOUR items again. The arm was dropped when the launcher became a
-        # Skill, whose PostToolUse arms at launch; the primary launcher is a
-        # Workflow again, which reaches no such hook, so the by-hand arm is
-        # back — scoped to this path, with the fallback's own "do not repeat
-        # it" pinned separately below.
+        # FIVE items. The arm came back with the Workflow launcher (which
+        # reaches no PostToolUse hook), and the separate "record it finished"
+        # step came from the broad review reading this branch: the arm used to
+        # emit the completion event AT LAUNCH, so the fallback path counted one
+        # review twice and an abandoned review counted as a completed one.
         positions = [
             self.section.index(marker)
             for marker in (
                 "1. **Arm the marker**",
                 "2. **Launch it**",
                 "3. **Wait**",
-                '4. `Skill(skill: "xp-quality-review")`',
+                "4. **Record it finished**",
+                '5. `Skill(skill: "xp-quality-review")`',
             )
         ]
         self.assertEqual(
@@ -292,7 +293,8 @@ class TestStep4bCostBoundProse(unittest.TestCase):
         )
         self.assertRegex(
             self.section,
-            r"(?is)arm above is skipped|do not repeat it|must\s+not repeat it",
+            r"(?is)skip the arm|arm above is skipped|do not repeat it|"
+            r"must\s+not repeat it|does neither",
             "Step 4b must say the by-hand arm is skipped on the Skill "
             "fallback, whose own PostToolUse arms it at launch",
         )

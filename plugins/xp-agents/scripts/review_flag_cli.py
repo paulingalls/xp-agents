@@ -29,20 +29,29 @@ This CLI is the async-Step-4b substitute for review_cycle_done's simplify leg,
 so the two must emit the same action and content; pinned in
 test_review_flag_cli.py.
 
-`--disarm` withdraws the arm. It exists because the arm happens at LAUNCH and
-the only thing that clears the cycle is a landed commit (`end_review_cycle`,
-off the reviewer's SubagentStop) — so a launch that errors, or a review
-abandoned part-way, leaves the flag set for good. The next
-/xp-quality-review then reads consume-findings and asks for findings nobody
-produced, while the self-find branch that would have found the bugs itself
-never runs. The withdrawal emits NO lifecycle event: retro_metrics counts
-occurrences, so reusing the arm's entry would report two close-time reviews
-where one was launched and none finished.
+THREE ACTIONS, and the split between them is what keeps the count honest:
 
-Accepted residual, recorded as debt: the arm's SIMPLIFY_COMPLETE was already
-emitted, so a disarmed cycle still reads to retro_metrics as one completed
-review. Splitting the arm from the emission (arm at launch, emit when findings
-return) is the fix, and it needs the launcher to call this CLI twice.
+  - the ARM (no flag needed, no option) sets the marker and emits NOTHING. It
+    runs at LAUNCH, where nothing has completed yet.
+  - `--complete` emits the lifecycle event and leaves the marker set. It runs
+    when the findings are in hand, which is when a review has actually
+    completed. The marker stays because /xp-quality-review has yet to consume
+    those findings; the cycle ends where it always did, at the reviewer's
+    SubagentStop.
+  - `--disarm` clears the marker and emits nothing, for a launch that errored
+    or a review abandoned part-way. Without it the flag would survive, since
+    only a landed commit clears the cycle — and the next /xp-quality-review
+    would read consume-findings, ask for findings nobody produced, and skip the
+    self-find branch that would have found the bugs itself.
+
+The arm used to emit at launch, which said a review had completed the moment
+one started. The broad review found the consequence on its own branch: on the
+documented FALLBACK path the count was wrong every time, because the by-hand
+arm emitted one event, the disarm emits none by design, and the fallback
+Skill's own PostToolUse then emitted a second for the same review.
+retro_metrics counts occurrences with no dedup. Splitting the emission out
+closes that, and the debt recorded for it: exactly one event on either path —
+this CLI's on the primary, the hook's on the fallback.
 """
 
 import argparse
@@ -94,6 +103,14 @@ def main(argv: list[str] | None = None) -> None:
             "— for a launch that errored or a review abandoned part-way"
         ),
     )
+    parser.add_argument(
+        "--complete",
+        action="store_true",
+        help=(
+            "record that the review finished: emit its lifecycle event and "
+            "leave the flag set for the quality review to consume"
+        ),
+    )
     # OPTIONAL, and defaulted, so the shipped close prose can invoke this
     # without spelling an internal state field. Naming one in instructions that
     # ship to every project is what the prose vocabulary pins exist to
@@ -110,12 +127,16 @@ def main(argv: list[str] | None = None) -> None:
 
     smm_dir = Path(args.smm_dir)
     agent_id = identity.review_flags_key(args.cwd)
-    review_records.set_review_flag(smm_dir, agent_id, args.flag, value=not args.disarm)
-    if args.disarm:
+
+    if not args.complete:
         # Clearing ONE flag, never the whole record: quality_review_done is the
         # per-increment commit gate's flag, and this CLI is prose-invoked.
         # clear_review_flags here would let anything able to run a command
         # re-open a gate a real review had closed.
+        review_records.set_review_flag(
+            smm_dir, agent_id, args.flag, value=not args.disarm
+        )
+    if not args.complete:
         return
 
     action, content = _FLAG_LIFECYCLE[args.flag]
