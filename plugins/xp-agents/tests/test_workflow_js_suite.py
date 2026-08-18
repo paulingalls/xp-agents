@@ -39,7 +39,7 @@ _JS_GLOB = str(_TESTS_ROOT / "workflows" / "*_test.js")
 # Every `test(...)` in tests/workflows/. Raise it when a suite lands, the way the
 # band ceilings move: the number is a measurement, and lowering it silently is
 # how a floor stops holding anything.
-_MIN_PASSING = 34
+_MIN_PASSING = 39
 
 
 def _run_node_test() -> subprocess.CompletedProcess:

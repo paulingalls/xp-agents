@@ -4,7 +4,12 @@ export const meta = {
     'Broad correctness review: blind angle finders over the close diff, an independent refuter per location, then a ranked and capped report.',
   whenToUse:
     'Close Step 4b, when the cumulative diff crosses the review threshold. Pass args as an object: {level, range, pluginRoot}.',
-  phases: [{ title: 'Scope', detail: 'Pin the diff command, the changed files and the conventions' }],
+  phases: [
+    { title: 'Scope', detail: 'Pin the diff command, the changed files and the conventions' },
+    { title: 'Find', detail: 'One blind finder per angle, each with only its own lens' },
+    { title: 'Verify', detail: 'An independent refuter per candidate location' },
+    { title: 'Synthesize', detail: 'Merge by root cause, rank, and report' },
+  ],
 }
 
 // The one broad multi-agent correctness pass in this process, owned here rather
@@ -28,7 +33,8 @@ export const meta = {
 // first word, so a stray token fell back to a default tier and was absorbed
 // into the diff range -- a corrupted review target reported as a successful
 // review. There is no such failure to warn about here.
-const input = typeof args === 'object' && args !== null ? args : {}
+const argsAreAnObject = typeof args === 'object' && args !== null
+const input = argsAreAnObject ? args : {}
 const LEVEL = input.level || 'high'
 const RANGE = input.range || ''
 const PLUGIN_ROOT = input.pluginRoot || ''
@@ -52,6 +58,12 @@ const CORRECTNESS_ANGLES = [
   'cross_file',
   'language_pitfalls',
 ]
+// ONE allowance, the same as every correctness angle. Cleanup used to get
+// `perAngle * 2` while `rank()` sorts it LAST, so the caps drop it first: the
+// lens least likely to survive was authorized to produce the most, spending
+// finder budget and then verifier locations on candidates the report cap would
+// discard ahead of a correctness finding. Found by this workflow reviewing
+// itself.
 const CLEANUP_ANGLE = 'cleanup'
 
 const LEVELS = {
@@ -188,7 +200,7 @@ const finderAngles = [
 
 const found = await parallel(
   finderAngles.map((angle) => () =>
-    agent(finderPrompt(angle, angle === CLEANUP_ANGLE ? params.perAngle * 2 : params.perAngle), {
+    agent(finderPrompt(angle, params.perAngle), {
       label: `find:${angle}`,
       phase: 'Find',
       schema: CANDIDATES_SCHEMA,
@@ -379,8 +391,27 @@ for (const d of decisions) {
 let backfilled = 0
 for (let i = 0; i < ranked.length && findings.length < REPORT_CAP; i += 1) {
   if (claimed.has(i)) continue
+  claimed.add(i)
   findings.push(toFinding(ranked[i]))
   backfilled += 1
+}
+
+// THE OTHER CAP, and it was silent until this workflow reviewed itself. Every
+// ranked index not claimed by a decision, a merge or the backfill is a finding
+// a finder raised and a refuter upheld, which REPORT_CAP then dropped. The
+// location cap announced itself from the start; this one did not, and the
+// summary went on reporting the full surviving count — so a close reading the
+// array it is told to read saw 10 of 26 and was told 26 survived.
+//
+// Counted from `claimed` rather than from `surviving.length - findings.length`,
+// because a merged finding IS surfaced (inside its primary's "same root cause
+// also at" list) and must not count as dropped.
+const findingsDropped = ranked.length - claimed.size
+if (findingsDropped > 0) {
+  log(
+    `cap: ${ranked.length} verified findings, reporting ${findings.length}; ` +
+      `${findingsDropped} dropped unreported`,
+  )
 }
 
 const stats = {
@@ -392,20 +423,52 @@ const stats = {
   verified: verified.length,
   refuted,
   reported: findings.length,
+  findingsDropped,
   backfilled,
+}
+
+// Sentences in a list, joined once. Built by concatenation, the synthesis
+// clause was spliced between a sentence and its full stop — so a run that hit
+// the location cap read `...unmerged.; 20 further locations`, and a CLEAN run
+// read `...unmerged..`. Worse than the punctuation: `report && decisions.length
+// > 0` cannot tell "the merge died" from "there was nothing to merge", so a
+// review that found nothing announced a broken synthesis. Synthesis is only
+// SKIPPED when nothing survived (it is guarded on `ranked.length > 0`), so that
+// is the case to exclude, not to report.
+const synthesisFailed = ranked.length > 0 && decisions.length === 0
+const sentences = [
+  `${surviving.length} findings survived independent verification ` +
+    `(${LEVEL}, ${finderAngles.length} angles).`,
+]
+if (!argsAreAnObject) {
+  // The close renders this object by hand out of catted prose, so a
+  // string-shaped `args` is a live mis-render, not a hypothetical. Defaulting
+  // silently would review `@{upstream}...HEAD` instead of the close's own range
+  // — different commits, possibly none — and report it as a successful review.
+  sentences.push(
+    'WARNING: args did not arrive as an object, so the level, range and ' +
+      'pluginRoot were all defaulted — this may not be the range you asked for.',
+  )
+}
+if (synthesisFailed) {
+  sentences.push('Synthesis returned nothing usable, so these are ranked and unmerged.')
+}
+if (findingsDropped > 0) {
+  sentences.push(
+    `${findingsDropped} of them are NOT in this report — it hit its ` +
+      `${REPORT_CAP}-finding cap.`,
+  )
+}
+if (locationsDropped > 0) {
+  sentences.push(
+    `${locationsDropped} further locations were NOT verified — the review hit ` +
+      `its fan-out cap.`,
+  )
 }
 
 return {
   level: LEVEL,
-  summary:
-    `${surviving.length} findings survived independent verification ` +
-    `(${LEVEL}, ${finderAngles.length} angles)` +
-    (report && decisions.length > 0
-      ? ''
-      : ' Synthesis returned nothing usable, so these are ranked and unmerged.') +
-    (locationsDropped > 0
-      ? `; ${locationsDropped} further locations were NOT verified — the review hit its cap.`
-      : '.'),
+  summary: sentences.join(' '),
   findings,
   stats,
 }

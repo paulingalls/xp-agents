@@ -2,6 +2,92 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.20.0 — The broad review is ours, and its cost is a number
+
+**The one broad multi-agent correctness pass now runs from a shipped script this
+repo owns, launched by PATH.** It used to be a built-in launched by NAME. That
+name was registered nowhere in the shipped build, so close Step 4b silently did
+not run — for releases — while every check said the instruction was present.
+Each check was asking whether the string was there, not whether it was
+deliverable. A path cannot fail that way, and `plugins/xp-agents/workflows/code_review.js`
+is now the primary launcher; the built-in `/code-review` stays as a documented
+fallback until the script has closed a real branch.
+
+**That pass earns its cost.** Run by hand against the v5.19.0 close diff — after
+a plan review, a per-increment quality review and a security review had all
+passed it — it returned seven findings with reproductions, two of them
+fail-opens where a gate did not catch its own primary shape. v3.11.1 records the
+same: two confirmed regressions passed three cheaper reviews and were caught
+only here.
+
+**What owning it buys, beyond the launch working.**
+
+*The reviewing knowledge is shipped prose, not code.* Each finder's lens and the
+verdict ladder live in `scripts/_code_review_angle_*.md`, flat, where the
+language-agnostic sweep and the prose pins already scan them. One file per
+angle, because blindness is the mechanism: a finder handed every lens drifts
+back toward the generalist pass this exists to beat. Two of the angles are ours
+and both were earned — a state/lifecycle reading is what would have caught the
+v3.11.1 pair, and a test-vacuity angle exists because a single session here
+produced three tests that passed against the unfixed code.
+
+*The fan-out is capped in code and says what it dropped.* The previous
+mitigation was a paragraph asking the orchestrator to be careful, shipped after
+a customer run reached roughly a hundred agents; its own test file recorded the
+risk as "narrowed, not closed". Verification is now bounded on distinct
+candidate locations, and the cap announces itself in the log, the stats and the
+summary the close reads. Silent truncation was the real failure — a capped pass
+reads exactly like a complete one.
+
+*Nothing found is lost at assembly.* A synthesizer that returns one decision for
+ten findings, or dies, no longer discards the nine: they were found by an angle
+nothing else looks through and survived a refuter trying to kill them.
+
+**A Workflow script can now be unit-tested at all**, which is why any of the
+above is checkable. The source is read as TEXT and wrapped in an
+`AsyncFunction` with the runtime's globals stubbed — a Workflow script is
+neither an ES module nor a plain script, since it carries a top-level `return`.
+34 JS tests over the orchestration, run by `node --test` and DRIVEN FROM PYTEST:
+`node --test` on a glob matching nothing runs zero tests and exits 0, so the
+suite carries a minimum-passing floor, and a missing node fails loudly rather
+than skipping the one surface no other gate in this repo discovers. Node is a
+development dependency only; the shipped plugin stays stdlib-only and a Workflow
+script has no module system to import anything with.
+
+**The `.js` surface is governed, not merely tested.** Nothing discovered a
+`.js`: no 500-line cap, no band ratchet, and at commit time `staged-tests`
+classified one as nothing at all. Both legs select by suffix at any depth rather
+than by enumerated location, following the precedent set for shipped shell.
+
+**Two lifecycle fixes that the change forced, both real.** A Workflow completion
+reaches no `PostToolUse:Skill|Agent` hook, so Step 4b arms the review-cycle
+marker by hand — and the Skill fallback must NOT repeat that, because its own
+hook arms at launch and two writers made the retro count one review twice. The
+arm is therefore launcher-conditional, and wrong in both directions if applied
+flatly. And since the marker is cleared only by a landed commit, an errored or
+abandoned review used to leave it set for good: the next `/xp-quality-review`
+would read consume-findings and ask for findings nobody produced, while the
+self-find branch that would have found the bugs itself never ran.
+`review_flag_cli.py --disarm` takes it back, and Step 4b disarms BEFORE falling
+back — after, the disarm lands on the fallback's own arm.
+
+**Paths are emitted, not written.** The close reference is `cat` into the
+preload's stdout RAW, so a `${CLAUDE_PLUGIN_ROOT}` in it reaches the reader
+literally; the ones that work there work because they sit inside a Bash command
+the reader runs. A tool argument has no shell. The preload emits
+`WORKFLOW_SCRIPT` and `PLUGIN_ROOT` already absolute, and the test asserts the
+emitted path EXISTS — the only check in this step's wiring that is not a string
+comparison, which is precisely the gap that let the last one ship broken.
+
+**Disclosed rather than argued away.** The arm emits its lifecycle event at
+LAUNCH, so a disarmed cycle still counts to `retro_metrics` as one completed
+review; the flag can be taken back and the event cannot (dc9982edd189). The
+fallback's fan-out remains unbounded by anything here — the cap is closed for
+the primary launcher only. And the close prose was measured, not estimated: the
+three close preloads move 8900 → 10700, and the fallback's paragraph is the
+whole increase, so retiring it brings the number back down rather than leaving
+the room spendable.
+
 ## v5.19.0 — A review covers the fixes it made, and a piped push cannot lie
 
 **A completed review now records the files the reviewer actually changed or

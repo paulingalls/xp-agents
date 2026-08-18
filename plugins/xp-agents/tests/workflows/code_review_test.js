@@ -8,8 +8,9 @@
 // question — the question is whether the fan-out, the grouping, the cap and the
 // synthesis do what the close pipeline is told they do.
 //
-// Scope phase only at this commit. Fan-out, verification and synthesis arrive
-// with their own reds.
+// The header used to say "scope phase only at this commit"; the suite has
+// covered fan-out, verification, the caps and synthesis for several commits and
+// the line was left behind. It was found by this workflow reviewing itself.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -233,14 +234,29 @@ test('CONFIRMED and PLAUSIBLE both survive', async () => {
   // PLAUSIBLE is not a soft REFUTED. A race or a rare-path nil is real and
   // uncertain, and dropping it here would make the recall-biased ladder the
   // refuter is given a lie.
+  //
+  // VACUOUS UNTIL FIXED, and caught by this workflow reviewing itself: the
+  // discriminator was `p.includes('x')` against the whole verifier prompt, and
+  // every prompt carries the SCOPE BLOCK — the diff command, the changed file
+  // list, the summary. So it was true every time, both candidates came back
+  // CONFIRMED, and a test named for two verdicts exercised one.
+  //
+  // A bare filename is the same trap one level down: `a.py` is in the scope
+  // block of BOTH prompts. The only text unique to a group is its own
+  // `## Candidate findings at <loc>` header, which is the grouping this suite
+  // pins elsewhere. Assert the verdicts that came back, not just the count.
   const { result } = await runVerify([cand('a.py', 7, 'x'), cand('b.py', 3, 'y')], (p) => ({
     verdicts: (p.match(/^\[\d+\]/gm) || []).map((_m, i) => ({
       index: i,
-      verdict: p.includes('x') ? 'CONFIRMED' : 'PLAUSIBLE',
+      verdict: /Candidate findings at a\.py/.test(p) ? 'CONFIRMED' : 'PLAUSIBLE',
       evidence: 'e',
     })),
   }))
   assert.strictEqual(result.findings.length, 2)
+  assert.deepStrictEqual(
+    result.findings.map((f) => f.verdict).sort(),
+    ['CONFIRMED', 'PLAUSIBLE'],
+  )
 })
 
 test('a candidate the refuter never ruled on is dropped, not admitted', async () => {
@@ -373,6 +389,80 @@ test('a synthesizer that dies costs the merge, never the findings', async () => 
   )
   assert.strictEqual(result.findings.length, 2)
   assert.match(result.summary, /unmerged|synthes/i)
+})
+
+test('a non-object args says so instead of quietly reviewing something else', async () => {
+  // The close renders this object BY HAND out of prose that is `cat` raw, so a
+  // string-shaped args is a live mis-render. Defaulting silently would review
+  // `@{upstream}...HEAD` — different commits, possibly none — and return it as
+  // a successful close review.
+  const { result } = await runWorkflow(SCRIPT, {
+    args: 'high main...HEAD',
+    agent: async (_p, opts) =>
+      opts.label === 'scope' ? scopeReply() : { candidates: [] },
+  })
+  assert.match(result.summary, /args did not arrive as an object/)
+})
+
+test('every angle gets the same candidate allowance', async () => {
+  // Cleanup used to get twice it, while rank() sorts cleanup LAST so the caps
+  // drop it first — the lens least likely to survive was allowed to produce the
+  // most. Asserted on the prompts, which is where the number reaches an agent.
+  const { calls } = await runWorkflow(SCRIPT, {
+    args: ARGS,
+    agent: async (_p, opts) =>
+      opts.label === 'scope' ? scopeReply() : { candidates: [] },
+  })
+  const caps = calls
+    .filter((c) => c.opts.phase === 'Find')
+    .map((c) => (c.prompt.match(/at most (\d+)/) || [])[1])
+  assert.ok(caps.length > 1, 'expected several finders')
+  assert.strictEqual(new Set(caps).size, 1, `finder caps differ: ${caps.join(', ')}`)
+})
+
+test('the report cap says how many verified findings it left out', async () => {
+  // THE BUG THIS WORKFLOW FOUND IN ITSELF, on its first real run. 26 findings
+  // survived verification, REPORT_CAP kept 10, and the summary said "26
+  // findings survived independent verification" with no mention that 16 of
+  // them were not in the array the close is told to read. The close would have
+  // merged believing every finding was addressed.
+  //
+  // Only the LOCATION cap announced itself. The report cap — the one that
+  // discards findings already paid for by a finder and a refuter — was silent,
+  // in a file whose own comment claims "the cap is the only thing permitted to
+  // drop a finding, and it announces itself when it does".
+  const many = Array.from({ length: 14 }, (_v, i) => cand(`f${i}.py`, i, `bug ${i}`))
+  const { result } = await runVerify(many, confirmAll)
+
+  assert.strictEqual(result.findings.length, 10, 'REPORT_CAP still bounds the array')
+  assert.strictEqual(result.stats.verified, 14)
+  assert.strictEqual(result.stats.findingsDropped, 4)
+  assert.match(
+    result.summary,
+    /4 .*NOT in this report/,
+    `a truncated report must say so in the summary the close reads: ${result.summary}`,
+  )
+})
+
+test('a review that found nothing does not report a broken synthesis', async () => {
+  // `report && decisions.length > 0` cannot tell "nothing to merge" from
+  // "the merge died", so a CLEAN review announced a synthesis failure — and
+  // with a doubled period, because the clause was spliced between a sentence
+  // and its full stop. An operator reading that re-runs a pass that worked.
+  const { result } = await runVerify([], () => ({ candidates: [] }))
+
+  assert.strictEqual(result.findings.length, 0)
+  assert.doesNotMatch(result.summary, /nothing usable/i)
+  assert.doesNotMatch(result.summary, /\.\./, `doubled punctuation: ${result.summary}`)
+})
+
+test('a synthesis that really died still says so', async () => {
+  // The counterpart, so the fix above cannot be "never mention synthesis".
+  const { result } = await runVerify(
+    [cand('a.py', 1, 'one')],
+    (prompt, opts) => (opts.phase === 'Synthesize' ? null : confirmAll(prompt)),
+  )
+  assert.match(result.summary, /nothing usable/i)
 })
 
 test('a decision naming a finding twice cannot duplicate it', async () => {
