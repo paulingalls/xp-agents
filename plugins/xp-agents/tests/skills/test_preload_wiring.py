@@ -124,6 +124,28 @@ class TestEveryShippedPreloadIsInvoked(unittest.TestCase):
             f"delivered by BOTH injection and an instruction-time line: {offenders}",
         )
 
+    def test_no_skill_body_still_points_at_a_line_above_it(self):
+        """ "The preload above" survived the deletion of the line it named.
+
+        The phrase is not merely stale: it tells the model to look UPWARD in
+        the body for state that now arrives as injected context, so a reader
+        who takes it literally finds nothing and concludes the state is
+        missing. Six bodies said it while three converted ones already said
+        "The injected preload state", which left one idea with two spellings
+        and no way to tell which was current.
+        """
+        offenders = []
+        for script in _preload_scripts():
+            skill_md = script.parent.parent / "SKILL.md"
+            if "preload above" in skill_md.read_text(encoding="utf-8"):
+                offenders.append(script.parent.parent.name)
+        self.assertEqual(
+            offenders,
+            [],
+            "points at a deleted instruction-time line instead of naming the "
+            f"injected state: {offenders}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

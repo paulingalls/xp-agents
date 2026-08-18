@@ -25,7 +25,7 @@ allowed-tools:
 > with one that depends on it, and never spawn the same subagent twice;
 > independent read-only calls may batch.
 
-The preload above surfaces `SMM_DIR`, `TEAMMATE_CWD`, `CURRENT_BRANCH`,
+The injected preload state names `SMM_DIR`, `TEAMMATE_CWD`, `CURRENT_BRANCH`,
 `TARGET_BRANCH`, `STORY_BASE_UNRESOLVED`, `GH_AVAILABLE`, `WORKTREE_CLEAN`.
 `TARGET_BRANCH` is the merge destination — the sprint branch at stage 2+,
 primary otherwise. Shared pipeline lives in

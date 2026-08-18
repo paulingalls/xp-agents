@@ -30,7 +30,7 @@ real repositories, both exited 0, and one fixed nothing at all.
 
 ## Step 0: The values every command below carries
 
-`<SMM_DIR>`, `<REPO_ROOT>` and `<TEST_COMMAND>` come from the preload above —
+`<SMM_DIR>`, `<REPO_ROOT>` and `<TEST_COMMAND>` come from the injected preload state —
 **substitute each literally.** A shell variable assigned in one Bash call is
 gone by the next, so an unsubstituted flag arrives empty.
 

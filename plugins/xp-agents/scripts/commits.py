@@ -368,11 +368,6 @@ def get_code_files_in_range(cwd: str, base: str) -> list[str]:
     return [f for f in _nul_paths(out) if code_files.is_code_file(f)]
 
 
-# `-z` on all three for the reason `get_staged_files` carries it: git C-quotes
-# non-ASCII paths in its default output, and a quoted `"caf\303\251.js"` fails
-# `is_code_file`'s extension test (it ends `.js"`), so the file silently drops out
-# of the review scope these feed. NUL separation also keeps a path with a space
-# in one piece. `ls-files` spells the same flag the same way.
 # -------------------------------------------------------------------
 # Bash-command parsing — re-exported from commit_command
 # -------------------------------------------------------------------

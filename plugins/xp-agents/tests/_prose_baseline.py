@@ -201,7 +201,11 @@ PROSE_MEASURED: dict[str, int] = {
     # flags and scan budget there — so the merged file is a union and neither
     # side's number describes it. Measured, not chosen. Both histories are kept
     # above because each explains a guard the other side's reader would undo.
-    "plugins/xp-agents/scripts/commits.py": 209,
+    # 209 -> 204 deleting an orphaned comment: it explained the `-z` flag on
+    # three constants story-016 moved to worktree_state.py, and the surviving
+    # rationale is richer anyway (`_nul_paths`'s docstring, which that module
+    # imports). Banked downward rather than left as slack.
+    "plugins/xp-agents/scripts/commits.py": 204,
     # Arrives above the floor, so it records a ceiling on its first commit —
     # no absolute quoted here, per this file's own rule that prose ABOUT the
     # numbers goes stale exactly the way the numbers do.

@@ -25,7 +25,7 @@ allowed-tools:
 > with one that depends on it, and never spawn the same subagent twice;
 > independent read-only calls may batch.
 
-The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
+The injected preload state names `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
 `GH_AVAILABLE`, and `WORKTREE_CLEAN`. Shared pipeline lives in
 `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 

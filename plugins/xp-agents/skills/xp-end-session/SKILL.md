@@ -19,7 +19,7 @@ allowed-tools:
 > `AskUserQuestion` with the action consuming its answer (a force-close/defer
 > question vs the append that records its disposition).
 
-The preload above provides:
+The injected preload state provides:
 - `SMM_DIR=<path>` — pass to every append.sh call.
 - `### CANDIDATES` — mechanical line-per-event narrative draft (newest at the bottom; an `...` prefix means older lines were trimmed to fit budget).
 - `### OPEN_QUESTIONS` — event ids of questions still open in this session.

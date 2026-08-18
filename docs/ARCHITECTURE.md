@@ -98,8 +98,9 @@ Four pillars:
 
 ### Context Injection
 
-Context reaches the agent through two mechanisms:
+Context reaches the agent through three mechanisms:
 - **Prompt nuggets** (UserPromptSubmit via `prompt_nugget.py`): lightweight injection of new signal events since last prompt (~50-100 tokens). Watermark-based — only new concerns, decisions, and discoveries.
+- **Skill preload injection** (PreToolUse via `preload_injection.py`): a skill's own preload state, run by the hook and returned as `additionalContext`. Since sprint-007 this is the **sole** channel — no `SKILL.md` carries an instruction-time `!` line, because the second harness never expanded one (only a skill's LOCATOR reached the model there). See `docs/completed/PRELOAD_DELIVERY_MECHANISM.md`.
 - **Tiered context injection** (SubagentStart via `subagent_start.py`): every tier receives `XP_VALUES.md` — never the process guide, which SubagentStart does not load. On top of the values: Explore gets Intent+Constraints; `xp-code-reviewer` and unknown/ad-hoc types (including `Plan`) get the full rendered SMM; `general-purpose` / `workflow-subagent` / `claude` get the reference tier (a one-line pointer to run `smm_cli.py render` themselves); `xp-retrospective` and `xp-housekeeper` get path strings to their preload inputs; every other `xp-*` agent gets values only, because its data arrives in the Agent prompt the spawning skill builds from its injected preload state. CLI teammates do **not** appear here at all — they are separate `claude -p` processes and take the SessionStart path instead (see §Teammate Detection).
 
 ## Hook Map
@@ -117,7 +118,8 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **UserPromptSubmit** | | `prompt_nugget.py` | Inject prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | **PreToolUse** | `Write\|Edit\|MultiEdit` | `pre_tool_write.py` | Conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker file) |
 | **PreToolUse** | `Bash` | `pre_tool_bash.py` | Tier 1 deterministic security scan of the staged diff (fail-closed), staged-lint gate, commit-gated review cycle, branch-protection advisories, cd-into-worktree-git advisory. The review gate arms at `commits.REVIEW_CYCLE_THRESHOLD` (2) changed code files since the last review and blocks on `quality_review_done` alone — `/xp-quality-review` is the whole per-commit gate. On **story** cadence it does not block: it emits a deferral advisory and the review relocates to `/xp-story-close`. No file-modification coordination gate — pre_tool_write covers Edit/Write; trust+merge handles the rest (sprint-105 decision). Also carries the reviewer read-only guard (`pre_tool_bash_reviewer_guard.py`): `xp-code-reviewer` and `xp-close-reviewer` are refused any non-allowlisted `git`, after two incidents where a review's `git reset` mutated shared state |
-| **PreToolUse** | `Skill` | `pre_tool_skill.py` | Prepare review guidance for skills |
+| **PreToolUse** | `Skill` | `pre_tool_skill.py` | Prepare review guidance for skills; **blocks** a teammate from a lead-owned lifecycle skill, and an `/xp-accept` with no evidence |
+| **PreToolUse** | `Skill` | `preload_injection.py` | Run the invoked skill's own preload and return its state as `additionalContext` — the sole channel since the `!` lines were deleted. `skill_preload_map.py` resolves skill → argv + environment. Registered on `Bash` too in the derived variant (`hooks.codex.json`), where the model reaches a skill by reading its `SKILL.md` rather than by a tool call. Runs in parallel with `pre_tool_skill.py`, so it cannot observe that handler's refusal — it recomputes the same verdict itself and skips the preload when the call will be blocked (story-019) |
 | **PreToolUse** | `EnterPlanMode` | `pre_tool_plan_mode.py` | Schedule gate — block plan entry until `/xp-schedule` promotes a frontier |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, inject errors as additionalContext |
@@ -195,7 +197,7 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
 | Before Bash | Tier 1 security patterns + staged lint, then the commit-gated review cycle (blocks until `quality_review_done`; defers on story cadence), cd-into-worktree-git advisory. NO Bash file-modification gate — see the PreToolUse:Bash row in the Hook Map (sprint-105 dropped it; trust+merge model) |
-| Subagent spawn | `XP_VALUES.md` for every tier, plus: Explore→Intent+Constraints; xp-code-reviewer/Plan/unknown→full SMM; general-purpose / workflow-subagent / claude→SMM reference pointer; xp-retrospective/xp-housekeeper→preload path strings; other forked xp-*→nothing extra. Teammates are not subagents and never reach this hook |
+| Subagent spawn | `XP_VALUES.md` for every tier, plus: Explore→Intent+Constraints; xp-code-reviewer/Plan/unknown→full SMM; general-purpose / workflow-subagent / claude→SMM reference pointer; xp-retrospective/xp-housekeeper→preload path strings; every other `xp-*` agent→nothing extra, because its data arrives in the Agent prompt the spawning skill builds from its injected preload state. Teammates are not subagents and never reach this hook |
 | After compaction | Full SMM + PROCESS_GUIDE.md re-injection via SessionStart (`compact` source) |
 
 Injection order in SessionStart `additionalContext`:
@@ -324,7 +326,7 @@ plugins/xp-agents/
 - `additionalContext` appends after prompt cache — cache is preserved
 - PostToolUse supports `additionalContext` and `decision: "block"`
 - Prompt/agent hooks use `ok`/`reason` format, NOT `decision`/`block`
-- `!` command permissions in skills controlled by `allowed-tools` field — add `Bash(*/skills/*/scripts/*)` to pre-approve preload scripts
+- `allowed-tools` gates what the MODEL may run from a skill body, and nothing else. It did once pre-approve the instruction-time `!` preload line via `Bash(*/skills/*/scripts/*)`, but sprint-007 deleted every such line: `preload_injection.py` now runs each preload with `subprocess.run` from inside the hook, which never consults `allowed-tools`. The grant is therefore only load-bearing for a skill that still invokes its own script from a numbered step — a still-open concern tracks which of the 16 carry it as dead permission surface
 - **SubagentStop only supports `decision:"block"` or silence** — `decision:"approve"` with `reason` is silently dropped. `additionalContext` is delivered to the finished subagent (continuing its turn), not the parent — so it cannot message the main agent (and can bury a subagent's final message). This limits enforcement options for plan review
 - Plugin cache requires version bump to update — `/reload-plugins` alone isn't sufficient if version is unchanged
 - File-based coordination (`.retro-input.json`) is a race — design for graceful degradation
