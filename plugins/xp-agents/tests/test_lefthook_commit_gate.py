@@ -177,9 +177,17 @@ class TestStagedTestsRunOnTheCommitGate(unittest.TestCase):
         )
         self.assertRegex(
             self.cmd,
-            r'glob:\s*"\*\*/\*\.py"',
+            r'glob:.*"\*\*/\*\.py"',
             "staged-tests must glob every .py and classify in the body — a "
             "test_*-only glob cannot see conftest.py or the _*.py helpers.",
+        )
+        self.assertRegex(
+            self.cmd,
+            r'glob:.*"\*\*/\*\.js"',
+            "staged-tests must also glob .js — the shipped workflow script and "
+            "its harness are the only JavaScript in the tree, and no linter, "
+            "formatter or type checker in this file reads one, so without this "
+            "a staged .js runs nothing until push.",
         )
 
     def test_tolerates_an_empty_collection(self):

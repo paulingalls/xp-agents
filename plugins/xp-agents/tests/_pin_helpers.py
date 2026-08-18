@@ -205,6 +205,39 @@ def shipped_shell_to_scan(plugin_root: Path) -> list[Path]:
     )
 
 
+def shipped_js_to_scan(plugin_root: Path) -> list[Path]:
+    """Every shipped JavaScript file under *plugin_root*, at any depth.
+
+    A third surface, arriving with the broad-review Workflow script. Selected by
+    SUFFIX for the reason `shipped_shell_to_scan` argues above and not repeated
+    here: an enumerated glob cannot fire for a location that does not exist yet,
+    so it reproduces the coverage gap one level down.
+
+    This one needed the gate MORE than shell did, not less. A `.js` in this repo
+    is reached by no linter, no formatter, no type checker and no prose sweep --
+    `lefthook.yml` globs `.py`, `.sh` and `.json`, and there is no JS toolchain.
+    Before this the line cap and band ratchet did not see one either, while
+    `test_file_size_pin`'s own docstring called itself tree-wide. That overclaim
+    was paid for once already when shell was discovered to be unscanned.
+
+    Its BEHAVIOUR is covered separately, by `test_workflow_js_suite.py` driving
+    `node --test`. Size and behaviour are different questions and neither
+    substitutes for the other -- a 700-line orchestrator can pass every one of
+    its own tests.
+
+    `tests/` is excluded on the first path segment, exactly as above, so the
+    harness and its fixtures are not governed as shipped code. They are still
+    covered by the tests/ legs, which scan `.py` only -- a gap that costs
+    nothing while the JS under `tests/` is a harness two files long, and would
+    need its own leg if that ever stopped being true.
+    """
+    return sorted(
+        p
+        for p in plugin_root.rglob("*.js")
+        if p.relative_to(plugin_root).parts[0] != "tests"
+    )
+
+
 def shipped_prose_to_scan(plugin_root: Path) -> dict[str, list[Path]]:
     """Every shipped PROSE surface under *plugin_root*, grouped by its glob.
 
