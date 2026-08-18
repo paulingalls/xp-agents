@@ -204,10 +204,33 @@ def _name_feeds_a_compile_call(tree: ast.Module, name: str) -> bool:
     return False
 
 
+def _assigned_name_and_value(node: ast.stmt) -> tuple[str, ast.expr] | None:
+    """(name, value) for a module-level assignment to ONE bare name, whether
+    it is annotated or not — else None.
+
+    Both shapes, because `ast.AnnAssign` is a distinct node type and NOT a
+    subclass of `ast.Assign`: a scan matching only the latter is blind to
+    `_NEW_RE: re.Pattern[str] = re.compile(...)`, which is how this repo
+    idiomatically writes a module constant (CLAUDE.md mandates type hints;
+    `_spawn_guard._NON_MODEL_SUBCOMMANDS` is the precedent). Blind, and
+    SILENTLY so — it would report every pattern registered while seeing none
+    of them, which is the failure this whole module exists to stop.
+
+    `AnnAssign.value` is None for a bare declaration (`x: int`), so the
+    pattern below requires a value rather than assuming one.
+    """
+    match node:
+        case ast.Assign(targets=[ast.Name(id=name)], value=value):
+            return name, value
+        case ast.AnnAssign(target=ast.Name(id=name), value=ast.expr() as value):
+            return name, value
+    return None
+
+
 def pattern_shaped_constants(path: Path) -> set[str]:
     """Module-level constants that ARE a regex pattern, however they get
     there: bound straight to `re.compile(...)`, or a bare string literal fed
-    into one elsewhere in the same module.
+    into one elsewhere in the same module — annotated or not.
 
     AST, not a name-suffix convention (`_RE`, `_PATTERN`) — `_band_proof.py`'s
     `_BAND_LINE` carries neither suffix and is exactly the constant this shape
@@ -218,18 +241,17 @@ def pattern_shaped_constants(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     names: set[str] = set()
     for node in tree.body:
-        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+        assigned = _assigned_name_and_value(node)
+        if assigned is None:
             continue
-        target = node.targets[0]
-        if not isinstance(target, ast.Name):
-            continue
+        name, value = assigned
         is_bare_pattern_string = (
-            isinstance(node.value, ast.Constant)
-            and isinstance(node.value.value, str)
-            and _name_feeds_a_compile_call(tree, target.id)
+            isinstance(value, ast.Constant)
+            and isinstance(value.value, str)
+            and _name_feeds_a_compile_call(tree, name)
         )
-        if _is_re_compile_call(node.value) or is_bare_pattern_string:
-            names.add(target.id)
+        if _is_re_compile_call(value) or is_bare_pattern_string:
+            names.add(name)
     return names
 
 
@@ -280,6 +302,36 @@ class TestRegistryCompleteness(unittest.TestCase):
             )
             gaps = _missing_registrations({"_fixture_guard": fixture}, {})
             self.assertIn("_THROWAWAY_RE", gaps.get("_fixture_guard", set()))
+
+    def test_the_scan_sees_an_ANNOTATED_pattern_constant(self):
+        """The shape that nearly got away, and the one most likely to be used
+        NEXT: an annotated assignment.
+
+        `ast.AnnAssign` is a distinct node type, not a subclass of `ast.Assign`
+        — a scan that walks only the latter reports "everything registered"
+        while seeing nothing. It matters here more than it would elsewhere:
+        CLAUDE.md mandates type hints and `_spawn_guard.py` already writes its
+        module constants annotated, so the IDIOMATIC way to add a guard was
+        the one way to evade the check that exists to catch it. A new guard
+        added the normal way would have arrived unregistered with this suite
+        green — this module's own failure mode, one level up, inside its fix.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp) / "_annotated_guard.py"
+            fixture.write_text(
+                "import re\n"
+                '_ANNOTATED_RE: re.Pattern[str] = re.compile(r"x")\n'
+                '_ANNOTATED_BARE: str = r"y"\n'
+                "def _use() -> re.Pattern[str]:\n"
+                "    return re.compile(_ANNOTATED_BARE)\n",
+                encoding="utf-8",
+            )
+            found = pattern_shaped_constants(fixture)
+        self.assertEqual(
+            found,
+            {"_ANNOTATED_RE", "_ANNOTATED_BARE"},
+            "annotated pattern constants are invisible to the scan",
+        )
 
     def test_a_registry_scoped_to_budget_helpers_alone_misses_band_line(self):
         """The scope decision, proven rather than argued: narrowing the
