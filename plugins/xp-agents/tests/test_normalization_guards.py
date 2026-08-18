@@ -133,6 +133,29 @@ class TestWorktreeSegmentGuardIsPinned(unittest.TestCase):
         text = f"cwd={wt}/smm\n"
         self.assertRegex(text, _budget_helpers._WORKTREE_SEGMENT_RE)
 
+    def test_stripping_the_segment_collapses_to_the_plain_checkout(self):
+        """Folds in `test_budget_helpers_shim.py`'s retired
+        `test_measured_len_normalizes_the_real_worktree_layout` — same claim
+        (a worktree-inflated measurement must equal the plain one), but the
+        worktree path is DERIVED from `worktree.worktree_path` for both
+        placements rather than hand-typed. A hand-typed literal drifts from
+        the pattern independently, which is how the pattern went dead for a
+        whole release span without either side going red.
+        """
+        for plain, wt in (
+            _out_of_repo_worktree_specimen(),
+            _legacy_in_repo_worktree_specimen(),
+        ):
+            with self.subTest(wt=wt):
+                inside_worktree = f"SMM_DIR={wt}/smm\n".encode()
+                from_plain_checkout = f"SMM_DIR={plain}/smm\n".encode()
+                self.assertEqual(
+                    _budget_helpers._measured_len(inside_worktree),
+                    _budget_helpers._measured_len(from_plain_checkout),
+                    "the worktrees segment must be stripped regardless of "
+                    "which placement produced it",
+                )
+
 
 class TestHistoricalIdGuardIsPinned(unittest.TestCase):
     """`_HISTORICAL_ID_RE` is a DETECTOR, not a normalization: a non-match
