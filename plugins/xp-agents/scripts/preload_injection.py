@@ -64,10 +64,10 @@ import target_routing
 # the model reading SKILL.md through the shell, so only a read is an invocation.
 #
 # A heuristic, and it must be read as one: `wc -c` is the case that was measured
-# breaking this, not the only command that could ever mention a skill path. The
-# bias is deliberate — a read shape wrongly rejected costs one missed injection
-# on that read, while a mention wrongly accepted TAKES THE CLAIM and starves the
-# genuine read that follows, which is the failure that hid for a whole session.
+# breaking this. Neither direction is cheap: a shape outside this set injects
+# NOTHING, and since the read IS the invocation here the skill then runs blind,
+# while a mention wrongly accepted TAKES THE CLAIM and starves the genuine read
+# that follows — the failure that hid for a whole session. Both are silent.
 _READ_COMMANDS = frozenset({"cat", "head", "tail", "less", "more", "bat", "view", "nl"})
 
 # Short on purpose. The claim exists to collapse the burst of reads that one
@@ -135,11 +135,13 @@ def _skill_name_from_path(token: str) -> str | None:
 
 
 def _claim_for(skill: str) -> markers.MarkerDef:
-    """One claim per (session, skill).
+    """One claim per (session, skill) — where a session id resolves at all.
 
     Session-scoped because the SMM dir is shared across worktrees and windows:
     keyed on the skill alone, two teammates invoking the same skill at once
-    would leave one of them running blind.
+    would leave one of them running blind. A host resolving no single id gets
+    exactly that shared name: `session_scope.scoped_name`'s rule for every
+    scoped marker, which this one does not get to diverge from.
     """
     return markers.MarkerDef(f".preload-claim-{skill}", "text", session_scoped=True)
 

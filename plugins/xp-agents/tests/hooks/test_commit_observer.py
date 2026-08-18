@@ -30,7 +30,6 @@ import _append_impl
 import _common
 import commit_observer
 import markers
-import review_records
 from _commit_repo_case import _MergeCase
 from _observer_case import ORDINARY_BASH, _ObserverCase
 from conftest import make_event
@@ -256,49 +255,6 @@ class TestAMergeBringsInNoExtraCommits(_MergeCase, _ObserverCase):
             e for e in self.commit_events() if e["metadata"].get("commit_hash") == merge
         ]
         self.assertTrue(tagged[0]["metadata"].get("is_merge"))
-
-
-class TestReviewCycle(_ObserverCase):
-    """A commit event recorded without a cycle reset leaves the previous
-    cycle's quality-review flag latched, so the NEXT commit's gate reads
-    satisfied off a review that predates this commit. Same hazard, and same
-    fix, as `rebuild_at_head` documents."""
-
-    def test_the_reset_is_keyed_to_the_newest_commit_recorded(self):
-        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
-        self.seed_observer()
-        self.commit("feat: one", path="src/a.py")
-        newest = self.commit("feat: two", path="src/b.py")
-        self.observe()
-        flags = review_records.read_review_flags(self.smm_dir, "main")
-        self.assertFalse(flags["quality_review_done"])
-        self.assertEqual(
-            review_records.read_review_watermark(self.smm_dir, "main"), newest
-        )
-
-    def test_recording_nothing_leaves_the_cycle_alone(self):
-        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
-        self.seed_observer()
-        self.observe()
-        self.assertTrue(
-            review_records.read_review_flags(self.smm_dir, "main")[
-                "quality_review_done"
-            ]
-        )
-
-    def test_a_leaked_xp_agent_type_records_but_does_not_reset(self):
-        """Mirrors both other commit paths: the commit event always lands, and
-        only the state mutations are gated on the identity being wrong."""
-        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
-        self.run_hook(ORDINARY_BASH, agent_type="xp-leaked")
-        self.commit("feat: x")
-        self.run_hook(ORDINARY_BASH, agent_type="xp-leaked")
-        self.assertEqual(len(self.commit_events()), 1)
-        self.assertTrue(
-            review_records.read_review_flags(self.smm_dir, "main")[
-                "quality_review_done"
-            ]
-        )
 
 
 class TestMarkerKeying(_ObserverCase):

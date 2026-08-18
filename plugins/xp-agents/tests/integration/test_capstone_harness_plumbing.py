@@ -73,13 +73,21 @@ class TestTheLiveGateCannotReadAsAPass(_AssertNotNoneMixin, unittest.TestCase):
     def test_the_reason_names_the_harness_it_did_not_measure(self):
         """AC4: "the second harness was not measured" is only useful if the row
         says WHICH. A shared reason string would let one harness's skip stand in
-        for the other's."""
-        with patch.dict(os.environ, {LIVE_ENV: "1"}):
-            reasons = {h: live_gate_reason(h) for h in ("claude", "codex")}
+        for the other's.
+
+        An empty PATH is what makes both reasons EXIST to be compared. Asked
+        with the opt-in alone, this row asserted nothing on a machine where both
+        harnesses are installed — the developer's, and every machine the live
+        rows are meant to run on.
+        """
+        with patch.dict(os.environ, {LIVE_ENV: "1", "PATH": ""}):
+            reasons = {
+                h: self._assert_not_none(live_gate_reason(h))
+                for h in ("claude", "codex")
+            }
 
         for harness, reason in reasons.items():
-            if reason is not None:
-                self.assertIn(harness, reason)
+            self.assertIn(harness, reason)
 
     def test_an_absent_harness_is_not_measured_not_passed(self):
         with patch.dict(os.environ, {LIVE_ENV: "1"}):

@@ -48,7 +48,7 @@ Three link types close events and risk pillar items:
 
 **File domain:** Declare `file_domain` per planner intent; over-declaring defeats cascade_size.
 
-**Forked skills:** `/xp-review-plan`, `/xp-sprint-review`, `/xp-system-context` — preload + cleanup.
+**Skills:** all inline; a delegating one spawns its subagent (Agent tool).
 
 **Tests:** Check for FAIL/ERROR first. Never re-run the full suite to find failure names.
 

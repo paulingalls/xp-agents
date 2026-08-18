@@ -75,13 +75,15 @@ _CAPPED_FILES = (
     _SCRIPTS_DIR / "merged_range.py",
     Path(__file__).resolve().parent / "test_manual_merge_commit_event.py",
     Path(__file__).resolve().parent / "test_merge_event_contents.py",
-    # The catch-up observer and the HEAD reader it rides on, plus the two suites
+    # The catch-up observer and the HEAD reader it rides on, plus the suites
     # that pin them. Capped on arrival, per the rule this list already states:
     # the observer is a THIRD commit-recording path, so it is exactly the kind
-    # of file the other three would otherwise grow into.
+    # of file the other three would otherwise grow into. The review-cycle split
+    # is the cap doing its job — the sprint-007 close review's rows crossed it.
     _SCRIPTS_DIR / "commit_observer.py",
     _SCRIPTS_DIR / "git_head.py",
     Path(__file__).resolve().parent / "test_commit_observer.py",
+    Path(__file__).resolve().parent / "test_commit_observer_cycle.py",
     Path(__file__).resolve().parent / "test_commit_event_recording.py",
 )
 

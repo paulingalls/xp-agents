@@ -215,8 +215,18 @@ class TestEveryTimingFigureIsQualified(unittest.TestCase):
     # unreadable line.
     _CONTINUATION = re.compile(r"\n\s*#\s*")
 
-    def _unqualified(self) -> list[str]:
-        text = self._CONTINUATION.sub(" ", self._LEFTHOOK.read_text())
+    def _unqualified(self, text: str | None = None) -> list[str]:
+        """Every figure the pin would report, in the real file or in `text`.
+
+        Takes the text so the non-vacuity row below can drive the WHOLE pipeline
+        — continuation join, figure scan, qualifier match — against a shape the
+        real file does not currently hold. Asserting against `_QUALIFIER` alone
+        cannot fail on a string carrying no `(`, so it proved nothing about the
+        join it was named for.
+        """
+        text = self._CONTINUATION.sub(
+            " ", self._LEFTHOOK.read_text() if text is None else text
+        )
         return [
             text[m.start() : m.end() + 70].replace("\n", " ")
             for m in self._FIGURE.finditer(text)
@@ -239,8 +249,18 @@ class TestEveryTimingFigureIsQualified(unittest.TestCase):
     def test_a_bare_figure_would_still_be_caught(self):
         """Non-vacuity for the CONTINUATION rewrite: joining comment lines must
         not turn an unqualified figure into a qualified one by dragging in the
-        next comment's words."""
-        self.assertIsNone(self._QUALIFIER.match(" 432s costs too much", 5))
+        next comment's words. The join is deliberately narrow — it swallows a
+        `#` that continues one comment, and a blank comment line between two
+        comments is a paragraph break, not a continuation. Widen it and the
+        parenthetical below would qualify a figure two paragraphs up, leaving
+        the pin green over exactly the bare figure it exists to catch.
+        """
+        for shape in (
+            "# the commit gate costs 432s\n# and the push gate costs more\n",
+            "# the commit gate costs 432s\n#\n# (9946 tests, … on this machine)\n",
+        ):
+            with self.subTest(shape=shape):
+                self.assertEqual(len(self._unqualified(shape)), 1)
 
 
 if __name__ == "__main__":

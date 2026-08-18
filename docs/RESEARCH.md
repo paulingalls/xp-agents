@@ -72,7 +72,7 @@ Yegge's key insight: *"If your state is in git, it's automatically versioned, di
 
 The Ring's `ring:using-ring` meta-skill auto-generates a quick reference from skill frontmatter before any action, preventing agents from forgetting capabilities.
 
-*Our approach*: Skills carry standard Claude Code frontmatter (`name`, `description`, `allowed-tools`, and `context: fork` on the three forked ones) — no bespoke `trigger`/`skip_when` conditions. Discovery is not a SessionStart listing either: skills surface through state-derived gates and hook nudges, so the agent is told which skill it owes *right now* rather than handed a catalogue.
+*Our approach*: Skills carry standard Claude Code frontmatter (`name`, `description`, `allowed-tools`; every skill runs inline, none declares `context: fork`) — no bespoke `trigger`/`skip_when` conditions. Discovery is not a SessionStart listing either: skills surface through state-derived gates and hook nudges, so the agent is told which skill it owes *right now* rather than handed a catalogue.
 
 *→ Reflected in: Milestone 3 (SessionStart gate markers), Milestone 5 (all skills have frontmatter)*
 

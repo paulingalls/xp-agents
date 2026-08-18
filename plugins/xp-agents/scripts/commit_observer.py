@@ -275,24 +275,41 @@ def _reconcile(
                 events=events,
                 review_cadence=review_cadence,
             ):
+                recorded.add(rev)
                 newest_recorded = rev
 
-        # One reset for the range, keyed to the NEWEST commit recorded — the
-        # same effect `rebuild_at_head` owns, for the same reason: a commit
-        # event recorded without it leaves the previous cycle's quality-review
-        # flag latched, so the next commit's gate reads satisfied off a review
-        # that predates this commit. Skipped on a leaked xp- agent_type exactly
-        # as both other commit paths skip it: recording the commit is always
-        # right, mutating cycle state under a wrong identity is not.
-        # INSIDE the lock: released first, a slower observer's older hash lands
-        # after a faster one's and walks the watermark backwards.
+        # One reset for the range — the same effect `rebuild_at_head` owns, for
+        # the same reason: a commit event recorded without it leaves the previous
+        # cycle's quality-review flag latched, so the next commit's gate reads
+        # satisfied off a review that predates this commit. Skipped on a leaked
+        # xp- agent_type exactly as both other commit paths skip it: recording
+        # the commit is always right, mutating cycle state under a wrong identity
+        # is not. INSIDE the lock: released first, a slower observer's older hash
+        # lands after a faster one's and walks the watermark backwards.
         if newest_recorded and not is_xp_agent_leak:
-            review_records.end_review_cycle(
-                smm_dir,
-                identity.review_watermark_key(cwd),
-                identity.review_flags_key(cwd),
-                newest_recorded,
-            )
+            _end_cycle_for_the_range(smm_dir, cwd, revs, recorded)
+
+
+def _end_cycle_for_the_range(
+    smm_dir: Path, cwd: str, revs: list[str], recorded: set[str]
+) -> None:
+    """End the cycle for the NEWEST commit in the range the log now carries.
+
+    Not for whichever of them this observer recorded: a foreground commit that
+    already ended its own cycle sits at the top of the same range (the
+    backgrounded case, one commit later), so keying the reset to the older hash
+    walks the watermark BACKWARDS over it and clears the review that ran in
+    between. A watermark already there means that reset happened.
+    """
+    watermark_key = identity.review_watermark_key(cwd)
+    newest = next((rev for rev in reversed(revs) if rev in recorded), None)
+    if newest is None or newest == review_records.read_review_watermark(
+        smm_dir, watermark_key
+    ):
+        return
+    review_records.end_review_cycle(
+        smm_dir, watermark_key, identity.review_flags_key(cwd), newest
+    )
 
 
 def _observer_lock(smm_dir: Path) -> "contextlib.AbstractContextManager[None]":
@@ -341,9 +358,11 @@ def _record_one(
         from_commit_only=True,
     )
     if event is None:
-        _record_unreadable_body(smm_dir, agent_id, rev)
+        _record_declined(smm_dir, agent_id, rev, "git would not return its message")
         return False
-    _common.bulk_append_safe(smm_dir, [event])
+    if not _append_or_raise(smm_dir, event):
+        _record_declined(smm_dir, agent_id, rev, "the event log refused the event")
+        return False
     # So a later commit in the SAME range is not read against a stale log: a
     # merge later in the range rebuilds its own recorded-hash index off this
     # list, and would otherwise re-derive trailers from a commit just recorded.
@@ -351,20 +370,49 @@ def _record_one(
     return True
 
 
-def _record_unreadable_body(smm_dir: Path, agent_id: str, rev: str) -> None:
-    """A commit whose message git would not give back is reported, not skipped.
+def _append_or_raise(smm_dir: Path, event: dict) -> bool:
+    """True when the event reached the log; False when it never can.
 
-    AC3: a declined reconcile is distinguishable from a successful one — this
-    is a CONCERN carrying the hash, where a success is a COMMIT event carrying
-    it. The backgrounded case recorded NEITHER, which is the defect being
-    fixed; a new silent path here would reproduce it one module over.
+    `bulk_append_safe` logs a lock timeout and returns, so its caller cannot
+    tell a written event from a dropped one — and a dropped one that advanced
+    the marker is a commit no event will ever carry. Split by what a retry could
+    change: a lock timeout RAISES, leaving the range open for the next Bash,
+    while an invalid or oversize event is permanent and is reported against its
+    own hash. Its debt probe is not lost; that no-ops for a commit event. Its
+    hook_errors trace is kept by hand, so a wedged lock still leaves one.
+    """
+    try:
+        _append_impl.bulk_append(smm_dir, [event])
+    except _append_impl.LockTimeoutError as e:
+        _common.log_hook_error(
+            f"commit observer left {_hash_of(event)[:12]} unrecorded: {e}",
+            error_class=type(e).__name__,
+        )
+        raise
+    except ValueError:
+        return False
+    return True
+
+
+def _hash_of(event: dict) -> str:
+    """The event's commit hash, for a diagnostic that must not raise itself."""
+    return str(event.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH, "?"))
+
+
+def _record_declined(smm_dir: Path, agent_id: str, rev: str, why: str) -> None:
+    """A commit reachable from HEAD that no event will carry is reported.
+
+    AC3: a declined reconcile is distinguishable from a successful one — a
+    CONCERN carrying the hash, where a success is a COMMIT event carrying it.
+    The backgrounded case recorded NEITHER, which is the defect being fixed; a
+    new silent path here would reproduce it one module over.
     """
     _append_concern(
         smm_dir,
         agent_id,
         f"A commit at {rev[:12]} is reachable from HEAD with no recorded event, "
-        "and git would not return its message, so no event could be built. Any "
-        f"resolve trailer on it is unlinked. {_OBSERVER_SOURCE}",
+        f"and {why}, so nothing was recorded for it. Any resolve trailer on it "
+        f"is unlinked. {_OBSERVER_SOURCE}",
         metadata={METADATA_KEY_COMMIT_HASH: rev},
     )
 

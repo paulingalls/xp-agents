@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """The commit observer's shared harness: a real repo, driven by a plain Bash.
 
-Here rather than in any one suite, because three of them drive the module the
+Here rather than in any one suite, because four of them drive the module the
 same way — through `run_hook` on a NON-commit-shaped command, which is the only
 branch the observer is registered on. `test_commit_observer.py` pins what the
 observer claims, refuses, and costs; `test_commit_observer_claims.py` pins what
-it may NOT claim; `test_commit_event_recording.py` pins one fixture per commit
-shape that reached HEAD without reaching the log. A per-file copy of this class
-is how a fix to the seeding shape reaches one suite and not the other two.
+it may NOT claim; `test_commit_observer_cycle.py` pins what a recorded commit
+does to the review records and what an unrecorded one must not;
+`test_commit_event_recording.py` pins one fixture per commit shape that reached
+HEAD without reaching the log. A per-file copy of this class is how a fix to the
+seeding shape reaches one suite and not the others.
 """
 
 import sys

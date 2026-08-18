@@ -223,7 +223,16 @@ PROSE_MEASURED: dict[str, int] = {
     # still does NOT close (`_handle_commit` writes without this lock, so an
     # observer racing a commit-shaped Bash can still double-record). Trimmed
     # once already; the residue is re-recorded rather than golfed further.
-    "plugins/xp-agents/scripts/commit_observer.py": 168,
+    # 168 -> 184 (sprint-007 close review): two silent-success defects were
+    # fixed, and each carries the rationale that stops it being undone — why the
+    # cycle reset is keyed to the newest RECORDED commit in the range (keyed to
+    # whatever this observer happened to record, the watermark walks BACKWARDS
+    # over a foreground commit and clears the review that ran in between), and
+    # why the append is split by what a retry could change (`bulk_append_safe`
+    # swallows a lock timeout, so its return cannot distinguish written from
+    # dropped, and a dropped event that advanced the marker is a commit no event
+    # will ever carry).
+    "plugins/xp-agents/scripts/commit_observer.py": 184,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.
