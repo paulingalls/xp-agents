@@ -173,8 +173,19 @@ class TestTheCapstoneFixtureDeliversAComputedToken(_IntegrationTestCase):
         The preload computes the digest, so only the SEED is ever stored. A model
         that greps for the token finds nothing — which is what stops a live pass
         from being explainable by a file read.
+
+        Walked AFTER a real handler run rather than over a freshly built tree:
+        the claim is that DELIVERING the token writes it nowhere, and a tree
+        nothing has run against cannot say that. The SMM dir is a haystack for
+        the same reason — the handler writes a heartbeat and a claim marker
+        there, and it lives outside the repo temp dir.
         """
-        haystacks = [self.fixture.root, Path(self.tmpdir)]
+        _, out, err = _drive_handler(
+            self.fixture, Path(self.smm_dir), self._skill_payload()
+        )
+        self.assertIn(self.fixture.expected_token, out, err)
+
+        haystacks = [self.fixture.root, Path(self.tmpdir), Path(self.smm_dir)]
         for root in haystacks:
             for path in root.rglob("*"):
                 if not path.is_file():
@@ -367,7 +378,7 @@ class TestTheSecondHarnessPutsAModelInTheLoop(unittest.TestCase):
         declared = json.loads(
             (installed_root / ".codex-plugin" / "plugin.json").read_text()
         )["hooks"]
-        entries = json.loads((installed_root / declared.lstrip("./")).read_text())
+        entries = json.loads((installed_root / declared.removeprefix("./")).read_text())
         matchers = [e.get("matcher") for e in entries["hooks"]["PreToolUse"]]
 
         self.assertIn("Bash", matchers)

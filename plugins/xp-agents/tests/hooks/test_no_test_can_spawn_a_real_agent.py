@@ -174,6 +174,15 @@ class TestRealAgentSpawnIsBlocked(unittest.TestCase):
         blocked rather than treated as "not a model run"."""
         self.assertTrue(_is_real_agent(["codex"]))
 
+    def test_a_server_form_of_the_second_harness_fails_closed(self):
+        """`codex mcp` and `codex app-server` are long-lived and serve model
+        turns to whatever connects, so neither is a management command. Nothing
+        in the suite drives either — an exemption added before a test needs one
+        is a hole with no caller, and this is the direction that bills."""
+        for args in (["codex", "mcp"], ["codex", "app-server"]):
+            with self.subTest(args=args):
+                self.assertTrue(_is_real_agent(args))
+
     def test_an_unknown_second_harness_subcommand_fails_closed(self):
         """The exemption is an allowlist. A subcommand nobody has classified is
         blocked, because the wrong guess in that direction bills for a recursive

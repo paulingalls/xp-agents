@@ -51,9 +51,11 @@ _TOKEN_KEY = "CAPSTONE_TOKEN"
 # The seed lives ONLY here. Putting it in a file would make the token derivable
 # from disk, and the token being underivable is the whole measurement.
 SEED_ENV = "XP_CAPSTONE_SEED"
-_SEED_ENV = SEED_ENV
 
 FIRING_LOG_ENV = "XP_CAPSTONE_FIRING_LOG"
+
+# One definition, because the manifest names it and the probe's own row runs it.
+_PROBE_RELPATH = "hooks/firing_probe.py"
 
 # Long enough that a model cannot land on it by chance, short enough to read in a
 # transcript. 16 hex = 64 bits.
@@ -65,7 +67,7 @@ set -euo pipefail
 python3 - <<'PY'
 import hashlib, os, sys
 
-seed = os.environ.get({_SEED_ENV!r}, "")
+seed = os.environ.get({SEED_ENV!r}, "")
 if not seed:
     # REFUSE rather than digest the empty string. Digesting "" yields a CONSTANT,
     # and a constant is a silent-pass channel: every fixture would emit the same
@@ -80,7 +82,14 @@ PY
 """
 
 _PROBE_BODY = '''#!/usr/bin/env python3
-"""Records that the skill engaged, so a missing token can be attributed.
+"""Records WHAT engaged, so a missing token can be attributed.
+
+The tool input travels with the tool name because a bare count answers the wrong
+question on the second harness: the trigger there is registered on the shell
+matcher, so ANY command the model runs fires this probe. A run that shelled out
+without ever reading the skill body would then count as a firing, and a control
+row expecting "the token did not arrive" would pass while measuring nothing —
+`CapstonePlugin.firings(naming=...)` filters on this field.
 
 Appends one line and exits 0 without emitting context, so it can never be
 mistaken for the delivery channel it exists to disambiguate from.
@@ -97,7 +106,15 @@ except Exception:  # noqa: BLE001 - a probe must never fail the tool call
 log = pathlib.Path(os.environ["XP_CAPSTONE_FIRING_LOG"])
 log.parent.mkdir(parents=True, exist_ok=True)
 with log.open("a") as fh:
-    fh.write(json.dumps({"tool_name": payload.get("tool_name")}) + "\\n")
+    fh.write(
+        json.dumps(
+            {
+                "tool_name": payload.get("tool_name"),
+                "tool_input": payload.get("tool_input"),
+            }
+        )
+        + "\\n"
+    )
 sys.exit(0)
 '''
 
@@ -137,7 +154,6 @@ class CapstonePlugin(NamedTuple):
     expected_token: str
     skill_body: Path
     firing_log: Path
-    injects: bool
 
     @property
     def plugin_id(self) -> str:
@@ -157,7 +173,7 @@ class CapstonePlugin(NamedTuple):
         )
         named = manifest.get("hooks")
         hooks_file = (
-            (self.plugin_dir / named.lstrip("./"))
+            (self.plugin_dir / named.removeprefix("./"))
             if named
             else self.plugin_dir / "hooks" / "hooks.json"
         )
@@ -176,10 +192,30 @@ class CapstonePlugin(NamedTuple):
         """
         return self.root / "child-cwd"
 
-    def firings(self) -> int:
+    @property
+    def firing_probe(self) -> Path:
+        return self.plugin_dir / _PROBE_RELPATH
+
+    def firings(self, *, naming: str | None = None) -> int:
+        """Recorded firings, optionally only those naming *naming*.
+
+        A bare count says "some tool call fired the probe", which is NOT the
+        question either harness asks. The first registers the trigger on the
+        skill matcher and the second on the shell matcher, so on the second every
+        command the model runs is a firing — and a control row asserting the
+        token did not arrive would then pass on a run that never read the skill
+        body at all. Filtering on the recorded tool input is what keeps
+        "confirmed to have engaged" meaning that.
+        """
         if not self.firing_log.exists():
             return 0
-        return len([line for line in self.firing_log.read_text().splitlines() if line])
+        return len(
+            [
+                line
+                for line in self.firing_log.read_text().splitlines()
+                if line and (naming is None or naming in line)
+            ]
+        )
 
 
 def _write_executable(path: Path, body: str) -> None:
@@ -257,7 +293,7 @@ def build_capstone_plugin(
         + "\n"
     )
 
-    probe = plugin_root / "hooks" / "firing_probe.py"
+    probe = plugin_root / _PROBE_RELPATH
     _write_executable(probe, _PROBE_BODY)
     _write_executable(
         plugin_root / "skills" / SKILL_NAME / "scripts" / "preload.sh", _PRELOAD_BODY
@@ -323,5 +359,4 @@ def build_capstone_plugin(
         expected_token=token,
         skill_body=skill_body,
         firing_log=root / "firings.jsonl",
-        injects=inject,
     )

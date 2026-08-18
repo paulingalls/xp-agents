@@ -14,6 +14,7 @@ from what the child inherits, so the spawn is permitted here and impossible
 there. `_spawn_guard` records what that prevents.
 """
 
+import functools
 import os
 import shutil
 import subprocess
@@ -66,14 +67,13 @@ def requires_live(harness: str):
     """
 
     def decorate(func):
+        @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
             reason = live_gate_reason(harness)
             if reason is not None:
                 raise unittest.SkipTest(reason)
             return func(self, *args, **kwargs)
 
-        wrapper.__name__ = func.__name__
-        wrapper.__doc__ = func.__doc__
         return wrapper
 
     return decorate
@@ -153,6 +153,10 @@ def run_first_harness(
     call — `_spawn_guard` reads it from `os.environ` at Popen time, while
     `child_env` strips it from what the child inherits. That asymmetry is the
     whole safety property: the spawn is permitted here and impossible there.
+
+    Firings are counted by the skill they NAME, never in bulk: the probe sits on
+    a matcher that other tool calls can reach, and a firing that is not this
+    skill's confirms nothing about this skill.
     """
     fixture.child_cwd.mkdir(parents=True, exist_ok=True)
     env = child_env(fixture)
@@ -178,8 +182,16 @@ def run_first_harness(
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:
-            return ModelRun(stdout="", firings=fixture.firings(), timed_out=True)
-    return ModelRun(stdout=completed.stdout, firings=fixture.firings(), timed_out=False)
+            return ModelRun(
+                stdout="",
+                firings=fixture.firings(naming=fixture.skill_name),
+                timed_out=True,
+            )
+    return ModelRun(
+        stdout=completed.stdout,
+        firings=fixture.firings(naming=fixture.skill_name),
+        timed_out=False,
+    )
 
 
 # The second harness's fixture ships under its OWN name. Two reasons, both
@@ -264,6 +276,13 @@ def run_second_harness(
     The read command is named EXACTLY, because `_READ_COMMANDS` whitelists eight
     and a read by any other means fires nothing — which would report
     not-measured for a reason unrelated to delivery.
+
+    Firings are counted by the skill they NAME. Here that is load-bearing rather
+    than tidy: the probe is registered on the SHELL matcher, so every command the
+    model runs fires it, and a bulk count would let a run that never read the
+    skill body report a confirmed engagement — turning the control row, which
+    carries the weight on this harness, into a row that passes while measuring
+    nothing.
     """
     fixture.child_cwd.mkdir(parents=True, exist_ok=True)
     body = installed_root / "skills" / fixture.skill_name / "SKILL.md"
@@ -296,5 +315,13 @@ def run_second_harness(
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:
-            return ModelRun(stdout="", firings=fixture.firings(), timed_out=True)
-    return ModelRun(stdout=completed.stdout, firings=fixture.firings(), timed_out=False)
+            return ModelRun(
+                stdout="",
+                firings=fixture.firings(naming=fixture.skill_name),
+                timed_out=True,
+            )
+    return ModelRun(
+        stdout=completed.stdout,
+        firings=fixture.firings(naming=fixture.skill_name),
+        timed_out=False,
+    )

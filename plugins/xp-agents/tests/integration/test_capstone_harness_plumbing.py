@@ -11,8 +11,10 @@ and always-on: none of them spawns anything, so they run on every commit and
 every push while the live rows sit behind their opt-in.
 """
 
+import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -144,6 +146,91 @@ class TestTheChildEnvironmentCannotRecurse(unittest.TestCase):
             "the child's cwd is inside this checkout, so a child with shell "
             "access could re-enter the suite",
         )
+
+
+class TestTheFiringProbeAttributesWhatEngaged(unittest.TestCase):
+    """The probe RUN, not just read out of the manifest.
+
+    Nothing else executes it: the hermetic rows drive the handler, and the probe
+    only ever ran inside a live harness — so a typo in it, or a rename of the
+    variable it reads its log path from, would first surface as a mysterious
+    not-measured on a run that costs a model call.
+
+    What it records is load-bearing too. On the second harness the probe sits on
+    the SHELL matcher, so every command the model runs fires it. Counted in bulk,
+    a run that shelled out without ever reading the skill body reads as a
+    confirmed engagement — and the control row, which expects the token NOT to
+    arrive, then passes while measuring nothing at all.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.fixture = build_capstone_plugin(self.tmp / "capstone")
+
+    def _fire(self, payload: dict) -> subprocess.CompletedProcess:
+        completed = subprocess.run(
+            [sys.executable, str(self.fixture.firing_probe)],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            env={**os.environ, **self.fixture.env()},
+            check=False,
+            timeout=60,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        return completed
+
+    def test_a_skill_invocation_is_a_firing_that_names_the_skill(self):
+        self._fire(
+            {
+                "tool_name": "Skill",
+                "tool_input": {"skill": f"xp-agents:{self.fixture.skill_name}"},
+            }
+        )
+
+        self.assertEqual(self.fixture.firings(naming=self.fixture.skill_name), 1)
+
+    def test_a_read_of_the_skill_body_is_a_firing_that_names_the_skill(self):
+        """The second harness's trigger: identity arrives inside the command."""
+        self._fire(
+            {
+                "tool_name": "Bash",
+                "tool_input": {"command": f"cat {self.fixture.skill_body}"},
+            }
+        )
+
+        self.assertEqual(self.fixture.firings(naming=self.fixture.skill_name), 1)
+
+    def test_an_unrelated_shell_command_is_not_this_skills_firing(self):
+        """The row that stops a control passing vacuously: the probe fired, and
+        it confirms nothing about a skill that was never engaged."""
+        self._fire({"tool_name": "Bash", "tool_input": {"command": "ls -la"}})
+
+        self.assertEqual(self.fixture.firings(), 1)
+        self.assertEqual(self.fixture.firings(naming=self.fixture.skill_name), 0)
+
+    def test_the_probe_never_fails_the_tool_call_on_junk_input(self):
+        """It runs beside the handler on a real tool call. A probe that exits
+        non-zero on a payload it did not expect would break the invocation it
+        exists only to observe."""
+        completed = subprocess.run(
+            [sys.executable, str(self.fixture.firing_probe)],
+            input="not json at all",
+            capture_output=True,
+            text=True,
+            env={**os.environ, **self.fixture.env()},
+            check=False,
+            timeout=60,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(self.fixture.firings(naming=self.fixture.skill_name), 0)
+
+    def test_no_firings_before_anything_fires(self):
+        """Non-vacuity: the counts above are produced by the probe, not by a log
+        that was already there."""
+        self.assertEqual(self.fixture.firings(), 0)
 
 
 class TestNotMeasuredIsNeverANegative(unittest.TestCase):
