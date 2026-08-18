@@ -36,11 +36,13 @@ class TestTheVerdictReachesTheModelOnlyThroughAHook(unittest.TestCase):
     caller and this class reddens, which is the whole content of Block
     ac8ecf84d3eb.
 
-    Two runtime states, and only one of them is still covered:
+    Two runtime states, and neither reaches a session today:
 
-    - **running but not heartbeating** — the preload runs, the banner fires.
-      Every other class in this module covers it, and it keeps earning its
-      keep.
+    - **running but not heartbeating** — the fragment's own logic still covers
+      it, and `test_preload_liveness.py` exercises that logic by invoking the
+      script directly. Production does not: `preload_injection.run` calls
+      `_refresh_heartbeat` before `run_preload`, deliberately (see that
+      helper's docstring), so the marker is fresh by the time it is read.
     - **not loaded at all** — nothing here fires. NOT this story's to close;
       story-009 owns it (its AC2 names the harness that silently skips
       untrusted hooks, and its AC3 forbids liveness machinery on the daily
@@ -53,33 +55,51 @@ class TestTheVerdictReachesTheModelOnlyThroughAHook(unittest.TestCase):
     def _shipped_text_files(self) -> list[Path]:
         """Every shipped file that could name a script, minus this test tree."""
         out: list[Path] = []
-        for sub in ("skills", "scripts", "smm", "hooks"):
+        for sub in ("skills", "scripts", "smm", "hooks", "agents", "workflows"):
             for path in (_PLUGIN_ROOT / sub).rglob("*"):
                 if path.is_file() and path.suffix in {".sh", ".py", ".md", ".json"}:
                     out.append(path)
         return out
 
-    def _sources(self, path: Path, fragment: str) -> bool:
-        """Does this file SOURCE the fragment, as opposed to mentioning it?
+    def _reaches(self, path: Path, fragment: str) -> bool:
+        """Does this file RUN the fragment, as opposed to mentioning it?
 
         A substring scan is not good enough and this pin proved it on its first
         run: `_preload_markers.sh` names the liveness fragment in a comment
         about the size-cap split that produced them both, and a naive `in` test
-        read that as a second caller. The distinction is the act — a `source`
-        or `.` directive — not the name appearing. Keying on the mention is the
-        same defect story-017 exists to catch, one layer up.
-        """
-        pattern = re.compile(
-            rf"^\s*(?:source|\.)\s+.*{re.escape(fragment)}", re.MULTILINE
-        )
-        return bool(pattern.search(path.read_text(encoding="utf-8")))
+        read that as a second caller. The distinction is the act, not the name
+        appearing. Keying on the mention is the same defect story-017 exists to
+        catch, one layer up.
 
-    def test_the_liveness_fragment_has_exactly_one_sourcing_site(self):
+        Two acts, because a `source` directive is not the only one and the
+        suite in the sibling module is itself the counterexample: it reaches
+        these fragments as `bash <path>` through `subprocess`. A replacement
+        channel built outside the hook runtime would plausibly do the same, so
+        a source-only predicate would let exactly the caller this pin exists to
+        forbid pass quietly.
+
+        The invocation leg requires `bash`/`sh` at command position — preceded
+        by nothing word-, dot-, slash- or dash-like, which keeps the `.sh` inside
+        a neighbouring filename from reading as an interpreter — and allows only
+        separators and one space-free path expression between it and the
+        fragment. Anything looser matched `# shellcheck shell=bash` on line 1
+        against a filename named three lines down in prose.
+        """
+        frag = re.escape(fragment)
+        acts = (
+            rf"^\s*(?:source|\.)\s+.*{frag}",  # sourced into the caller
+            # run as a child: `bash <path>`, incl. through a subprocess argv list
+            rf"(?:^|[^\w./-])(?:bash|sh)[ \t\"',\[\]\n]+[^\s\"';|&()]*{frag}",
+        )
+        text = path.read_text(encoding="utf-8")
+        return any(re.search(act, text, re.MULTILINE) for act in acts)
+
+    def test_the_liveness_fragment_has_exactly_one_caller(self):
         """A second caller is the only way this check reaches a non-hook path."""
         callers = sorted(
             path.relative_to(_PLUGIN_ROOT).as_posix()
             for path in self._shipped_text_files()
-            if path.name != self._LIVENESS and self._sources(path, self._LIVENESS)
+            if path.name != self._LIVENESS and self._reaches(path, self._LIVENESS)
         )
         self.assertEqual(
             callers,
@@ -100,7 +120,7 @@ class TestTheVerdictReachesTheModelOnlyThroughAHook(unittest.TestCase):
             for path in self._shipped_text_files()
             if path.name not in {self._BASE, self._LIVENESS}
             and path not in resolved
-            and self._sources(path, self._BASE)
+            and self._reaches(path, self._BASE)
         )
         self.assertEqual(
             strays,

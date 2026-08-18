@@ -4,14 +4,20 @@
 When the hook runtime stops enforcing, every gate it carries disappears and the
 session looks normal.
 
-Scope, since it narrowed and the old claim here was the reason Block
-ac8ecf84d3eb went unnoticed: this fragment was once an instruction-time load
-that ran before any hook, and so could judge a runtime that had not loaded.
-Sprint-007 deleted those lines. Every class below therefore exercises the state
-that IS still reachable — running but not heartbeating: no marker, stale,
-unreadable, or a teammate borrowing the lead's. A runtime that never loaded
-cannot reach this file at all; `test_liveness_coupling.py` pins that coupling,
-and story-009 owns the uncovered state.
+**Read this before trusting a green run here.** Every class below invokes a
+preload script DIRECTLY (`bash <preload path>`), which is no longer how
+production reaches one. `preload_injection.run` calls `_refresh_heartbeat`
+before `run_preload`, so the marker these tests arrange to be absent/stale is,
+on the real path, written by the same process microseconds before it is read —
+the verdict is inert there. Recorded as e8927c6ca5d2; 4e2188100b08 predicted it.
+
+That inertness is BY DESIGN, not a bug awaiting a fix: `_refresh_heartbeat`'s
+docstring calls the ordering "the whole point", because a write placed after the
+run would inject the banner instead of state. So this fragment and that writer
+make opposite claims about one ordering and only one can stand — story-009 owns
+which. These assertions are therefore about the fragment's LOGIC, not about a
+verdict any session receives. `test_liveness_coupling.py` pins the one-caller
+coupling that is the whole content of Block ac8ecf84d3eb.
 
 A preload cannot BLOCK. It has no decision channel: its stdout becomes context.
 "Refuse" here means an unmistakable banner plus suppression of the preload's

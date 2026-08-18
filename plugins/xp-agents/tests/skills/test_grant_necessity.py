@@ -38,7 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from conftest import _PLUGIN_ROOT
+from conftest import _PLUGIN_ROOT, _split_frontmatter_body
 
 _SKILLS_DIR = _PLUGIN_ROOT / "skills"
 _SCRIPTS_DIR = _PLUGIN_ROOT / "scripts"
@@ -64,13 +64,12 @@ def _skill_dirs() -> list[Path]:
     return sorted(p for p in _SKILLS_DIR.iterdir() if (p / "SKILL.md").is_file())
 
 
-def _split_frontmatter(text: str) -> tuple[str, str]:
-    """Frontmatter and body. A skill with no frontmatter yields ("", text)."""
-    if not text.startswith("---\n"):
-        return "", text
-    _, _, rest = text.partition("---\n")
-    front, sep, body = rest.partition("\n---")
-    return (front, body) if sep else ("", text)
+def _text(skill: Path) -> str:
+    return (skill / "SKILL.md").read_text(encoding="utf-8")
+
+
+def _front(skill: Path) -> str:
+    return _split_frontmatter_body(_text(skill))[0]
 
 
 def _grants_the_pattern(front: str) -> bool:
@@ -105,7 +104,7 @@ def _needs_the_grant(skill: Path) -> bool:
     everything, so the pattern entry cannot be load-bearing no matter what legs
     1 and 2 find. Ordering it last would have kept the four close skills.
     """
-    front, body = _split_frontmatter(skill.joinpath("SKILL.md").read_text("utf-8"))
+    front, body = _split_frontmatter_body(_text(skill))
     if _declares_bare_bash(front):
         return False
     return _body_runs_a_matching_path(body) or _injected_prose_runs_a_matching_path(
@@ -152,7 +151,7 @@ class TestNoSkillPreApprovesAPathNothingRuns(unittest.TestCase):
         self.assertTrue(_MATCHES_GRANT.search("skills/xp-work-selection/scripts/x.py"))
         end_session = _SKILLS_DIR / "xp-end-session"
         self.assertTrue(
-            _body_runs_a_matching_path(_split_frontmatter(_text(end_session))[1]),
+            _body_runs_a_matching_path(_split_frontmatter_body(_text(end_session))[1]),
             "xp-end-session no longer runs its own script — if that is "
             "deliberate, this leg's specimen must move to whichever skill does",
         )
@@ -188,14 +187,6 @@ class TestNoSkillPreApprovesAPathNothingRuns(unittest.TestCase):
             "these skills declare a bare `Bash` AND the narrower pattern, so "
             f"the pattern grants nothing: {subsumed}",
         )
-
-
-def _text(skill: Path) -> str:
-    return (skill / "SKILL.md").read_text(encoding="utf-8")
-
-
-def _front(skill: Path) -> str:
-    return _split_frontmatter(_text(skill))[0]
 
 
 if __name__ == "__main__":
