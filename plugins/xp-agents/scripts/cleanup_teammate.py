@@ -51,6 +51,13 @@ def cleanup(name: str, cwd: str, smm_dir: Path, base: str) -> bool:
     if outcome is worktree.BranchRemoval.REFUSED_UNMERGED:
         return False
     markers.cleanup_agent_markers(smm_dir, name)
+    # Named separately because it is NOT agent-scoped — see its definition. It
+    # is keyed by a checkout, and this is the code that destroys the checkout,
+    # so this is its one legitimate delete. Left behind, a retired worktree
+    # orphans one marker forever, and a REUSED worktree name later reads a dead
+    # checkout's last-seen as its own lower bound.
+    with contextlib.suppress(OSError):
+        markers.marker_path(smm_dir, markers.LAST_SEEN_HEAD, name).unlink()
     report = worktree.teammate_report_path(smm_dir, name)
     with contextlib.suppress(OSError):
         report.unlink()

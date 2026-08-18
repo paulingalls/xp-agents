@@ -29,11 +29,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import cleanup_teammate
 import commit_observer
 import git_head
 import markers
 import merged_range
 import review_records
+import session_end
+import worktree
 from _commit_repo_case import _MergeCase, _RebuildTestCase
 from conftest import make_event
 from event_schema import EVENT_TYPE_COMMIT
@@ -425,6 +428,85 @@ class TestTheObjectNamePredicate(unittest.TestCase):
             git_head._OBJECT_NAME_RE,
         )
         self.assertTrue(merged_range._OBJECT_NAME_RE.match("a" * 64))
+
+
+class TestTheMarkerOutlivesTheSession(_ObserverCase):
+    """The last-seen marker is keyed by a CHECKOUT, not by an agent, and a
+    checkout outlives every session that visits it.
+
+    Deleted at session end, the next session cold-starts: it seeds over
+    whatever HEAD it now finds and reconciles nothing, so a commit that landed
+    after a session's last Bash — the backgrounded case this module exists
+    for, run last in a session — is unrecoverable, and every resolve trailer
+    on it stays silently open.
+    """
+
+    def _end_session(self) -> None:
+        session_end.run({"cwd": str(self.repo)}, smm_dir=self.smm_dir)
+
+    def test_a_head_move_after_the_last_bash_is_still_reconciled(self):
+        """The half that matters — the marker is only a means to this."""
+        self.seed_observer()
+        self._end_session()
+        landed = self.commit("feat: x")
+        self.observe()
+        self.assertEqual(self.recorded_hashes(), [landed])
+
+    def test_session_end_leaves_the_marker_where_it_stood(self):
+        self.seed_observer()
+        head = self.head()
+        self._end_session()
+        self.assertEqual(self.marker(), {"head": head})
+
+
+class TestTheMarkerDiesWithTheCheckOut(_ObserverCase):
+    """The other direction, and the one easy to lose while fixing the first.
+
+    `cleanup_teammate` passes the worktree NAME, which is exactly the key
+    `review_watermark_key` derives for that checkout — so its cleanup call is
+    this marker's CORRECT lifetime boundary: the checkout is being destroyed.
+    Dropping it would orphan one marker per retired worktree forever, and a
+    reused worktree name would then read a dead checkout's last-seen — a bogus
+    range, or a loud false decline.
+    """
+
+    NAME = "worktree-story-901"
+
+    def _seed_marker(self) -> None:
+        markers.marker_write(
+            self.smm_dir, markers.LAST_SEEN_HEAD, {"head": "0" * 40}, self.NAME
+        )
+
+    def _marker_for_worktree(self) -> dict | str | None:
+        return markers.marker_read(self.smm_dir, markers.LAST_SEEN_HEAD, self.NAME)
+
+    def test_worktree_teardown_removes_it(self):
+        self._seed_marker()
+        with patch(
+            "worktree.remove_worktree", return_value=worktree.BranchRemoval.NO_BRANCH
+        ):
+            self.assertTrue(
+                cleanup_teammate.cleanup(
+                    self.NAME, str(self.repo), self.smm_dir, "main"
+                )
+            )
+        self.assertIsNone(self._marker_for_worktree())
+
+    def test_a_refused_teardown_keeps_it(self):
+        """Non-vacuity: the delete rides the same refusal as every other record
+        `cleanup` removes. A branch that gained commits after the merge check
+        keeps its worktree's records, this one included."""
+        self._seed_marker()
+        with patch(
+            "worktree.remove_worktree",
+            return_value=worktree.BranchRemoval.REFUSED_UNMERGED,
+        ):
+            self.assertFalse(
+                cleanup_teammate.cleanup(
+                    self.NAME, str(self.repo), self.smm_dir, "main"
+                )
+            )
+        self.assertEqual(self._marker_for_worktree(), {"head": "0" * 40})
 
 
 if __name__ == "__main__":
