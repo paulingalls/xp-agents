@@ -18,6 +18,7 @@ import functools
 import os
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from typing import NamedTuple
@@ -55,6 +56,14 @@ def live_gate_reason(harness: str) -> str | None:
         )
     if shutil.which(harness) is None:
         return f"{NOT_MEASURED_PREFIX} {harness} is not on PATH"
+    if harness == "codex" and not os.environ.get(_API_KEY_ENV):
+        # Its rows run in an ISOLATED home, which has no credentials until it
+        # logs in. Refusing here is what keeps the alternative — installing into
+        # the developer's real home — from creeping back as a fallback.
+        return (
+            f"{NOT_MEASURED_PREFIX} {_API_KEY_ENV} is unset, so {harness} cannot "
+            "log in to an isolated home"
+        )
     return None
 
 
@@ -194,65 +203,97 @@ def run_first_harness(
     )
 
 
-# The second harness's fixture ships under its OWN name. Two reasons, both
-# measured: its leg has no namespace check (5aaeb8d68cfe), and it must install
-# beside the developer's real xp-agents without colliding with it.
+# The second harness's fixture ships under its OWN name, because its leg has no
+# namespace check (measured, 5aaeb8d68cfe) unlike the first harness's.
 SECOND_HARNESS_PLUGIN_NAME = "xp-capstone"
+
+# The env var holding a key for `codex login --with-api-key`. Its VALUE is piped
+# straight from this process's environment into that command's stdin and is
+# never written to a file, a log, or an assertion message.
+_API_KEY_ENV = "OPENAI_API_KEY"
 
 _INSTALL_TIMEOUT_SECONDS = 120
 
 
-def _codex_plugin(*args: str, timeout: int = _INSTALL_TIMEOUT_SECONDS):
-    """A `codex plugin ...` management call.
+def _codex(*args: str, home: Path, timeout: int = _INSTALL_TIMEOUT_SECONDS, stdin=None):
+    """A management `codex ...` call scoped to *home*.
 
     Needs no spawn-guard escape hatch: the guard blocks that binary by
-    (binary, subcommand) and `plugin` is a management form that runs no model.
-    Only the `exec` below is a spawn.
+    (binary, subcommand), and `plugin`/`login` are management forms that run no
+    model. Only `exec` is a spawn.
     """
     return subprocess.run(
-        ["codex", "plugin", *args],
+        ["codex", *args],
         capture_output=True,
         text=True,
         check=False,
         timeout=timeout,
+        input=stdin,
+        env={**os.environ, "CODEX_HOME": str(home)},
     )
 
 
-def uninstall_second_harness(fixture: "CapstonePlugin") -> None:
-    """Remove the fixture from the harness home. Safe to call when absent."""
-    _codex_plugin("remove", fixture.plugin_id)
-    _codex_plugin("marketplace", "remove", fixture.marketplace_name)
+def isolated_harness_home(register_cleanup) -> Path:
+    """A throwaway harness home, authenticated by key.
 
+    **This is what makes the second harness safe to drive at all.** The obvious
+    route — installing into the developer's real home — was what the first
+    version did, and it bought three problems at once: it MUTATED the developer's
+    config, it left a plugin behind whenever cleanup failed, and because every row
+    installed the same plugin id, `-n auto` could have one row's cleanup uninstall
+    the plugin under another row's running model (concern 99526bc11238).
 
-def install_second_harness(fixture: "CapstonePlugin", register_cleanup) -> Path:
-    """Install the fixture and return the tree the harness copied it into.
+    All three are the same root cause — a shared mutable global — and all three
+    vanish here. Each row gets its own home, so there is nothing to race over,
+    nothing left behind (the directory is removed), and the real config is never
+    touched. Isolation was originally rejected because a fresh home has no
+    credentials and returns 401; `codex login --with-api-key` is the missing step,
+    and it was measured working.
 
-    **This mutates the developer's real harness home**, and it is the only way:
-    that harness has no `--plugin-dir`, and its credentials live in the home, so
-    an isolated one authenticates nothing (401). The fixture ships under its own
-    plugin and marketplace names so it cannot collide with a real install.
-
-    *register_cleanup* is invoked BEFORE anything is installed — pass
-    `self.addCleanup`. Registering after would leave a stray marketplace and
-    plugin in the developer's config whenever the install itself fails partway.
+    Raises when no key is available rather than falling back to the real home:
+    the fallback is precisely what this exists to remove. `live_gate_reason`
+    reports that case as not-measured before a row ever gets here.
     """
-    register_cleanup(uninstall_second_harness, fixture)
+    key = os.environ.get(_API_KEY_ENV)
+    if not key:
+        raise AssertionError(f"{_API_KEY_ENV} is unset; an isolated home cannot log in")
 
-    registered = _codex_plugin("marketplace", "add", str(fixture.root))
+    home = Path(tempfile.mkdtemp(prefix="xp-capstone-home-"))
+    register_cleanup(shutil.rmtree, home, ignore_errors=True)
+
+    logged_in = _codex("login", "--with-api-key", home=home, stdin=key)
+    if logged_in.returncode != 0:
+        # stderr only — stdout of a login is where a key echo would surface.
+        raise AssertionError(f"login into the isolated home failed: {logged_in.stderr}")
+    return home
+
+
+def install_second_harness(
+    fixture: "CapstonePlugin", register_cleanup
+) -> tuple[Path, Path]:
+    """Install the fixture into a fresh home. Returns (home, installed root).
+
+    The home is created and torn down per call, so no uninstall step is needed:
+    removing the directory removes the install with it.
+    """
+    home = isolated_harness_home(register_cleanup)
+
+    registered = _codex("plugin", "marketplace", "add", str(fixture.root), home=home)
     if registered.returncode != 0:
         raise AssertionError(f"marketplace add failed: {registered.stderr}")
-    added = _codex_plugin("add", fixture.plugin_id)
+    added = _codex("plugin", "add", fixture.plugin_id, home=home)
     if added.returncode != 0:
         raise AssertionError(f"plugin add failed: {added.stderr}")
 
     for line in added.stdout.splitlines():
         if line.startswith("Installed plugin root: "):
-            return Path(line.removeprefix("Installed plugin root: ").strip())
+            return home, Path(line.removeprefix("Installed plugin root: ").strip())
     raise AssertionError(f"install reported no plugin root: {added.stdout!r}")
 
 
 def run_second_harness(
     fixture: "CapstonePlugin",
+    home: Path,
     installed_root: Path,
     *,
     timeout: int = LIVE_TIMEOUT_SECONDS,
@@ -301,7 +342,7 @@ def run_second_harness(
         "--dangerously-bypass-hook-trust",
         prompt,
     ]
-    env = child_env(fixture)
+    env = child_env(fixture, CODEX_HOME=str(home))
     with patch.dict(os.environ, {GUARD_ENV: "1"}):
         try:
             completed = subprocess.run(

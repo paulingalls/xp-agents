@@ -59,13 +59,14 @@ ALLOW_REAL_AGENT_ENV = "XP_ALLOW_REAL_AGENT_SPAWN"
 # suite drives it for anything but a model run.
 #
 # The list is deliberately the shortest one that keeps the suite running:
-# `plugin` is the form three suites drive, and the version/help forms print and
-# exit. Server forms (`mcp`, `app-server`) are NOT here — they are long-lived and
-# serve model turns to whatever connects, so exempting them ahead of any test
-# needing them would widen the hole this allowlist exists to narrow. A suite that
+# `plugin` and `login` are the forms the suites drive, and the version/help
+# forms print and exit. Server forms (`mcp`, `app-server`) are NOT here — they
+# are long-lived and serve model turns to whatever connects, so exempting them
+# ahead of any test needing them would widen the hole this allowlist exists to
+# narrow. A suite that
 # needs one later gets a loud block naming itself, which is the cheap direction.
 _NON_MODEL_SUBCOMMANDS: dict[str, frozenset[str]] = {
-    "codex": frozenset({"plugin", "--version", "-V", "--help", "-h"}),
+    "codex": frozenset({"plugin", "login", "--version", "-V", "--help", "-h"}),
 }
 
 

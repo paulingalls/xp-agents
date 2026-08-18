@@ -373,7 +373,7 @@ class TestTheSecondHarnessPutsAModelInTheLoop(unittest.TestCase):
         """Without this entry the harness has no trigger and the rows below
         would report not-measured for a reason that looks like delivery."""
         fixture = self._fixture("installed")
-        installed_root = install_second_harness(fixture, self.addCleanup)
+        _home, installed_root = install_second_harness(fixture, self.addCleanup)
 
         declared = json.loads(
             (installed_root / ".codex-plugin" / "plugin.json").read_text()
@@ -387,8 +387,8 @@ class TestTheSecondHarnessPutsAModelInTheLoop(unittest.TestCase):
     def test_the_token_reaches_the_model(self):
         """AC1 on the second harness."""
         fixture = self._fixture("live")
-        installed_root = install_second_harness(fixture, self.addCleanup)
-        run = run_second_harness(fixture, installed_root)
+        home, installed_root = install_second_harness(fixture, self.addCleanup)
+        run = run_second_harness(fixture, home, installed_root)
 
         self.assertEqual(
             verdict(run, fixture.expected_token),
@@ -402,8 +402,8 @@ class TestTheSecondHarnessPutsAModelInTheLoop(unittest.TestCase):
         """AC2 on the second harness, and here it is load-bearing rather than a
         redundant check — see the class docstring's residual."""
         fixture = self._fixture("control", inject=False)
-        installed_root = install_second_harness(fixture, self.addCleanup)
-        run = run_second_harness(fixture, installed_root)
+        home, installed_root = install_second_harness(fixture, self.addCleanup)
+        run = run_second_harness(fixture, home, installed_root)
 
         self.assertEqual(
             verdict(run, fixture.expected_token),
