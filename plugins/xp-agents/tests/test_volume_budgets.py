@@ -84,7 +84,7 @@ PRELOAD_VOLUME_BUDGETS: dict[str, int] = {
 # each one and fails if it ever climbs above its shape budget, which would mean
 # it had become volume-sensitive and needs a real entry here instead.
 _PRELOAD_PROSE_DOMINATED: dict[str, str] = {
-    "xp-free-close": "static shared close reference dominates (8,721 of 8,900)",
+    "xp-free-close": "static shared close reference dominates (9,436 of 10,700)",
     "xp-plan-close": "same shared reference",
     "xp-sprint-close": "same shared reference",
     "xp-story-close": "same reference, mode-scoped subset",

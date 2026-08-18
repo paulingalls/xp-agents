@@ -162,6 +162,18 @@ class TestTheCliSubstitutesForTheHookExactly(unittest.TestCase):
             review_flag_cli._FLAG_LIFECYCLE,
         )
 
+    def test_the_default_flag_is_the_one_the_table_holds(self):
+        """The positional is optional so the close prose need not spell an
+        internal state field — naming one in instructions that ship to every
+        project is what the prose vocabulary pins discourage, and the promotion
+        of this flag into the corpus-wide ban is what made that concrete.
+
+        A default that drifted out of the table would take the CLI's whole
+        purpose with it: argparse would reject the prose's own invocation, and
+        the close would arm nothing.
+        """
+        self.assertIn(review_flag_cli._DEFAULT_FLAG, review_flag_cli._FLAG_LIFECYCLE)
+
     def test_the_cli_covers_only_the_async_leg(self):
         """Non-vacuity: an equality over an empty table proves nothing, and
         the quality-review leg deliberately has no CLI substitute — a
@@ -189,14 +201,12 @@ class TestDisarmingAnAbandonedReview(_HookTestCase):
     """
 
     def _arm(self) -> None:
-        review_flag_cli.main(
-            ["--smm-dir", str(self.smm_dir), "--cwd", ".", "simplify_done"]
-        )
+        # No flag argument, which is the form the shipped prose uses — see
+        # test_the_default_flag_is_the_one_the_table_holds.
+        review_flag_cli.main(["--smm-dir", str(self.smm_dir), "--cwd", "."])
 
     def _disarm(self) -> None:
-        review_flag_cli.main(
-            ["--smm-dir", str(self.smm_dir), "--cwd", ".", "--disarm", "simplify_done"]
-        )
+        review_flag_cli.main(["--smm-dir", str(self.smm_dir), "--cwd", ".", "--disarm"])
 
     def _mode(self, cwd: str = ".") -> str:
         argv = ["review_mode", "--smm-dir", str(self.smm_dir), "--cwd", cwd]

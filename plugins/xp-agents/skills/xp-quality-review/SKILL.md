@@ -30,9 +30,8 @@ allowed-tools:
 The preload's `MODE` line selects Step 1's correctness handling:
 **`MODE=self-find`** (per-increment, `/code-review` did NOT run) — the
 xp-code-reviewer **self-finds correctness** itself; **`MODE=consume-findings`**
-(close path, `/code-review` ran first) — Step 1 reads the findings out of its
-result prose and the reviewer validates & fixes them. Both modes also cover
-quality/drift/debt.
+(close path, the broad review ran first) — Step 1 reads its findings and the
+reviewer validates & fixes them. Both modes also cover quality/drift/debt.
 
 ## Step 1: Gather Reviewer Inputs
 
@@ -42,7 +41,12 @@ Pass the relevant existing concerns and debts in the prompt — the reviewer can
 
 ### Gather Code-Review Findings (consume-findings mode only)
 
-When `MODE=consume-findings`: `/code-review` was launched at close Step 4b and its verified findings come back as **prose in its result** — it forks, and the structured findings channel is not available to it, so there is no array to read. Take each finding's file, line, summary and failure scenario out of that prose yourself. All are unaddressed; pass them to the subagent to validate and fix. If it reported none, say so in the prompt rather than omitting the section — an empty section reads as a step that was skipped.
+When `MODE=consume-findings`: the broad review ran at close Step 4b, and where its verified findings are depends on which of that step's two launchers ran.
+
+- **The shipped Workflow script** (primary): its task-notification result carries a `findings` array (`file`, `line`, `summary`, `failure_scenario`) plus a `summary`. Read both — the summary says whether the fan-out hit its cap, and a capped pass covered less of the diff than it looks like.
+- **The `/code-review` fallback**: it forks and returns prose, no array. Take each finding's file, line, summary and failure scenario out of that prose.
+
+Either way all are unaddressed; pass them to the subagent to validate and fix. If the review reported none, say so in the prompt rather than omitting the section — an empty section reads as a step that was skipped.
 
 Format as a numbered list for the prompt:
 ```

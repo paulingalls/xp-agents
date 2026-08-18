@@ -4,15 +4,28 @@
 story-012. `scripts/_close_pipeline_review.md` Step 4b prescribes the broad
 multi-agent correctness pass to every close mode above threshold and, before
 this story, said nothing about scale — a customer run reached roughly a
-hundred agents. The fix is prose-only, next to the launch line: what drives
-scale, what the caller controls, a directive not to raise the tier, the
-positional-argument trap, and "invoke the named workflow, never a
-hand-authored substitute".
+hundred agents. The fix was prose-only, next to the launch line: what drives
+scale, what the caller controls, a directive not to raise the tier, and
+"invoke the named launcher, never a hand-authored substitute".
 
-These pins prove the four claims are *stated* in the Step 4b section — they
-cannot prove an orchestrating agent actually honors them. The mitigation this
-story ships is prose guidance, not an enforced limit; the unbounded-fan-out
-risk is narrowed, not closed.
+WHAT CHANGED WHEN THE PASS BECAME OURS. Two of these pins were properties of a
+built-in nobody here controlled, and both are now settled in code rather than
+asked for in prose:
+
+  - The positional-token trap is GONE, and its pin with it. `args` is an object,
+    so there is no first word to misread, no silent fall to a default tier and
+    no stray token absorbed into the diff range. The replacement pin asserts the
+    object shape — deleting a warning about a failure that can no longer happen
+    is only correct if something checks the shape that replaced it.
+  - The fan-out is capped IN THE SCRIPT, and the script says what the cap
+    dropped. So the sentence about scale is no longer the mitigation; it is a
+    pointer to one. The residual this docstring used to record — "narrowed, not
+    closed" — is closed for the primary launcher, and stands for the fallback,
+    which is still a built-in whose internals nothing here can bound.
+
+These pins prove the claims are *stated* in the Step 4b section. They cannot
+prove an orchestrating agent honors them; the numeric cap is proven in
+tests/workflows/code_review_test.js, where it is executable.
 """
 
 import re
@@ -124,37 +137,75 @@ class TestStep4bCostBoundProse(unittest.TestCase):
             "state the rule as a directive, not a fact about the ordering",
         )
 
-    # --- AC-3: positional token trap ---------------------------------------
-    def test_states_positional_token_trap(self):
+    # --- AC-3 (replaces the positional trap): the args are an object --------
+    def test_states_the_args_are_an_object_with_its_fields_named(self):
+        """What the retired trap pin becomes.
+
+        The trap was real for a launcher that parsed a level out of the first
+        word of a string. Ours takes an object, so the failure cannot occur —
+        and a warning about an impossible failure is worse than no warning,
+        because it teaches a shape that is not the one in use. The obligation
+        that replaces it is that the object's fields are actually named here:
+        `pluginRoot` in particular has no default worth having, since a finder
+        that cannot read its angle reviews with no lens at all and still
+        returns.
+        """
         self.assertRegex(
+            self.section,
+            r"(?i)args.{0,40}object|object.{0,40}args",
+            "Step 4b must say args is an object, not a positional string",
+        )
+        for field in ("level", "range", "pluginRoot"):
+            with self.subTest(field=field):
+                self.assertIn(
+                    field,
+                    self.section,
+                    f"Step 4b must name the {field!r} arg field",
+                )
+        self.assertNotRegex(
             self.section,
             r"(?i)first word",
-            "Step 4b must say the tier token is positional (the first word of args)",
+            "the positional-token trap belonged to a launcher that parsed a "
+            "level out of a string; repeating it here documents a failure "
+            "this launcher cannot have",
+        )
+
+    def test_the_bound_points_at_the_cap_in_the_script(self):
+        """The fan-out bound is code now, and the prose has to say so.
+
+        Its predecessor was the whole mitigation and said as much: a customer
+        run reached ~100 agents and the answer was a paragraph asking the
+        orchestrator to be careful. The paragraph stays — it still governs the
+        RANGE, which no script can choose — but the fan-out it could only
+        request is now enforced, and a silent truncation is the failure mode
+        that matters, since a capped pass reads exactly like a complete one.
+        """
+        self.assertRegex(
+            self.section,
+            r"(?is)capped in the script",
+            "Step 4b must say the fan-out cap lives in the script rather than "
+            "in this prose",
         )
         self.assertRegex(
             self.section,
-            r"(?is)does\s+not error",
-            "Step 4b must say an unrecognised tier token does not error",
-        )
-        self.assertRegex(
-            self.section,
-            r"(?i)default tier",
-            "Step 4b must say an unrecognised token falls back to the default tier",
-        )
-        self.assertRegex(
-            self.section,
-            r"(?is)absorbed into the diff\s+range",
-            "Step 4b must say the stray word gets absorbed into the diff "
-            "range, corrupting the review target",
+            r"(?is)cap dropped|dropped.{0,40}cap",
+            "Step 4b must say the script reports what the cap dropped — a "
+            "truncated review that says nothing reads as a complete one",
         )
 
     # --- AC-4 companion: invoke the named launcher, never a substitute ----
     def test_directs_against_substitute_fanout(self):
         self.assertRegex(
             self.section,
-            r"(?i)named skill",
-            "Step 4b must direct the caller to invoke the named skill rather "
-            "than authoring a substitute",
+            r"(?is)shipped\s+script",
+            "Step 4b must direct the caller to launch the shipped script "
+            "rather than authoring a substitute",
+        )
+        self.assertRegex(
+            self.section,
+            r"(?is)named\s+skill",
+            "Step 4b must direct the caller to invoke the named skill on the "
+            "fallback path rather than authoring a substitute",
         )
         self.assertRegex(
             self.section,
@@ -165,7 +216,11 @@ class TestStep4bCostBoundProse(unittest.TestCase):
 
     # --- AC-1 placement: alongside the invocation it prescribes ------------
     def test_bound_sits_alongside_the_launch_line(self):
-        launch_pos = self.section.index('Skill(skill: "code-review"')
+        # Anchored on the PRIMARY launch. It used to be the Skill literal,
+        # which now sits in the fallback paragraph BELOW the wait step — an
+        # anchor there would assert the bound had drifted to the bottom of the
+        # section, which is the opposite of what this checks.
+        launch_pos = self.section.index("Workflow({ scriptPath:")
         bound_pos = self.section.index("Cost bound")
         self.assertLess(
             launch_pos,
@@ -184,54 +239,81 @@ class TestStep4bCostBoundProse(unittest.TestCase):
         )
 
     # --- Ordered list survives the insertion --------------------------------
-    def test_ordered_list_still_has_all_three_items_in_order(self):
-        # A top-level paragraph inserted after item 1 would terminate the
-        # list and restart items 2-3 as a fresh "1." / "2." — corrupting the
-        # launch -> wait -> consume sequence the orchestrator follows.
+    def test_ordered_list_still_has_all_four_items_in_order(self):
+        # A top-level paragraph inserted mid-list would terminate it and
+        # restart the remainder as a fresh "1." / "2." — corrupting the
+        # arm -> launch -> wait -> consume sequence the orchestrator follows.
         #
-        # THREE items, not four: the manual arm was item 1 until the built-in
-        # became a Skill. `review_cycle_done` routes a `code-review` Skill to
-        # the simplify target at launch (pinned in
-        # tests/hooks/test_review_cycle_done.py), so arming by hand as well put
-        # TWO writers on one review.
+        # FOUR items again. The arm was dropped when the launcher became a
+        # Skill, whose PostToolUse arms at launch; the primary launcher is a
+        # Workflow again, which reaches no such hook, so the by-hand arm is
+        # back — scoped to this path, with the fallback's own "do not repeat
+        # it" pinned separately below.
         positions = [
             self.section.index(marker)
             for marker in (
-                '1. Launch `Skill(skill: "code-review"',
-                "2. **Wait**",
-                '3. `Skill(skill: "xp-quality-review")`',
+                "1. **Arm the marker**",
+                "2. **Launch it**",
+                "3. **Wait**",
+                '4. `Skill(skill: "xp-quality-review")`',
             )
         ]
         self.assertEqual(
             positions,
             sorted(positions),
-            "the launch -> wait -> consume list must stay intact and in "
-            "order after the cost-bound insertion",
+            "the arm -> launch -> wait -> consume list must stay intact and in order",
         )
 
-    # --- The second writer that double-counted every close ------------------
-    def test_does_not_arm_the_marker_by_hand_as_well(self):
-        """One review, one `simplify_complete`.
+    # --- The arm is launcher-conditional, which is the whole trap -----------
+    def test_arms_the_marker_by_hand_only_on_the_workflow_path(self):
+        """One review, one `simplify_complete` — but the arm cannot just be
+        deleted now, because the two launchers differ.
 
-        The launcher's own PostToolUse arms the review-cycle marker — that is
-        `review_cycle_done`'s `code-review` routing, pinned in
-        tests/hooks/test_review_cycle_done.py. Step 4b used to ALSO instruct a
-        manual `review_flag_cli.py ... simplify_done`, which was right while the
-        launcher was a Workflow (a Workflow completion never reaches a
-        PostToolUse:Skill|Agent hook) and became a double-write the moment it
-        was not.
-
+        A Workflow completion reaches no `PostToolUse:Skill|Agent` hook, so on
+        the primary path nothing arms the marker and the by-hand arm is the
+        only writer. The Skill fallback DOES reach one —
+        `review_cycle_done` routes a `code-review` Skill to the simplify target
+        at launch (pinned in tests/hooks/test_review_cycle_done.py) — so arming
+        by hand there as well puts two writers on one review.
         `retro_metrics._classify_lifecycle_events` increments with no dedup, so
-        the retro reported two simplifies per review. Measured on this repo's
-        own SMM before the fix: `simplify_complete` at 20:14:37 (the manual arm)
-        and again at 20:18:32 (the hook, on the Skill launch), for one review.
+        that double-write reported two simplifies per review. Measured on this
+        repo's own SMM when it last shipped: `simplify_complete` at 20:14:37
+        (the by-hand arm) and again at 20:18:32 (the hook), for one review.
+
+        An unconditional instruction is therefore wrong in BOTH directions —
+        omit it and the primary path never defers the close Stop gate; repeat
+        it on the fallback and the retro double-counts.
         """
-        self.assertNotIn(
+        self.assertIn(
             "review_flag_cli",
             self.section,
-            "Step 4b must not arm the review-cycle marker by hand: the "
-            "launcher's own PostToolUse already does, and two writers "
-            "double-count the review in the retro",
+            "the Workflow launcher reaches no PostToolUse hook, so Step 4b "
+            "must arm the review-cycle marker by hand",
+        )
+        self.assertRegex(
+            self.section,
+            r"(?is)arm above is skipped|do not repeat it|must\s+not repeat it",
+            "Step 4b must say the by-hand arm is skipped on the Skill "
+            "fallback, whose own PostToolUse arms it at launch",
+        )
+
+    def test_the_disarm_precedes_the_fallback_launch(self):
+        """Ordering, and it is not cosmetic.
+
+        The arm is taken at launch and cleared only by a landed commit, so a
+        failed launch leaves it set. Falling back first and disarming after
+        would clear the flag the FALLBACK's own PostToolUse had just set,
+        putting the close back in the state the disarm exists to escape: a
+        `/xp-quality-review` reading self-find while a broad review's findings
+        are on their way.
+        """
+        disarm_pos = self.section.index("--disarm")
+        fallback_pos = self.section.index('Skill(skill: "code-review"')
+        self.assertLess(
+            disarm_pos,
+            fallback_pos,
+            "Step 4b must disarm BEFORE launching the Skill fallback — after, "
+            "the disarm lands on the fallback's own arm",
         )
 
     # --- AC-4: no copied-out internal numbers -------------------------------

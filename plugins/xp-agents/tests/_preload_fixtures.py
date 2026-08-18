@@ -69,10 +69,17 @@ PRELOAD_BUDGETS: dict[str, int] = {
     "xp-accept": 100,
     "xp-assign": 300,
     "xp-end-session": 200,
-    "xp-free-close": 8900,
+    # 8900 -> 10700, and this one is expected to come back DOWN. Close Step 4b
+    # now carries two launchers where it carried one: the shipped Workflow
+    # script, plus the built-in Skill kept as a documented fallback until the
+    # script has closed a real branch. The second launcher's paragraph — its
+    # disarm, its differing arm, its prose findings — is the whole increase.
+    # `ratchet` only ever lowers, so retiring the fallback re-derives this
+    # rather than leaving the room spendable.
+    "xp-free-close": 10700,
     "xp-kickoff": 200,
     "xp-plan": 100,
-    "xp-plan-close": 8900,
+    "xp-plan-close": 10700,  # same shared reference; see xp-free-close above
     "xp-quality-review": 300,
     "xp-review-plan": 100,
     # First budget for the finished surface, from the formula: measured 108, so
@@ -81,7 +88,7 @@ PRELOAD_BUDGETS: dict[str, int] = {
     # ratchet cannot raise, so the number is re-derived rather than nudged.
     "xp-scaffold-worktree": 200,
     "xp-schedule": 200,
-    "xp-sprint-close": 8900,
+    "xp-sprint-close": 10700,  # same shared reference
     "xp-sprint-review": 100,
     "xp-sprint-start": 100,
     "xp-story-close": 6400,

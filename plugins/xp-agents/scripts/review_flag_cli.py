@@ -79,6 +79,9 @@ _FLAG_LIFECYCLE: dict[str, tuple[str, str]] = {
 }
 
 
+_DEFAULT_FLAG = "simplify_done"
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--smm-dir", required=True)
@@ -91,10 +94,17 @@ def main(argv: list[str] | None = None) -> None:
             "— for a launch that errored or a review abandoned part-way"
         ),
     )
+    # OPTIONAL, and defaulted, so the shipped close prose can invoke this
+    # without spelling an internal state field. Naming one in instructions that
+    # ship to every project is what the prose vocabulary pins exist to
+    # discourage; the table has exactly one member, so there is nothing for a
+    # caller to choose between. An explicit flag is still accepted.
     parser.add_argument(
         "flag",
+        nargs="?",
+        default=_DEFAULT_FLAG,
         choices=sorted(_FLAG_LIFECYCLE),
-        help="the review-cycle flag to set (e.g. simplify_done)",
+        help="the review-cycle flag to set (defaults to the only one)",
     )
     args = parser.parse_args(argv)
 
