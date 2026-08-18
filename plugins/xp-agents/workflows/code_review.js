@@ -61,6 +61,26 @@ const LEVELS = {
 }
 
 const anglePath = (name) => `${PLUGIN_ROOT}/scripts/_code_review_angle_${name}.md`
+const LADDER_PATH = `${PLUGIN_ROOT}/scripts/_code_review_verdict_ladder.md`
+
+const VERDICT_SCHEMA = {
+  type: 'object',
+  required: ['verdicts'],
+  properties: {
+    verdicts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['index', 'verdict', 'evidence'],
+        properties: {
+          index: { type: 'number', description: 'the [i] label of the candidate this verdict is for' },
+          verdict: { enum: ['CONFIRMED', 'PLAUSIBLE', 'REFUTED'] },
+          evidence: { type: 'string' },
+        },
+      },
+    },
+  },
+}
 
 const CANDIDATES_SCHEMA = {
   type: 'object',
@@ -184,9 +204,87 @@ const found = await parallel(
 // the close has already paid for the finders that did work.
 const candidates = found.filter(Boolean).flat()
 
+// ─── Verify ───
+// One refuter per distinct LOCATION, not per candidate. Blind finders collide
+// constantly — several lenses land on the same line — and a second agent
+// re-reading those same lines learns nothing the first did not. Grouping is NOT
+// deduping: every candidate keeps its own verdict, because two findings at one
+// line may be one issue or two and only the refuter can tell.
+//
+// The trade, stated: one dead refuter now drops every candidate at its location
+// instead of one. That is the safe direction — an unjudged candidate reaching
+// the report is a finding nothing verified, which is exactly what this phase
+// exists to prevent.
+const loc = (c) => `${c.file}${c.line != null ? `:${c.line}` : ''}`
+
+const verifierPrompt = (group) =>
+  `## Code-review verifier\n\n${SCOPE_BLOCK}\n` +
+  `Read \`${LADDER_PATH}\` — it defines the three verdicts and, importantly, ` +
+  `when NOT to refute.\n\n` +
+  `## Candidate findings at ${loc(group[0])}\n` +
+  group
+    .map((c, i) => `[${i}] ${c.summary}\n    Failure scenario: ${c.failure_scenario}`)
+    .join('\n') +
+  `\n\nRun the diff command above, read the relevant lines, and return one ` +
+  `verdict per candidate, referenced by its [i] index. Judge each on its own ` +
+  `claim. Structured output only; evidence must quote or cite the lines.\n`
+
+phase('Verify')
+const byLoc = new Map()
+for (const c of candidates) {
+  const key = loc(c)
+  if (!byLoc.has(key)) byLoc.set(key, [])
+  byLoc.get(key).push(c)
+}
+const groups = [...byLoc.values()]
+
+const verifiedGroups = await parallel(
+  groups.map((group) => async () => {
+    const r = await agent(verifierPrompt(group), {
+      label: `verify:${loc(group[0])}`,
+      phase: 'Verify',
+      schema: VERDICT_SCHEMA,
+    })
+    if (!r || !Array.isArray(r.verdicts)) return []
+    const byIndex = new Map()
+    for (const v of r.verdicts) {
+      if (Number.isInteger(v.index) && v.index >= 0 && v.index < group.length) {
+        byIndex.set(v.index, v)
+      }
+    }
+    // A candidate with no verdict is DROPPED. It was not judged, and admitting
+    // it would put an unverified finding in the report under a phase whose
+    // whole purpose is that there are none.
+    return group.flatMap((c, i) =>
+      byIndex.has(i) ? [{ ...c, verdict: byIndex.get(i).verdict, evidence: byIndex.get(i).evidence }] : [],
+    )
+  }),
+)
+
+const verified = verifiedGroups.filter(Boolean).flat()
+const surviving = verified.filter((c) => c.verdict !== 'REFUTED')
+const refuted = verified.length - surviving.length
+log(`verify: ${verified.length} judged, ${surviving.length} kept, ${refuted} refuted`)
+
+const stats = {
+  ...baseStats(),
+  finders: finderAngles.length,
+  candidates: candidates.length,
+  verifierAgents: groups.length,
+  verified: verified.length,
+  refuted,
+}
+
 return {
   level: LEVEL,
-  summary: `Scoped ${scope.files.length} changed files; ${candidates.length} candidates from ${finderAngles.length} angles.`,
-  findings: [],
-  stats: { ...baseStats(), finders: finderAngles.length, candidates: candidates.length },
+  summary: `${surviving.length} findings survived independent verification (${LEVEL}, ${finderAngles.length} angles).`,
+  findings: surviving.map((c) => ({
+    file: c.file,
+    line: c.line,
+    summary: c.summary,
+    failure_scenario: c.failure_scenario,
+    category: c.angle === CLEANUP_ANGLE ? 'cleanup' : 'correctness',
+    verdict: c.verdict,
+  })),
+  stats,
 }
