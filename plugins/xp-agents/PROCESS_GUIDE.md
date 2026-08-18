@@ -38,7 +38,7 @@ Three link types close events and risk pillar items:
 
 **Plan cycle:** `/xp-schedule` → `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → `/xp-assign` → execute. Multi-file changes (3+ files). State-derived gates: the schedule gate blocks writes + plan-entry until `/xp-schedule` promotes; `.plan-awaiting-review` until reviewed; `.assign-pending` until assigned (teammate-mode plans only).
 
-**Per commit (cadence set at kickoff):** *commit* — `/xp-quality-review` → `git commit`, gate blocks if skipped. *story* — gate defers; review at `/xp-story-close` Step 4.5b. At `/xp-{free,sprint,plan}-close`: threshold-gated `/code-review` (Step 4b, Workflow tool) + LLM `/security-review` (Step 4). Deterministic patterns scan staged diffs.
+**Per commit (cadence set at kickoff):** *commit* — `/xp-quality-review` → `git commit`, gate blocks if skipped. *story* — gate defers; review at `/xp-story-close` Step 4.5b. At `/xp-{free,sprint,plan}-close`: threshold-gated broad review (Step 4b — a Workflow script, Skill tool `/code-review` as fallback) + LLM `/security-review` (Step 4).
 
 **Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-schedule` → plan → `/xp-review-plan` → (teammate) `/xp-assign` → implement → `/xp-accept` → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` → `in-progress` → `reviewing` → `closing` (Step 1.5 singleton lock) → `done`/`deferred`; AC-fail reverts to `in-progress`. `/xp-schedule` (kickoff tail + `/xp-accept` post-loop) solely owns promotion + `execution_mode`; `/xp-story-close` merges + cleans up only. Stop gate fires on in-motion stories.
 

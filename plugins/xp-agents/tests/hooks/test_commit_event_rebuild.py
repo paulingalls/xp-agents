@@ -64,6 +64,10 @@ _CAPPED_FILES = (
     # exists to force a placement decision, and a file only added once it is
     # crowded has already had that decision made for it.
     _SCRIPTS_DIR / "commit_trailers.py",
+    # The diff-text parser, split out along the same text/git line when the
+    # review-scope budget pushed `commits.py` past this cap. Capped on arrival
+    # like its siblings.
+    _SCRIPTS_DIR / "diff_filenames.py",
     # The merge-range readers, and the two suites the close review's findings
     # split out. Capped on arrival for the same reason as everything above: a file
     # added to this list only once it is crowded has already had its placement

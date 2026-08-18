@@ -23,6 +23,7 @@ echo "WORKTREE_CLEAN=$(worktree_clean)"
 python3 "${PLUGIN_ROOT}/scripts/close_common.py" close-review-gate \
     --cwd . --target "${TARGET_BRANCH}" 2>/dev/null \
     || echo "RUN_FULL_CODE_REVIEW=false"
+emit_workflow_script
 
 # Verify-acceptance gate signal (M6): the last sprint-verify rerun's status.
 # Exit 1 (red) is a gate signal, not an error — keep the preload green and

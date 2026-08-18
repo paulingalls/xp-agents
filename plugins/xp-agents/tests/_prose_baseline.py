@@ -181,7 +181,27 @@ PROSE_MEASURED: dict[str, int] = {
     # as sufficient and the gate went silent on a commit deleting three code
     # files. The call site's own note is three lines because the enumeration of
     # stage-all forms lives beside the regex in git_commits.py, not restated.
-    "plugins/xp-agents/scripts/commits.py": 171,
+    # --- and, from main ---
+    # Re-measured after the review-scope budget and the HEAD-distance reader
+    # landed, and after `get_filenames_from_diff` left for `diff_filenames.py` —
+    # the extraction took prose out of this file, so the number is a re-measure
+    # of what remains, not a straight allowance for what was added.
+    # 179 -> 190 for the close review's two fixes, each of which a future reader
+    # would otherwise undo: `include_untracked` is a separate flag because a
+    # wider set FORGIVES for one caller and BLOCKS for the other, and
+    # `count_commits_since` counts first parents because counting a merge's whole
+    # range measured 6 landings against a cap of 2.
+    # 200 -> 209: budgeting the ghost read. The fork had to be told what the
+    # rest of the scan already knew, and both halves of that need saying — why a
+    # fifth read cannot sit on the per-call default, and why its leg is counted
+    # when it CAN run rather than when it will. The pin that caught it is named,
+    # because the next reader's instinct is to drop the parameter again.
+    # 171/190 -> 200 (merge of main into sprint-007): the two branches grew
+    # this module along DIFFERENT axes — the ghost filter here, the review-scope
+    # flags and scan budget there — so the merged file is a union and neither
+    # side's number describes it. Measured, not chosen. Both histories are kept
+    # above because each explains a guard the other side's reader would undo.
+    "plugins/xp-agents/scripts/commits.py": 209,
     # Arrives above the floor, so it records a ceiling on its first commit —
     # no absolute quoted here, per this file's own rule that prose ABOUT the
     # numbers goes stale exactly the way the numbers do.
@@ -217,7 +237,24 @@ PROSE_MEASURED: dict[str, int] = {
     # `-a`, and the `[^;&|]*?` bound exists so a trailing `&& git add -A` cannot
     # vouch for an earlier narrow `git add`. Delete either note and the next
     # simplification reintroduces a silent gate failure.
-    "plugins/xp-agents/scripts/git_commits.py": 125,
+    # 125 -> 140 (merge of main into sprint-007): both branches added prose to
+    # this module and it auto-merged, so this is a re-measure of the union, not
+    # an allowance for growth on either side. Re-recorded rather than golfed:
+    # each side's notes carry the bug its own regex was written for.
+    "plugins/xp-agents/scripts/git_commits.py": 140,
+    # Crossed the floor at the close review, at 130. Two thirds of it is the
+    # gate's own boundary: which shapes it misses (`eval`), which it over-refuses
+    # (a `;` that is compound-statement syntax), and why `|` after `&&` is not a
+    # discard — the last of which it had refused, while its refusal text
+    # prescribed that exact shape.
+    # RETIRED (v5.19.0 close review): git_write_exit_gate.py 140 -> 113 prose,
+    # under the 120 floor, so the entry is DELETED rather than lowered — which
+    # is what banks the shrink instead of leaving 27 lines of re-entry
+    # allowance. It shrank because the read-pipeline elision it owned privately
+    # moved to prewalk_rewrites.py to be shared with the declared-command gate,
+    # and the argument for a rewrite-not-a-second-walk went with it. The
+    # footprint paragraph that took this file to 140 stayed; it is about this
+    # gate's own placement and belongs nowhere else.
     "plugins/xp-agents/scripts/hook_liveness.py": 196,
     # 227 -> 239: CLOSE_CYCLE_AGENT_ID lands here rather than in
     # `event_metadata` — it is an agent identity, not an event metadata key, and
@@ -240,10 +277,31 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/markers.py": 133,
     "plugins/xp-agents/scripts/migration_lock.py": 121,
     "plugins/xp-agents/scripts/result_counts.py": 126,
+    # Crossed the floor on arrival of the HEAD-distance expiry, which needed
+    # its own reason recorded: the write-driven ageing it backstops fails open,
+    # and the docstring that called that "tracked debt" is now the one saying
+    # how it is closed.
+    # 132 -> 134: the number was recorded BEFORE the two lines naming why the
+    # sha's field is `written_at_commit` and not `written_at`, so the table was
+    # already two behind its own file — inside the slack, and therefore silent.
+    # 134 -> 138: MISLEADING evidence is now named as a third case beside the two
+    # absences, because the docstring claimed only absence could fail to expire
+    # while a base merge was supplying a distance of its own.
+    "plugins/xp-agents/scripts/review_records.py": 138,
     "plugins/xp-agents/scripts/retro_metrics.py": 130,
     "plugins/xp-agents/scripts/scaffold_apply.py": 128,
     "plugins/xp-agents/scripts/session_start.py": 164,
-    "plugins/xp-agents/scripts/shell_exit_structure.py": 257,
+    # 257 -> 290, and the tree's total moved by ~10, not 33: the composition's
+    # three-part rationale and the escape marker's four properties came here
+    # from `exit_capture_gate`, which fell 105 -> 82 prose lines in the same
+    # commit. Consumer-specific reasoning deliberately did NOT come with them —
+    # why a declaration-keyed predicate needs the substitution rewrite stays
+    # with the gate whose predicate it is.
+    # 290 -> 291 at the close review, and net of a deletion: `exit_status_waived`
+    # arrived with three lines, while `exit_reaches_shell` stopped restating the
+    # argument-substitution line `argument_substitutions_as_words` already argues
+    # twenty lines above it — the duplication the extraction itself introduced.
+    "plugins/xp-agents/scripts/shell_exit_structure.py": 291,
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
     "plugins/xp-agents/scripts/staged_lint.py": 221,
     "plugins/xp-agents/scripts/tdd_check.py": 133,

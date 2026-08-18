@@ -20,15 +20,20 @@ from commits_issues import (
     format_maybe_addressed_line,
     open_issues_matching_commit,
 )
+from diff_filenames import get_filenames_from_diff
 
 REVIEW_CYCLE_THRESHOLD: int = 2
 
 
-def _run_git(args: list[str], cwd: str) -> str | None:
-    """Run a git command, return stripped stdout or None on failure."""
+def _run_git(args: list[str], cwd: str, timeout: float = 5) -> str | None:
+    """Run a git command, return stripped stdout or None on failure.
+
+    ``timeout`` is PER CALL, so a caller inside a bounded hook divides its own
+    budget across its reads — see `get_code_files_for_review`'s ``scan_budget_s``.
+    """
     try:
         result = subprocess.run(
-            args, capture_output=True, text=True, timeout=5, cwd=cwd
+            args, capture_output=True, text=True, timeout=timeout, cwd=cwd
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -77,50 +82,6 @@ def get_staged_files(cwd: str) -> list[str]:
     return sorted(_nul_paths(out))
 
 
-def get_filenames_from_diff(diff_text: str) -> list[str]:
-    """Parse post-image filenames from a unified diff, deduped, in first-seen order.
-
-    Approximates `git diff --cached --name-only` for the common case:
-    emits the new-side path for modifications and additions, the old-
-    side path for deletions (where post is /dev/null), and the rename
-    destination for renames. Does NOT parse `copy from`/`copy to` git
-    copy-detection headers (rare for `--cached` since copy detection
-    is off by default; cross-check before threading through copy-aware
-    flows). Used to avoid re-shelling for filenames when the caller
-    already has the cached unified diff in hand.
-    """
-    if not diff_text:
-        return []
-
-    out: list[str] = []
-    seen: set[str] = set()
-
-    def _add(path: str) -> None:
-        if path and path not in seen:
-            seen.add(path)
-            out.append(path)
-
-    # Walk line-by-line so we can pair `+++ /dev/null` (deleted file) with
-    # the immediately-preceding `--- a/<path>` line.
-    last_pre: str | None = None
-    for line in diff_text.splitlines():
-        if line.startswith("--- a/"):
-            last_pre = line[len("--- a/") :]
-        elif line == "--- /dev/null":
-            last_pre = None
-        elif line.startswith("+++ b/"):
-            _add(line[len("+++ b/") :])
-            last_pre = None
-        elif line == "+++ /dev/null":
-            if last_pre is not None:
-                _add(last_pre)
-            last_pre = None
-        elif line.startswith("rename to "):
-            _add(line[len("rename to ") :])
-
-    return out
-
-
 def get_staged_diff(cwd: str) -> str | None:
     """Get unified diff of staged changes via git diff --cached.
 
@@ -159,9 +120,35 @@ def get_commit_files(cwd: str, rev: str) -> list[str]:
     return _nul_paths(out)
 
 
-def get_head_commit_hash(cwd: str) -> str | None:
-    """Get current HEAD commit hash. Returns None on failure."""
-    return _run_git(["git", "rev-parse", "HEAD"], cwd)
+def get_head_commit_hash(cwd: str, timeout: float = 5) -> str | None:
+    """Get current HEAD commit hash. Returns None on failure.
+
+    ``timeout``: a bounded caller pays for this read out of its own allowance.
+    """
+    return _run_git(["git", "rev-parse", "HEAD"], cwd, timeout=timeout)
+
+
+def count_commits_since(cwd: str, rev: str) -> int | None:
+    """How many commits have LANDED on HEAD's own line since ``rev``, or None if
+    git cannot say.
+
+    `--first-parent`, so a merge counts as the one commit it is rather than as
+    the range it brought in: without it a five-commit base merge measured 6
+    landings against callers' caps of 2, discarding what they were ageing.
+
+    None — not 0 — when the range does not resolve (rewritten, pruned or foreign
+    sha): a caller deciding whether something aged must tell "nothing landed"
+    from "cannot tell".
+    """
+    out = _run_git(
+        ["git", "rev-list", "--count", "--first-parent", f"{rev}..HEAD"], cwd
+    )
+    if out is None:
+        return None
+    try:
+        return int(out)
+    except ValueError:
+        return None
 
 
 def head_landing_facts(cwd: str, rev: str) -> tuple[int, int, str | None] | None:
@@ -218,7 +205,7 @@ def head_parent_count(cwd: str, rev: str) -> int | None:
     return len(out.split())
 
 
-def _unstaged_worktree_deletions(cwd: str) -> set[str]:
+def _unstaged_worktree_deletions(cwd: str, read=None) -> set[str]:
     """Paths git still holds in the INDEX that are gone from the working tree.
 
     The ghost the review gate used to bill for: a spike file that was
@@ -233,8 +220,15 @@ def _unstaged_worktree_deletions(cwd: str) -> set[str]:
     Being in this set is necessary but NOT sufficient: a path here is only a
     ghost while the command about to run leaves it unstaged, which is why the
     caller also asks `git_commits.stages_all_tracked_changes`.
+
+    ``read`` is the caller's budgeted reader. It matters: this fork is a FIFTH
+    git read inside a hook whose whole scan is bounded, and left on `_run_git`'s
+    per-call default it put the worst case at 8.5s against a 5s budget —
+    measured, by the non-vacuity pin in test_review_coverage_scan.py that exists
+    to catch a read added without being paid for.
     """
-    out = _run_git(["git", "diff", "--name-only", "-z", "--diff-filter=D"], cwd)
+    runner = read if read is not None else (lambda cmd: _run_git(cmd, cwd))
+    out = runner(["git", "diff", "--name-only", "-z", "--diff-filter=D"])
     if out is None:
         return set()
     return set(_nul_paths(out))
@@ -246,6 +240,9 @@ def get_code_files_for_review(
     command: str = "",
     *,
     staged_diff: str | None = None,
+    include_unstaged: bool = False,
+    include_untracked: bool = False,
+    scan_budget_s: float | None = None,
 ) -> list[str]:
     """Get deduplicated code files changed since last review + staged.
 
@@ -258,15 +255,57 @@ def get_code_files_for_review(
     ``staged_diff`` is ``get_staged_diff``'s text, for a caller that already
     holds it: the staged names are parsed from it instead of re-shelling.
 
+    ``include_unstaged`` adds that leg outright, for a caller with no command
+    to infer it from — the ``command`` route below is the pre-commit gate's.
+    A flag, not a fake command, which would put a lie in what the regex reads.
+
+    ``include_untracked`` adds CREATED files, which `git diff` never lists at any
+    stage. Its own flag: a caller recording what a review COVERED wants the file
+    the reviewer wrote, while the gate infers ``include_unstaged`` from a
+    `git add <path>` that may stage none of them — and there a wider set BLOCKS.
+
+    ``scan_budget_s`` bounds the WHOLE scan, for a caller inside a hook that
+    has a budget: `_run_git`'s timeout is per call, so three legs at the default
+    allow 15s inside a 5s SubagentStop, and the handler is killed mid-write.
+    Split evenly across the legs that will run, counted before any of them does
+    so the split cannot depend on an earlier read. None keeps the per-call
+    default — the pre-commit gate is not the bounded caller.
+
     Ghosts are dropped — ``_unstaged_worktree_deletions`` says what one is and
     what one is not. Every caller wants that: the coverage record is written
     from this same scan, so excluding on one side alone would shift the gate's
     current-minus-coverage arithmetic rather than fix it.
     """
+    # Asked once and read twice — by `wants_unstaged` here and by the ghost
+    # filter at the tail. `stages_all_tracked_changes` is the one spelling of
+    # the question; see git_commits.py for the forms a hand-rolled regex misses.
+    stages_all = git_commits.stages_all_tracked_changes(command)
+    wants_unstaged = bool(
+        include_unstaged
+        or re.search(git_commits.GIT_PREFIX + r"add\b", command)
+        or stages_all
+    )
+    legs = (
+        int(staged_diff is None)
+        + int(bool(last_review_commit))
+        + int(wants_unstaged)
+        + int(include_untracked)
+        # The ghost read at the tail. Counted whenever it CAN run, not when it
+        # will: `widened` is not known until the legs above have run, and the
+        # rule above is that the split must not depend on an earlier read.
+        + int(not stages_all)
+    )
+    per_leg = scan_budget_s / legs if scan_budget_s is not None and legs else None
+    read = (
+        (lambda cmd: _run_git(cmd, cwd))
+        if per_leg is None
+        else (lambda cmd: _run_git(cmd, cwd, timeout=per_leg))
+    )
+
     if staged_diff is not None:
         staged_names = set(get_filenames_from_diff(staged_diff))
     else:
-        out = _run_git(["git", "diff", "--cached", "--name-only", "-z"], cwd)
+        out = read(["git", "diff", "--cached", "--name-only", "-z"])
         if out is None:
             return []
         staged_names = set(_nul_paths(out))
@@ -279,16 +318,24 @@ def get_code_files_for_review(
             ["git", "diff", "--name-only", "-z", f"{last_review_commit}..HEAD"]
         )
 
-    # If the command includes 'git add', or stages everything on its own, also
-    # check unstaged tracked changes — those will be staged by the command
-    # itself. Asked once, so the filter below cannot use a second spelling of
-    # "stages everything": the one that lived here missed `commit -q -a`.
-    stages_all = git_commits.stages_all_tracked_changes(command)
-    if re.search(git_commits.GIT_PREFIX + r"add\b", command) or stages_all:
+    # Unstaged tracked changes: either the caller asked outright, or the command
+    # will stage them itself. `stages_all` is asked ONCE, above, because the
+    # ghost filter below reads the SAME answer — two spellings of "stages
+    # everything" is how `commit -q -a` slipped past this gate, and the regex
+    # that arrived on the other side of this merge (`commit\s+-a`) missed
+    # `commit --all` as well.
+    if wants_unstaged:
         extra_commands.append(["git", "diff", "--name-only", "-z"])
 
+    # Created files. `--exclude-standard` so .gitignore'd build output is not
+    # read as work; `--others` alone would hand back every artefact in the tree.
+    if include_untracked:
+        extra_commands.append(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"]
+        )
+
     for cmd in extra_commands:
-        out = _run_git(cmd, cwd)
+        out = read(cmd)
         if out is None:
             continue
         all_files.update(_nul_paths(out))
@@ -302,7 +349,7 @@ def get_code_files_for_review(
     # makes each unstaged deletion one that this commit performs.
     widened = all_files - staged_names
     if widened and not stages_all:
-        all_files -= widened & _unstaged_worktree_deletions(cwd)
+        all_files -= widened & _unstaged_worktree_deletions(cwd, read=read)
 
     return [f for f in sorted(all_files) if code_files.is_code_file(f)]
 
@@ -365,6 +412,7 @@ from merged_range import (  # noqa: E402  intentional mid-file re-export
 __all__ = [
     "REVIEW_CYCLE_THRESHOLD",
     "commit_repo_candidates",
+    "count_commits_since",
     "dash_c_unreachable",
     "extract_commit_message",
     "extract_implicit_event_ids",

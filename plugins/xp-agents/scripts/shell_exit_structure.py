@@ -21,13 +21,15 @@ vocabulary. Two callers now share one owner:
     every command a non-Python project declares.
 
 `outer_exit_reaches_shell` is the shared walk, parameterized by which segments
-count as "the command under measurement"; `exit_reaches_shell` is the
-runner-agnostic entry point, where EVERY segment counts.
+count as "the command under measurement". `exit_reaches_shell_for` is the whole
+composition around it — the rewrite, the walk, the `sh -c` recursion — and
+`exit_reaches_shell` is that composition with EVERY segment counting.
 
 Pure — stdlib plus the leaf `git_commits.strip_quoted`, no SMM dependencies.
 """
 
 import re
+from collections.abc import Callable
 
 import git_commits
 
@@ -414,30 +416,76 @@ def argument_substitutions_as_words(command: str) -> str:
     return "".join(out)
 
 
+# A plain shell comment, so it is inert to the command it rides on. Three
+# properties earn it: it cannot change what runs, it forces the intent to be
+# stated rather than guessed at, and it is greppable in history, so routine
+# bypassing is visible rather than silent.
+#
+# Kept HERE rather than with any one gate: every gate built on the composition
+# below refuses the same shape and must be waived by the same words, and an
+# agent that has to remember which marker suppresses which gate will type the
+# wrong one. It suppresses the PRE-RUN refusals only — `test_attribution`'s
+# post-run advisory is untouched, so an agent that knowingly discards a status
+# is still told what that cost it, which is information rather than a refusal
+# to route around.
+EXIT_STATUS_NOT_NEEDED_MARKER = "# exit-status-not-needed"
+
+
+def exit_status_waived(command: str) -> bool:
+    """True when *command* DECLARES the marker, rather than quoting it in a
+    message body or argument the way a commit ABOUT one of these gates does —
+    see `test_the_marker_cannot_be_forged_by_a_message_body`."""
+    return EXIT_STATUS_NOT_NEEDED_MARKER in git_commits.strip_quoted(command)
+
+
+def exit_reaches_shell_for(command: str, runs_target: Callable[[str], bool]) -> bool:
+    """True when the exit status of the segments *runs_target* names survives.
+
+    The composition, in one place, for every caller that needs the whole thing.
+    Three parts, none of them new parsing:
+
+      * `argument_substitutions_as_words` FIRST, or every substitution reads as
+        a capture. One that merely computes an ARGUMENT does not capture the
+        command's status — the command's own status is still what the shell
+        reports — and refusing those would refuse ordinary commands whose
+        arguments are computed. That direction is not a theoretical worry: it
+        silently disabled a consumer for a whole class of projects once already.
+      * the walk itself, which is pure shell grammar.
+      * the bodies of any `sh -c` wrapper, recursively. The outer walk
+        deliberately does not descend into them — it only notices that a body
+        runs the target, so the wrapper counts as one measured segment out
+        here. Without this leg a wrapper launders any operator INSIDE it.
+
+    *runs_target* chooses the strictness: `_every_segment` asks the strictest
+    honest version of the question, a narrower predicate asks only about the
+    segments it names. Not every consumer of the walk wants this composition —
+    `test_attribution` records why its own may omit the first part.
+    """
+    if not outer_exit_reaches_shell(
+        argument_substitutions_as_words(command), runs_target
+    ):
+        return False
+    # The bodies come from the ORIGINAL command; the recursion re-elides each.
+    return all(
+        exit_reaches_shell_for(body, runs_target) for body in shell_c_bodies(command)
+    )
+
+
 def exit_reaches_shell(command: str) -> bool:
     """True when *command*'s own exit status becomes the shell's exit status.
 
-    The runner-agnostic entry point. Every non-empty segment counts as measured,
-    so this asks the strictest honest version of the question: is there any
+    The runner-agnostic entry point: every non-empty segment counts as measured,
+    so this asks the strictest honest version of the question — is there any
     operator anywhere in this command that discards or captures an exit status
     the caller might have wanted to read?
 
     Conservative by construction, because a wrong True is what lets a caller
-    compare two runs on a number that means nothing. What it will NOT refuse is
-    a substitution that merely computes an ARGUMENT — `pytest -n $(nproc)` is one
-    command and the shell reports pytest's status — because refusing those
-    silently disabled every consumer for a whole class of ordinary declared
-    commands. `argument_substitutions_as_words` draws that line, and a capture
-    whose value is what the shell actually reports (`OUT=$(tsc --noEmit)`,
-    `echo $(make build)`) stays refused.
+    compare two runs on a number that means nothing — bounded on the other side
+    by the ARGUMENT-substitution line `argument_substitutions_as_words` draws and
+    argues, which this inherits from the composition above rather than restates.
 
     A command that runs nothing is vacuously True — there is no exit status here
     to have been swallowed. Callers that need "this is a runnable command" must
     ask that separately.
     """
-    if not outer_exit_reaches_shell(
-        argument_substitutions_as_words(command), _every_segment
-    ):
-        return False
-    # The bodies come from the ORIGINAL command; the recursion re-elides each.
-    return all(exit_reaches_shell(body) for body in shell_c_bodies(command))
+    return exit_reaches_shell_for(command, _every_segment)

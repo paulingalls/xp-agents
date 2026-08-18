@@ -70,8 +70,8 @@ DETECTORS = (DETECTOR_AGED_STOP, DETECTOR_SESSION_SWEEP, DETECTOR_CLOSE_RESTART)
 # that mode's review path never forks the close reviewer, so sending an
 # operator to re-run it would be sending them to the wrong close.
 RECOVERY = (
-    "Recovery: next session, run /security-review then /code-review high via "
-    "the Workflow tool (if RUN_FULL_CODE_REVIEW=true) then invoke "
+    "Recovery: next session, run /security-review then the broad review as "
+    "Step 4b prescribes (if RUN_FULL_CODE_REVIEW=true) then invoke "
     "xp-close-reviewer (Agent tool); then re-attempt /xp-{sprint,plan,free}-close."
 )
 CONCERN_CONTENT = (

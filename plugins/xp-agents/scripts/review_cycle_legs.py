@@ -28,6 +28,20 @@ import review_records
 import target_routing
 from event_schema import STATUS_ACTION_QR_COMPLETE
 
+# How the SubagentStop budget is divided. hooks.json gives this handler 5000ms
+# TOTAL and `commits._run_git` bounds each CALL, so the five reads below would
+# allow 25s unbounded and get the handler killed part-way; what is left of the
+# 5000ms pays for the two marker writes and the event append after them. Kept
+# here, not in `commits`: the number is a property of THIS registration, and
+# `commits` serves callers with no budget at all.
+_SCAN_BUDGET_S = 2.5
+# A whole leg's worth for one `rev-parse`, git's cheapest read, because the two
+# fail in OPPOSITE directions: a scan leg timing out only narrows the recorded
+# set, while this one times out to `""` and ships a record with no stamp,
+# silently disabling `read_review_coverage`'s HEAD-distance expiry. The
+# fail-open read gets the room.
+_HEAD_BUDGET_S = 1.0
+
 
 def _is_code_review(name: str) -> bool:
     """True for the built-in /code-review skill, but NOT our own
@@ -142,12 +156,22 @@ def _record_completed_quality_review(smm_dir: Path, cwd: str, input_data: dict) 
     The COVERAGE has to be written at completion for a second reason: the
     reviewer's fixes are in the working tree by now, and at launch they did not
     exist. Recorded at launch the set would omit exactly the files it exists to
-    forgive. Only the STAGED and committed ones, though — the scan does not
-    read unstaged work, so in commit cadence the set is often empty and
-    forgives nothing, which is the safe direction. Keyed on the repo, like the
-    watermark, because the paths are repo-relative. `commits` is imported
-    lazily — every subagent completion reaches this module, only this one needs
-    git.
+    forgive.
+
+    UNSTAGED AND CREATED WORK IS THE POINT, not an extra. A reviewer edits and
+    writes files and returns; nothing stages either, and `git diff` never lists
+    a created one at all. v5.17.0 asked for the default scan, which reads staged
+    + committed only, so in the dominant flow it recorded an EMPTY set and the
+    fix it shipped did nothing — the next `git add -A && git commit` counted the
+    reviewer's own fixes unreviewed and demanded another review. Honest scope,
+    not a loosening, ON THE PER-INCREMENT PATH: that preload hands the reviewer
+    `git diff HEAD`, and it wrote whatever it created. The two close branches
+    hand it a committed range, so there the leg can forgive a file it never saw
+    — accepted: a close range forgives more than this leg does.
+
+    Keyed on the repo, like the watermark, because the paths are repo-relative.
+    `commits` is imported lazily — every subagent completion reaches this
+    module, only this one needs git.
 
     ORDER: the two git reads run FIRST and the flag last, so an interrupt
     between them leaves the gate armed rather than cleared — the same direction
@@ -159,8 +183,19 @@ def _record_completed_quality_review(smm_dir: Path, cwd: str, input_data: dict) 
 
     repo_key = identity.review_watermark_key(cwd)
     watermark = review_records.read_review_watermark(smm_dir, repo_key)
-    scope = commits.get_code_files_for_review(cwd, watermark)
-    review_records.write_review_coverage(smm_dir, repo_key, scope)
+    scope = commits.get_code_files_for_review(
+        cwd,
+        watermark,
+        include_unstaged=True,
+        include_untracked=True,
+        scan_budget_s=_SCAN_BUDGET_S,
+    )
+    # The commit this coverage describes, so the read can expire it when HEAD
+    # has moved past it without any commit site spending it. Empty when git
+    # cannot say, which `read_review_coverage` treats as "no evidence to expire
+    # on" rather than as distance.
+    head = commits.get_head_commit_hash(cwd, timeout=_HEAD_BUDGET_S) or ""
+    review_records.write_review_coverage(smm_dir, repo_key, scope, head)
     review_records.set_review_flag(
         smm_dir, identity.review_flags_key(cwd), "quality_review_done"
     )

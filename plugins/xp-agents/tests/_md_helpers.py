@@ -52,6 +52,19 @@ CORPUS_WIDE_FORBIDDEN: tuple[str, ...] = (
     "accept_in_flight",
     "close_cycle_stop_gate",
     "quality_review_done",
+    # PROMOTED from SECTION_SCOPED_FORBIDDEN, by leg 3 rather than by choice.
+    # Its one legitimate use was close Step 4b's by-hand arm line, which the
+    # Skill launcher made unnecessary — that launcher arms itself, so a second
+    # arm double-counted the review. The line went, and with it the only
+    # shipped prose naming this internal flag.
+    #
+    # THE LAUNCHER THAT CANNOT ARM ITSELF DID RETURN, one branch later, and the
+    # promotion still holds — which is the outcome this note asked for rather
+    # than a demotion. Step 4b arms by hand again, and invokes the CLI with no
+    # flag argument at all: the table it reads has exactly one member, so there
+    # is nothing for a caller to choose and no reason to spell an internal
+    # state field in instructions that ship to every project.
+    "simplify_done",
     "review_cycle_done",
     ".rs",
     # Boundary matching stops the singular forms above from covering their
@@ -87,7 +100,6 @@ SECTION_SCOPED_FORBIDDEN: tuple[str, ...] = (
     "class ",
     "function ",
     "ACCEPT_IN_FLIGHT",
-    "simplify_done",
     "assign-pending",
 )
 

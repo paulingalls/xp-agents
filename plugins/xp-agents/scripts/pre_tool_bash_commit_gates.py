@@ -213,7 +213,8 @@ def commit_gate_parts(smm_dir: Path, command: str, cwd: str) -> list[str]:
     # only describe a commit landing in the checkout that review ran against.
     # See review_records and test_review_coverage.py.
     uncovered = review_records.uncovered_count(
-        code_files, review_records.read_review_coverage(smm_dir, repo_key)
+        code_files,
+        review_records.read_review_coverage(smm_dir, repo_key, cwd=effective_cwd),
     )
 
     if uncovered >= commits.REVIEW_CYCLE_THRESHOLD:

@@ -88,6 +88,19 @@ class TestStoryClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTes
             "story-close preload must not emit RUN_FULL_CODE_REVIEW",
         )
 
+    def test_does_not_emit_the_workflow_script_path(self):
+        # Inverse-pin, paired with the review-mixin's path-exists check.
+        # story-close never runs Step 4b, so the broad review's script path is
+        # context it would spend and never use — and an emitted path is an
+        # invitation to launch the pass this mode defers to its enclosing
+        # sprint-close.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(
+            _extract_preload_var(result.stdout, "WORKFLOW_SCRIPT"),
+            "story-close must not emit WORKFLOW_SCRIPT — it does not run Step 4b",
+        )
+
     def test_does_not_emit_the_review_pipeline_steps(self):
         # Mode-scoped close reference. story-close runs neither Step 4
         # (Security Review — the enclosing sprint-close covers this diff) nor

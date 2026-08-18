@@ -7,7 +7,10 @@ not collect it directly — it is only imported by the
 `test_close_preloads_emit_shared*.py` siblings.
 """
 
+from pathlib import Path
+
 from _close_fixtures import _ClosePreloadCommonTests
+from conftest import _extract_preload_var
 
 
 class _ReviewPipelineAssertions(_ClosePreloadCommonTests):
@@ -62,6 +65,84 @@ class _ReviewPipelineAssertions(_ClosePreloadCommonTests):
             "### Step 4b: Full code review (conditional)",
             result.stdout,
             "preload must emit the Step 4b (full code review) heading",
+        )
+
+    def test_the_emitted_step4b_carries_a_launch_that_runs(self):
+        """The only end-to-end check on Step 4b, and the gap it closes.
+
+        Every other assertion about this step reads the SOURCE file, so all of
+        them pass equally against a launch literal that is well-formed and
+        wrong — which is exactly what shipped: Step 4b named
+        `Workflow({name: "code-review"})` for releases, that name is registered
+        nowhere, and the one broad correctness pass silently did not run. No pin
+        noticed, because every pin was checking that the string was present
+        rather than that it was deliverable.
+
+        This asserts the launch survives `cat` into the preload's own stdout,
+        for each close mode that emits it. It still cannot execute the launch —
+        but it fails if the reference file stops being emitted at all, which is
+        the other way this step goes quiet.
+        """
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "Workflow({ scriptPath:",
+            result.stdout,
+            "preload must emit Step 4b's PRIMARY launch call. This asserted "
+            "only the fallback literal, so the launch the step actually "
+            "prescribes was the one line here never checked — which is the "
+            "same shape as the defect this test was written for",
+        )
+        self.assertIn(
+            'Skill(skill: "code-review"',
+            result.stdout,
+            "and the documented fallback, so a close that cannot reach the "
+            "Workflow tool still has a way through",
+        )
+        self.assertNotIn(
+            'Workflow({ name: "code-review"',
+            result.stdout,
+            "the emitted Step 4b must not name a workflow that is registered "
+            "nowhere in the shipped build",
+        )
+
+    def test_emits_a_workflow_script_path_that_exists_on_disk(self):
+        """The one check in the Step 4b wiring that is not a string comparison.
+
+        Step 4b launches the broad review by PATH, and a path is the kind of
+        value every other pin here calls green while it is wrong: the reference
+        file is `cat`'d RAW into this stdout, so a `${CLAUDE_PLUGIN_ROOT}` in it
+        reaches the reader literally — the shell expansions that work in that
+        file work because they sit inside a Bash command, and a tool argument
+        has no shell. The preload emits the resolved path instead, derived from
+        BASH_SOURCE rather than from an env var that may not be set.
+
+        Asserting the file is THERE is what makes this a behavioural check. A
+        moved or renamed script leaves every "does the prose contain the
+        string" assertion passing and the launch failing at dogfood time, which
+        is the failure this whole branch exists to stop happening twice.
+        """
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        emitted = _extract_preload_var(result.stdout, "WORKFLOW_SCRIPT")
+        self.assertIsNotNone(
+            emitted, "a mode that runs Step 4b must emit WORKFLOW_SCRIPT"
+        )
+        assert emitted is not None
+        self.assertNotIn(
+            "$",
+            emitted,
+            "the emitted path must be already-resolved — an unexpanded "
+            "variable reaches a tool argument as literal text",
+        )
+        path = Path(emitted)
+        self.assertTrue(
+            path.is_absolute(),
+            f"WORKFLOW_SCRIPT must not depend on the reader's cwd: {emitted!r}",
+        )
+        self.assertTrue(
+            path.is_file(),
+            f"the emitted Workflow script does not exist: {emitted!r}",
         )
 
     def test_emits_step4_security_concern_metadata_kind(self):
