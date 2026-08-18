@@ -190,7 +190,15 @@ PROSE_MEASURED: dict[str, int] = {
     # is noise); a RAISE must not (it recorded nothing, so advancing drops the
     # range this module exists to catch). The pair reads alike from outside,
     # which is why the distinction is written down rather than inferred.
-    "plugins/xp-agents/scripts/commit_observer.py": 135,
+    # 135 -> 168 (story-018): the dedup became a lock plus an in-lock re-check,
+    # and three of the added notes are the ones a later reader would otherwise
+    # undo — why the lock is the observer's OWN file (taking the event log's
+    # inside it deadlocks), why the events list is REBOUND rather than re-read
+    # (a merge later in the range derives trailers off it), and what the fix
+    # still does NOT close (`_handle_commit` writes without this lock, so an
+    # observer racing a commit-shaped Bash can still double-record). Trimmed
+    # once already; the residue is re-recorded rather than golfed further.
+    "plugins/xp-agents/scripts/commit_observer.py": 168,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.

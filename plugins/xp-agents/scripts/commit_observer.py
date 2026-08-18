@@ -64,6 +64,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import _append_impl
 import _common
 import code_files
 import commit_emit
@@ -101,6 +102,17 @@ _MARKER_FIELD = "head"
 # `_record_range_declined`. Truncating instead would report success over a
 # silent cap, which is the failure mode this whole story exists to remove.
 MAX_RECONCILE = 10
+
+# The observer's OWN lock file, never the event log's. `flock` conflicts
+# between two open file descriptions in the same process, so taking the events
+# lock while holding it — `bulk_append_safe` takes it per append — would
+# deadlock this hook against itself.
+_LOCK_FILE = ".commit-observer.lock"
+
+# Short on purpose. `flock_with_timeout`'s own docstring names this case: a
+# best-effort advisory file, where blocking a synchronous hook for the event
+# log's 10s is its own problem. On expiry the range simply stays open.
+_LOCK_TIMEOUT_SECONDS = 2
 
 _OBSERVER_SOURCE = (
     "Recorded by the post-Bash commit observer, which compares HEAD against "
@@ -176,14 +188,20 @@ def observe(
     if last_seen == head:
         return
     if last_seen is not None:
-        _reconcile(
-            smm_dir,
-            agent_id,
-            cwd,
-            last_seen,
-            head,
-            is_xp_agent_leak=is_xp_agent_leak,
-        )
+        try:
+            _reconcile(
+                smm_dir,
+                agent_id,
+                cwd,
+                last_seen,
+                head,
+                is_xp_agent_leak=is_xp_agent_leak,
+            )
+        except _append_impl.LockTimeoutError:
+            # Another observer holds the record lock. Return WITHOUT
+            # advancing, so the next Bash walks the same range — and without
+            # raising into the user's Bash call to say so.
+            return
     _write_last_seen_head(smm_dir, cwd, head)
 
 
@@ -222,17 +240,44 @@ def _reconcile(
         )
         return
 
+    # The cheap pre-check, outside the lock: on most calls that reach here the
+    # range is already fully recorded, and one read answers that.
     events, _ = _common.load_events_with_resolutions(smm_dir)
-    recorded = commit_event.recorded_commit_hashes(events)
+    pending = [
+        rev for rev in revs if rev not in commit_event.recorded_commit_hashes(events)
+    ]
+    if not pending:
+        return
     review_cadence = markers.read_review_cadence(smm_dir)
     newest_recorded: str | None = None
-    for rev in revs:
-        if rev in recorded:
-            continue
-        if _record_one(
-            smm_dir, agent_id, cwd, rev, events=events, review_cadence=review_cadence
-        ):
-            newest_recorded = rev
+
+    # CLOSES: two observers sharing a checkout, both reading the same snapshot
+    # and both appending the same commit. The read above cannot see an append
+    # landing after it returns, so the dedup is re-derived inside the lock.
+    #
+    # DOES NOT CLOSE: `commit_handling._handle_commit` writes commit events
+    # without this lock, so an observer racing a COMMIT-shaped Bash in a
+    # sibling process can still double-record. That needs both writers to take
+    # it — a change this module deliberately leaves alone. Said out loud: an
+    # undocumented partial fix reads as a complete one.
+    with _observer_lock(smm_dir):
+        # REBOUND, not merely re-read: `_record_one` mutates this list in place
+        # so a merge later in the range sees earlier appends, and the pre-lock
+        # snapshot would derive its trailers from a log that has since moved.
+        events, _ = _common.load_events_with_resolutions(smm_dir)
+        recorded = commit_event.recorded_commit_hashes(events)
+        for rev in pending:
+            if rev in recorded:
+                continue
+            if _record_one(
+                smm_dir,
+                agent_id,
+                cwd,
+                rev,
+                events=events,
+                review_cadence=review_cadence,
+            ):
+                newest_recorded = rev
 
     # One reset for the range, keyed to the NEWEST commit recorded — the same
     # effect `rebuild_at_head` owns, for the same reason: a commit event
@@ -248,6 +293,19 @@ def _reconcile(
             identity.review_flags_key(cwd),
             newest_recorded,
         )
+
+
+def _observer_lock(smm_dir: Path) -> "contextlib.AbstractContextManager[None]":
+    """Serialize this checkout's observers around the read-check-append.
+
+    Held across `_record_one`'s git reads, which is bounded on purpose: only
+    the rare path reaches here, only other observers contend, and
+    `MAX_RECONCILE` caps the walk. Building outside the lock instead would
+    derive merge trailers from the snapshot the lock exists to invalidate.
+    """
+    return _append_impl.flock_with_timeout(
+        smm_dir / _LOCK_FILE, timeout_s=_LOCK_TIMEOUT_SECONDS
+    )
 
 
 def _record_one(
