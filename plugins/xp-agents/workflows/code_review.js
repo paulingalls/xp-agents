@@ -33,6 +33,55 @@ const LEVEL = input.level || 'high'
 const RANGE = input.range || ''
 const PLUGIN_ROOT = input.pluginRoot || ''
 
+// ─── Angles ───
+// ORDER IS THE LEVEL. `high` takes the first four; `xhigh`/`max` take all six.
+// The two with recorded evidence behind them come first on purpose: this
+// project shipped two regressions that only a state/lifecycle reading would
+// have caught, and produced three assert-nothing tests in a single session.
+// A cheaper run should not be the one that drops them.
+//
+// Each name is a shipped file under `scripts/`. The prose lives there, not
+// here, because that directory is scanned by the language-agnostic sweep and
+// the prose pins — a lens written in one ecosystem's vocabulary is inert for
+// every project using another, and this file is not somewhere that gets caught.
+const CORRECTNESS_ANGLES = [
+  'state_lifecycle',
+  'test_vacuity',
+  'line_scan',
+  'removed_behavior',
+  'cross_file',
+  'language_pitfalls',
+]
+const CLEANUP_ANGLE = 'cleanup'
+
+const LEVELS = {
+  high: { angles: 4, perAngle: 6 },
+  xhigh: { angles: 6, perAngle: 8 },
+  max: { angles: 6, perAngle: 8 },
+}
+
+const anglePath = (name) => `${PLUGIN_ROOT}/scripts/_code_review_angle_${name}.md`
+
+const CANDIDATES_SCHEMA = {
+  type: 'object',
+  required: ['candidates'],
+  properties: {
+    candidates: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['file', 'summary', 'failure_scenario'],
+        properties: {
+          file: { type: 'string', description: 'repo-relative path, exactly as listed in the review scope' },
+          line: { type: 'number' },
+          summary: { type: 'string' },
+          failure_scenario: { type: 'string' },
+        },
+      },
+    },
+  },
+}
+
 const SCOPE_SCHEMA = {
   type: 'object',
   required: ['diffCommand', 'files', 'summary'],
@@ -85,9 +134,59 @@ if (!scope.files || scope.files.length === 0) {
 
 log(`${LEVEL} review: ${scope.files.length} changed files`)
 
+const params = LEVELS[LEVEL] || LEVELS.high
+
+const SCOPE_BLOCK =
+  `## Review scope\nDiff command: ${scope.diffCommand}\n` +
+  `Changed files (${scope.files.length}):\n` +
+  scope.files.map((f) => `  - ${f}`).join('\n') +
+  `\n\n## What changed\n${scope.summary}\n` +
+  `\n## Conventions\n${scope.conventions || '(none noted)'}\n`
+
+// ONE angle per finder, and the prompt names one file. A finder handed the
+// whole set is a generalist with extra steps, which is what the per-increment
+// review already is — the diversity is the entire reason this pass finds what
+// that one does not.
+const finderPrompt = (angle, cap) =>
+  `## Code-review finder\n\n${SCOPE_BLOCK}\n` +
+  `Read \`${anglePath(angle)}\` — that file is your assigned angle, and the ` +
+  `only one you have. Run the diff command above and review THROUGH THAT LENS ` +
+  `ONLY; other reviewers hold the other angles and will cover what you skip.\n\n` +
+  `Surface up to ${cap} candidates, each with file, line, a one-line summary, ` +
+  `and a concrete failure_scenario — the consequence someone would observe, ` +
+  `not an intermediate state. Pass through every candidate you can name a ` +
+  `failure for: an independent verifier judges them next, so do not silently ` +
+  `drop the half-believed ones. If nothing qualifies, return an empty list.\n\n` +
+  'Structured output only.'
+
+phase('Find')
+const finderAngles = [
+  ...CORRECTNESS_ANGLES.slice(0, params.angles),
+  CLEANUP_ANGLE,
+]
+
+const found = await parallel(
+  finderAngles.map((angle) => () =>
+    agent(finderPrompt(angle, angle === CLEANUP_ANGLE ? params.perAngle * 2 : params.perAngle), {
+      label: `find:${angle}`,
+      phase: 'Find',
+      schema: CANDIDATES_SCHEMA,
+    }).then((r) => {
+      if (!r) return []
+      log(`${angle}: ${r.candidates.length} candidates`)
+      return r.candidates.map((c) => ({ ...c, angle }))
+    }),
+  ),
+)
+
+// `.filter(Boolean)` is not defensive: parallel() resolves a thunk that threw
+// to null, so one dead finder would otherwise crash every stage after it — and
+// the close has already paid for the finders that did work.
+const candidates = found.filter(Boolean).flat()
+
 return {
   level: LEVEL,
-  summary: `Scoped ${scope.files.length} changed files. ${scope.summary}`,
+  summary: `Scoped ${scope.files.length} changed files; ${candidates.length} candidates from ${finderAngles.length} angles.`,
   findings: [],
-  stats: { ...baseStats(), pluginRoot: Boolean(PLUGIN_ROOT) },
+  stats: { ...baseStats(), finders: finderAngles.length, candidates: candidates.length },
 }
