@@ -17,7 +17,10 @@ is pinned separately and without running it.
 The FIRST harness's leg only: everything here starts from `tool_input.skill`.
 The shell-read leg — identity out of `tool_input.command`, and the claim that
 keeps a mention from starving a read — is `test_preload_injection_shell_read.py`,
-which shares no fixture with anything below.
+which shares no fixture with anything below. The refusal guard — what a call the
+gate beside this hook REFUSES must not spend — is `test_preload_refusal_guard.py`,
+split off at the 500-line cap for the same reason: its fixture is a real gate
+marker and a preload that spends it, the opposite of the fake used here.
 """
 
 import json
@@ -33,6 +36,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
+import pre_tool_skill
 import preload_injection
 import skill_preload_map
 from _budget_helpers import (
@@ -219,6 +223,15 @@ class TestHeartbeatIsWrittenBeforeTheRun(_HookTestCase):
                 {"tool_input": {"skill": "xp-agents:xp-accept"}, "cwd": str(work)}
             )
         self.assertEqual(output, "SAW_HEARTBEAT\n")
+
+    def test_the_write_is_the_shipped_one_not_a_second_copy(self):
+        """`pre_tool_skill.refresh_heartbeat` does exactly this, and used to be
+        duplicated here line for line. Two spellings of the same write drift
+        silently; the ORDERING guarantee above stays this module's, because on
+        the shell-read leg `pre_tool_skill` never runs at all."""
+        with patch.object(pre_tool_skill, "refresh_heartbeat") as shipped:
+            preload_injection._refresh_heartbeat({"session_id": "s"})
+        shipped.assert_called_once()
 
     def test_the_same_probe_says_no_heartbeat_when_the_write_is_removed(self):
         """Non-vacuity for the pin above: with the heartbeat write suppressed,

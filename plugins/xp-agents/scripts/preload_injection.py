@@ -52,10 +52,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import hook_liveness
 import marker_claim
 import markers
 import plugin_loader
+import pre_tool_skill
 import shell_commands
 import skill_preload_map
 import target_routing
@@ -195,8 +195,15 @@ def run(input_data: dict, **_kwargs) -> str | None:
     The second-harness leg has no such guarantee: the model may read one
     `SKILL.md` several times for a single invocation, which is the burst the
     claim exists to collapse.
+
+    Not claiming was only half of it: the preload still RAN, and several
+    preloads spend a gate by running. `_refused_by_a_gate` closes that, ahead of
+    the claim for the reason above.
     """
     if _common.is_xp_agent(input_data):
+        return None
+
+    if _refused_by_a_gate(input_data):
         return None
 
     skill = skill_from_payload(input_data)
@@ -207,6 +214,27 @@ def run(input_data: dict, **_kwargs) -> str | None:
 
     _refresh_heartbeat(input_data)
     return run_preload(skill, input_data.get("cwd", ""))
+
+
+def _refused_by_a_gate(input_data: dict) -> bool:
+    """True when `pre_tool_skill` will BLOCK this invocation.
+
+    Its two shipped predicates, in its own order, CALLED rather than respelled:
+    a second spelling drifts silently, and the symptom would be this handler
+    running preloads for refused calls — the bug it exists to stop. Both carry
+    their own `is_xp_agent` guard and resolve their own SMM dir, and both key on
+    `tool_input.skill`, absent from the second harness's payload — so this
+    no-ops on the shell-read leg, where no gate refuses a skill invocation.
+
+    The two processes cannot exchange results (hooks on one entry run in
+    parallel), so a race is possible and benign: worst case the preload runs for
+    a call that gets blocked, which is today's behaviour. Not airtight, and it
+    does not need to be to be strictly better.
+    """
+    return bool(
+        pre_tool_skill.teammate_block_reason(input_data)
+        or pre_tool_skill.accept_evidence_block_reason(input_data)
+    )
 
 
 def _take_claim(skill: str) -> bool:
@@ -239,15 +267,14 @@ def _refresh_heartbeat(input_data: dict) -> None:
 
     Ordering is the whole point: the preload refuses and emits a banner instead
     of state when the heartbeat is stale, so a write placed after the run would
-    inject that banner. Never raises — `write_heartbeat` swallows its own
-    failures, and a heartbeat that cannot be written must not cost the injection.
+    inject that banner. That ordering is this module's alone to keep — on the
+    shell-read leg `pre_tool_skill` never fires, so this is the only refresher.
+
+    The WRITE is the shipped one, called rather than copied: the body here was a
+    line-for-line duplicate of `pre_tool_skill.refresh_heartbeat`. Never raises;
+    a heartbeat that cannot be written must not cost the injection.
     """
-    smm_dir = _common.get_validated_smm_dir(None)
-    if smm_dir is None:
-        return
-    hook_liveness.write_heartbeat(
-        smm_dir, session_id=hook_liveness.payload_session_id(input_data)
-    )
+    pre_tool_skill.refresh_heartbeat(input_data)
 
 
 if __name__ == "__main__":

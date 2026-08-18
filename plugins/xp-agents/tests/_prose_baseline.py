@@ -65,7 +65,12 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/branch_lifecycle.py": 149,
     "plugins/xp-agents/scripts/branch_resolution.py": 207,
     "plugins/xp-agents/scripts/branching.py": 180,
-    "plugins/xp-agents/scripts/preload_injection.py": 128,
+    # 128 -> 151 (story-019): the handler now computes the blocking hook's
+    # own refusal verdict before running a preload, and the new function
+    # carries why it CALLS those predicates instead of respelling them, why
+    # it no-ops on the second harness, and that the two processes race
+    # benignly. A reader without those would reasonably delete the call.
+    "plugins/xp-agents/scripts/preload_injection.py": 151,
     "plugins/xp-agents/scripts/close_cycle_abandonment.py": 139,
     "plugins/xp-agents/scripts/close_cycle_stop_gate.py": 163,
     "plugins/xp-agents/scripts/close_gate_commands.py": 149,
