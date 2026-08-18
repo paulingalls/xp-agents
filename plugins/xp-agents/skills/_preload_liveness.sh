@@ -1,11 +1,25 @@
 # shellcheck shell=bash
 # Refuse to hand a skill any context when the hook runtime is not live.
 #
-# When that runtime fails to load, every gate it enforces disappears and the
-# session looks normal — nothing is blocked and nothing is said. The check that
-# would report it cannot itself be a hook. A preload is an instruction-time
-# load, so it still runs when the thing it tests is broken; that is the whole
-# reason this check can exist here and nowhere else.
+# When that runtime stops enforcing, every gate it carries disappears and the
+# session looks normal — nothing is blocked and nothing is said.
+#
+# WHAT THIS STILL DETECTS, and what it no longer can. This fragment used to be
+# reached at instruction time, before any hook ran, which let it judge a runtime
+# that had not loaded at all. Sprint-007 deleted the `!` lines, so the only
+# route here is now `_preload_base.sh` <- `preload_injection.py` — a hook. Two
+# states follow, and only the first is ours:
+#
+#   running, but not heartbeating (hooks loading yet not writing markers, a
+#   stale or unreadable heartbeat, a teammate that cannot borrow the lead's) —
+#   the preload runs, so the banner still fires. This is the state the whole
+#   fragment now exists for, and it is a real one.
+#
+#   not loaded at all — unreachable from here by construction, because nothing
+#   runs this file. story-009 owns that case; do not add a caller to chase it
+#   without reading that story's AC3 first, which forbids liveness machinery on
+#   the daily path. `tests/skills/test_preload_liveness.py` pins the coupling,
+#   so a second caller reddens rather than passing quietly.
 #
 # A preload CANNOT block. Its only channel is stdout, which becomes context, so
 # refusal means starvation plus instruction: emit the banner, suppress the
@@ -13,8 +27,9 @@
 # the banner must not imply otherwise.
 #
 # Sourced by _preload_base.sh immediately after the SMM resolves and before any
-# other output. Extracted rather than inlined because the base is at its size
-# cap and has already been split twice (_preload_emit.sh, _preload_diff.sh).
+# other output — and by nothing else, which is the coupling above. Extracted
+# rather than inlined because the base is at its size cap and has already been
+# split twice (_preload_emit.sh, _preload_diff.sh).
 #
 # Requires PLUGIN_ROOT and SMM_DIR to be set by the caller.
 

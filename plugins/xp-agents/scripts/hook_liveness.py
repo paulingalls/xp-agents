@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Hook-liveness heartbeat: the marker a running hook leaves behind.
 
-When the hook runtime fails to load, every gate it enforces disappears and
-the session looks normal. The check that would say so has nowhere to run —
-it would itself be a hook. A marker that could only have been written BY a
-hook, read by an instruction-time preload, breaks that circle: the preload
-still executes when the thing it tests is broken.
+When the runtime stops enforcing, its gates vanish and the session looks normal.
 
-This module is the primitive only — the write helper, the session-id
-candidate chain, the staleness predicate, and a thin CLI. The hooks that
-refresh the marker and the preload that consumes the verdict live
-elsewhere.
+Scope narrowed in sprint-007: the instruction-time preload that read this
+verdict before any hook ran — covering a runtime that had not loaded — is gone,
+so the one reader left is itself reached from a hook. What survives is a runtime
+RUNNING but not heartbeating (stale, unreadable, borrowed), which the staleness
+predicate below is for. story-009 owns the never-loaded case;
+`tests/skills/test_preload_liveness.py` pins the coupling.
+
+The primitive only — write helper, session-id candidate chain, staleness
+predicate, thin CLI. The hooks that refresh the marker and the preload that
+consumes it live elsewhere.
 """
 
 import sys
