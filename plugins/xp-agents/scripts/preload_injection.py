@@ -52,7 +52,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import hook_liveness
 import marker_claim
 import markers
 import plugin_loader
@@ -277,15 +276,18 @@ def _refresh_heartbeat(input_data: dict) -> None:
 
     Ordering is the whole point: the preload refuses and emits a banner instead
     of state when the heartbeat is stale, so a write placed after the run would
-    inject that banner. Never raises — `write_heartbeat` swallows its own
-    failures, and a heartbeat that cannot be written must not cost the injection.
+    inject that banner. That ordering is this module's alone to keep — on the
+    shell-read leg `pre_tool_skill` never fires, so this handler is the only
+    refresher there.
+
+    The WRITE, though, is the shipped one, called rather than copied: the body
+    that used to live here was a line-for-line duplicate of
+    `pre_tool_skill.refresh_heartbeat`, whose own docstring records why it
+    resolves its own SMM dir instead of accepting one. Two spellings of a write
+    drift silently. Never raises — `write_heartbeat` swallows its own failures,
+    and a heartbeat that cannot be written must not cost the injection.
     """
-    smm_dir = _common.get_validated_smm_dir(None)
-    if smm_dir is None:
-        return
-    hook_liveness.write_heartbeat(
-        smm_dir, session_id=hook_liveness.payload_session_id(input_data)
-    )
+    pre_tool_skill.refresh_heartbeat(input_data)
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ The classification is about a REFUSAL, not about whether the mutation is good.
 `GUARDED` does not mean "cannot happen"; it means the gate-refusal path no longer
 reaches it. The paths no predicate can see — a user declining the permission
 prompt, a refusal the harness invents for its own reasons — still run the
-preload, and nothing here claims otherwise.
+preload, and `TestResidueThisStoryDoesNotClose` says so out loud.
 """
 
 import re
@@ -39,8 +39,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
-from conftest import _PLUGIN_ROOT
+import pre_tool_skill
+import preload_injection
+from conftest import _PLUGIN_ROOT, _SMMTestCase
 
 _SKILLS_DIR = _PLUGIN_ROOT / "skills"
 
@@ -155,8 +158,9 @@ def scan_mutation_sites(skills_dir: Path) -> set[Site]:
 # ---------------------------------------------------------------------------
 
 #: Mutates state that gates a REAL operation, and running the preload for a call
-#: that was refused spends it. This is the class story-019 exists to close; no
-#: entry may still carry it once the guard lands.
+#: that was refused spends it. No entry carries it today —
+#: `TestNoSiteIsStillExposed` is what makes that a checked claim — and the
+#: constant stays so a NEW site can be classified honestly and fail that test.
 EXPOSED = "exposed"
 
 #: Was EXPOSED. `preload_injection.run()` now computes the gate verdict itself
@@ -171,6 +175,22 @@ HARMLESS = "harmless"
 class Verdict:
     classification: str
     reason: str
+
+
+def _guarded(reason: str) -> Verdict:
+    """Was EXPOSED, and is reached no more on the gate-refusal path.
+
+    `preload_injection.run()` computes `pre_tool_skill`'s own block verdict —
+    by calling the shipped predicates, not by respelling them — before it
+    resolves the invocation, and returns None when either fires. The preload
+    process is never started, so every mutation in the script is skipped, not
+    just the one this entry names.
+
+    The reason is kept as written while the site was exposed: what a refusal
+    WOULD cost is the fact that makes the guard load-bearing, and a reader who
+    only sees "guarded" has no way to weigh removing it.
+    """
+    return Verdict(GUARDED, reason)
 
 
 _DEFINITION = Verdict(
@@ -208,7 +228,7 @@ _REGISTRY: dict[Site, Verdict] = {
     Site(
         "_preload_base.sh", "emit_close_started_event", _DEFINITION_TARGET
     ): _DEFINITION,
-    Site("_preload_base.sh", "append.sh", ""): Verdict(EXPOSED, _ORPHAN_CLOSE_EVENT),
+    Site("_preload_base.sh", "append.sh", ""): _guarded(_ORPHAN_CLOSE_EVENT),
     Site("_preload_base.sh", "rm -f", "$out"): Verdict(
         HARMLESS,
         "Deletes the render tempfile this same function just created, on its "
@@ -222,8 +242,7 @@ _REGISTRY: dict[Site, Verdict] = {
         "A refusal makes the sweep no more destructive than a normal run.",
     ),
     # -- xp-accept ----------------------------------------------------------
-    Site("xp-accept/scripts/preload.sh", "consume_marker", "ACCEPT"): Verdict(
-        EXPOSED,
+    Site("xp-accept/scripts/preload.sh", "consume_marker", "ACCEPT"): _guarded(
         "Consumes the run-accept-before-mark-done gate that "
         "`pre_tool_bash` enforces. Spent on a refused call, the next mark-done "
         "sails through with no acceptance ever verified. The consume must stay "
@@ -238,15 +257,13 @@ _REGISTRY: dict[Site, Verdict] = {
         "a spent gate: nothing becomes permitted that was forbidden.",
     ),
     # -- xp-assign ----------------------------------------------------------
-    Site("xp-assign/scripts/preload.sh", "--consume-gate", ""): Verdict(
-        EXPOSED,
+    Site("xp-assign/scripts/preload.sh", "--consume-gate", ""): _guarded(
         "The option parse. Registered alongside the consume it enables because "
         "this flag is what makes that consume reachable from a hook at all: "
         "`skill_preload_map._EXTRA_ARGS` puts `--consume-gate` straight into "
         "the injected argv, so the injection path really does opt in.",
     ),
-    Site("xp-assign/scripts/preload.sh", "consume_marker", "ASSIGN_PENDING"): Verdict(
-        EXPOSED,
+    Site("xp-assign/scripts/preload.sh", "consume_marker", "ASSIGN_PENDING"): _guarded(
         "Consumes the assign Write gate (`lead_gates`), which blocks Write "
         "while an unspawned teammate story exists. Spent on a refused call, an "
         "unassigned story's Write gate is gone with no assignment made. Like "
@@ -254,14 +271,12 @@ _REGISTRY: dict[Site, Verdict] = {
         "teammate prompt file — so it cannot move to PostToolUse.",
     ),
     # -- the four close preloads --------------------------------------------
-    Site("xp-free-close/scripts/preload.sh", "--arm-only", ""): Verdict(
-        EXPOSED, _CLOSE_CYCLE_ARM
+    Site("xp-free-close/scripts/preload.sh", "--arm-only", ""): _guarded(
+        _CLOSE_CYCLE_ARM
     ),
     Site(
         "xp-free-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ACTIVE"
-    ): Verdict(
-        EXPOSED, _CLOSE_CYCLE_ARM + " This is the fallback arm for the line above."
-    ),
+    ): _guarded(_CLOSE_CYCLE_ARM + " This is the fallback arm for the line above."),
     Site("xp-free-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ID"): Verdict(
         HARMLESS,
         _SWEPT_AT_SESSION_START + "It only STAMPS concerns raised during a "
@@ -269,15 +284,13 @@ _REGISTRY: dict[Site, Verdict] = {
     ),
     Site(
         "xp-free-close/scripts/preload.sh", "emit_close_started_event", "free"
-    ): Verdict(EXPOSED, _ORPHAN_CLOSE_EVENT),
-    Site("xp-plan-close/scripts/preload.sh", "--arm-only", ""): Verdict(
-        EXPOSED, _CLOSE_CYCLE_ARM
+    ): _guarded(_ORPHAN_CLOSE_EVENT),
+    Site("xp-plan-close/scripts/preload.sh", "--arm-only", ""): _guarded(
+        _CLOSE_CYCLE_ARM
     ),
     Site(
         "xp-plan-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ACTIVE"
-    ): Verdict(
-        EXPOSED, _CLOSE_CYCLE_ARM + " This is the fallback arm for the line above."
-    ),
+    ): _guarded(_CLOSE_CYCLE_ARM + " This is the fallback arm for the line above."),
     Site("xp-plan-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ID"): Verdict(
         HARMLESS,
         _SWEPT_AT_SESSION_START + "It only STAMPS concerns raised during a "
@@ -285,15 +298,13 @@ _REGISTRY: dict[Site, Verdict] = {
     ),
     Site(
         "xp-plan-close/scripts/preload.sh", "emit_close_started_event", "plan"
-    ): Verdict(EXPOSED, _ORPHAN_CLOSE_EVENT),
-    Site("xp-sprint-close/scripts/preload.sh", "--arm-only", ""): Verdict(
-        EXPOSED, _CLOSE_CYCLE_ARM
+    ): _guarded(_ORPHAN_CLOSE_EVENT),
+    Site("xp-sprint-close/scripts/preload.sh", "--arm-only", ""): _guarded(
+        _CLOSE_CYCLE_ARM
     ),
     Site(
         "xp-sprint-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ACTIVE"
-    ): Verdict(
-        EXPOSED, _CLOSE_CYCLE_ARM + " This is the fallback arm for the line above."
-    ),
+    ): _guarded(_CLOSE_CYCLE_ARM + " This is the fallback arm for the line above."),
     Site(
         "xp-sprint-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ID"
     ): Verdict(
@@ -303,7 +314,7 @@ _REGISTRY: dict[Site, Verdict] = {
     ),
     Site(
         "xp-sprint-close/scripts/preload.sh", "emit_close_started_event", "sprint"
-    ): Verdict(EXPOSED, _ORPHAN_CLOSE_EVENT),
+    ): _guarded(_ORPHAN_CLOSE_EVENT),
     Site(
         "xp-story-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ID"
     ): Verdict(
@@ -314,15 +325,14 @@ _REGISTRY: dict[Site, Verdict] = {
     ),
     Site(
         "xp-story-close/scripts/preload.sh", "emit_close_started_event", "story"
-    ): Verdict(EXPOSED, _ORPHAN_CLOSE_EVENT),
+    ): _guarded(_ORPHAN_CLOSE_EVENT),
     Site("xp-story-close/scripts/preload.sh", "rm -f", "$err_file"): Verdict(
         HARMLESS,
         "Deletes the `mktemp` stderr capture created three lines above, inside "
         "the same function. No other process can name the path.",
     ),
     # -- xp-review-plan -----------------------------------------------------
-    Site("xp-review-plan/scripts/preload.sh", "rm -f", "$MARKER"): Verdict(
-        EXPOSED,
+    Site("xp-review-plan/scripts/preload.sh", "rm -f", "$MARKER"): _guarded(
         "Deletes `.plan-awaiting-review`, the gate saying a plan still needs "
         "review. Consumed on a refused call, the plan is silently treated as "
         "reviewed and the next invocation reports no plan at all.",
@@ -350,8 +360,7 @@ _REGISTRY: dict[Site, Verdict] = {
     # -- xp-work-selection --------------------------------------------------
     Site(
         "xp-work-selection/scripts/preload.sh", "write_marker", "NEEDS_HOUSEKEEPING"
-    ): Verdict(
-        EXPOSED,
+    ): _guarded(
         "Arms `housekeeping_stop_gate`, which then BLOCKS Stop for everyone "
         "sharing the SMM until the housekeeper runs and consumes it. Armed by a "
         "refused call, a gate exists for work nobody asked for — and the SMM is "
@@ -435,6 +444,73 @@ class TestTheScanIsNotVacuous(unittest.TestCase):
         scoped = {s for s in _REGISTRY if s.script.startswith("xp-accept/")}
         self.assertTrue(scoped, "the specimen skill left the registry")
         self.assertNotEqual(scan_mutation_sites(_SKILLS_DIR) - scoped, set())
+
+
+class TestNoSiteIsStillExposed(unittest.TestCase):
+    """The claim story-019 makes, checkable rather than prose.
+
+    Withheld from the first increment on purpose — three entries were still
+    genuinely exposed then, and an increment that cannot be green on its own is
+    not an increment. Bounded by `TestResidueThisStoryDoesNotClose` below: this
+    asserts that the GATE-refusal path reaches no exposed mutation, not that no
+    refusal anywhere can.
+    """
+
+    def test_every_exposed_site_is_now_guarded(self):
+        still_exposed = sorted(
+            site
+            for site, verdict in _REGISTRY.items()
+            if verdict.classification == EXPOSED
+        )
+        self.assertEqual(
+            still_exposed,
+            [],
+            "these preload mutations still run for a call the gate refuses:\n"
+            + "\n".join(f"  {s.script}: {s.verb} {s.target}" for s in still_exposed),
+        )
+
+    def test_the_guard_the_flip_depends_on_is_actually_wired(self):
+        """GUARDED is a claim about `preload_injection.run()`. If that guard
+        ever leaves, every flipped entry above becomes a lie that reads as
+        coverage — so the claim is checked against the module, not trusted."""
+        self.assertTrue(
+            any(v.classification == GUARDED for v in _REGISTRY.values()),
+            "nothing claims to be guarded — this pin has gone vacuous",
+        )
+        payload = {
+            "tool_input": {"skill": "xp-agents:xp-assign"},
+            "cwd": "/tmp/wt/worktree-story-001",
+        }
+        self.assertTrue(preload_injection._refused_by_a_gate(payload))
+
+
+class TestResidueThisStoryDoesNotClose(_SMMTestCase):
+    """Refusals no predicate can see — named so this is not mistaken for total.
+
+    The guard works by computing the SAME verdict the blocking hook computes,
+    from state on disk. That covers every refusal the plugin itself issues, and
+    nothing else:
+
+    - A user who declines the permission prompt. No state foretells a human, and
+      the decision happens after every hook on the entry has already run.
+    - A refusal the harness invents for its own reasons (a cancelled turn, an
+      unavailable tool). Same shape, same blindness.
+
+    On both, the preload runs and its mutations land, exactly as before this
+    story. AC3's third clause sanctions a pinned-with-reason residue; an
+    unstated one would be the overclaim story-017 spent four increments removing.
+    """
+
+    def test_a_refusal_the_predicates_cannot_predict_leaves_the_preload_running(self):
+        allowed = {
+            "tool_input": {"skill": "xp-agents:xp-assign"},
+            "cwd": str(self.smm_dir),
+        }
+        # Both predicates allow it, and they MUST: at hook time this payload is
+        # indistinguishable from one the user is about to approve.
+        self.assertFalse(preload_injection._refused_by_a_gate(allowed))
+        self.assertIsNone(pre_tool_skill.teammate_block_reason(allowed))
+        self.assertIsNone(pre_tool_skill.accept_evidence_block_reason(allowed))
 
 
 if __name__ == "__main__":

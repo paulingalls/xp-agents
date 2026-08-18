@@ -223,6 +223,15 @@ class TestHeartbeatIsWrittenBeforeTheRun(_HookTestCase):
             )
         self.assertEqual(output, "SAW_HEARTBEAT\n")
 
+    def test_the_write_is_the_shipped_one_not_a_second_copy(self):
+        """`pre_tool_skill.refresh_heartbeat` does exactly this, and used to be
+        duplicated here line for line. Two spellings of the same write drift
+        silently; the ORDERING guarantee above stays this module's, because on
+        the shell-read leg `pre_tool_skill` never runs at all."""
+        with patch.object(pre_tool_skill, "refresh_heartbeat") as shipped:
+            preload_injection._refresh_heartbeat({"session_id": "s"})
+        shipped.assert_called_once()
+
     def test_the_same_probe_says_no_heartbeat_when_the_write_is_removed(self):
         """Non-vacuity for the pin above: with the heartbeat write suppressed,
         the identical probe must report NO_HEARTBEAT. Without this, a probe that
