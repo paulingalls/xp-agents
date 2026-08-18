@@ -26,30 +26,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import _append_impl
 import _common
 import commit_observer
 import markers
 import review_records
-from _commit_repo_case import _MergeCase, _RebuildTestCase
+from _commit_repo_case import _MergeCase
+from _observer_case import ORDINARY_BASH, _ObserverCase
 from conftest import make_event
 from event_schema import EVENT_TYPE_COMMIT
-
-ORDINARY_BASH = "ls -la"
-
-
-class _ObserverCase(_RebuildTestCase):
-    def seed_observer(self) -> None:
-        self.run_hook(ORDINARY_BASH)
-
-    def observe(self) -> None:
-        self.run_hook(ORDINARY_BASH)
-
-    def marker(self) -> dict | None:
-        data = markers.marker_read(self.smm_dir, markers.LAST_SEEN_HEAD, "main")
-        return data if isinstance(data, dict) else None
-
-    def recorded_hashes(self) -> list[str]:
-        return [e["metadata"].get("commit_hash") for e in self.commit_events()]
 
 
 class TestColdStart(_ObserverCase):
@@ -339,6 +324,76 @@ class TestMarkerKeying(_ObserverCase):
         self.assertIsNone(
             commit_observer.read_last_seen_head(self.smm_dir, str(self.repo))
         )
+
+
+class TestTwoObserversSharingACheckout(_ObserverCase):
+    """AC3. `observe()` runs on every non-commit Bash, so two hooks in one
+    checkout can reach the same unrecorded commit at the same time.
+
+    WHAT THESE PROVE, AND WHAT THEY DO NOT. They prove the RE-CHECK under the
+    lock: the dedup no longer rests on a snapshot taken before the append, so a
+    commit another observer recorded in the window is seen and skipped. That is
+    the part that makes the fix work.
+
+    They do NOT prove mutual exclusion between two OS processes. `flock`'s
+    SIGALRM timeout only arms on the main thread, so a threaded test cannot
+    exercise the real primitive at all, and a two-process test belongs in
+    tests/integration/. Claiming the stronger property from this evidence would
+    be exactly the overclaim the previous story spent four increments removing.
+    """
+
+    def _observe_directly(self) -> None:
+        """Straight into the module, not through `run_hook`: the patch below
+        wraps a function the surrounding hook pipeline also calls, and the
+        window being modelled is `_reconcile`'s own."""
+        commit_observer.observe(self.smm_dir, "main", str(self.repo))
+
+    def test_a_commit_recorded_after_the_first_read_is_not_duplicated(self):
+        """The real race window. Today's check reads a snapshot taken BEFORE
+        the append, so a competitor landing in between is invisible to it."""
+        self.seed_observer()
+        landed = self.commit("feat: x")
+        real = _common.load_events_with_resolutions
+        planted = []
+
+        def competing(smm_dir, *args, **kwargs):
+            result = real(smm_dir, *args, **kwargs)
+            if not planted:
+                planted.append(True)
+                _common.append_safe(
+                    smm_dir,
+                    make_event(
+                        EVENT_TYPE_COMMIT,
+                        content="feat: x",
+                        metadata={
+                            "commit_hash": landed,
+                            "action": "commit_success",
+                        },
+                    ),
+                )
+            return result
+
+        with patch("_common.load_events_with_resolutions", side_effect=competing):
+            self._observe_directly()
+        self.assertEqual(self.recorded_hashes(), [landed])
+
+    def test_a_lock_it_cannot_take_leaves_the_range_open(self):
+        """The observer must never raise into the user's Bash call, and must
+        not advance the marker over a range it did not record — the next Bash
+        retries, and the per-commit dedup makes that resume rather than
+        duplicate."""
+        self.seed_observer()
+        before = self.marker()
+        landed = self.commit("feat: x")
+        with patch(
+            "commit_observer._observer_lock",
+            side_effect=_append_impl.LockTimeoutError("busy"),
+        ):
+            self._observe_directly()
+        self.assertEqual(self.commit_events(), [])
+        self.assertEqual(self.marker(), before)
+        self._observe_directly()
+        self.assertEqual(self.recorded_hashes(), [landed])
 
 
 if __name__ == "__main__":

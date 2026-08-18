@@ -171,6 +171,7 @@ def build_commit_event(
     committed_files: list[str],
     code_file_count: int,
     review_cadence: str,
+    from_commit_only: bool = False,
 ) -> dict | None:
     """Turn a commit body into a type=commit event. None when there is no body.
 
@@ -237,8 +238,15 @@ def build_commit_event(
 
     sprint = sprint_store.load_sprint(smm_dir)
 
+    # Passed straight through. False by default, so `_handle_commit` — which
+    # DID watch the command run, unlike the observer — is unchanged.
     story_id = commit_event._resolve_story_id(
-        smm_dir, cwd, committed_files, sprint=sprint, message=body
+        smm_dir,
+        cwd,
+        committed_files,
+        sprint=sprint,
+        message=body,
+        from_commit_only=from_commit_only,
     )
 
     # Tag commits emitted on a free branch — honored by

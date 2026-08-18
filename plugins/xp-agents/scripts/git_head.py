@@ -33,7 +33,21 @@ __all__ = ["read_head", "resolve_git_dirs"]
 
 # A full object name, anchored. Anything else in a HEAD or ref file — a symref
 # loop, a truncated write, an `ORIG_HEAD` style annotation — is not an answer.
-_OBJECT_NAME_RE = re.compile(r"^[0-9a-f]{40}$")
+#
+# BOTH widths, because a repository's object format is git's choice and not
+# ours: `git init --object-format=sha256` names objects in 64 hex, and a
+# 40-only pattern made `read_head` answer None for a perfectly good HEAD —
+# which reads to every caller as "not a repo" and took the commit observer out
+# entirely, silently. Anchored at both ends, and exactly these two widths: a
+# `[0-9a-f]+` would accept an abbreviated name, which is not what any caller
+# here is comparing against.
+#
+# THE object-name predicate for the hook scripts, not git_head's private one.
+# `merged_range` imports it rather than compiling a second — one home is what
+# makes "both sites move together" structural instead of a promise. git_head
+# owns it because it imports nothing from the package (`re` and `pathlib`
+# only), so no importer can create a cycle.
+_OBJECT_NAME_RE = re.compile(r"^([0-9a-f]{40}|[0-9a-f]{64})$")
 
 _SYMREF_PREFIX = "ref: "
 
