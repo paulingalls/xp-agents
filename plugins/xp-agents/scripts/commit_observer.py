@@ -279,6 +279,9 @@ def _record_one(
         committed_files=committed_files,
         code_file_count=code_files.count_code_files(committed_files),
         review_cadence=review_cadence,
+        # The one caller. Nothing was watched here, so a `git pull`'s incoming
+        # commits must not be stamped with whatever story is open right now.
+        from_commit_only=True,
     )
     if event is None:
         _record_unreadable_body(smm_dir, agent_id, rev)

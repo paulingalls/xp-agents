@@ -124,7 +124,14 @@ PROSE_MEASURED: dict[str, int] = {
     # written down. Three callers now dedup against this index and each had
     # hand-rolled the walk; the caveat that "absent" means "not visible from
     # here" rather than "never recorded" is the part a fourth copy would drop.
-    "plugins/xp-agents/scripts/commit_event.py": 184,
+    # 184 -> 196 (story-018): `_resolve_story_id` gained `from_commit_only`, and
+    # the six added docstring lines are the fix — the guard itself is four lines
+    # of code. They say why Tier 1 is cut alongside Tier 2, which is the half a
+    # reader would otherwise restore: a `.story-assignment` looks explicit but
+    # names the CHECKOUT's story, not the commit's. Re-recorded rather than
+    # golfed, which is this table's own stated rule; the fuller argument lives
+    # in test_commit_observer_claims.py, where no ratchet governs it.
+    "plugins/xp-agents/scripts/commit_event.py": 196,
     # 161 -> 168: the commit-size gate now states why a merge is exempt, which
     # is where that reasoning belongs — it was asserted in commit_emit.py while
     # no code implemented it.
