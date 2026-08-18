@@ -17,8 +17,14 @@ manifests:
 
 # Wires up the gates: verifies pytest -n auto actually works (the CAPABILITY
 # that matters, however it got installed — pipx is only the recommended
-# route, not a requirement), installs the lefthook hooks, and sets an SSH
-# keepalive for this clone.
+# route, not a requirement), verifies `node --test` runs, installs the
+# lefthook hooks, and sets an SSH keepalive for this clone.
+#
+# The node probe is here for the same reason the pytest one is: the JS suite
+# covering the shipped Workflow script is DRIVEN from pytest, so a missing
+# node fails the whole suite rather than skipping the file. Finding that out
+# at `make setup` is a one-line message; finding it out at push is a red gate
+# on a change that touched no JavaScript.
 #
 # The keepalive is not optional housekeeping. The full suite runs on
 # PRE-PUSH, and git opens the connection to the remote BEFORE running that
@@ -44,6 +50,14 @@ setup:
 		echo "  brew install pipx                    # if not already installed" >&2; \
 		echo "  pipx install pytest" >&2; \
 		echo "  pipx inject pytest pytest-xdist      # parallel test execution" >&2; \
+		exit 1; \
+	fi
+	@if ! node --test --help >/dev/null 2>&1; then \
+		echo "'node --test' isn't available, so the JavaScript suite covering" >&2; \
+		echo "plugins/xp-agents/workflows/ cannot run — and it is driven from" >&2; \
+		echo "pytest, so its absence fails the suite rather than skipping it." >&2; \
+		echo "Install Node (v22 or newer) and re-run 'make setup':" >&2; \
+		echo "  brew install node" >&2; \
 		exit 1; \
 	fi
 	@if ! command -v lefthook >/dev/null 2>&1; then \

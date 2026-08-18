@@ -33,6 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 _TESTS_ROOT = Path(__file__).parent
+_REPO_ROOT = _TESTS_ROOT.parent.parent.parent
 _JS_GLOB = str(_TESTS_ROOT / "workflows" / "*_test.js")
 
 # Every `test(...)` in tests/workflows/. Raise it when a suite lands, the way the
@@ -96,6 +97,39 @@ class TestTheWorkflowJsSuiteRuns(unittest.TestCase):
             f"expected at least {_MIN_PASSING} passing JS tests, saw {passing}. "
             f"Zero means the glob {_JS_GLOB!r} matched nothing — which node "
             f"reports as success.\n{self.result.stdout}",
+        )
+
+
+class TestNodeIsProvisionedWhereThisRuns(unittest.TestCase):
+    """The class above turns a missing node into a FAILURE, which is only the
+    right call if the places that run this suite actually provide one.
+
+    Two of them are not the developer's machine, and neither would say anything
+    useful when it broke: CI would fail this module with "node is not on PATH"
+    on a change touching no JavaScript, and a fresh clone would hit the same at
+    its first push. So each has a provisioning step, and each step is pinned
+    here rather than trusted — an unpinned `setup-node` is one dependency-bump
+    PR away from being dropped as unused.
+    """
+
+    def test_ci_provisions_node(self):
+        workflow = (_REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text()
+        self.assertIn(
+            "actions/setup-node",
+            workflow,
+            "CI runs this module and it fails rather than skips without node, "
+            "so the workflow must provision one — relying on whatever the "
+            "runner image happens to ship makes the coverage image-dependent",
+        )
+
+    def test_make_setup_probes_for_node(self):
+        makefile = (_REPO_ROOT / "Makefile").read_text()
+        self.assertIn(
+            "node --test",
+            makefile,
+            "`make setup` must probe `node --test`, matching how it probes "
+            "pytest: the capability, at the moment a clone is being wired up, "
+            "rather than a red push later on a change that touched no JS",
         )
 
 

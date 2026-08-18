@@ -425,7 +425,9 @@ xp-agents works out of the box with zero configuration. It is opinionated — al
 make setup
 ```
 
-This verifies `pytest -n auto` actually works (however it's installed — pipx below is the recommended route, not a requirement) and installs the lefthook hook. It's idempotent; safe to run again.
+This verifies `pytest -n auto` actually works (however it's installed — pipx below is the recommended route, not a requirement), verifies `node --test` runs, and installs the lefthook hook. It's idempotent; safe to run again.
+
+Node is a **development** dependency, not a shipped one: the JavaScript suite covers `plugins/xp-agents/workflows/`, the Workflow script the close pipeline launches. That suite is driven from pytest rather than from its own gate entry, because `node --test` on a glob matching nothing runs zero tests and exits 0 — so a missing node has to fail loudly, and does. Any Node with `node --test` will do; v22 is what it is measured on.
 
 The shipping plugin code is **stdlib-only** — every script under `plugins/xp-agents/` runs on Python 3.11+ with no `pip install`. The test suite is allowed external runners (it doesn't ship). If `make setup` reports `pytest -n auto` isn't working, the recommended fix is `pipx`:
 
