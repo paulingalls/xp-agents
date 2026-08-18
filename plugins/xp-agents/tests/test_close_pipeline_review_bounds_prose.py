@@ -358,6 +358,58 @@ class TestStep4bCostBoundProse(unittest.TestCase):
             "the disarm lands on the fallback's own arm",
         )
 
+    def test_a_cap_that_bit_is_recorded_rather_than_merely_read(self):
+        """The cap disclosure needed a consumer.
+
+        The script reported what it dropped and the step told the reader to note
+        it — and then nothing behaved differently for a truncated pass than for
+        a complete one. The number reached a human and stopped. Those are
+        findings a finder raised and a refuter upheld; the close is the last
+        place they can be written down before the branch merges.
+        """
+        self.assertRegex(
+            self.section,
+            r"(?is)cap left .*out.{0,200}append\.sh|append\.sh.{0,200}cap",
+            "Step 4b must prescribe RECORDING what a cap left out, not just "
+            "reading it — an unrecorded truncation is indistinguishable from a "
+            "complete review one commit later",
+        )
+        self.assertIn(
+            '--type "debt"',
+            self.section,
+            "the cap record must be a debt event, so it survives the session",
+        )
+
+    def test_a_mis_rendered_launch_goes_back_to_the_arm(self):
+        """A WARNING means the LAUNCH was wrong, not the launcher.
+
+        The prose said to disarm and relaunch. Relaunching after a disarm runs
+        the second async window with the marker clear, so the close Stop gate
+        stops deferring and `/xp-quality-review` reads self-find while the
+        agent is holding findings. Re-arming is a fresh cycle and the step has
+        to say so; the disarm belongs to the fallback path, where no relaunch
+        follows.
+        """
+        warning_at = self.section.index("`WARNING:`")
+        disarm_at = self.section.index("--disarm")
+        self.assertLess(
+            warning_at,
+            disarm_at,
+            "the WARNING case must be handled before the disarm case — they "
+            "are different failures with different recoveries",
+        )
+        # Bounded at the NEXT case rather than by a character count: the error
+        # case follows immediately and does disarm, correctly, so a fixed
+        # window swallows it and the assertion reads backwards.
+        window = self.section[warning_at : self.section.index("An error", warning_at)]
+        self.assertNotIn(
+            "--disarm",
+            window,
+            "the mis-rendered-launch path must not disarm: it goes back to the "
+            "arm, and a relaunch on a cleared marker leaves the close in "
+            "self-find while findings are in flight",
+        )
+
     # --- AC-4: no copied-out internal numbers -------------------------------
     def test_no_stray_numeric_literals_beyond_step_markers(self):
         stray = _stray_digit_matches(self.section)

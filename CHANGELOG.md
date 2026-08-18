@@ -16,15 +16,17 @@ fallback until the script has closed a real branch.
 **That pass earns its cost.** Run by hand against the v5.19.0 close diff — after
 a plan review, a per-increment quality review and a security review had all
 passed it — it returned seven findings with reproductions, two of them
-fail-opens where a gate did not catch its own primary shape. v3.11.1 records the
-same: two confirmed regressions passed three cheaper reviews and were caught
-only here.
+fail-opens where a gate did not catch its own primary shape.
+`docs/completed/XP_CODE_REVIEWER_MULTI_ANGLE_VERIFY.md` records the same from
+v3.11.1: two confirmed regressions passed three cheaper reviews and were caught
+only here. (The v3.11.1 changelog entry records the fixes, not the provenance.)
 
 **What owning it buys, beyond the launch working.**
 
-*The reviewing knowledge is shipped prose, not code.* Each finder's lens and the
-verdict ladder live in `scripts/_code_review_angle_*.md`, flat, where the
-language-agnostic sweep and the prose pins already scan them. One file per
+*The reviewing knowledge is shipped prose, not code.* Each finder's lens lives in
+`scripts/_code_review_angle_*.md` and the verdict ladder in
+`scripts/_code_review_verdict_ladder.md`, flat, where the language-agnostic
+sweep and the prose pins already scan them. One file per
 angle, because blindness is the mechanism: a finder handed every lens drifts
 back toward the generalist pass this exists to beat. Two of the angles are ours
 and both were earned — a state/lifecycle reading is what would have caught the
@@ -104,10 +106,18 @@ that asserted nothing — found by the test-vacuity angle added to the review
 because of that same failure mode earlier in its own development.
 
 **Disclosed rather than argued away.** The fallback's fan-out remains unbounded
-by anything here — the cap is closed for the primary launcher only. And the
-close prose was measured, not estimated: the three close preloads move
-8900 → 10700, and the fallback's paragraph is the whole increase, so retiring it
-brings the number back down rather than leaving the room spendable.
+by anything here — the cap is closed for the primary launcher only. The close
+preloads move 8900 → 10700, and that is mostly the PRIMARY launcher's own prose:
+Step 4b grew 1282 characters and the fallback paragraph is 377 of them, so
+retiring the fallback recovers under a third and leaves the budget well above
+8900. An earlier draft of this sentence claimed the fallback was the whole
+increase and that retiring it would bring the number back down. It was measured
+and it was wrong, in the paragraph whose one job is not doing that.
+
+**The cap disclosure has no prescribed consumer yet.** The script reports what
+its fan-out dropped and the close is told to read it, but nothing downstream
+behaves differently for a truncated pass than for a complete one. The number
+reaches a human and stops there.
 
 ## v5.19.0 — A review covers the fixes it made, and a piped push cannot lie
 

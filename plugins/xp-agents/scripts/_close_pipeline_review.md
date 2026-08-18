@@ -63,13 +63,16 @@ step arms and reports by hand; the fallback below does neither.
    fan-out is capped in the script, whose `summary` reports what the
    cap dropped. Launch the shipped script, or the named skill below —
    a hand-authored substitute has neither's bound.
-3. **Wait** for the task-notification. **Read the `summary` first**: if it
-   reports an error, that no changes were reviewed, or a `WARNING:` that the
-   args or the angle-file root did not arrive, then this is not the review this
-   step prescribes — run `CLI --disarm`, and go to the fallback (a `WARNING:`
-   means the launch line was mis-rendered, so fix it and relaunch first if you
-   can). Otherwise read the `findings` array (`file`, `line`, `summary`,
-   `failure_scenario`), and note any count the summary says the caps left out.
+3. **Wait** for the task-notification. **Read the `summary` first.** A
+   `WARNING:` means the launch line was mis-rendered — fix it and go back to the
+   arm, which is a fresh cycle and needs `CLI` again. An error, or no changes
+   reviewed, means the launcher is the problem: run `CLI --disarm` and take the
+   fallback. Otherwise read the `findings` array (`file`, `line`, `summary`,
+   `failure_scenario`).
+
+   If the summary says a cap left findings or locations out, record that before
+   going on — those are paid-for findings nobody will see otherwise:
+   `${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> --type "debt" --agent "<close-skill-name>" --content "Broad review hit its cap: <what the summary said>" --files '["<the diff's own paths>"]'`
 4. **Record it finished** — `CLI --complete`. The flag stays set; this only
    emits the lifecycle event, which nothing else on this path will.
 5. `Skill(skill: "xp-quality-review")` — preload emits `consume-findings`; pass

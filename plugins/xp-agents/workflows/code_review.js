@@ -12,14 +12,12 @@ export const meta = {
   ],
 }
 
-// The one broad multi-agent correctness pass in this process. Launched by PATH
-// from close Step 4b, which is what a built-in NAME could not be: the previous
-// one was registered nowhere and the step silently did not run, for releases.
+// The one broad multi-agent correctness pass. Launched by PATH from close
+// Step 4b — a built-in NAME could not be, and the previous one was registered
+// nowhere, so the step silently did not run, for releases.
 //
-// CONTROL FLOW ONLY. Every lens — each finder's angle, the verdict ladder —
-// lives in shipped `.md` under `scripts/`, where the language-agnostic sweep
-// and the prose pins scan it. A Workflow script cannot read files, so finders
-// read their own angle: they have Read, and the path arrives in args.
+// CONTROL FLOW ONLY: every lens lives in shipped `.md` under `scripts/`. A
+// Workflow script cannot read files, so finders read their own angle.
 //
 // NO IMPORTS EXIST HERE. There is no module system, so this file cannot be
 // split — the 500-line cap is structural, and the only lever is prose.
@@ -36,16 +34,11 @@ const RANGE = input.range || ''
 const PLUGIN_ROOT = input.pluginRoot || ''
 
 // ─── Angles ───
-// ORDER IS THE LEVEL. `high` takes the first four; `xhigh`/`max` take all six.
-// The two with recorded evidence behind them come first on purpose: this
-// project shipped two regressions that only a state/lifecycle reading would
-// have caught, and produced three assert-nothing tests in a single session.
-// A cheaper run should not be the one that drops them.
-//
-// Each name is a shipped file under `scripts/`. The prose lives there, not
-// here, because that directory is scanned by the language-agnostic sweep and
-// the prose pins — a lens written in one ecosystem's vocabulary is inert for
-// every project using another, and this file is not somewhere that gets caught.
+// ORDER IS THE LEVEL: `high` takes the first four. The two with recorded
+// evidence behind them lead, so a cheaper run is not the one that drops them.
+// Each name is a shipped `.md` under `scripts/`, where the language-agnostic
+// sweep and the prose pins scan it — this file is not somewhere that gets
+// caught.
 const CORRECTNESS_ANGLES = [
   'state_lifecycle',
   'test_vacuity',
@@ -54,12 +47,8 @@ const CORRECTNESS_ANGLES = [
   'cross_file',
   'language_pitfalls',
 ]
-// ONE allowance, the same as every correctness angle. Cleanup used to get
-// `perAngle * 2` while `rank()` sorts it LAST, so the caps drop it first: the
-// lens least likely to survive was authorized to produce the most, spending
-// finder budget and then verifier locations on candidates the report cap would
-// discard ahead of a correctness finding. Found by this workflow reviewing
-// itself.
+// ONE allowance for every angle. Cleanup used to get double while `rank()`
+// sorts it LAST, so the lens the caps drop first could produce the most.
 const CLEANUP_ANGLE = 'cleanup'
 
 const LEVELS = {
@@ -92,8 +81,15 @@ const VERDICT_SCHEMA = {
 
 const CANDIDATES_SCHEMA = {
   type: 'object',
-  required: ['candidates'],
+  required: ['candidates', 'angleRead'],
   properties: {
+    // The only way a WRONG angle path is detectable: the script has no
+    // filesystem, and a mis-rendered pluginRoot otherwise yields a generalist
+    // pass that looks exactly like a working one.
+    angleRead: {
+      type: 'boolean',
+      description: 'true only if you actually read the angle file at the path given',
+    },
     candidates: {
       type: 'array',
       items: {
@@ -162,7 +158,11 @@ if (!scope.files || scope.files.length === 0) {
 
 log(`${LEVEL} review: ${scope.files.length} changed files`)
 
-const params = LEVELS[LEVEL] || LEVELS.high
+// `Object.hasOwn`, not `|| LEVELS.high`: an inherited key resolves, so
+// `LEVELS['constructor']` is truthy `Object` and every field reads undefined —
+// no report cap, and `slice(0, undefined)` drops every correctness angle.
+const levelIsKnown = Object.hasOwn(LEVELS, LEVEL)
+const params = levelIsKnown ? LEVELS[LEVEL] : LEVELS.high
 const REPORT_CAP = params.report
 
 const SCOPE_BLOCK =
@@ -180,7 +180,9 @@ const finderPrompt = (angle, cap) =>
   `## Code-review finder\n\n${SCOPE_BLOCK}\n` +
   `Read \`${anglePath(angle)}\` — that file is your assigned angle, and the ` +
   `only one you have. Run the diff command above and review THROUGH THAT LENS ` +
-  `ONLY; other reviewers hold the other angles and will cover what you skip.\n\n` +
+  `ONLY; other reviewers hold the other angles and will cover what you skip. ` +
+  `Set angleRead false if that path could not be read, and say so rather than ` +
+  `reviewing without it.\n\n` +
   `Surface up to ${cap} candidates, each with file, line, a one-line summary, ` +
   `and a concrete failure_scenario — the consequence someone would observe, ` +
   `not an intermediate state. Pass through every candidate you can name a ` +
@@ -189,6 +191,7 @@ const finderPrompt = (angle, cap) =>
   'Structured output only.'
 
 phase('Find')
+const unreadAngles = []
 const finderAngles = [
   ...CORRECTNESS_ANGLES.slice(0, params.angles),
   CLEANUP_ANGLE,
@@ -202,7 +205,8 @@ const found = await parallel(
       schema: CANDIDATES_SCHEMA,
     }).then((r) => {
       if (!r) return []
-      log(`${angle}: ${r.candidates.length} candidates`)
+      if (r.angleRead === false) unreadAngles.push(angle)
+      log(`${angle}: ${r.candidates.length} candidates${r.angleRead === false ? ' (ANGLE UNREAD)' : ''}`)
       return r.candidates.map((c) => ({ ...c, angle }))
     }),
   ),
@@ -214,15 +218,11 @@ const found = await parallel(
 const candidates = found.filter(Boolean).flat()
 
 // ─── Verify ───
-// One refuter per distinct LOCATION, not per candidate. Blind finders collide
-// constantly — several lenses land on the same line — and a second agent
-// re-reading those same lines learns nothing the first did not. Grouping is NOT
-// deduping: every candidate keeps its own verdict, because two findings at one
-// line may be one issue or two and only the refuter can tell.
-//
-// The trade, stated: one dead refuter now drops every candidate at its location
-// instead of one. That is the safe direction — an unjudged candidate reaching
-// the report is a finding nothing verified, which is exactly what this phase
+// One refuter per distinct LOCATION, not per candidate: blind finders collide
+// on the same line constantly and a second reader of it learns nothing.
+// Grouping is NOT deduping — every candidate keeps its own verdict. The trade:
+// a dead refuter drops every candidate at its location, which is the safe
+// direction, since an unjudged candidate in the report is what this phase
 // exists to prevent.
 const loc = (c) => `${c.file}${c.line != null ? `:${c.line}` : ''}`
 
@@ -247,14 +247,10 @@ for (const c of candidates) {
 }
 const allGroups = [...byLoc.values()]
 
-// THE CAP, in code rather than in a sentence. What this replaces was prose in
-// the close pipeline telling the caller not to raise the tier; that file's own
-// test records a customer run reaching roughly a hundred agents and says the
-// risk was "narrowed, not closed". A number here closes it.
-//
-// Bounded on LOCATIONS, which is what refuter agents are counted by. Correctness
-// angles sort first in the candidate list, so when the cap bites it keeps the
-// lenses with recorded evidence behind them and drops cleanup first.
+// THE CAP, in code rather than in a sentence — what it replaces was prose
+// asking the caller not to raise the tier, after a customer run reached ~100
+// agents. Bounded on LOCATIONS, which is what refuters are counted by;
+// correctness angles sort first, so cleanup drops first when it bites.
 const VERIFY_CAP = 20
 const groups = allGroups.slice(0, VERIFY_CAP)
 const locationsDropped = allGroups.length - groups.length
@@ -426,6 +422,19 @@ const sentences = [
   `${surviving.length} findings survived independent verification ` +
     `(${LEVEL}, ${finderAngles.length} angles).`,
 ]
+if (!levelIsKnown) {
+  sentences.push(
+    `WARNING: level '${LEVEL}' is not one of ${Object.keys(LEVELS).join(', ')} — ` +
+      'this review ran at high.',
+  )
+}
+if (unreadAngles.length > 0) {
+  sentences.push(
+    `WARNING: ${unreadAngles.length} finder(s) could not read their angle ` +
+      `(${unreadAngles.join(', ')}) — those reviewed with no lens. Check ` +
+      'pluginRoot.',
+  )
+}
 if (argsAreAnObject && !PLUGIN_ROOT) {
   // Each finder READS its angle from a path built off this. Missing, every one
   // of them is handed a path that resolves nowhere and reviews with no lens —

@@ -54,12 +54,15 @@ REFUSAL_HEADER = "## Hook Runtime: not live"
 # unfixable by any budget change, since the ratchet computes higher and a
 # ratchet may not raise) down to 5,668 and a budget of 6,400.
 #
-# free/plan/sprint measured 8,655/8,641/8,660 and HOLD at 8,900: the ratchet
-# wants 9,800 for them, so the monotonic guard pins them where they are. They
-# sit at 97.1-97.3%, roughly 60-80 chars clear of the 98% band. That is the
-# tightest headroom in this family by a wide margin — the next edit to either
-# reference file is what those chars are for, and there is no slack for prose
-# that could live in one mode's SKILL.md instead.
+# free/plan/sprint held at 8,900 for a long time, measured 8,655/8,641/8,660 and
+# 60-80 chars clear of the band — the tightest headroom in this family. Step 4b's
+# rewrite for the owned broad-review launcher spent that and more, which is what
+# the 10,700 bump below pays for: 9,968/9,909/9,928 today, 93%.
+#
+# BOTH OF THESE ASSERTIONS ARE INEQUALITIES, so a stale number here goes
+# unnoticed — this comment claimed the 8,900 hold three lines above the 10,700
+# entries that had replaced it. Re-measure when you touch either reference file;
+# nothing will tell you.
 #
 # Lives here, beside the fixtures, rather than in the suite that asserts it:
 # `tests/test_volume_budgets.py` needs these numbers as the floor its own

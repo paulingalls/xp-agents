@@ -67,20 +67,18 @@ BAND_CEILINGS = {
     # text and wrapped in a function, so there is nothing for a sibling module
     # to be imported BY. An earlier version of this note named an extraction as
     # the next step, and it was wrong — the 500 cap is structural and the only
-    # lever is prose. The additions above were paid for that way: three comment
-    # blocks restating what the tests already argue, cut from 484 back to 470.
-    "plugins/xp-agents/workflows/code_review.js": 470,
-    # The tests/ side of the same surface, and it is TIGHTER than the script it
-    # covers: 493, seven lines under the cap. Recorded when the tests/ `.js` leg
-    # was added -- until then nothing governed this file at all, because the
-    # tests/ legs scan `.py` and the shipped `.js` leg excludes tests/, so the
-    # largest JavaScript in the tree was the one piece of it no size gate saw.
-    #
-    # UNLIKE the script, an extraction IS available here: this is ordinary
-    # CommonJS. The next test added to it takes one — the Synthesize block
-    # (merge, backfill, the two caps) is the cohesive group, and it shares only
-    # `runVerify` and `cand` with the rest.
-    "plugins/xp-agents/tests/workflows/code_review_test.js": 493,
+    # lever is prose, and it has been spent twice now: 484 -> 470 for the
+    # cap-reporting, then 494 -> 479 for level validation and the unread-angle
+    # report. 21 lines left. What goes next is narrative — the phase headers
+    # still carry history that the changelog and the tests both hold.
+    "plugins/xp-agents/workflows/code_review.js": 479,
+    # RETIRED: code_review_test.js 493->293, by taking the extraction its own
+    # note named one commit earlier. The Synthesize group moved to
+    # code_review_synthesis_test.js and the shared fixtures to
+    # _code_review_fixtures.js. Below the 450 floor, so the entry goes rather
+    # than sitting dormant holding 200 lines open — the same failure the close
+    # review had just caught on test_file_size_pin.py, and would have caught
+    # here next.
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     # Ratcheted 470->471: the stderr-first relay helpers moved to
     # `_subprocess_env`, so this module imports both it and `branch_lifecycle`
