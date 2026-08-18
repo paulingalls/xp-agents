@@ -11,11 +11,14 @@ A VERB scan over shell text: the verbs below, on non-comment lines, across every
 preload entry point (`skills/*/scripts/*.sh`) and the shared library they source
 (`skills/_preload_*.sh` — sourced code is preload code, and six sites live
 there). It does NOT understand the Python those scripts shell out to, so a
-preload that mutates state through a new `python3 .../some_cli.py write`
-subcommand is invisible here. `--arm-only` is in the verb set precisely because
-that hole was otherwise load-bearing: it is the close preloads' PRIMARY
-close-cycle arming, and the `write_marker CLOSE_CYCLE_ACTIVE` beside it is only
-its fallback.
+preload that mutates state through a `python3 .../some_cli.py write` subcommand
+is invisible here unless its FLAG is named below. Two are, because that hole was
+otherwise load-bearing, and both are `close_cycle_abandonment.py`:
+`--arm-only` is the close preloads' PRIMARY close-cycle arming (the
+`write_marker CLOSE_CYCLE_ACTIVE` beside it is only its fallback), and
+`--detector` both appends a high-severity concern and consumes that same
+marker. Read the hole as open for every other subcommand: the flags here were
+added because a real site needed them, not because the set is closed.
 """
 
 import re
@@ -25,10 +28,15 @@ from pathlib import Path
 # Verbs that take a target as their next token. The target is what makes two
 # sites in one script separately classifiable — `xp-review-plan` deletes both a
 # gate and a pointer with `rm -f`, and only one of them matters on a refusal.
+#
+# `--detector` is a FLAG rather than a shell helper, and it sits here rather than
+# in `_FLAG_VERB` below for the same reason: the detector name is the target, and
+# a preload gaining a second detector must classify it separately.
 _TARGET_VERBS: tuple[str, ...] = (
     "consume_marker",
     "write_marker",
     "emit_close_started_event",
+    "--detector",
 )
 
 # `rm -f` is spelled with a space, so it needs its own pattern rather than a

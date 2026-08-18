@@ -210,5 +210,67 @@ class TestTheGuardPrecedesTheClaim(unittest.TestCase):
         self.assertLess(order.index("_refused_by_a_gate"), order.index("_take_claim"))
 
 
+class TestTheGuardCoversEveryGateOnTheEntry(unittest.TestCase):
+    """The SET of gates is the part that is respelled, and it can drift.
+
+    `_refused_by_a_gate` calls the shipped predicates rather than respelling
+    them, so neither VERDICT can drift. Which predicates make up the refusal is
+    a second matter: `pre_tool_skill.__main__` applies its own list, and a third
+    gate added there would leave this handler running preloads for calls that
+    gate refuses — the defect the guard exists to stop, arriving from the one
+    direction the runtime tests cannot see, because the two live in separate
+    processes and each is green on its own.
+
+    Pinned over the AST of both, in the direction that matters: every
+    `*_block_reason` `__main__` consults must be consulted here too. The
+    reverse is not asserted — a predicate this handler weighs and `__main__`
+    does not would only make it MORE conservative, and refusing to run a
+    preload costs one missed injection.
+    """
+
+    def _gates_in_main(self) -> set[str]:
+        source = Path(pre_tool_skill.__file__).read_text(encoding="utf-8")
+        main = next(
+            node
+            for node in ast.parse(source).body
+            if isinstance(node, ast.If) and "__main__" in ast.unparse(node.test)
+        )
+        return {
+            node.func.id
+            for node in ast.walk(main)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id.endswith("_block_reason")
+        }
+
+    def _gates_in_the_guard(self) -> set[str]:
+        source = Path(preload_injection.__file__).read_text(encoding="utf-8")
+        guard = next(
+            node
+            for node in ast.parse(source).body
+            if isinstance(node, ast.FunctionDef) and node.name == "_refused_by_a_gate"
+        )
+        return {
+            node.func.attr
+            for node in ast.walk(guard)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+
+    def test_the_gate_set_is_not_vacuous(self):
+        """Two empty sets are equal. Without this, deleting every predicate
+        from both sides would read as agreement."""
+        self.assertGreaterEqual(len(self._gates_in_main()), 2)
+
+    def test_every_gate_the_blocking_hook_applies_is_weighed_here(self):
+        missing = sorted(self._gates_in_main() - self._gates_in_the_guard())
+        self.assertEqual(
+            missing,
+            [],
+            "pre_tool_skill.__main__ refuses a call on these predicates and "
+            "preload_injection._refused_by_a_gate does not weigh them, so a "
+            "call they refuse still runs its preload: " + ", ".join(missing),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

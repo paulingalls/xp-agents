@@ -110,6 +110,16 @@ _ORPHAN_CLOSE_EVENT = (
     "path no longer reaches the emission at all."
 )
 
+_CLOSE_RESTART_RECORD = (
+    "Records an ABANDONED previous close cycle: `record_abandonment` appends a "
+    "high-severity concern and then consumes CLOSE_CYCLE_ACTIVE. Run for a call "
+    "that was refused, it can disarm a close that is live in another window — "
+    "the owner-liveness read falls back to age whenever the owning session's "
+    "heartbeat cannot be read, and the SMM is shared across worktrees. The "
+    "record is also the input Step 6's abort-default weighs, so a refused call "
+    "feeding it moves a later close's verdict."
+)
+
 _REGISTRY: dict[Site, Verdict] = {
     # -- the shared library every preload sources ---------------------------
     Site("_preload_markers.sh", "consume_marker", _DEFINITION_TARGET): _DEFINITION,
@@ -160,6 +170,9 @@ _REGISTRY: dict[Site, Verdict] = {
         "teammate prompt file — so it cannot move to PostToolUse.",
     ),
     # -- the four close preloads --------------------------------------------
+    Site("xp-free-close/scripts/preload.sh", "--detector", "close_restart"): _guarded(
+        _CLOSE_RESTART_RECORD
+    ),
     Site("xp-free-close/scripts/preload.sh", "--arm-only", ""): _guarded(
         _CLOSE_CYCLE_ARM
     ),
@@ -174,6 +187,9 @@ _REGISTRY: dict[Site, Verdict] = {
     Site(
         "xp-free-close/scripts/preload.sh", "emit_close_started_event", "free"
     ): _guarded(_ORPHAN_CLOSE_EVENT),
+    Site("xp-plan-close/scripts/preload.sh", "--detector", "close_restart"): _guarded(
+        _CLOSE_RESTART_RECORD
+    ),
     Site("xp-plan-close/scripts/preload.sh", "--arm-only", ""): _guarded(
         _CLOSE_CYCLE_ARM
     ),
@@ -188,6 +204,9 @@ _REGISTRY: dict[Site, Verdict] = {
     Site(
         "xp-plan-close/scripts/preload.sh", "emit_close_started_event", "plan"
     ): _guarded(_ORPHAN_CLOSE_EVENT),
+    Site("xp-sprint-close/scripts/preload.sh", "--detector", "close_restart"): _guarded(
+        _CLOSE_RESTART_RECORD
+    ),
     Site("xp-sprint-close/scripts/preload.sh", "--arm-only", ""): _guarded(
         _CLOSE_CYCLE_ARM
     ),
@@ -269,10 +288,9 @@ _REGISTRY: dict[Site, Verdict] = {
 class TestEveryMutationSiteIsClassified(unittest.TestCase):
     """Completeness, in both directions.
 
-    Only completeness — NOT "nothing is exposed". Three entries are genuinely
-    still exposed until the guard lands, and an increment that cannot be green
-    on its own is not an increment. The stronger claim is
-    `TestNoSiteIsStillExposed`.
+    Only completeness — NOT "nothing is exposed". A site classified EXPOSED
+    passes here, which is what let this class land in the increment before the
+    guard did. The stronger claim is `TestNoSiteIsStillExposed`.
     """
 
     def test_no_mutation_site_is_unclassified(self):
