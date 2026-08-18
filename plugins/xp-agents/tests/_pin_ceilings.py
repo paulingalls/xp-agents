@@ -48,14 +48,7 @@ BAND_CEILINGS = {
     # room for another helper: the next addition here takes an extraction, as
     # the three before it did (_preload_emit, _preload_diff and
     # _preload_liveness all came out of this file).
-    # The FIRST JavaScript entry, and the `.js` discovery leg's first real
-    # catch: 411 -> 474, crossing the 450 floor. The growth is the cap-reporting
-    # this workflow's own first run proved was missing — REPORT_CAP dropped 16
-    # verified findings while the summary reported all 26 — plus the summary
-    # rebuilt as a sentence list rather than a concatenation. 26 lines to the
-    # cap; the next addition here extracts the report-assembly half, which is
-    # already the one cohesive block (synthesis prompt, claim/merge, backfill,
-    # summary) with no dependency on the finder or verifier phases.
+    "plugins/xp-agents/skills/_preload_base.sh": 483,
     # 447 -> 484, crossing the 450 floor: three execution tests for the `.js`
     # branch of the staged-tests gate. Its only coverage was a regex over the
     # glob line, which is exactly what this file's own harness exists to
@@ -63,8 +56,20 @@ BAND_CEILINGS = {
     # text. Mutation-verified: pointing the branch at a directory that does not
     # exist leaves the regex pin green and reddens the two mapping tests.
     "plugins/xp-agents/tests/test_lefthook_commit_gate.py": 484,
-    "plugins/xp-agents/workflows/code_review.js": 474,
-    "plugins/xp-agents/skills/_preload_base.sh": 483,
+    # The FIRST JavaScript entry, and the `.js` discovery leg's first real
+    # catch: 411 -> 470, crossing the 450 floor. The growth is the cap-reporting
+    # this workflow's own first run proved was missing — REPORT_CAP dropped 16
+    # verified findings while the summary reported all 26 — plus two warnings
+    # for args that arrive malformed.
+    #
+    # NO EXTRACTION IS AVAILABLE HERE, which makes this entry unlike every other
+    # one in the table. A Workflow script has no module system: it is read as
+    # text and wrapped in a function, so there is nothing for a sibling module
+    # to be imported BY. An earlier version of this note named an extraction as
+    # the next step, and it was wrong — the 500 cap is structural and the only
+    # lever is prose. The additions above were paid for that way: three comment
+    # blocks restating what the tests already argue, cut from 484 back to 470.
+    "plugins/xp-agents/workflows/code_review.js": 470,
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     # Ratcheted 470->471: the stderr-first relay helpers moved to
     # `_subprocess_env`, so this module imports both it and `branch_lifecycle`

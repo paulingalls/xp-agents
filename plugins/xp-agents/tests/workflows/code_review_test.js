@@ -391,6 +391,20 @@ test('a synthesizer that dies costs the merge, never the findings', async () => 
   assert.match(result.summary, /unmerged|synthes/i)
 })
 
+test('an empty pluginRoot says the finders had no lens', async () => {
+  // Each finder READS its angle off this path. Missing, all of them get a path
+  // that resolves nowhere, review unguided, and still return candidates — so
+  // the run looks completely normal and is a generalist pass wearing five
+  // angles' clothing. That is the failure this whole design exists to beat, so
+  // it cannot be the one that arrives silently.
+  const { result } = await runWorkflow(SCRIPT, {
+    args: { level: 'high', range: 'main...HEAD' },
+    agent: async (_p, opts) =>
+      opts.label === 'scope' ? scopeReply() : { candidates: [] },
+  })
+  assert.match(result.summary, /pluginRoot was empty/)
+})
+
 test('a non-object args says so instead of quietly reviewing something else', async () => {
   // The close renders this object BY HAND out of prose that is `cat` raw, so a
   // string-shaped args is a live mis-render. Defaulting silently would review

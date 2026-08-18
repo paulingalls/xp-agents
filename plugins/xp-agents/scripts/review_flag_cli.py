@@ -38,8 +38,13 @@ THREE ACTIONS, and the split between them is what keeps the count honest:
     completed. The marker stays because /xp-quality-review has yet to consume
     those findings; the cycle ends where it always did, at the reviewer's
     SubagentStop.
-  - `--disarm` clears the marker and emits nothing, for a launch that errored
-    or a review abandoned part-way. Without it the flag would survive, since
+  - `--disarm` clears the marker and emits nothing. Step 4b invokes it for a
+    launch that failed AND for a run that completed having reviewed nothing —
+    an errored result or an empty scope, which a caller watching only the
+    launch would read as success. A close abandoned outright still has no
+    invoker; the flag survives to the next session there, and the abandonment
+    recorder is where that would be wired. Without the disarm the flag would
+    survive every one of these, since
     only a landed commit clears the cycle — and the next /xp-quality-review
     would read consume-findings, ask for findings nobody produced, and skip the
     self-find branch that would have found the bugs itself.

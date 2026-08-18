@@ -12,21 +12,17 @@ export const meta = {
   ],
 }
 
-// The one broad multi-agent correctness pass in this process, owned here rather
-// than rented from a built-in name.
+// The one broad multi-agent correctness pass in this process. Launched by PATH
+// from close Step 4b, which is what a built-in NAME could not be: the previous
+// one was registered nowhere and the step silently did not run, for releases.
 //
-// WHY OURS. The close used to launch a built-in by NAME. That name was
-// registered nowhere in the shipped build, so Step 4b silently did not run --
-// for releases, while every check said the instruction was present. A script
-// invoked by PATH cannot fail that way, and owning it is also what lets the
-// angles below be ours: two of them exist because of defects this project
-// actually shipped.
+// CONTROL FLOW ONLY. Every lens — each finder's angle, the verdict ladder —
+// lives in shipped `.md` under `scripts/`, where the language-agnostic sweep
+// and the prose pins scan it. A Workflow script cannot read files, so finders
+// read their own angle: they have Read, and the path arrives in args.
 //
-// WHAT IS NOT HERE, deliberately: the reviewing prose. Each finder's lens, the
-// cleanup lenses and the verdict ladder live in shipped `.md` under `scripts/`,
-// where the language-agnostic sweep and the prose pins already scan them. This
-// file carries control flow only. A Workflow script cannot read files, so the
-// finders read their own angle -- they have Read, and the path arrives in args.
+// NO IMPORTS EXIST HERE. There is no module system, so this file cannot be
+// split — the 500-line cap is structural, and the only lever is prose.
 
 // ─── Input ───
 // An OBJECT, not a positional string. The built-in parsed a level out of the
@@ -396,16 +392,10 @@ for (let i = 0; i < ranked.length && findings.length < REPORT_CAP; i += 1) {
   backfilled += 1
 }
 
-// THE OTHER CAP, and it was silent until this workflow reviewed itself. Every
-// ranked index not claimed by a decision, a merge or the backfill is a finding
-// a finder raised and a refuter upheld, which REPORT_CAP then dropped. The
-// location cap announced itself from the start; this one did not, and the
-// summary went on reporting the full surviving count — so a close reading the
-// array it is told to read saw 10 of 26 and was told 26 survived.
-//
-// Counted from `claimed` rather than from `surviving.length - findings.length`,
-// because a merged finding IS surfaced (inside its primary's "same root cause
-// also at" list) and must not count as dropped.
+// THE OTHER CAP, silent until this workflow reviewed itself: a close read 10 of
+// 26 findings and was told 26 survived. Counted from `claimed`, not from
+// `surviving.length - findings.length`, because a merged finding IS surfaced in
+// its primary's "same root cause also at" list and is not dropped.
 const findingsDropped = ranked.length - claimed.size
 if (findingsDropped > 0) {
   log(
@@ -427,19 +417,25 @@ const stats = {
   backfilled,
 }
 
-// Sentences in a list, joined once. Built by concatenation, the synthesis
-// clause was spliced between a sentence and its full stop — so a run that hit
-// the location cap read `...unmerged.; 20 further locations`, and a CLEAN run
-// read `...unmerged..`. Worse than the punctuation: `report && decisions.length
-// > 0` cannot tell "the merge died" from "there was nothing to merge", so a
-// review that found nothing announced a broken synthesis. Synthesis is only
-// SKIPPED when nothing survived (it is guarded on `ranked.length > 0`), so that
-// is the case to exclude, not to report.
+// Sentences in a list, joined once; concatenation spliced clauses between a
+// sentence and its full stop. And synthesis is SKIPPED when nothing survived
+// (guarded on `ranked.length > 0`), so that case must be excluded rather than
+// reported as a failure — a clean review used to announce a broken synthesis.
 const synthesisFailed = ranked.length > 0 && decisions.length === 0
 const sentences = [
   `${surviving.length} findings survived independent verification ` +
     `(${LEVEL}, ${finderAngles.length} angles).`,
 ]
+if (argsAreAnObject && !PLUGIN_ROOT) {
+  // Each finder READS its angle from a path built off this. Missing, every one
+  // of them is handed a path that resolves nowhere and reviews with no lens —
+  // and still returns candidates, so the run looks normal and is a generalist
+  // pass wearing five angles' clothing.
+  sentences.push(
+    'WARNING: pluginRoot was empty, so no finder could read its angle — ' +
+      'these findings came from unguided readers, not from the lenses.',
+  )
+}
 if (!argsAreAnObject) {
   // The close renders this object by hand out of catted prose, so a
   // string-shaped `args` is a live mis-render, not a hypothetical. Defaulting
