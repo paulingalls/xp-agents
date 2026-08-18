@@ -39,7 +39,16 @@ BAND_CEILINGS = {
     # was. Recorded at 492 on the story branch; re-measured at 468 here because
     # main shrank the file in parallel (story-016's once-per-session gate).
     # Carrying 492 across the merge would have handed back all 24 lines.
-    "plugins/xp-agents/skills/_preload_base.sh": 468,
+    # Ratcheted 468->481: emit_workflow_script, the Step 4b Workflow path.
+    # Nine of the thirteen lines are its comment, and it is already the trimmed
+    # version — the full argument for resolving the path here rather than in the
+    # catted prose lives in the test that checks the emitted path exists, and a
+    # second copy beside the one-line function body would rot against it. That
+    # leaves 19 lines to the 500 cap, which is not room for another helper: the
+    # next addition here takes an extraction, as the three before it did
+    # (_preload_emit, _preload_diff, _preload_liveness all came out of this
+    # file).
+    "plugins/xp-agents/skills/_preload_base.sh": 481,
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     # Ratcheted 470->471: the stderr-first relay helpers moved to
     # `_subprocess_env`, so this module imports both it and `branch_lifecycle`

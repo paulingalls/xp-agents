@@ -7,7 +7,10 @@ not collect it directly — it is only imported by the
 `test_close_preloads_emit_shared*.py` siblings.
 """
 
+from pathlib import Path
+
 from _close_fixtures import _ClosePreloadCommonTests
+from conftest import _extract_preload_var
 
 
 class _ReviewPipelineAssertions(_ClosePreloadCommonTests):
@@ -93,6 +96,45 @@ class _ReviewPipelineAssertions(_ClosePreloadCommonTests):
             result.stdout,
             "the emitted Step 4b must not name a workflow that is registered "
             "nowhere in the shipped build",
+        )
+
+    def test_emits_a_workflow_script_path_that_exists_on_disk(self):
+        """The one check in the Step 4b wiring that is not a string comparison.
+
+        Step 4b launches the broad review by PATH, and a path is the kind of
+        value every other pin here calls green while it is wrong: the reference
+        file is `cat`'d RAW into this stdout, so a `${CLAUDE_PLUGIN_ROOT}` in it
+        reaches the reader literally — the shell expansions that work in that
+        file work because they sit inside a Bash command, and a tool argument
+        has no shell. The preload emits the resolved path instead, derived from
+        BASH_SOURCE rather than from an env var that may not be set.
+
+        Asserting the file is THERE is what makes this a behavioural check. A
+        moved or renamed script leaves every "does the prose contain the
+        string" assertion passing and the launch failing at dogfood time, which
+        is the failure this whole branch exists to stop happening twice.
+        """
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        emitted = _extract_preload_var(result.stdout, "WORKFLOW_SCRIPT")
+        self.assertIsNotNone(
+            emitted, "a mode that runs Step 4b must emit WORKFLOW_SCRIPT"
+        )
+        assert emitted is not None
+        self.assertNotIn(
+            "$",
+            emitted,
+            "the emitted path must be already-resolved — an unexpanded "
+            "variable reaches a tool argument as literal text",
+        )
+        path = Path(emitted)
+        self.assertTrue(
+            path.is_absolute(),
+            f"WORKFLOW_SCRIPT must not depend on the reader's cwd: {emitted!r}",
+        )
+        self.assertTrue(
+            path.is_file(),
+            f"the emitted Workflow script does not exist: {emitted!r}",
         )
 
     def test_emits_step4_security_concern_metadata_kind(self):

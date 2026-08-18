@@ -31,6 +31,7 @@ echo "WORKTREE_CLEAN=$(worktree_clean)"
 python3 "${PLUGIN_ROOT}/scripts/close_common.py" close-review-gate \
     --cwd . --target "${TARGET_BRANCH}" 2>/dev/null \
     || echo "RUN_FULL_CODE_REVIEW=false"
+emit_workflow_script
 HOOK_STATUS=$(pre_commit_hook_present)
 echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 # TEST_COMMAND is customer-set free text (system_context.stack.test_command,

@@ -288,6 +288,19 @@ emit_hook_guidance() {
     fi
 }
 
+# Emit WORKFLOW_SCRIPT: the absolute path Step 4b hands the Workflow tool.
+# Resolved HERE because that step's prose is `cat`'d raw and a tool argument has
+# no shell to expand a `${CLAUDE_PLUGIN_ROOT}` in — the reasoning in full, and
+# the check that the path exists, are in
+# tests/integration/_close_preloads_review_helpers.py. PLUGIN_ROOT is
+# BASH_SOURCE-derived, so this needs no env var; emit_path_var because an
+# install path may hold consecutive spaces flat() would collapse.
+# Called only by the modes that RUN Step 4b (free/sprint/plan).
+# Usage: emit_workflow_script
+emit_workflow_script() {
+    emit_path_var WORKFLOW_SCRIPT "${PLUGIN_ROOT}/workflows/code_review.js"
+}
+
 # Git-diff helpers (_git, get_changed_files, dump_diff, and their committed-
 # range variants) live in a sibling module — extracted when this file crossed
 # the 500-line cap. Sourced here so every preload that sources _preload_base.sh
