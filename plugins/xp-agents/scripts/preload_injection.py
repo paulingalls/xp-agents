@@ -56,6 +56,7 @@ import hook_liveness
 import marker_claim
 import markers
 import plugin_loader
+import pre_tool_skill
 import shell_commands
 import skill_preload_map
 import target_routing
@@ -195,8 +196,17 @@ def run(input_data: dict, **_kwargs) -> str | None:
     The second-harness leg has no such guarantee: the model may read one
     `SKILL.md` several times for a single invocation, which is the burst the
     claim exists to collapse.
+
+    Not claiming was only half the problem. The preload still RAN, and several
+    preloads mutate shared state by running — so a refused call spent a gate for
+    an invocation that never happened. `_refused_by_a_gate` closes that, and it
+    sits before the claim: claiming for a call that will be refused starves the
+    retry, which is the failure this docstring already reasons about.
     """
     if _common.is_xp_agent(input_data):
+        return None
+
+    if _refused_by_a_gate(input_data):
         return None
 
     skill = skill_from_payload(input_data)
@@ -207,6 +217,34 @@ def run(input_data: dict, **_kwargs) -> str | None:
 
     _refresh_heartbeat(input_data)
     return run_preload(skill, input_data.get("cwd", ""))
+
+
+def _refused_by_a_gate(input_data: dict) -> bool:
+    """True when `pre_tool_skill` will BLOCK this invocation.
+
+    The same two shipped predicates that hook's `__main__` runs, in the same
+    order, called rather than reimplemented: one verdict with two callers. A
+    second spelling of it would drift silently — this handler would start
+    running preloads for calls that are refused, which is the bug it exists to
+    stop, and nothing would say so.
+
+    Both predicates carry their own `is_xp_agent` guard and resolve their own
+    SMM dir, so calling them here is safe and needs no setup. Both also key on
+    `tool_input.skill`, which the second harness's payload does not carry — so
+    this naturally no-ops on the shell-read leg, which is correct: `pre_tool_bash`
+    refuses no skill invocation, so there is no refusal to detect there.
+
+    The two processes compute the verdict INDEPENDENTLY from the same state
+    rather than one observing the other, because hooks on one entry run in
+    parallel and cannot exchange results. A race is therefore possible and
+    benign: if the state changes between the two reads, the worst case is that
+    the preload runs for a call that gets blocked — today's behaviour. This is
+    not airtight, and it does not need to be to be strictly better.
+    """
+    return bool(
+        pre_tool_skill.teammate_block_reason(input_data)
+        or pre_tool_skill.accept_evidence_block_reason(input_data)
+    )
 
 
 def _take_claim(skill: str) -> bool:
