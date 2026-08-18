@@ -132,6 +132,31 @@ class TestNodeIsProvisionedWhereThisRuns(unittest.TestCase):
             "rather than a red push later on a change that touched no JS",
         )
 
+    def test_the_node_probe_does_not_cost_a_clone_its_gates(self):
+        """Ordering, and it is the whole difference between a warning and an
+        outage.
+
+        The probe first sat beside the pytest one, where it exits 1 BEFORE
+        `lefthook install`. A box with pytest and lefthook but no Node then came
+        away with no gates at all — ungated commits and pushes, silently, which
+        is the exact state CLAUDE.md warns a clone that skips `make setup` ends
+        up in. Before the probe existed that same box got every gate and merely
+        lacked the JS suite, so the check for a missing capability cost the
+        capabilities that were present.
+
+        Asserted on position rather than on the message: a probe that runs after
+        the install can still fail loudly, and should.
+        """
+        makefile = (_REPO_ROOT / "Makefile").read_text()
+        install_at = makefile.index("lefthook install")
+        probe_at = makefile.index("node --test --help")
+        self.assertLess(
+            install_at,
+            probe_at,
+            "the node probe must run AFTER `lefthook install` — exiting before "
+            "it leaves the clone with no commit or push gate at all",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
