@@ -30,6 +30,7 @@ from _band_proof import (
     assert_band_fired,
     below_band_budget,
     in_band_budget,
+    spy_case,
 )
 from _bases import _PLUGIN_ROOT
 from _budget_helpers import (
@@ -50,18 +51,6 @@ _SCRIPTS_DIR = _PLUGIN_ROOT / "scripts"
 # mid-band just as neatly — so a proof that measured the refusal would read
 # green while pinning nothing at all.
 _MIN_REAL_MEASUREMENT = 1000
-
-
-class _SpyCase(unittest.TestCase):
-    """A throwaway TestCase to pass as the `testcase` arg of a budget assert.
-
-    It raises AssertionError like any other TestCase — the point is that the
-    failure lands on THIS instance, so the caller can catch and read it without
-    polluting the outer test's own state.
-    """
-
-    def runTest(self) -> None:
-        pass
 
 
 class TestMdCharMeasurement(unittest.TestCase):
@@ -92,7 +81,7 @@ class TestMdCharMeasurement(unittest.TestCase):
             tmp_path = Path(tmp)
             (tmp_path / "TESTFILE.md").write_text(content, encoding="utf-8")
 
-            spy = _SpyCase()
+            spy = spy_case()
             offender_reported = False
             try:
                 assert_md_under_budgets(
@@ -292,7 +281,7 @@ class TestNinetyEightPercentBand(unittest.TestCase):
             tmp_path = Path(tmp)
             (tmp_path / "INBAND.md").write_text("x" * 98, encoding="utf-8")
 
-            spy = _SpyCase()
+            spy = spy_case()
             with self.assertRaises(AssertionError) as caught:
                 assert_md_under_budgets(spy, tmp_path, "*.md", {"INBAND": 100}, "test")
             self.assertIn("INBAND", str(caught.exception))
@@ -304,7 +293,7 @@ class TestNinetyEightPercentBand(unittest.TestCase):
             tmp_path = Path(tmp)
             (tmp_path / "CLEAR.md").write_text("x" * 97, encoding="utf-8")
             assert_md_under_budgets(
-                _SpyCase(), tmp_path, "*.md", {"CLEAR": 100}, "test"
+                spy_case(), tmp_path, "*.md", {"CLEAR": 100}, "test"
             )
 
 
@@ -359,14 +348,14 @@ class TestEmitterBandWiring(_StdoutBandProof, unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.actual = _measure_via_assert(
             lambda budget: assert_emitter_under_budgets(
-                _SpyCase(), _SCRIPTS_DIR, {cls._SURFACE: budget}, "emitter"
+                spy_case(), _SCRIPTS_DIR, {cls._SURFACE: budget}, "emitter"
             ),
             cls._SURFACE,
         )
 
     def _assert_under_budget(self, budget: int) -> None:
         assert_emitter_under_budgets(
-            _SpyCase(), _SCRIPTS_DIR, {self._SURFACE: budget}, "emitter"
+            spy_case(), _SCRIPTS_DIR, {self._SURFACE: budget}, "emitter"
         )
 
 
@@ -385,13 +374,13 @@ class TestPreloadBandWiring(_StdoutBandProof, unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.actual = _measure_via_assert(
             lambda budget: assert_preload_under_budgets(
-                _SpyCase(), {cls._SURFACE: budget}, "preload"
+                spy_case(), {cls._SURFACE: budget}, "preload"
             ),
             cls._SURFACE,
         )
 
     def _assert_under_budget(self, budget: int) -> None:
-        assert_preload_under_budgets(_SpyCase(), {self._SURFACE: budget}, "preload")
+        assert_preload_under_budgets(spy_case(), {self._SURFACE: budget}, "preload")
 
 
 class TestMdBudgetsMatchStillFailsOnMissingEntry(unittest.TestCase):
@@ -409,7 +398,7 @@ class TestMdBudgetsMatchStillFailsOnMissingEntry(unittest.TestCase):
             (tmp_path / "BUDGETED.md").write_text("x", encoding="utf-8")
             (tmp_path / "UNBUDGETED.md").write_text("x", encoding="utf-8")
 
-            spy = _SpyCase()
+            spy = spy_case()
             with self.assertRaises(AssertionError) as caught:
                 assert_md_budgets_match(
                     spy, tmp_path, "*.md", {"BUDGETED": 100}, "test"
