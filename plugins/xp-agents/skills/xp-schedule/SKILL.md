@@ -6,7 +6,6 @@ description: >-
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
-  - Bash(*/skills/*/scripts/*)
   - Bash(python3 */smm/sprint_cli.py *)
   - Bash(python3 */scripts/branching.py *)
   - Bash(git checkout *)

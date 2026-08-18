@@ -11,7 +11,6 @@ allowed-tools:
   - AskUserQuestion
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
-  - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/branching.py *)
   - Bash(python3 */scripts/surface_coverage.py *)
 ---

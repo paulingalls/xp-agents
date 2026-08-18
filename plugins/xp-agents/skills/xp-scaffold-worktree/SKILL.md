@@ -10,7 +10,6 @@ allowed-tools:
   - Glob
   - AskUserQuestion
   - Bash(*/init.sh)
-  - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/worktree_differential.py *)
   - Bash(python3 */smm/system_context_cli.py *)
 ---
