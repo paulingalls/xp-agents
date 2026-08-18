@@ -59,17 +59,22 @@ script has no module system to import anything with.
 classified one as nothing at all. Both legs select by suffix at any depth rather
 than by enumerated location, following the precedent set for shipped shell.
 
-**Two lifecycle fixes that the change forced, both real.** A Workflow completion
-reaches no `PostToolUse:Skill|Agent` hook, so Step 4b arms the review-cycle
-marker by hand — and the Skill fallback must NOT repeat that, because its own
-hook arms at launch and two writers made the retro count one review twice. The
-arm is therefore launcher-conditional, and wrong in both directions if applied
-flatly. And since the marker is cleared only by a landed commit, an errored or
-abandoned review used to leave it set for good: the next `/xp-quality-review`
-would read consume-findings and ask for findings nobody produced, while the
-self-find branch that would have found the bugs itself never ran.
-`review_flag_cli.py --disarm` takes it back, and Step 4b disarms BEFORE falling
-back — after, the disarm lands on the fallback's own arm.
+**Three lifecycle fixes that the change forced, all real.** A Workflow
+completion reaches no `PostToolUse:Skill|Agent` hook, so Step 4b arms the
+review-cycle marker by hand — and the Skill fallback must NOT repeat that,
+because its own hook arms at launch and two writers made the retro count one
+review twice. The arm is therefore launcher-conditional, and wrong in both
+directions if applied flatly. Second, since the marker is cleared only by a
+landed commit, an errored or abandoned review used to leave it set for good: the
+next `/xp-quality-review` would read consume-findings and ask for findings
+nobody produced, while the self-find branch that would have found the bugs
+itself never ran. `review_flag_cli.py --disarm` takes it back, and Step 4b
+disarms BEFORE falling back — after, the disarm lands on the fallback's own arm.
+Third, the arm used to emit the completion event at LAUNCH, which said a review
+had finished the moment one started and could not be withdrawn by the disarm;
+the emission now moves to `--complete`, run when the findings are in hand, so an
+abandoned review counts as zero completed reviews and each path emits exactly
+one — this CLI's on the primary, the hook's on the fallback.
 
 **Paths are emitted, not written.** The close reference is `cat` into the
 preload's stdout RAW, so a `${CLAUDE_PLUGIN_ROOT}` in it reaches the reader
@@ -79,14 +84,30 @@ the reader runs. A tool argument has no shell. The preload emits
 emitted path EXISTS — the only check in this step's wiring that is not a string
 comparison, which is precisely the gap that let the last one ship broken.
 
-**Disclosed rather than argued away.** The arm emits its lifecycle event at
-LAUNCH, so a disarmed cycle still counts to `retro_metrics` as one completed
-review; the flag can be taken back and the event cannot (dc9982edd189). The
-fallback's fan-out remains unbounded by anything here — the cap is closed for
-the primary launcher only. And the close prose was measured, not estimated: the
-three close preloads move 8900 → 10700, and the fallback's paragraph is the
-whole increase, so retiring it brings the number back down rather than leaving
-the room spendable.
+**It reviewed itself before it reviewed anything else, and that is how most of
+the above got fixed.** Run against its own branch, the pass returned 26 verified
+findings — and the first of them was that `REPORT_CAP` discards verified
+findings while the summary keeps reporting the full survivor count. The report
+carrying that finding was truncated to 10 and said 26 survived, so it
+demonstrated the defect in the act of reporting it. Silent truncation was the
+one failure the caps existed to prevent; it is now announced in the log, the
+stats and the summary the close reads.
+
+The same run found: a clean review announcing a broken synthesis (the guard
+could not tell "the merge died" from "there was nothing to merge"); the cleanup
+finder authorized twice every other angle's candidates while ranking last, so
+the lens likeliest to be dropped could produce the most; `meta.phases` declaring
+one phase of four; a `make setup` whose new Node probe exited before `lefthook
+install`, leaving a Node-less clone with no gates at all where it previously had
+every gate and merely lacked a JS suite; and six tests shipped on this branch
+that asserted nothing — found by the test-vacuity angle added to the review
+because of that same failure mode earlier in its own development.
+
+**Disclosed rather than argued away.** The fallback's fan-out remains unbounded
+by anything here — the cap is closed for the primary launcher only. And the
+close prose was measured, not estimated: the three close preloads move
+8900 → 10700, and the fallback's paragraph is the whole increase, so retiring it
+brings the number back down rather than leaving the room spendable.
 
 ## v5.19.0 — A review covers the fixes it made, and a piped push cannot lie
 

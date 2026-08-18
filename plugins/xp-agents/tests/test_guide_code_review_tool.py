@@ -185,6 +185,32 @@ class TestGuidesNameTheLauncher(unittest.TestCase):
     """AC: PROCESS_GUIDE and TEAMMATE_GUIDE name what launches /code-review
     rather than leaving its launch mechanism unstated."""
 
+    def test_each_guide_still_mentions_the_broad_review_by_name(self):
+        """Non-vacuity for the two tests below, both of which loop over
+        `/code-review` matches and assert NOTHING when there are none.
+
+        This branch reworded both guides away from that literal and toward
+        "the broad review"; one more step in that direction turns the launcher
+        pins into no-ops that report green over a guide naming no launcher at
+        all. If the literal is deliberately retired, these pins have to be
+        re-anchored on whatever replaces it, not left looping over an empty
+        match set.
+        """
+        for name in _GUIDE_NAMES:
+            with self.subTest(guide=name):
+                text = (_PLUGIN_ROOT / name).read_text()
+                mentions = [
+                    m
+                    for m in re.finditer(r"/code-review\b", text)
+                    if "xp-code-reviewer"
+                    not in text[max(0, m.start() - 30) : m.start()]
+                ]
+                self.assertTrue(
+                    mentions,
+                    f"{name}: no /code-review mention, so the launcher pins "
+                    f"below assert nothing",
+                )
+
     def test_broad_review_guides_name_both_launchers(self):
         """A guide that names the broad review must name what launches it.
 

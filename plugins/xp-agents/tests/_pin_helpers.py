@@ -226,16 +226,38 @@ def shipped_js_to_scan(plugin_root: Path) -> list[Path]:
     its own tests.
 
     `tests/` is excluded on the first path segment, exactly as above, so the
-    harness and its fixtures are not governed as shipped code. They are still
-    covered by the tests/ legs, which scan `.py` only -- a gap that costs
-    nothing while the JS under `tests/` is a harness two files long, and would
-    need its own leg if that ever stopped being true.
+    harness and its fixtures are not governed as shipped code -- but they ARE
+    governed, by `tests_tree_js_to_scan` below rather than by widening this function,
+    which answers "which shipped code runs in a user's project". The tests/ legs
+    scan `.py` only, so without that sibling the four `.js` files under
+    `tests/workflows/` would sit outside both the cap and the band ratchet, and
+    the largest is already within ten lines of the cap.
     """
     return sorted(
         p
         for p in plugin_root.rglob("*.js")
         if p.relative_to(plugin_root).parts[0] != "tests"
     )
+
+
+def tests_tree_js_to_scan(tests_root: Path) -> list[Path]:
+    """Every JavaScript file at any depth under the *tests* tree.
+
+    The counterpart to `files_to_scan` for the suffix it does not select. Tests
+    are production code under this project's own constraint, so the same cap and
+    the same ratchet apply -- and the `.js` under `tests/` is not a two-line
+    fixture: the workflow suite is the largest JavaScript file in the tree.
+
+    Suffix at any depth, never an enumerated location, for the reason
+    `shipped_shell_to_scan` argues: `tests/workflows/` is where the JS lives
+    today and a glob naming it cannot fire for wherever the next one lands.
+
+    NOT named `test_js_to_scan`: this module is imported INTO `test_*.py`
+    modules, and pytest collects a `test_`-prefixed callable out of a test
+    module's namespace whatever file it was defined in -- it would be collected
+    as a test and error on a missing `tests_root` fixture.
+    """
+    return sorted(tests_root.rglob("*.js"))
 
 
 def shipped_prose_to_scan(plugin_root: Path) -> dict[str, list[Path]]:
@@ -249,9 +271,9 @@ def shipped_prose_to_scan(plugin_root: Path) -> dict[str, list[Path]]:
     makes in code.
 
     Grouped, not flattened, because a floor over the total cannot see one group
-    empty out: `scripts/*.md` matches exactly ONE file, so a rename would drop
-    that whole surface while a tree-wide count still looked healthy. Callers
-    assert per group.
+    empty out: the smallest group is a handful of files, so a rename could drop
+    a whole surface while a tree-wide count still looked healthy. Callers assert
+    per group.
 
     The skills glob is `skills/*/*.md`, not `skills/*/SKILL.md`: a skill's
     reference doc ships and is injected exactly like its body, so narrowing to

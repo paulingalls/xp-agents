@@ -44,6 +44,7 @@ from _pin_helpers import (
     shipped_js_to_scan,
     shipped_prose_to_scan,
     shipped_shell_to_scan,
+    tests_tree_js_to_scan,
 )
 
 _PLUGIN_ROOT = Path(__file__).parent.parent
@@ -77,6 +78,11 @@ _SHELL_FLOOR = 15
 # nothing else would notice: no linter, formatter or type checker in this repo
 # reads a `.js`. Raise it when a second one ships.
 _JS_FLOOR = 1
+
+# The same, for the JavaScript under `tests/`. Separate from _JS_FLOOR because
+# the two surfaces are discovered separately and a collapse of either has to be
+# visible on its own; four today (a harness, its fixture, and two suites).
+_TEST_JS_FLOOR = 3
 
 
 def _line_count(path: Path) -> int:
@@ -156,12 +162,11 @@ def _shipped_root_shortfalls(paths: list[Path], repo_root: Path) -> list[str]:
     return shortfalls
 
 
-def _js_shortfalls(paths: list[Path]) -> list[str]:
-    """Shortfall when the JavaScript scan has collapsed; empty when healthy."""
-    if len(paths) < _JS_FLOOR:
+def _js_shortfalls(paths: list[Path], floor: int = _JS_FLOOR) -> list[str]:
+    """Shortfall when a JavaScript scan has collapsed; empty when healthy."""
+    if len(paths) < floor:
         return [
-            f"only {len(paths)} JavaScript file(s) scanned, expected at least "
-            f"{_JS_FLOOR}"
+            f"only {len(paths)} JavaScript file(s) scanned, expected at least {floor}"
         ]
     return []
 
@@ -196,6 +201,14 @@ class TestTreeWideCap(unittest.TestCase):
         offenders = _cap_offenders(shipped_js_to_scan(_PLUGIN_ROOT), _REPO_ROOT)
         self.assertEqual(offenders, [], msg="; ".join(offenders))
 
+    def test_every_test_js_file_is_at_or_under_the_cap(self):
+        # Tests are production code here, and the `.js` under tests/ is the
+        # largest JavaScript in the tree -- not a fixture the cap can skip.
+        offenders = _cap_offenders(
+            tests_tree_js_to_scan(_PLUGIN_ROOT / "tests"), _REPO_ROOT
+        )
+        self.assertEqual(offenders, [], msg="; ".join(offenders))
+
 
 class TestBandRatchet(unittest.TestCase):
     """Every file above 450 lines is at or under its recorded ceiling."""
@@ -218,6 +231,12 @@ class TestBandRatchet(unittest.TestCase):
         violations = _band_violations(shipped_js_to_scan(_PLUGIN_ROOT), _REPO_ROOT)
         self.assertEqual(violations, [], msg="; ".join(violations))
 
+    def test_test_js_files_honor_their_recorded_ceiling(self):
+        violations = _band_violations(
+            tests_tree_js_to_scan(_PLUGIN_ROOT / "tests"), _REPO_ROOT
+        )
+        self.assertEqual(violations, [], msg="; ".join(violations))
+
 
 class TestNonVacuity(unittest.TestCase):
     """The scanned count can't quietly go to zero and report clean."""
@@ -233,6 +252,12 @@ class TestNonVacuity(unittest.TestCase):
 
     def test_js_scan_clears_its_floor(self):
         shortfalls = _js_shortfalls(shipped_js_to_scan(_PLUGIN_ROOT))
+        self.assertEqual(shortfalls, [], msg="; ".join(shortfalls))
+
+    def test_test_js_scan_clears_its_floor(self):
+        shortfalls = _js_shortfalls(
+            tests_tree_js_to_scan(_PLUGIN_ROOT / "tests"), _TEST_JS_FLOOR
+        )
         self.assertEqual(shortfalls, [], msg="; ".join(shortfalls))
 
     def test_test_scan_clears_a_tree_wide_floor(self):

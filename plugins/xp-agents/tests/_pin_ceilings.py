@@ -40,7 +40,7 @@ BAND_CEILINGS = {
     # main shrank the file in parallel (story-016's once-per-session gate).
     # Carrying 492 across the merge would have handed back all 24 lines.
     # Ratcheted 468->483: emit_workflow_script, the two absolute paths Step 4b
-    # hands the Workflow tool. Nine of those lines are its comment, and it is
+    # hands the Workflow tool. Ten of those lines are its comment, and it is
     # already the trimmed version — the full argument for resolving the paths
     # here rather than in the catted prose lives in the test that checks the
     # emitted path exists, and a second copy beside a two-line function body
@@ -70,6 +70,17 @@ BAND_CEILINGS = {
     # lever is prose. The additions above were paid for that way: three comment
     # blocks restating what the tests already argue, cut from 484 back to 470.
     "plugins/xp-agents/workflows/code_review.js": 470,
+    # The tests/ side of the same surface, and it is TIGHTER than the script it
+    # covers: 493, seven lines under the cap. Recorded when the tests/ `.js` leg
+    # was added -- until then nothing governed this file at all, because the
+    # tests/ legs scan `.py` and the shipped `.js` leg excludes tests/, so the
+    # largest JavaScript in the tree was the one piece of it no size gate saw.
+    #
+    # UNLIKE the script, an extraction IS available here: this is ordinary
+    # CommonJS. The next test added to it takes one — the Synthesize block
+    # (merge, backfill, the two caps) is the cohesive group, and it shares only
+    # `runVerify` and `cand` with the rest.
+    "plugins/xp-agents/tests/workflows/code_review_test.js": 493,
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     # Ratcheted 470->471: the stderr-first relay helpers moved to
     # `_subprocess_env`, so this module imports both it and `branch_lifecycle`
@@ -139,13 +150,12 @@ BAND_CEILINGS = {
     # took out more lines than the dedup added.
     # tests (57)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
-    # Entered the band with the shell surface's own red proofs. Its own
-    # self-coverage test caught the crossing, which is the design working. The
-    # cohesive group to extract next is the synthetic red-proof classes
-    # (TestCapOffenderDetection, TestBandRatchetRedProof, TestShellScanRedProofs,
-    # TestShippedRootFloorRedProof) — they share a temp-tree idiom and touch no
-    # real-tree state, unlike everything else in the file.
-    "plugins/xp-agents/tests/test_file_size_pin.py": 474,
+    # RETIRED: test_file_size_pin.py 473->292, by extracting the synthetic
+    # red-proof classes this note used to name as the next step into
+    # test_file_size_pin_red_proofs.py. Well below the 450 floor, so the entry
+    # goes rather than sitting dormant — kept at 474 it would hand back all 181
+    # lines the split just won, which is the manual step this table's docstring
+    # says nothing enforces.
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
     "plugins/xp-agents/tests/hooks/test_branch_lifecycle.py": 494,

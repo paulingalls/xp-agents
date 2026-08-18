@@ -64,17 +64,19 @@ step arms and reports by hand; the fallback below does neither.
    cap dropped. Launch the shipped script, or the named skill below —
    a hand-authored substitute has neither's bound.
 3. **Wait** for the task-notification. **Read the `summary` first**: if it
-   reports an error, or that no changes were reviewed, then no review happened —
-   run `CLI --disarm` and go to the fallback. Otherwise read the `findings`
-   array (`file`, `line`, `summary`, `failure_scenario`), and note any count the
-   summary says the caps left out.
+   reports an error, that no changes were reviewed, or a `WARNING:` that the
+   args or the angle-file root did not arrive, then this is not the review this
+   step prescribes — run `CLI --disarm`, and go to the fallback (a `WARNING:`
+   means the launch line was mis-rendered, so fix it and relaunch first if you
+   can). Otherwise read the `findings` array (`file`, `line`, `summary`,
+   `failure_scenario`), and note any count the summary says the caps left out.
 4. **Record it finished** — `CLI --complete`. The flag stays set; this only
    emits the lifecycle event, which nothing else on this path will.
 5. `Skill(skill: "xp-quality-review")` — preload emits `consume-findings`; pass
    the findings to the xp-code-reviewer it spawns to validate & fix (+ quality/
    drift/debt). Fix inline or record as debt. Handled here, not Step 5c.
 
-**Fallback**, for a launch that fails or a run that reviewed nothing. Disarm
+**Fallback**, for any wait-step outcome that was not a real review. Disarm
 FIRST (`CLI --disarm`) — after, it lands on the fallback's own arm. Then
 `Skill(skill: "code-review", args: "high <TARGET_BRANCH>...HEAD")`. Its
 PostToolUse both arms and reports, so skip the arm and `--complete` on this

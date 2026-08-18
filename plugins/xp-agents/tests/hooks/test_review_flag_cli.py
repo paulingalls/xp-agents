@@ -282,6 +282,32 @@ class TestDisarmingAnAbandonedReview(_HookTestCase):
         self.assertEqual(self._mode(), review_mode.SELF_FIND)
         self.assertNotIn(STATUS_ACTION_SIMPLIFY_COMPLETE, self._actions())
 
+    def test_withdrawing_and_completing_the_same_review_is_refused(self):
+        """The two outcomes are opposites, so asking for both is a caller bug
+        and has to say so.
+
+        It used to be accepted and resolved silently in `--complete`'s favour:
+        the flag was left alone and a completion event was written for the
+        review the caller was trying to withdraw. That is the same wrong count
+        the arm/emit split exists to prevent, reachable through a typo rather
+        than through the sequence. argparse exits 2 on a mutually exclusive
+        pair, so nothing is written at all.
+        """
+        with self.assertRaises(SystemExit) as raised:
+            review_flag_cli.main(
+                [
+                    "--smm-dir",
+                    str(self.smm_dir),
+                    "--cwd",
+                    ".",
+                    "--disarm",
+                    "--complete",
+                ]
+            )
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertNotIn(STATUS_ACTION_SIMPLIFY_COMPLETE, self._actions())
+
 
 class TestReviewFlagCli(_HookTestCase):
     """review_flag_cli sets a review-cycle flag for the cwd-resolved agent_id."""

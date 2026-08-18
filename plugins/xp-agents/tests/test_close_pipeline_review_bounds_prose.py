@@ -312,6 +312,33 @@ class TestStep4bCostBoundProse(unittest.TestCase):
             "fallback, whose own PostToolUse arms it at launch",
         )
 
+    def test_a_degraded_run_is_a_step_3_outcome_like_any_other(self):
+        """The script raises two WARNINGs the prose has to be able to act on.
+
+        Both mean the launch line was mis-rendered — args arriving as a string,
+        or the angle-file root missing — and the second is the worse one: every
+        finder is handed a path that resolves nowhere, reviews with no lens, and
+        STILL returns candidates. The run then looks entirely normal. Step 3
+        used to branch only on an error or an empty scope, so a degraded pass
+        reached `--complete` and was recorded as the one broad correctness pass
+        this close is allowed to merge on.
+        """
+        self.assertIn(
+            "WARNING",
+            self.section,
+            "Step 3 must tell the reader what to do with the summary's "
+            "WARNING lines — the script emits them precisely because the run "
+            "is not the review this step prescribes",
+        )
+        warn_pos = self.section.index("WARNING")
+        complete_pos = self.section.index("--complete")
+        self.assertLess(
+            warn_pos,
+            complete_pos,
+            "the WARNING branch must be read BEFORE the completion is "
+            "recorded, or a degraded pass is counted as a real one",
+        )
+
     def test_the_disarm_precedes_the_fallback_launch(self):
         """Ordering, and it is not cosmetic.
 

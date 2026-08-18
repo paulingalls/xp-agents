@@ -16,8 +16,9 @@ THE FLOOR IS THE POINT, and it is not defensive programming. Measured on Node
 A gate wired on the exit code alone therefore passes forever the moment the glob
 stops matching — a rename, a moved directory, a changed suffix. That is the
 silent-pass shape `_SHELL_FLOOR` and the prose-group floors exist to refuse, and
-a `.js` surface is where it would go unnoticed longest, since no size, lint,
-format or type gate in this repo discovers one.
+a `.js` surface is where it would go unnoticed longest: `test_file_size_pin`
+governs its SIZE, and no linter, formatter or type checker in this repo reads
+one at all, so behaviour is this module's alone to cover.
 
 Also measured: `node --test <dir>` FAILS on this version (it tries to load the
 directory as a module), so the invocation is a glob and the glob is what the
@@ -62,14 +63,17 @@ class TestTheWorkflowJsSuiteRuns(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if shutil.which("node") is None:
-            # Deliberately NOT a skip. The workflow script has no other gate —
-            # no linter, no formatter, no type-checker, no size pin discovers a
-            # `.js` — so skipping here would leave it wholly unchecked on the
+            # Deliberately NOT a skip. Nothing else checks what the workflow
+            # script DOES — no linter, formatter or type checker in this repo
+            # reads a `.js`, and the size pin governs its length only — so
+            # skipping here would leave its behaviour wholly unchecked on the
             # machine doing the pushing. `make setup` names the fix.
             raise AssertionError(
                 "node is not on PATH, so the workflow suite cannot run and the "
                 "shipped workflow script would be committed unchecked. Install "
-                "Node (>=20) and re-run `make setup`."
+                "Node (v22 or newer — the invocation below hands `node --test` "
+                "a GLOB, which older runners do not expand) and re-run "
+                "`make setup`."
             )
         cls.result = _run_node_test()
 

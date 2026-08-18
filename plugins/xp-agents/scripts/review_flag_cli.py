@@ -5,15 +5,16 @@ Step 4b of the shared close pipeline runs /code-review via the Workflow tool
 (async). A Workflow completion does NOT fire review_cycle_done.py (a
 PostToolUse:Skill|Agent hook), so neither the marker flag nor the lifecycle
 event that hook produces gets set on its own. The close skill calls this CLI
-when it LAUNCHES the workflow so:
+at LAUNCH so:
 
   - close_cycle_stop_gate defers during the async review window
-    (review_records.review_mid_cycle True),
-  - the xp-quality-review preload emits MODE=consume-findings for the findings,
-    and
-  - retro_metrics still counts the close-time review — the CLI emits the same
-    STATUS_ACTION_*_COMPLETE event review_cycle_done would (retro_metrics counts
-    it via _ACTION_TO_COUNTER; without it the close /code-review is invisible).
+    (review_records.review_mid_cycle True), and
+  - the xp-quality-review preload emits MODE=consume-findings for the findings.
+
+It calls it again with `--complete` once the findings are in hand, so
+retro_metrics still counts the close-time review — the CLI emits the same
+STATUS_ACTION_*_COMPLETE event review_cycle_done would (retro_metrics counts it
+via _ACTION_TO_COUNTER; without it the close's broad review is invisible).
 
 The flag is keyed via identity.review_flags_key, which every other writer,
 reader and clear of the flags also calls — that function documents why the key
@@ -44,8 +45,8 @@ THREE ACTIONS, and the split between them is what keeps the count honest:
     launch would read as success. A close abandoned outright still has no
     invoker; the flag survives to the next session there, and the abandonment
     recorder is where that would be wired. Without the disarm the flag would
-    survive every one of these, since
-    only a landed commit clears the cycle — and the next /xp-quality-review
+    survive every one of these, since only a landed commit clears the cycle —
+    and the next /xp-quality-review
     would read consume-findings, ask for findings nobody produced, and skip the
     self-find branch that would have found the bugs itself.
 
@@ -100,7 +101,13 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--smm-dir", required=True)
     parser.add_argument("--cwd", default=".")
-    parser.add_argument(
+    # MUTUALLY EXCLUSIVE, because the two describe opposite outcomes of the
+    # same review and there is no sensible reading of both. Given both,
+    # `--complete` used to win silently: the flag was left alone and a
+    # completion event was emitted for the review the caller was trying to
+    # withdraw, which is the exact miscount the arm/emit split exists to stop.
+    outcome = parser.add_mutually_exclusive_group()
+    outcome.add_argument(
         "--disarm",
         action="store_true",
         help=(
@@ -108,7 +115,7 @@ def main(argv: list[str] | None = None) -> None:
             "— for a launch that errored or a review abandoned part-way"
         ),
     )
-    parser.add_argument(
+    outcome.add_argument(
         "--complete",
         action="store_true",
         help=(
@@ -141,7 +148,6 @@ def main(argv: list[str] | None = None) -> None:
         review_records.set_review_flag(
             smm_dir, agent_id, args.flag, value=not args.disarm
         )
-    if not args.complete:
         return
 
     action, content = _FLAG_LIFECYCLE[args.flag]
