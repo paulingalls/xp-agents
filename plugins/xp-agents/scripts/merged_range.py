@@ -15,7 +15,6 @@ They are near-opposites and must not be confused: the first deliberately
 crosses into the merged branch, the second deliberately refuses to.
 """
 
-import re
 import sys
 from pathlib import Path
 
@@ -23,9 +22,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from commits import _run_git
 
-# A full git object name. Anchored at both ends, because its whole job is to
-# refuse a hash-shaped span a commit BODY supplied — see the parse below.
-_OBJECT_NAME_RE = re.compile(r"^[0-9a-f]{40}$")
+# A full git object name, whatever width this repository's object format uses.
+# Anchored at both ends, because its whole job is to refuse a hash-shaped span
+# a commit BODY supplied — see the parse below. IMPORTED rather than compiled
+# again: the two sites are one rule, and a copy is how one of them silently
+# stays behind when git's object format changes under both.
+from git_head import _OBJECT_NAME_RE
 
 
 def first_parent_range(
@@ -107,9 +109,10 @@ def merged_range_commits(cwd: str, merge_hash: str) -> list[tuple[str, str]]:
         #     record. That mattered because the caller skips commits whose event is
         #     recorded, and a forged hash is absent from the log BY CONSTRUCTION —
         #     so an injected record smuggled its trailers past the filter every
-        #     time. Validating the hash as 40 hex does NOT close that: a body can
-        #     spell 40 hex characters as easily as any others (measured — the test
-        #     for this failed against exactly that guard).
+        #     time. Validating the hash as a full object name does NOT close
+        #     that: a body can spell 40 (or 64) hex characters as easily as any
+        #     others (measured — the test for this failed against exactly that
+        #     guard).
         #   * `partition` takes the FIRST `\x1f`, and the hash is emitted before the
         #     body, so a `\x1f` inside a message lands in the body half where it is
         #     harmless rather than truncating the hash.
