@@ -39,7 +39,46 @@ BAND_CEILINGS = {
     # was. Recorded at 492 on the story branch; re-measured at 468 here because
     # main shrank the file in parallel (story-016's once-per-session gate).
     # Carrying 492 across the merge would have handed back all 24 lines.
-    "plugins/xp-agents/skills/_preload_base.sh": 468,
+    # Ratcheted 468->483: emit_workflow_script, the two absolute paths Step 4b
+    # hands the Workflow tool. Ten of those lines are its comment, and it is
+    # already the trimmed version — the full argument for resolving the paths
+    # here rather than in the catted prose lives in the test that checks the
+    # emitted path exists, and a second copy beside a two-line function body
+    # would rot against it. That leaves 17 lines to the 500 cap, which is not
+    # room for another helper: the next addition here takes an extraction, as
+    # the three before it did (_preload_emit, _preload_diff and
+    # _preload_liveness all came out of this file).
+    "plugins/xp-agents/skills/_preload_base.sh": 483,
+    # 447 -> 484, crossing the 450 floor: three execution tests for the `.js`
+    # branch of the staged-tests gate. Its only coverage was a regex over the
+    # glob line, which is exactly what this file's own harness exists to
+    # replace — a `case` pattern that never fires reads identically in the
+    # text. Mutation-verified: pointing the branch at a directory that does not
+    # exist leaves the regex pin green and reddens the two mapping tests.
+    "plugins/xp-agents/tests/test_lefthook_commit_gate.py": 484,
+    # The FIRST JavaScript entry, and the `.js` discovery leg's first real
+    # catch: 411 -> 470, crossing the 450 floor. The growth is the cap-reporting
+    # this workflow's own first run proved was missing — REPORT_CAP dropped 16
+    # verified findings while the summary reported all 26 — plus two warnings
+    # for args that arrive malformed.
+    #
+    # NO EXTRACTION IS AVAILABLE HERE, which makes this entry unlike every other
+    # one in the table. A Workflow script has no module system: it is read as
+    # text and wrapped in a function, so there is nothing for a sibling module
+    # to be imported BY. An earlier version of this note named an extraction as
+    # the next step, and it was wrong — the 500 cap is structural and the only
+    # lever is prose, and it has been spent twice now: 484 -> 470 for the
+    # cap-reporting, then 494 -> 479 for level validation and the unread-angle
+    # report. 21 lines left. What goes next is narrative — the phase headers
+    # still carry history that the changelog and the tests both hold.
+    "plugins/xp-agents/workflows/code_review.js": 479,
+    # RETIRED: code_review_test.js 493->293, by taking the extraction its own
+    # note named one commit earlier. The Synthesize group moved to
+    # code_review_synthesis_test.js and the shared fixtures to
+    # _code_review_fixtures.js. Below the 450 floor, so the entry goes rather
+    # than sitting dormant holding 200 lines open — the same failure the close
+    # review had just caught on test_file_size_pin.py, and would have caught
+    # here next.
     "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     # Ratcheted 470->471: the stderr-first relay helpers moved to
     # `_subprocess_env`, so this module imports both it and `branch_lifecycle`
@@ -109,13 +148,12 @@ BAND_CEILINGS = {
     # took out more lines than the dedup added.
     # tests (57)
     "plugins/xp-agents/tests/hooks/test_pre_tool_bash_reviewer_guard.py": 499,
-    # Entered the band with the shell surface's own red proofs. Its own
-    # self-coverage test caught the crossing, which is the design working. The
-    # cohesive group to extract next is the synthetic red-proof classes
-    # (TestCapOffenderDetection, TestBandRatchetRedProof, TestShellScanRedProofs,
-    # TestShippedRootFloorRedProof) — they share a temp-tree idiom and touch no
-    # real-tree state, unlike everything else in the file.
-    "plugins/xp-agents/tests/test_file_size_pin.py": 474,
+    # RETIRED: test_file_size_pin.py 473->292, by extracting the synthetic
+    # red-proof classes this note used to name as the next step into
+    # test_file_size_pin_red_proofs.py. Well below the 450 floor, so the entry
+    # goes rather than sitting dormant — kept at 474 it would hand back all 181
+    # lines the split just won, which is the manual step this table's docstring
+    # says nothing enforces.
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
     "plugins/xp-agents/tests/hooks/test_branch_lifecycle.py": 494,

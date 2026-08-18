@@ -46,42 +46,52 @@ class TestCloseCycleStopGate(_HookTestCase):
         self.assertIn("xp-close-reviewer", result)
 
     def test_block_message_names_all_three_close_phases(self):
-        # The mid-flight nudge must name every step the agent should run, in
-        # the canonical close-skill order: /security-review (Step 4),
-        # /code-review high (Step 4b, gated on RUN_FULL_CODE_REVIEW=true),
-        # then xp-close-reviewer (Step 4.5). The earlier message omitted
-        # /code-review high, so an agent re-entering the close cycle could
-        # read it as "skip Step 4b" — but post-merge there's no diff, so
-        # /code-review must run pre-merge or never. Order matters because the
-        # agent follows the nudge sequentially: /security-review precedes
-        # /code-review in the close skill, and the close-reviewer comes last.
+        """The mid-flight nudge names every step the agent should run, in the
+        close skill's own order: /security-review (Step 4), the broad review
+        (Step 4b, gated on RUN_FULL_CODE_REVIEW=true), then xp-close-reviewer
+        (Step 4.5). An earlier message omitted the broad review entirely, and
+        post-merge there is no diff — so it runs pre-merge or never.
+
+        WHAT THIS NO LONGER PINS, and why. It required the literal
+        `/code-review high`, on the reasoning that a bare `/code-review` would
+        fall to a lower effort tier. That was a property of a built-in parsing
+        a level out of a positional string; the level is now a named field in
+        Step 4b's args object, and the launcher itself has changed twice. Both
+        times this string was left naming the previous one — the second time
+        inside a single branch, sending a recovering agent to the fallback.
+        So the message points AT Step 4b instead, and the sibling test below
+        pins that it names no launcher at all.
+        """
         import close_cycle_stop_gate
         import markers
 
         markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
         result = close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         result = self._assert_not_none(result)
-        self.assertIn("/code-review", result)
         self.assertIn("/security-review", result)
+        self.assertIn("Step 4b", result)
         self.assertIn("xp-close-reviewer", result)
-        # `/code-review high` is load-bearing — bare `/code-review` would
-        # default to a lower effort and skip the full pre-merge workflow.
-        self.assertIn("/code-review high", result)
-        # Canonical order: security-review (Step 4) → code-review (Step 4b)
-        # → close-reviewer (Step 4.5). Substring positions enforce it.
         sec = result.index("/security-review")
-        code = result.index("/code-review")
+        broad = result.index("Step 4b")
         reviewer = result.index("xp-close-reviewer")
+        self.assertLess(sec, broad, "/security-review (Step 4) must precede Step 4b")
         self.assertLess(
-            sec,
-            code,
-            "/security-review (Step 4) must precede /code-review (Step 4b)",
+            broad, reviewer, "Step 4b must precede xp-close-reviewer (Step 4.5)"
         )
-        self.assertLess(
-            code,
-            reviewer,
-            "/code-review (Step 4b) must precede xp-close-reviewer (Step 4.5)",
-        )
+
+    def test_block_message_names_no_launcher_for_the_broad_review(self):
+        """The drift guard, which is the whole reason the pin above loosened.
+
+        One definition of the launch, in Step 4b. A second copy here has been
+        wrong twice out of two launcher changes, and its failure mode is the
+        expensive one: an agent recovering mid-close reads it and reaches for
+        the launcher whose fan-out nothing bounds.
+        """
+        import close_cycle_stop_gate
+
+        for tool in ("Skill tool", "Workflow tool"):
+            with self.subTest(tool=tool):
+                self.assertNotIn(tool, close_cycle_stop_gate._BLOCK_MESSAGE)
 
     def test_no_block_when_marker_absent(self):
         import close_cycle_stop_gate

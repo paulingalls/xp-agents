@@ -178,8 +178,9 @@ def generate_smm(root: Path) -> dict:
             "Review cadence (commit | story), chosen at kickoff: in commit "
             "cadence run /xp-quality-review before each commit; in story "
             "cadence the per-commit gate defers and /xp-quality-review runs "
-            "at /xp-story-close on the cumulative diff. /code-review "
-            "(Workflow tool) runs once at free/sprint/plan close; LLM "
+            "at /xp-story-close on the cumulative diff. The broad review "
+            "runs once at free/sprint/plan close — a shipped Workflow "
+            "script, with the Skill tool's /code-review as fallback; LLM "
             "/security-review fires at close Step 4.",
         ),
         _seed_entry(

@@ -234,7 +234,10 @@ class TestGenerateSMM(unittest.TestCase):
         text = entry["content"]
         self.assertNotIn("(/code-review, /xp-quality-review)", text)
         self.assertNotIn("/code-review → /xp-quality-review before each commit", text)
-        self.assertIn("Workflow tool", text)
+        # Every project seeded from now on carries this sentence, so the tool
+        # it names has to be the one that launches. It said "Workflow tool"
+        # until that name turned out to be registered nowhere.
+        self.assertIn("Skill tool", text)
 
     def test_deterministic_ids(self):
         """Seeded ids are stable across calls (uuid5 from content)."""

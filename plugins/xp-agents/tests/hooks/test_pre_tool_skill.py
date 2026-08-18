@@ -56,17 +56,26 @@ class TestCodeReviewNudge(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_courage_nudge_names_workflow_tool_not_skill(self):
-        """story-011: /code-review runs via the Workflow tool, not Skill.
-        Even though this branch is provably unreachable in practice
-        (code-review is absent from the Skill listing, so the model can't
-        dispatch Skill(code-review) in the first place — see discovery
-        6e088a55f0dc), the message should redirect to the Workflow tool
-        rather than staying silent on how to actually launch it."""
+    def test_courage_nudge_does_not_redirect_to_another_tool(self):
+        """The nudge rides ALONG with the launch; it does not redirect it.
+
+        It used to end "It cannot be launched with the Skill tool — invoke
+        Workflow instead", on the reasoning that this branch was unreachable
+        anyway because code-review was absent from the Skill listing (discovery
+        6e088a55f0dc). Both halves are false now: the skill IS listed and
+        dispatches, and `Workflow({name: "code-review"})` errors — that name is
+        registered nowhere. So the branch is not only reachable, it is the
+        supported path, and the sentence told whoever reached it to go and do
+        the one thing that does not work.
+
+        The courage half is untouched and is the whole point of the nudge:
+        /code-review fixes nothing, so every finding has to be acted on in
+        /xp-quality-review rather than waved off.
+        """
         result = pre_tool_skill.run(_make_skill_input("code-review"))
         result = self._assert_not_none(result)
-        self.assertIn("Workflow", result)
-        self.assertIn("Skill", result)
+        self.assertNotIn("Workflow", result)
+        self.assertIn("/xp-quality-review", result)
 
     def test_courage_nudge_does_not_imply_per_commit_cadence(self):
         """/code-review runs once at sprint/plan/free-close, never per commit

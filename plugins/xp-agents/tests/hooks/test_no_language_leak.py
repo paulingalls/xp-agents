@@ -92,7 +92,7 @@ from _lang_leak_scan import (
     scan_file,
 )
 from _pin_helpers import rel as _rel_impl
-from _pin_helpers import shipped_files_to_scan
+from _pin_helpers import shipped_files_to_scan, shipped_js_to_scan
 from linter_tables import LINTER_BINARIES
 
 PLUGIN_ROOT = Path(__file__).parent.parent.parent  # plugins/xp-agents/
@@ -110,10 +110,25 @@ def _rel(path: Path) -> str:
     return _rel_impl(path, REPO_ROOT)
 
 
+def _shipped_surfaces() -> list[Path]:
+    """Every shipped CODE surface, whatever it is written in.
+
+    The `.js` leg is not decoration: the broad-review orchestrator is shipped,
+    is the largest single thing the close pipeline launches, and was governed by
+    the size cap and the /code-review sweep while THIS gate — the one that asks
+    whether the plugin stays usable by projects in other languages — never
+    opened it. A new shipped surface goes into every enumerating gate or it is
+    only partly governed, which is the recorded constraint this missed.
+    """
+    return list(shipped_files_to_scan(PLUGIN_ROOT)) + list(
+        shipped_js_to_scan(PLUGIN_ROOT)
+    )
+
+
 def _scan_shipped() -> dict[str, list[Site]]:
     return {
         _rel(p): sites
-        for p in shipped_files_to_scan(PLUGIN_ROOT)
+        for p in _shipped_surfaces()
         if (
             sites := scan_file(
                 p, linter_names=LINTER_NAMES, registry_path=REGISTRY_PATH
@@ -221,8 +236,19 @@ class TestNoLanguageLeak(unittest.TestCase):
     def test_tests_are_not_scanned(self) -> None:
         """Tests never ship, so they are free to be Python-specific — this
         pin's own `rglob("*.py")` would otherwise flag itself."""
-        rels = [_rel(p) for p in shipped_files_to_scan(PLUGIN_ROOT)]
+        rels = [_rel(p) for p in _shipped_surfaces()]
         self.assertFalse([r for r in rels if "/tests/" in r])
+
+    def test_the_shipped_javascript_is_scanned(self) -> None:
+        """Non-vacuity for the `.js` leg. Adding a surface to a gate proves
+        nothing if the selector comes back empty — which is how this file was
+        already scanning every shipped Python module and none of the shipped
+        JavaScript while reporting the tree clean."""
+        rels = [_rel(p) for p in _shipped_surfaces()]
+        self.assertTrue(
+            [r for r in rels if r.endswith(".js")],
+            msg="the shipped .js surface contributed no files to the scan",
+        )
 
     def test_per_linter_table_finds_no_shipped_site(self) -> None:
         """Tripwire: per-linter knowledge lives in exactly ONE place today —

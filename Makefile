@@ -17,8 +17,22 @@ manifests:
 
 # Wires up the gates: verifies pytest -n auto actually works (the CAPABILITY
 # that matters, however it got installed — pipx is only the recommended
-# route, not a requirement), installs the lefthook hooks, and sets an SSH
-# keepalive for this clone.
+# route, not a requirement), verifies `node --test` runs, installs the
+# lefthook hooks, and sets an SSH keepalive for this clone.
+#
+# The node probe is for the same reason the pytest one is: the JS suite covering
+# the shipped Workflow script is DRIVEN from pytest, so a missing node fails the
+# whole suite rather than skipping the file. Finding that out at `make setup` is
+# a one-line message; finding it out at push is a red gate on a change that
+# touched no JavaScript.
+#
+# It runs LAST, after the hooks are installed, and that ordering is the whole
+# point. Placed with the pytest probe it exited before `lefthook install`, so a
+# box with pytest and lefthook but no Node came away with NO gates at all —
+# ungated commits and pushes, silently, per this repo's own warning — where
+# before the probe existed it got every gate and merely lacked the JS suite. A
+# check for a missing capability must not cost the capabilities that are
+# present. Found by the broad review reading the commit that added it.
 #
 # The keepalive is not optional housekeeping. The full suite runs on
 # PRE-PUSH, and git opens the connection to the remote BEFORE running that
@@ -55,3 +69,13 @@ setup:
 	git config core.sshCommand "ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=10"
 	@echo "Gates installed — lint/format/types plus your staged tests on commit;"
 	@echo "the full suite on push, with an SSH keepalive so it survives the wait."
+	@if ! node --test --help >/dev/null 2>&1; then \
+		echo "" >&2; \
+		echo "The gates above ARE installed. This is the one remaining gap:" >&2; \
+		echo "'node --test' isn't available, so the JS suite covering" >&2; \
+		echo "plugins/xp-agents/workflows/ cannot run — and it is driven from" >&2; \
+		echo "pytest, so its absence FAILS the suite rather than skipping it." >&2; \
+		echo "Install Node (v22 or newer) and re-run 'make setup':" >&2; \
+		echo "  brew install node" >&2; \
+		exit 1; \
+	fi

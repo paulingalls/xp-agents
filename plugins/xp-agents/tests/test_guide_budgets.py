@@ -58,6 +58,12 @@ GUIDE_BUDGETS: dict[str, int] = {
     # bump: the budget only ever comes DOWN, and raising a cap a change already
     # fits under hands back headroom nobody had to spend. The next clause here
     # trims first.
+    #
+    # It did. Naming the broad review's second launcher cost 44 chars and put
+    # the guide at 98.7%, so "Deterministic patterns scan staged diffs." was
+    # cut to pay for it — the one sentence in this guide naming no gate, no
+    # skill and no action a reader could take, next to a line that already
+    # describes the commit gate. 8129 (97.9%). Still no bump.
     "PROCESS_GUIDE": 8300,
     "TEAMMATE_GUIDE": 4240,
 }

@@ -47,6 +47,16 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set up Node
+        # The JS suite covering plugins/xp-agents/workflows/ is driven from the
+        # Python suite below, which FAILS rather than skips when node is
+        # missing. The runner image ships a node, but pinning it here is the
+        # difference between "the workflow script is covered on CI" and "the
+        # workflow script is covered on CI until the image changes".
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install ruff and pytest
         # Tests require ruff on PATH (story-007's _staged_ruff_findings
         # invokes it during commit-gate tests via lint_check.run_linter_batch).

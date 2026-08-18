@@ -118,11 +118,28 @@ pre-commit:
     # production modules named like tests where pytest collects nothing and
     # exits 5, which lefthook reads as a failed commit.
     staged-tests:
-      glob: "**/*.py"
+      # Two suffixes, one classifier. `.js` is here because the shipped
+      # workflow script and its harness are the only JavaScript in the tree and
+      # nothing else at commit time would run them: no linter, formatter or
+      # type checker in this file reads a `.js`. Without this branch the JS was
+      # checked at push and not before.
+      glob: ["**/*.py", "**/*.js"]
       run: |
         files=""
         dirs=""
         for f in {staged_files}; do
+          # JS maps to the pytest module that drives `node --test`, rather than
+          # invoking node here: that module carries the non-vacuity floor, and
+          # `node --test` on a glob matching nothing exits 0 having run nothing.
+          case "$f" in
+            plugins/xp-agents/workflows/*.js|plugins/xp-agents/tests/workflows/*.js)
+              b="plugins/xp-agents/tests/test_workflow_js_suite.py"
+              if [ -f "$b" ]; then
+                case " $files " in *" $b "*) ;; *) files="$files $b" ;; esac
+              fi
+              continue
+              ;;
+          esac
           case "$f" in plugins/xp-agents/tests/*) ;; *) continue ;; esac
           case "${f##*/}" in
             test_*.py)
