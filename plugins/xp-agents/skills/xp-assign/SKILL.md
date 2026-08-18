@@ -6,7 +6,6 @@ description: >-
   reviewed.
 allowed-tools:
   - Bash(*/init.sh)
-  - Bash(*/skills/*/scripts/*)
   - Bash(*/scripts/spawn_teammate.py *)
   - Bash(python3 */scripts/branching.py *)
   - Bash(python3 */smm/sprint_cli.py *)

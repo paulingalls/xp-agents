@@ -8,7 +8,6 @@ allowed-tools:
   - Agent
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
-  - Bash(*/skills/*/scripts/*)
 ---
 
 # Review Plan

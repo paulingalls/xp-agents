@@ -9,7 +9,6 @@ allowed-tools:
   - Bash
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
-  - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/branching.py *)
   - Bash(python3 */scripts/close_common.py *)
   - Bash(python3 */smm/sprint_cli.py *)

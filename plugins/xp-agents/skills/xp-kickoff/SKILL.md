@@ -6,7 +6,6 @@ description: >-
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
-  - Bash(*/skills/*/scripts/*)
   - Bash(python3 */smm/retro_cli.py *)
   - Bash(python3 */smm/smm_cli.py *)
   - Bash(python3 */scripts/branching.py *)

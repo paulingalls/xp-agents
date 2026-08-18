@@ -12,7 +12,6 @@ allowed-tools:
   - Skill
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
-  - Bash(*/skills/*/scripts/*)
   - Bash(*/smm/plan_cli.py *)
   - Bash(python3 */scripts/branching.py *)
 ---

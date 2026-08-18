@@ -13,7 +13,6 @@ allowed-tools:
   - Agent
   - Skill
   - Bash
-  - Bash(*/skills/*/scripts/*)
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
 ---

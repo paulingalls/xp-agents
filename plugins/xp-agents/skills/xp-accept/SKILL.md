@@ -8,7 +8,6 @@ allowed-tools:
   - Bash
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
-  - Bash(*/skills/*/scripts/*)
 ---
 
 # Accept Verification
