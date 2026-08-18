@@ -236,7 +236,28 @@ for (const c of candidates) {
   if (!byLoc.has(key)) byLoc.set(key, [])
   byLoc.get(key).push(c)
 }
-const groups = [...byLoc.values()]
+const allGroups = [...byLoc.values()]
+
+// THE CAP, in code rather than in a sentence. What this replaces was prose in
+// the close pipeline telling the caller not to raise the tier; that file's own
+// test records a customer run reaching roughly a hundred agents and says the
+// risk was "narrowed, not closed". A number here closes it.
+//
+// Bounded on LOCATIONS, which is what refuter agents are counted by. Correctness
+// angles sort first in the candidate list, so when the cap bites it keeps the
+// lenses with recorded evidence behind them and drops cleanup first.
+const VERIFY_CAP = 20
+const groups = allGroups.slice(0, VERIFY_CAP)
+const locationsDropped = allGroups.length - groups.length
+if (locationsDropped > 0) {
+  // Announced, never silent: a truncated review that does not say so reads as
+  // a review that covered everything, which is a worse failure than the cost
+  // the cap exists to avoid.
+  log(
+    `cap: ${allGroups.length} locations found, verifying ${groups.length}; ` +
+      `${locationsDropped} dropped unverified`,
+  )
+}
 
 const verifiedGroups = await parallel(
   groups.map((group) => async () => {
@@ -271,13 +292,19 @@ const stats = {
   finders: finderAngles.length,
   candidates: candidates.length,
   verifierAgents: groups.length,
+  locationsDropped,
   verified: verified.length,
   refuted,
 }
 
 return {
   level: LEVEL,
-  summary: `${surviving.length} findings survived independent verification (${LEVEL}, ${finderAngles.length} angles).`,
+  summary:
+    `${surviving.length} findings survived independent verification ` +
+    `(${LEVEL}, ${finderAngles.length} angles)` +
+    (locationsDropped > 0
+      ? `; ${locationsDropped} further locations were NOT verified — the review hit its cap.`
+      : '.'),
   findings: surviving.map((c) => ({
     file: c.file,
     line: c.line,

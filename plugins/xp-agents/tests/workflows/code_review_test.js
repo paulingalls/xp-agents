@@ -275,3 +275,44 @@ test('a scope agent that dies is reported, not treated as an empty diff', async 
   assert.ok(result.error, 'a dead scope agent must surface as an error')
   assert.doesNotMatch(result.error, /no changes/i)
 })
+
+// ─── Cost ──────────────────────────────────────────────────────────────────
+// The bound this replaces was PROSE — a sentence in the close pipeline telling
+// the caller not to raise the tier. Its own test file records a customer run
+// that reached roughly a hundred agents and says the risk was "narrowed, not
+// closed". Owning the script is what lets it be closed, and a cap that drops
+// work silently is a different way of lying about coverage.
+
+test('the refuter fan-out is capped, not merely discouraged', async () => {
+  const many = Array.from({ length: 40 }, (_v, i) => cand('a.py', i))
+  const { calls } = await runVerify(many, confirmAll)
+  assert.ok(
+    verifyCalls(calls).length <= 20,
+    `expected a cap, saw ${verifyCalls(calls).length} refuters`,
+  )
+})
+
+test('what the cap drops is announced, never dropped quietly', async () => {
+  // Silent truncation reads as "everything was covered". A capped review that
+  // says so is a bounded review; one that does not is a wrong one.
+  const many = Array.from({ length: 40 }, (_v, i) => cand('a.py', i))
+  const { logs } = await runVerify(many, confirmAll)
+  assert.ok(
+    logs.some((l) => /cap/i.test(l) && /\d/.test(l)),
+    `no log names the cap and a count: ${JSON.stringify(logs)}`,
+  )
+})
+
+test('the report says it was capped, so the close can see it', async () => {
+  const many = Array.from({ length: 40 }, (_v, i) => cand('a.py', i))
+  const { result } = await runVerify(many, confirmAll)
+  assert.ok(result.stats.locationsDropped > 0)
+})
+
+test('an ordinary review is not capped at all', async () => {
+  // The control. Without it the cap tests pass against a script that caps
+  // everything to zero.
+  const { calls, result } = await runVerify([cand('a.py', 1), cand('b.py', 2)], confirmAll)
+  assert.strictEqual(verifyCalls(calls).length, 2)
+  assert.strictEqual(result.stats.locationsDropped, 0)
+})
