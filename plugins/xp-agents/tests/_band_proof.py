@@ -20,13 +20,28 @@ theoretical — it is the defect these proofs exist to close:
 So a proof reads the message: it must name the surface, carry a band
 percentage, and that percentage must land inside the band. Shared because
 four call sites need the identical reading and each lives in its own host
-module.
+module. `spy_case` is here for the same reason: reading a failure message
+means provoking one against a throwaway case first.
 """
 
 import re
 import unittest
 
 _BAND_LINE = r": (\d+) chars, (\d+\.\d)% of budget (\d+)"
+
+
+def spy_case() -> unittest.TestCase:
+    """A throwaway TestCase to hand to a budget assert as its `testcase` arg.
+
+    It raises AssertionError like any other TestCase — the point is that the
+    failure lands HERE, so the caller can catch and read it without polluting
+    the outer test's own state.
+
+    A bare instance rather than a subclass: pytest collects every
+    `unittest.TestCase` SUBCLASS whatever it is named, so a spy class with a
+    no-op `runTest` also joins the suite as a test that asserts nothing.
+    """
+    return unittest.TestCase()
 
 
 def _band_line_re(surface: str) -> re.Pattern[str]:

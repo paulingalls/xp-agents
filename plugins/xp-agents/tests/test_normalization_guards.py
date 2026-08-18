@@ -1,41 +1,37 @@
 #!/usr/bin/env python3
 """Pins for guards whose non-match reads as success.
 
-`_WORKTREE_SEGMENT_RE` (`_budget_helpers.py`) and `assert_emitter_under_budgets`'s
-missing `normalize_paths` (also `_budget_helpers.py`) were both dead for a whole
-release span: a regex written for `/.claude/worktrees/<dir>` stopped matching
-once worktrees moved under the data root in v5.0.0, and a normalization helper
-never wired in never normalized anything. Neither ever raised — a pattern that
-matches nothing and a normalization that normalizes nothing both look exactly
-like success. `bff57399` fixed both; this module stops the CLASS from arriving
-dead again.
+`_WORKTREE_SEGMENT_RE` and `assert_emitter_under_budgets`'s missing
+`normalize_paths` (both `_budget_helpers.py`) were dead for a whole release
+span: a regex written for `/.claude/worktrees/<dir>` stopped matching once
+worktrees moved under the data root in v5.0.0, and a normalization never wired
+in normalized nothing. Neither raised — a pattern matching nothing looks exactly
+like success. `bff57399` fixed both; this module stops the CLASS recurring.
 
-Every specimen here is DERIVED by calling production — `worktree.worktree_path`,
-`event_builder.generate_id` — never hand-typed. A hand-typed specimen carries
-the same weakness as the guard it pins: when the real shape drifts, the
-literal and the pattern go stale TOGETHER and the pin stays green, which is
-the exact failure one layer up from the one this module exists to catch (see
-the retired `test_measured_len_normalizes_the_real_worktree_layout` in
-`test_budget_helpers_shim.py`, folded into `TestWorktreeSegmentGuardIsPinned`).
+Every specimen is DERIVED by calling production (`worktree.worktree_path`,
+`event_builder.generate_id`, the failure message `assert_md_under_budgets`
+raises), never hand-typed: a literal drifts independently of the pattern it
+pins, so both go stale together and the pin stays green — the same defect one
+layer up. That is why the retired
+`test_measured_len_normalizes_the_real_worktree_layout` in
+`test_budget_helpers_shim.py` is folded into `TestWorktreeSegmentGuardIsPinned`.
 
-`_HISTORICAL_ID_RE` is pinned alongside the worktree-segment regex because it
-is the same class of defect in a different shape: a DETECTOR whose non-match
-reads as "no ids found" — exactly as green as a real absence. `_band_proof.py`'s
-`_BAND_LINE` is the third shape: a PARSER that reads a measured value out of an
-assertion message, where a wording drift in that message is invisible the same
-way.
+Those pins only prove TODAY's guards are alive. The leg aimed at the NEXT one is
+`TestRegistryCompleteness`: it AST-scans every covered module and fails when a
+pattern-shaped constant has no registry entry, so the hand-kept list of pattern
+NAMES cannot drift for any shape the scan sees — a module-level name bound to
+`re.compile(...)`, or one reaching a `re.compile` pattern argument elsewhere in
+the module, annotated or not, whatever expression carries it there. Named rather
+than implied, it does NOT see a pattern that binds no module-level name
+(compiled inside a function or class body), nor a FRAGMENT reaching
+`re.compile` only through another constant — a fragment is not separately
+pinnable. And an entry is a promise, not a proof: nothing checks that a
+registered NAME has a pin.
 
-The per-pattern pins above only prove TODAY's guards are alive. That is
-necessary but not the leg that matters going forward: they name patterns that
-are already known about. The one guard against the NEXT pattern arriving dead
-is `TestRegistryCompleteness`, which AST-scans every module this suite covers
-for the pattern-shaped constants it holds and fails when one has no
-registered specimen — so a hand-kept list of pattern NAMES can never silently
-drift out of date. What is still hand-kept, deliberately, is the small SET of
-MODULES covered (`_REGISTRY`'s keys): adding a new guard to an existing module
-is a one-line, easy-to-forget change, so that leg has to be automatic; adding
-a new module of guards is a visible, new-file-sized event, so naming it
-explicitly is the honest scope decision here.
+Hand-kept deliberately: the SET of modules covered (`_REGISTRY`'s keys). Adding
+a guard to an existing module is a one-line, easy-to-forget change, so that leg
+has to be automatic; adding a new module of guards is a visible,
+new-file-sized event.
 """
 
 import ast
@@ -55,6 +51,7 @@ import _band_proof
 import _budget_helpers
 import event_builder
 import worktree
+from _bases import _AssertNotNoneMixin
 from _repo_fixtures import init_repo
 
 _TESTS_DIR = Path(__file__).resolve().parent
@@ -110,7 +107,7 @@ def _legacy_in_repo_worktree_specimen(
 
 
 # ---------------------------------------------------------------------------
-# Increment 1 — the registry's first two entries.
+# The path-normalizing regex and the id detector.
 # ---------------------------------------------------------------------------
 
 
@@ -157,7 +154,7 @@ class TestWorktreeSegmentGuardIsPinned(unittest.TestCase):
                 )
 
 
-class TestHistoricalIdGuardIsPinned(unittest.TestCase):
+class TestHistoricalIdGuardIsPinned(_AssertNotNoneMixin, unittest.TestCase):
     """`_HISTORICAL_ID_RE` is a DETECTOR, not a normalization: a non-match
     reports "no ids found", which reads exactly as green as a real absence.
     Pinned against an id taken from the generator, not typed — a hand-typed
@@ -168,14 +165,15 @@ class TestHistoricalIdGuardIsPinned(unittest.TestCase):
     def test_matches_a_real_generated_id(self):
         real_id = event_builder.generate_id()
         text = f"See concern {real_id} for background.\n"
-        match = _budget_helpers._HISTORICAL_ID_RE.search(text)
-        self.assertIsNotNone(match, f"did not match a real generated id: {real_id!r}")
-        assert match is not None
+        match = self._assert_not_none(
+            _budget_helpers._HISTORICAL_ID_RE.search(text),
+            f"did not match a real generated id: {real_id!r}",
+        )
         self.assertEqual(match.group(0), real_id)
 
 
 # ---------------------------------------------------------------------------
-# Increment 2 — completeness: a new pattern must declare a specimen.
+# Completeness — a new pattern must declare a specimen.
 # ---------------------------------------------------------------------------
 
 
@@ -190,17 +188,25 @@ def _is_re_compile_call(node: ast.AST) -> bool:
 
 
 def _name_feeds_a_compile_call(tree: ast.Module, name: str) -> bool:
-    """True when `name` is used as (part of) an argument to `re.compile(...)`
-    anywhere in the module — catches a pattern compiled lazily and away from
-    its own assignment (`_band_proof._BAND_LINE`, joined into a call inside
-    `_band_line_re`), not only the `NAME = re.compile(...)` shape.
+    """True when `name` is used as (part of) the PATTERN argument of a
+    `re.compile(...)` anywhere in the module — catches a pattern compiled
+    lazily and away from its own assignment (`_band_proof._BAND_LINE`, joined
+    into a call inside `_band_line_re`), not only the `NAME = re.compile(...)`
+    shape.
+
+    The first positional argument only, not every argument: `re.compile(pat,
+    _FLAGS)` would otherwise report a flags constant as a pattern, and a
+    registry entry for something that is not a guard is noise a reader has to
+    disprove.
     """
     for node in ast.walk(tree):
-        if not (isinstance(node, ast.Call) and _is_re_compile_call(node)):
+        if not isinstance(node, ast.Call) or not _is_re_compile_call(node):
             continue
-        for arg in node.args:
-            if any(isinstance(n, ast.Name) and n.id == name for n in ast.walk(arg)):
-                return True
+        if not node.args:
+            continue
+        pattern_arg = node.args[0]
+        if any(isinstance(n, ast.Name) and n.id == name for n in ast.walk(pattern_arg)):
+            return True
     return False
 
 
@@ -229,13 +235,18 @@ def _assigned_name_and_value(node: ast.stmt) -> tuple[str, ast.expr] | None:
 
 def pattern_shaped_constants(path: Path) -> set[str]:
     """Module-level constants that ARE a regex pattern, however they get
-    there: bound straight to `re.compile(...)`, or a bare string literal fed
-    into one elsewhere in the same module — annotated or not.
+    there: bound straight to `re.compile(...)`, or reaching one's pattern
+    argument elsewhere in the same module — annotated or not, and whatever
+    expression shape carries them there (a bare literal, a join, an f-string).
+
+    Keyed on where the value ENDS UP, not on the node type of the value, since
+    the second is what a new guard varies for free: `_A + _B` and `f"{_A}x"`
+    are neither of them a `Constant`, and a scan that required one would go
+    silently blind the first time a pattern was assembled rather than typed.
 
     AST, not a name-suffix convention (`_RE`, `_PATTERN`) — `_band_proof.py`'s
     `_BAND_LINE` carries neither suffix and is exactly the constant this shape
-    exists to catch, once that module joins the scan (next increment).
-    Modelled on the `ast.Call`-on-`ast.Attribute` shape in
+    exists to catch. Modelled on the `ast.Call`-on-`ast.Attribute` shape in
     `tests/hooks/test_no_test_can_spawn_a_real_agent.py`.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -245,12 +256,7 @@ def pattern_shaped_constants(path: Path) -> set[str]:
         if assigned is None:
             continue
         name, value = assigned
-        is_bare_pattern_string = (
-            isinstance(value, ast.Constant)
-            and isinstance(value.value, str)
-            and _name_feeds_a_compile_call(tree, name)
-        )
-        if _is_re_compile_call(value) or is_bare_pattern_string:
+        if _is_re_compile_call(value) or _name_feeds_a_compile_call(tree, name):
             names.add(name)
     return names
 
@@ -333,6 +339,36 @@ class TestRegistryCompleteness(unittest.TestCase):
             "annotated pattern constants are invisible to the scan",
         )
 
+    def test_the_scan_sees_a_COMPOSED_pattern_constant(self):
+        """A pattern assembled rather than written whole still reaches
+        `re.compile`, so it is still a guard whose non-match reads as success —
+        and `_band_proof` already assembles one (`re.escape(surface) +
+        _BAND_LINE`), so this is the shape a second one would copy. Both
+        joined-literal and f-string forms have to be visible, because neither
+        is a `Constant`: a scan keyed on the VALUE's node type sees them as
+        ordinary expressions, and only what reaches the compile call is
+        evidence.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp) / "_composed_guard.py"
+            fixture.write_text(
+                "import re\n"
+                '_HEAD = r"/(?:\\.claude/)?"\n'
+                '_JOINED = _HEAD + r"worktrees/[^/]+"\n'
+                '_INTERPOLATED = f"{_HEAD}data/[^/]+"\n'
+                "def _use() -> list[re.Pattern[str]]:\n"
+                "    return [re.compile(_JOINED), re.compile(_INTERPOLATED)]\n",
+                encoding="utf-8",
+            )
+            found = pattern_shaped_constants(fixture)
+        self.assertEqual(
+            found,
+            {"_JOINED", "_INTERPOLATED"},
+            "a composed pattern constant is invisible to the scan; a FRAGMENT "
+            "that reaches re.compile only through another constant (_HEAD) is "
+            "deliberately not named — it is not separately pinnable",
+        )
+
     def test_a_registry_scoped_to_budget_helpers_alone_misses_band_line(self):
         """The scope decision, proven rather than argued: narrowing the
         registry to `_budget_helpers` alone — the naive cut, scoped to the
@@ -349,19 +385,11 @@ class TestRegistryCompleteness(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Increment 3 — _band_proof's message parser.
+# The message parser in `_band_proof`.
 # ---------------------------------------------------------------------------
 
 
-class _SpyCase(unittest.TestCase):
-    """A throwaway TestCase to pass as the `testcase` arg of a budget assert,
-    so its failure can be caught and read without polluting the outer test."""
-
-    def runTest(self) -> None:
-        pass
-
-
-class TestBandLineGuardIsPinned(unittest.TestCase):
+class TestBandLineGuardIsPinned(_AssertNotNoneMixin, unittest.TestCase):
     """`_BAND_LINE` parses `band_offender`'s failure MESSAGE to recover a
     measured value. If the message's wording drifts, the regex matches
     nothing — the same failure as the other two, one level removed: it reads
@@ -369,16 +397,33 @@ class TestBandLineGuardIsPinned(unittest.TestCase):
     """
 
     def test_matches_a_real_band_offender_message(self):
+        chars, budget = 99, 100
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            (tmp_path / "SPEC.md").write_text("x" * 99, encoding="utf-8")
+            (tmp_path / "SPEC.md").write_text("x" * chars, encoding="utf-8")
             with self.assertRaises(AssertionError) as caught:
                 _budget_helpers.assert_md_under_budgets(
-                    _SpyCase(), tmp_path, "*.md", {"SPEC": 100}, "test"
+                    _band_proof.spy_case(), tmp_path, "*.md", {"SPEC": budget}, "test"
                 )
         message = str(caught.exception)
-        match = _band_proof._band_line_re("SPEC").search(message)
-        self.assertIsNotNone(match, f"no band line for SPEC in: {message!r}")
+        match = self._assert_not_none(
+            _band_proof._band_line_re("SPEC").search(message),
+            f"no band line for SPEC in: {message!r}",
+        )
+        # Matching is not enough: every band proof reads these three groups
+        # POSITIONALLY, so a reordered or re-grouped pattern still matches
+        # while handing `assert_band_fired` the wrong numbers to judge.
+        self.assertEqual(
+            (int(match[1]), int(match[3])),
+            (chars, budget),
+            f"chars/budget groups recovered wrongly from: {message!r}",
+        )
+        self.assertAlmostEqual(
+            float(match[2]),
+            chars / budget * 100,
+            places=1,
+            msg=f"percentage group recovered wrongly from: {message!r}",
+        )
 
 
 if __name__ == "__main__":
