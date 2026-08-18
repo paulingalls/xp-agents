@@ -240,12 +240,10 @@ def _reconcile(
         )
         return
 
-    # The cheap pre-check, outside the lock: on most calls that reach here the
-    # range is already fully recorded, and one read answers that.
+    # The cheap pre-check, outside the lock: most ranges here are fully recorded.
     events, _ = _common.load_events_with_resolutions(smm_dir)
-    pending = [
-        rev for rev in revs if rev not in commit_event.recorded_commit_hashes(events)
-    ]
+    already = commit_event.recorded_commit_hashes(events)
+    pending = [rev for rev in revs if rev not in already]
     if not pending:
         return
     review_cadence = markers.read_review_cadence(smm_dir)
@@ -279,20 +277,22 @@ def _reconcile(
             ):
                 newest_recorded = rev
 
-    # One reset for the range, keyed to the NEWEST commit recorded — the same
-    # effect `rebuild_at_head` owns, for the same reason: a commit event
-    # recorded without it leaves the previous cycle's quality-review flag
-    # latched, so the next commit's gate reads satisfied off a review that
-    # predates this commit. Skipped on a leaked xp- agent_type exactly as both
-    # other commit paths skip it: recording the commit is always right,
-    # mutating cycle state under a wrong identity is not.
-    if newest_recorded and not is_xp_agent_leak:
-        review_records.end_review_cycle(
-            smm_dir,
-            identity.review_watermark_key(cwd),
-            identity.review_flags_key(cwd),
-            newest_recorded,
-        )
+        # One reset for the range, keyed to the NEWEST commit recorded — the
+        # same effect `rebuild_at_head` owns, for the same reason: a commit
+        # event recorded without it leaves the previous cycle's quality-review
+        # flag latched, so the next commit's gate reads satisfied off a review
+        # that predates this commit. Skipped on a leaked xp- agent_type exactly
+        # as both other commit paths skip it: recording the commit is always
+        # right, mutating cycle state under a wrong identity is not.
+        # INSIDE the lock: released first, a slower observer's older hash lands
+        # after a faster one's and walks the watermark backwards.
+        if newest_recorded and not is_xp_agent_leak:
+            review_records.end_review_cycle(
+                smm_dir,
+                identity.review_watermark_key(cwd),
+                identity.review_flags_key(cwd),
+                newest_recorded,
+            )
 
 
 def _observer_lock(smm_dir: Path) -> "contextlib.AbstractContextManager[None]":
@@ -337,8 +337,7 @@ def _record_one(
         committed_files=committed_files,
         code_file_count=code_files.count_code_files(committed_files),
         review_cadence=review_cadence,
-        # The one caller. Nothing was watched here, so a `git pull`'s incoming
-        # commits must not be stamped with whatever story is open right now.
+        # The one caller: nothing was watched, so nothing may be attributed.
         from_commit_only=True,
     )
     if event is None:

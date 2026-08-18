@@ -244,8 +244,6 @@ class TestAttributionComesOnlyFromTheCommit(_ObserverCase):
     def test_a_story_assignment_does_not_attribute_either(self):
         """Tier 1, cut alongside Tier 2 — and the default pinned in the same
         breath, because every existing caller depends on it."""
-        import worktree
-
         self._in_progress_sprint()
         worktree.story_assignment_path(self.smm_dir, "worktree-story-001").write_text(
             "story-001"

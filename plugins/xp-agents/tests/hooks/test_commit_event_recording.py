@@ -66,16 +66,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import _common
-from _commit_repo_case import _MergeCase, _RebuildTestCase
-from conftest import compute_resolutions, make_event
-from event_schema import EVENT_TYPE_COMMIT
-
-# An ordinary Bash that is not commit-shaped and not a test run — the shape of
-# the overwhelming majority of tool calls, and the one the catch-up observation
-# has to ride on. `ls` rather than anything git: the observer must not need a
-# git-shaped command to notice that HEAD moved.
-ORDINARY_BASH = "ls -la"
+from _commit_repo_case import _MergeCase
+from _observer_case import _ObserverCase
+from conftest import compute_resolutions
 
 # The multi-line shape behind two of the recorded traces. The message is in a
 # heredoc, so `commit_message.recover_commit_message` has nothing to expand and
@@ -84,39 +77,6 @@ ORDINARY_BASH = "ls -la"
 # That is conclusion 4 of the audit: the concerns naming `Command: cd ...` are
 # not a separate class, only a misleading label on this one.
 MULTILINE_HEREDOC_COMMIT = "cd {repo}\ngit commit -F - <<'EOF'\nsubject\nEOF"
-
-
-class _ObserverCase(_RebuildTestCase):
-    """A repo whose session has already had one ordinary Bash.
-
-    Every case here needs that, because the FIRST observation of a session has
-    no last-seen HEAD to compare against and must seed rather than reconcile —
-    an unbounded lower bound would walk the whole history. Making the seeding
-    Bash explicit in each test keeps that cold start visible rather than
-    hiding it in setUp.
-    """
-
-    def seed_observer(self) -> str | None:
-        """The first Bash of a session: seeds the marker, reconciles nothing."""
-        return self.run_hook(ORDINARY_BASH)
-
-    def observe(self) -> str | None:
-        """A later ordinary Bash — where the catch-up happens."""
-        return self.run_hook(ORDINARY_BASH)
-
-    def record_commit_event(self, commit_hash: str) -> None:
-        """Pretend a commit already reached the log, as the branch point has."""
-        _common.append_safe(
-            self.smm_dir,
-            make_event(
-                EVENT_TYPE_COMMIT,
-                content="already accounted for",
-                metadata={"commit_hash": commit_hash, "action": "commit_success"},
-            ),
-        )
-
-    def recorded_hashes(self) -> list[str]:
-        return [e["metadata"].get("commit_hash") for e in self.commit_events()]
 
 
 class TestBackgroundedCommit(_ObserverCase):

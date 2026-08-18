@@ -228,7 +228,11 @@ PROSE_MEASURED: dict[str, int] = {
     # session. The SMM is shared across worktrees, so the wrong keying is not a
     # style question — every checkout would read every other's HEAD as an
     # unexplained jump.
-    "plugins/xp-agents/scripts/markers.py": 131,
+    # 131 -> 133 (story-018): the same note now says why the marker is
+    # deliberately absent from _AGENT_SCOPED_MARKERS. Recorded rather than left
+    # inside the slack, which the two added lines had spent down to zero — a
+    # ceiling with no headroom reddens the push gate on the next rationale line.
+    "plugins/xp-agents/scripts/markers.py": 133,
     "plugins/xp-agents/scripts/migration_lock.py": 121,
     "plugins/xp-agents/scripts/result_counts.py": 126,
     "plugins/xp-agents/scripts/retro_metrics.py": 130,
