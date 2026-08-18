@@ -316,3 +316,74 @@ test('an ordinary review is not capped at all', async () => {
   assert.strictEqual(verifyCalls(calls).length, 2)
   assert.strictEqual(result.stats.locationsDropped, 0)
 })
+
+// ─── Synthesize ────────────────────────────────────────────────────────────
+// Blind finders describe one defect several ways. Merging is what turns that
+// into one report entry — and the merge step is the last place a verified
+// finding can be lost, so every branch here is about NOT losing one.
+
+const synth = (decisions, summary = 'reviewed') => (prompt, opts) =>
+  opts.phase === 'Synthesize' ? { summary, decisions } : confirmAll(prompt)
+
+test('it merges findings the synthesizer says share a root cause', async () => {
+  const { result } = await runVerify(
+    [cand('a.py', 7, 'same bug seen one way'), cand('b.py', 9, 'same bug seen another')],
+    synth([{ index: 0, merge: [1] }]),
+  )
+  assert.strictEqual(result.findings.length, 1)
+  assert.match(result.findings[0].summary, /b\.py:9|same root cause/)
+})
+
+test('a merged CONFIRMED lifts the entry it was folded into', async () => {
+  // Otherwise the report shows PLAUSIBLE for a defect one refuter confirmed,
+  // and the close reads it as the softer finding.
+  let n = 0
+  const { result } = await runVerify(
+    [cand('a.py', 7, 'first'), cand('b.py', 9, 'second')],
+    (prompt, opts) => {
+      // index 1, NOT 0: ranking sorts CONFIRMED ahead of PLAUSIBLE, so a
+      // decision naming index 0 has a CONFIRMED primary already and the lift
+      // never runs. A first draft did exactly that and stayed green when the
+      // lift was removed — measured, not guessed.
+      if (opts.phase === 'Synthesize') return { summary: 's', decisions: [{ index: 1, merge: [0] }] }
+      n += 1
+      return { verdicts: [{ index: 0, verdict: n === 1 ? 'PLAUSIBLE' : 'CONFIRMED', evidence: 'e' }] }
+    },
+  )
+  assert.strictEqual(result.findings.length, 1)
+  assert.strictEqual(result.findings[0].verdict, 'CONFIRMED')
+})
+
+test('a verified finding the synthesizer ignored is still reported', async () => {
+  // THE LOSS THIS GUARDS. A synthesizer that returns one decision for three
+  // findings must not silently discard the other two — they were found and
+  // independently confirmed, and the cap is the only thing allowed to drop a
+  // finding.
+  const { result } = await runVerify(
+    [cand('a.py', 1, 'one'), cand('b.py', 2, 'two'), cand('c.py', 3, 'three')],
+    synth([{ index: 0 }]),
+  )
+  assert.strictEqual(result.findings.length, 3)
+})
+
+test('a synthesizer that dies costs the merge, never the findings', async () => {
+  const { result } = await runVerify(
+    [cand('a.py', 1, 'one'), cand('b.py', 2, 'two')],
+    (prompt, opts) => (opts.phase === 'Synthesize' ? null : confirmAll(prompt)),
+  )
+  assert.strictEqual(result.findings.length, 2)
+  assert.match(result.summary, /unmerged|synthes/i)
+})
+
+test('a decision naming a finding twice cannot duplicate it', async () => {
+  const { result } = await runVerify(
+    [cand('a.py', 1, 'one'), cand('b.py', 2, 'two')],
+    synth([{ index: 0, merge: [1] }, { index: 1 }]),
+  )
+  assert.strictEqual(result.findings.length, 1)
+})
+
+test('an out-of-range decision index is ignored, not crashed on', async () => {
+  const { result } = await runVerify([cand('a.py', 1, 'one')], synth([{ index: 99 }, { index: 0 }]))
+  assert.strictEqual(result.findings.length, 1)
+})

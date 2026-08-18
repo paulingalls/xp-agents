@@ -55,9 +55,9 @@ const CORRECTNESS_ANGLES = [
 const CLEANUP_ANGLE = 'cleanup'
 
 const LEVELS = {
-  high: { angles: 4, perAngle: 6 },
-  xhigh: { angles: 6, perAngle: 8 },
-  max: { angles: 6, perAngle: 8 },
+  high: { angles: 4, perAngle: 6, report: 10 },
+  xhigh: { angles: 6, perAngle: 8, report: 15 },
+  max: { angles: 6, perAngle: 8, report: 15 },
 }
 
 const anglePath = (name) => `${PLUGIN_ROOT}/scripts/_code_review_angle_${name}.md`
@@ -155,6 +155,7 @@ if (!scope.files || scope.files.length === 0) {
 log(`${LEVEL} review: ${scope.files.length} changed files`)
 
 const params = LEVELS[LEVEL] || LEVELS.high
+const REPORT_CAP = params.report
 
 const SCOPE_BLOCK =
   `## Review scope\nDiff command: ${scope.diffCommand}\n` +
@@ -287,6 +288,101 @@ const surviving = verified.filter((c) => c.verdict !== 'REFUTED')
 const refuted = verified.length - surviving.length
 log(`verify: ${verified.length} judged, ${surviving.length} kept, ${refuted} refuted`)
 
+// ─── Synthesize ───
+// Blind finders describe one defect several ways, so the report needs merging.
+// This is also the LAST place a verified finding can be lost, which is why every
+// branch below is about not losing one: the cap is the only thing permitted to
+// drop a finding, and it announces itself when it does.
+const rank = (c) => (c.angle === CLEANUP_ANGLE ? 2 : 0) + (c.verdict === 'PLAUSIBLE' ? 1 : 0)
+const ranked = surviving.slice().sort((a, b) => rank(a) - rank(b))
+
+const REPORT_SCHEMA = {
+  type: 'object',
+  required: ['summary', 'decisions'],
+  properties: {
+    summary: { type: 'string' },
+    decisions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['index'],
+        properties: {
+          index: { type: 'number', description: 'the [i] label of a finding to keep' },
+          merge: {
+            type: 'array',
+            items: { type: 'number' },
+            description: '[i] labels describing the same root cause, folded into this one',
+          },
+        },
+      },
+    },
+  },
+}
+
+let report = null
+if (ranked.length > 0) {
+  phase('Synthesize')
+  report = await agent(
+    `## Synthesis: final code-review report\n\n${ranked.length} findings survived ` +
+      `independent verification. They are numbered below.\n\n` +
+      ranked
+        .map(
+          (c, i) =>
+            `### [${i}] ${loc(c)} (${c.verdict}${c.angle === CLEANUP_ANGLE ? ', cleanup' : ''})\n` +
+            `${c.summary}\nFailure scenario: ${c.failure_scenario}\nVerifier evidence: ${c.evidence}\n`,
+        )
+        .join('\n') +
+      `\n## Instructions\nReturn decisions BY INDEX — never re-emit finding text.\n` +
+      `1. One decision per distinct defect. When several findings describe the same ` +
+      `root cause, keep one and list the others in its merge array.\n` +
+      `2. Order most severe first. Correctness outranks cleanup.\n` +
+      `3. Keep at most ${REPORT_CAP}.\n4. Write a two-to-three sentence summary.\n\n` +
+      'Structured output only.',
+    { label: 'synthesize', phase: 'Synthesize', schema: REPORT_SCHEMA },
+  )
+}
+
+const decisions = report && Array.isArray(report.decisions) ? report.decisions : []
+const claimed = new Set()
+const claim = (i) => {
+  if (!Number.isInteger(i) || i < 0 || i >= ranked.length || claimed.has(i)) return false
+  claimed.add(i)
+  return true
+}
+
+const toFinding = (c, extra = '') => ({
+  file: c.file,
+  line: c.line,
+  summary: c.summary + extra,
+  failure_scenario: c.failure_scenario,
+  category: c.angle === CLEANUP_ANGLE ? 'cleanup' : 'correctness',
+  verdict: c.verdict,
+})
+
+const findings = []
+for (const d of decisions) {
+  if (findings.length >= REPORT_CAP) break
+  if (!claim(d.index)) continue
+  const primary = ranked[d.index]
+  const merged = (Array.isArray(d.merge) ? d.merge : []).filter(claim).map((i) => ranked[i])
+  // A merged CONFIRMED lifts the entry it was folded into: otherwise the report
+  // shows the softer verdict for a defect one refuter did confirm.
+  const verdict = merged.some((m) => m.verdict === 'CONFIRMED') ? 'CONFIRMED' : primary.verdict
+  const also = merged.length > 0 ? ` [same root cause also at: ${merged.map(loc).join(', ')}]` : ''
+  findings.push({ ...toFinding(primary, also), verdict })
+}
+
+// BACKFILL. A synthesizer that returned one decision for ten findings — or died
+// outright — must not silently discard the nine. They were found AND
+// independently confirmed; losing them here would undo the whole pass at its
+// last step, and quietly.
+let backfilled = 0
+for (let i = 0; i < ranked.length && findings.length < REPORT_CAP; i += 1) {
+  if (claimed.has(i)) continue
+  findings.push(toFinding(ranked[i]))
+  backfilled += 1
+}
+
 const stats = {
   ...baseStats(),
   finders: finderAngles.length,
@@ -295,6 +391,8 @@ const stats = {
   locationsDropped,
   verified: verified.length,
   refuted,
+  reported: findings.length,
+  backfilled,
 }
 
 return {
@@ -302,16 +400,12 @@ return {
   summary:
     `${surviving.length} findings survived independent verification ` +
     `(${LEVEL}, ${finderAngles.length} angles)` +
+    (report && decisions.length > 0
+      ? ''
+      : ' Synthesis returned nothing usable, so these are ranked and unmerged.') +
     (locationsDropped > 0
       ? `; ${locationsDropped} further locations were NOT verified — the review hit its cap.`
       : '.'),
-  findings: surviving.map((c) => ({
-    file: c.file,
-    line: c.line,
-    summary: c.summary,
-    failure_scenario: c.failure_scenario,
-    category: c.angle === CLEANUP_ANGLE ? 'cleanup' : 'correctness',
-    verdict: c.verdict,
-  })),
+  findings,
   stats,
 }
