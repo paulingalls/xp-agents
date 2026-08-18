@@ -16,6 +16,14 @@ the Skill can. The per-commit-cadence half is untouched and was always right:
 /xp-quality-review is the per-commit review; the broad pass runs once at
 sprint/plan/free-close.
 
+THERE ARE NOW TWO LAUNCHERS, and the guides have to name both. The broad pass is
+a shipped Workflow script launched by path, with the Skill kept as a documented
+fallback until that script has closed a real branch. A guide naming only the
+fallback teaches the way back as the way forward; one naming only the primary
+leaves a reader stuck when it is unavailable. The Skill-launch pins above are
+unchanged — the fallback is still exactly one line, and still in the close
+reference.
+
 Individual wordings stay pinned where they live — tests/hooks/test_post_tool.py,
 tests/smm/test_seed.py.
 """
@@ -164,14 +172,17 @@ class TestGuidesNameTheLauncher(unittest.TestCase):
     """AC: PROCESS_GUIDE and TEAMMATE_GUIDE name what launches /code-review
     rather than leaving its launch mechanism unstated."""
 
-    def test_broad_review_guides_name_the_skill_tool(self):
+    def test_broad_review_guides_name_both_launchers(self):
         """A guide that names the broad review must name what launches it.
 
-        The requirement is unchanged and the answer is not: it was the Workflow
-        tool, which turned out to have no registered name for this review, so
-        the guides documented a launch that errors. Naming SOMETHING remains
-        mandatory — a guide that mentions the pass and leaves the reader to
-        guess is how the wrong tool got reached for in the first place.
+        The requirement has never changed and the answer has changed twice: it
+        was the Workflow tool by NAME, which was registered nowhere and
+        documented a launch that errors; then the Skill alone; and it is now a
+        shipped Workflow script by path with that Skill as the fallback. Naming
+        SOMETHING was always mandatory — a guide that mentions the pass and
+        leaves the reader to guess is how the wrong tool got reached for in the
+        first place — and naming only ONE of two is the same failure at half
+        strength: the reader who hits the case the guide omitted guesses again.
         """
         for name in _GUIDE_NAMES:
             path = _PLUGIN_ROOT / name
@@ -182,12 +193,31 @@ class TestGuidesNameTheLauncher(unittest.TestCase):
                 if "xp-code-reviewer" in text[max(0, m.start() - 30) : m.start()]:
                     continue
                 window = text[max(0, m.start() - 200) : m.end() + 200]
-                self.assertIn(
-                    "Skill tool",
-                    window,
-                    f"{name}: /code-review mention not paired with 'Skill "
-                    f"tool' naming: ...{window}...",
-                )
+                for launcher in ("Workflow script", "Skill tool"):
+                    with self.subTest(guide=name, launcher=launcher):
+                        self.assertIn(
+                            launcher,
+                            window,
+                            f"{name}: /code-review mention not paired with "
+                            f"{launcher!r}: ...{window}...",
+                        )
+
+    def test_the_guides_name_the_primary_as_primary(self):
+        """Naming both is not enough if the order reads as a choice.
+
+        The fallback is a stopgap, and a guide that presents the pair evenly
+        invites a reader to pick the built-in — the launcher whose fan-out
+        nothing here can bound and whose findings come back as prose. Each
+        guide must mark which is which.
+        """
+        for name in _GUIDE_NAMES:
+            text = (_PLUGIN_ROOT / name).read_text()
+            self.assertRegex(
+                text,
+                r"(?is)as fallback|as its fallback",
+                f"{name}: must mark the Skill launcher as the fallback, not "
+                "as an equal alternative",
+            )
 
 
 if __name__ == "__main__":
