@@ -21,8 +21,21 @@ the retired `test_measured_len_normalizes_the_real_worktree_layout` in
 `_HISTORICAL_ID_RE` is pinned alongside the worktree-segment regex because it
 is the same class of defect in a different shape: a DETECTOR whose non-match
 reads as "no ids found" — exactly as green as a real absence.
+
+The per-pattern pins above only prove TODAY's guards are alive. That is
+necessary but not the leg that matters going forward: they name patterns that
+are already known about. The one guard against the NEXT pattern arriving dead
+is `TestRegistryCompleteness`, which AST-scans every module this suite covers
+for the pattern-shaped constants it holds and fails when one has no
+registered specimen — so a hand-kept list of pattern NAMES can never silently
+drift out of date. What is still hand-kept, deliberately, is the small SET of
+MODULES covered (`_REGISTRY`'s keys): adding a new guard to an existing module
+is a one-line, easy-to-forget change, so that leg has to be automatic; adding
+a new module of guards is a visible, new-file-sized event, so naming it
+explicitly is the honest scope decision here.
 """
 
+import ast
 import os
 import sys
 import tempfile
@@ -39,6 +52,19 @@ import _budget_helpers
 import event_builder
 import worktree
 from _repo_fixtures import init_repo
+
+_TESTS_DIR = Path(__file__).resolve().parent
+
+# The set of modules this suite covers — see the module docstring for why this
+# level (unlike pattern NAMES within a module) stays hand-kept.
+_GUARD_MODULE_PATHS: dict[str, Path] = {
+    "_budget_helpers": _TESTS_DIR / "_budget_helpers.py",
+}
+
+# {module: {pattern constant name pinned in this file}}.
+_REGISTRY: dict[str, set[str]] = {
+    "_budget_helpers": {"_WORKTREE_SEGMENT_RE", "_HISTORICAL_ID_RE"},
+}
 
 # ---------------------------------------------------------------------------
 # Specimens — each derived by calling the real production code path.
@@ -117,6 +143,131 @@ class TestHistoricalIdGuardIsPinned(unittest.TestCase):
         self.assertIsNotNone(match, f"did not match a real generated id: {real_id!r}")
         assert match is not None
         self.assertEqual(match.group(0), real_id)
+
+
+# ---------------------------------------------------------------------------
+# Increment 2 — completeness: a new pattern must declare a specimen.
+# ---------------------------------------------------------------------------
+
+
+def _is_re_compile_call(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "compile"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "re"
+    )
+
+
+def _name_feeds_a_compile_call(tree: ast.Module, name: str) -> bool:
+    """True when `name` is used as (part of) an argument to `re.compile(...)`
+    anywhere in the module — catches a pattern compiled lazily and away from
+    its own assignment (`_band_proof._BAND_LINE`, joined into a call inside
+    `_band_line_re`), not only the `NAME = re.compile(...)` shape.
+    """
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and _is_re_compile_call(node)):
+            continue
+        for arg in node.args:
+            if any(isinstance(n, ast.Name) and n.id == name for n in ast.walk(arg)):
+                return True
+    return False
+
+
+def pattern_shaped_constants(path: Path) -> set[str]:
+    """Module-level constants that ARE a regex pattern, however they get
+    there: bound straight to `re.compile(...)`, or a bare string literal fed
+    into one elsewhere in the same module.
+
+    AST, not a name-suffix convention (`_RE`, `_PATTERN`) — `_band_proof.py`'s
+    `_BAND_LINE` carries neither suffix and is exactly the constant this shape
+    exists to catch, once that module joins the scan (next increment).
+    Modelled on the `ast.Call`-on-`ast.Attribute` shape in
+    `tests/hooks/test_no_test_can_spawn_a_real_agent.py`.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: set[str] = set()
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        is_bare_pattern_string = (
+            isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+            and _name_feeds_a_compile_call(tree, target.id)
+        )
+        if _is_re_compile_call(node.value) or is_bare_pattern_string:
+            names.add(target.id)
+    return names
+
+
+def _missing_registrations(
+    modules: dict[str, Path], registry: dict[str, set[str]]
+) -> dict[str, set[str]]:
+    """{module: unregistered pattern names}, empty when the registry is
+    complete for every module in `modules`."""
+    gaps: dict[str, set[str]] = {}
+    for name, path in modules.items():
+        found = pattern_shaped_constants(path)
+        gap = found - registry.get(name, set())
+        if gap:
+            gaps[name] = gap
+    return gaps
+
+
+class TestRegistryCompleteness(unittest.TestCase):
+    """The leg that matters going forward — see the module docstring: the
+    pins above prove today's two guards are alive; only this leg stops
+    tomorrow's from arriving dead and unregistered.
+    """
+
+    def test_every_pattern_shaped_constant_in_the_covered_modules_is_registered(
+        self,
+    ):
+        gaps = _missing_registrations(_GUARD_MODULE_PATHS, _REGISTRY)
+        self.assertFalse(
+            gaps,
+            f"guard pattern(s) with no registered specimen: {gaps} — add a "
+            "derived specimen and a _REGISTRY entry for each",
+        )
+
+    def test_registry_module_set_matches_the_covered_modules(self):
+        """The registry's own keys must be exactly the modules this suite
+        scans — a stray key with no scan target, or a scanned module with no
+        key, both mean the two have drifted apart from each other."""
+        self.assertEqual(set(_REGISTRY), set(_GUARD_MODULE_PATHS))
+
+    def test_the_scan_is_not_vacuous(self):
+        """A throwaway pattern in a fixture file the completeness check must
+        actually name — proving the AST scan recognizes the shape, rather
+        than passing because it scans nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp) / "_fixture_guard.py"
+            fixture.write_text(
+                "import re\n_THROWAWAY_RE = re.compile(r'x')\n", encoding="utf-8"
+            )
+            gaps = _missing_registrations({"_fixture_guard": fixture}, {})
+            self.assertIn("_THROWAWAY_RE", gaps.get("_fixture_guard", set()))
+
+    def test_a_registry_scoped_to_budget_helpers_alone_misses_band_line(self):
+        """The scope decision, proven rather than argued: `_band_proof.py`
+        holds the SAME class of guard (`_BAND_LINE`, a message parser whose
+        non-match is exactly as green as a real absence) but is not yet part
+        of this suite's real scan target. The moment a scan target widens to
+        include it — as the next increment's real `_GUARD_MODULE_PATHS` does
+        — a registry that still only names `_budget_helpers` misses it
+        entirely. This is the proof for widening scope, not a claim about
+        what is registered here today.
+        """
+        wider_modules = {
+            **_GUARD_MODULE_PATHS,
+            "_band_proof": _TESTS_DIR / "_band_proof.py",
+        }
+        gaps = _missing_registrations(wider_modules, _REGISTRY)
+        self.assertIn("_BAND_LINE", gaps.get("_band_proof", set()))
 
 
 if __name__ == "__main__":
