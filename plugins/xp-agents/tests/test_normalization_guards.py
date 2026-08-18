@@ -20,7 +20,10 @@ the retired `test_measured_len_normalizes_the_real_worktree_layout` in
 
 `_HISTORICAL_ID_RE` is pinned alongside the worktree-segment regex because it
 is the same class of defect in a different shape: a DETECTOR whose non-match
-reads as "no ids found" — exactly as green as a real absence.
+reads as "no ids found" — exactly as green as a real absence. `_band_proof.py`'s
+`_BAND_LINE` is the third shape: a PARSER that reads a measured value out of an
+assertion message, where a wording drift in that message is invisible the same
+way.
 
 The per-pattern pins above only prove TODAY's guards are alive. That is
 necessary but not the leg that matters going forward: they name patterns that
@@ -48,6 +51,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _append_impl
+import _band_proof
 import _budget_helpers
 import event_builder
 import worktree
@@ -59,11 +63,13 @@ _TESTS_DIR = Path(__file__).resolve().parent
 # level (unlike pattern NAMES within a module) stays hand-kept.
 _GUARD_MODULE_PATHS: dict[str, Path] = {
     "_budget_helpers": _TESTS_DIR / "_budget_helpers.py",
+    "_band_proof": _TESTS_DIR / "_band_proof.py",
 }
 
 # {module: {pattern constant name pinned in this file}}.
 _REGISTRY: dict[str, set[str]] = {
     "_budget_helpers": {"_WORKTREE_SEGMENT_RE", "_HISTORICAL_ID_RE"},
+    "_band_proof": {"_BAND_LINE"},
 }
 
 # ---------------------------------------------------------------------------
@@ -253,21 +259,51 @@ class TestRegistryCompleteness(unittest.TestCase):
             self.assertIn("_THROWAWAY_RE", gaps.get("_fixture_guard", set()))
 
     def test_a_registry_scoped_to_budget_helpers_alone_misses_band_line(self):
-        """The scope decision, proven rather than argued: `_band_proof.py`
-        holds the SAME class of guard (`_BAND_LINE`, a message parser whose
-        non-match is exactly as green as a real absence) but is not yet part
-        of this suite's real scan target. The moment a scan target widens to
-        include it — as the next increment's real `_GUARD_MODULE_PATHS` does
-        — a registry that still only names `_budget_helpers` misses it
-        entirely. This is the proof for widening scope, not a claim about
-        what is registered here today.
+        """The scope decision, proven rather than argued: narrowing the
+        registry to `_budget_helpers` alone — the naive cut, scoped to the
+        one file this story is nominally about — leaves `_band_proof.py`'s
+        `_BAND_LINE` unregistered even though the real scan target (this
+        module's own `_GUARD_MODULE_PATHS`) already covers that file, and
+        `_BAND_LINE` is the same class of guard as the other two. This is why
+        the registry's module set names BOTH files, not just the one the
+        story is nominally about.
         """
-        wider_modules = {
-            **_GUARD_MODULE_PATHS,
-            "_band_proof": _TESTS_DIR / "_band_proof.py",
-        }
-        gaps = _missing_registrations(wider_modules, _REGISTRY)
+        narrow_registry = {"_budget_helpers": _REGISTRY["_budget_helpers"]}
+        gaps = _missing_registrations(_GUARD_MODULE_PATHS, narrow_registry)
         self.assertIn("_BAND_LINE", gaps.get("_band_proof", set()))
+
+
+# ---------------------------------------------------------------------------
+# Increment 3 — _band_proof's message parser.
+# ---------------------------------------------------------------------------
+
+
+class _SpyCase(unittest.TestCase):
+    """A throwaway TestCase to pass as the `testcase` arg of a budget assert,
+    so its failure can be caught and read without polluting the outer test."""
+
+    def runTest(self) -> None:
+        pass
+
+
+class TestBandLineGuardIsPinned(unittest.TestCase):
+    """`_BAND_LINE` parses `band_offender`'s failure MESSAGE to recover a
+    measured value. If the message's wording drifts, the regex matches
+    nothing — the same failure as the other two, one level removed: it reads
+    a value out of prose instead of a path or an id.
+    """
+
+    def test_matches_a_real_band_offender_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "SPEC.md").write_text("x" * 99, encoding="utf-8")
+            with self.assertRaises(AssertionError) as caught:
+                _budget_helpers.assert_md_under_budgets(
+                    _SpyCase(), tmp_path, "*.md", {"SPEC": 100}, "test"
+                )
+        message = str(caught.exception)
+        match = _band_proof._band_line_re("SPEC").search(message)
+        self.assertIsNotNone(match, f"no band line for SPEC in: {message!r}")
 
 
 if __name__ == "__main__":
