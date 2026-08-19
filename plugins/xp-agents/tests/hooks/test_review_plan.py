@@ -289,6 +289,49 @@ class TestReviewPlanPreload(_IntegrationTestCase):
         self.assertNotIn(f"PLAN_FILE={plan_a}", third.stdout)
         self.assertIn("PLAN_FILE_ERROR=No plan marker", third.stdout)
 
+    def test_preload_non_path_marker_is_collected(self):
+        """A marker holding no path leaves the gate with no exit unless collected.
+
+        The reviewer's completion is the gate's only discharge, and SKILL.md stops
+        without spawning the reviewer on this branch — so before story-023 the
+        armed state could not be cleared by any act, and re-entering plan mode via
+        the leg that arms a non-path re-armed the same payload.
+
+        Asserted here as well as through the real hook (test_gate_discharge.py)
+        because this is the script that owns the ladder: the three arms differ only
+        in their diagnostic now, and a future edit that splits them again reddens
+        here first.
+        """
+        marker = self.smm_dir / ".plan-awaiting-review"
+        marker.write_text("plan-agent-1")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PLAN_FILE_ERROR=", result.stdout)
+        self.assertIn("records no plan path", result.stdout)
+        self.assertFalse(
+            marker.exists(),
+            "the non-path arm reported an error and left the gate armed — a "
+            "state with no exit is the defect",
+        )
+
+    def test_preload_non_path_marker_clears_the_last_reviewed_pointer(self):
+        """The pointer goes with the marker, as on the deleted-plan arm.
+
+        Left behind, the next run finds no marker, falls back to `.last-plan-path`
+        and silently emits the PREVIOUSLY reviewed plan instead of the loud "no
+        plan marker" the lead is owed.
+        """
+        plan_a = self._write_plan()
+        (self.smm_dir / ".last-plan-path").write_text(str(plan_a))
+        (self.smm_dir / ".plan-awaiting-review").write_text("plan-agent-1")
+        first = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        second = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertNotIn(f"PLAN_FILE={plan_a}", second.stdout)
+        self.assertIn("PLAN_FILE_ERROR=No plan marker", second.stdout)
+
     def test_preload_dead_marker_error_unchanged(self):
         """Marker naming a dead file still reports the existing invalid-marker error."""
         marker = self.smm_dir / ".plan-awaiting-review"
