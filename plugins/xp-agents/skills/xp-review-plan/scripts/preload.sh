@@ -7,10 +7,16 @@ source "$(dirname "$0")/../../_preload_base.sh"
 echo "SMM_DIR=${SMM_DIR}"
 
 # Plan path from marker set by post_tool_exit_plan.py. When the marker is
-# absent (already consumed by a first pass) but .last-plan-path names a file
-# that still exists, this is a re-review — a second pass someone asked for
-# explicitly — not a misfire. Nothing DEMANDS that pass: the reviewer's
-# blocking Next-step option routes forward, not back into another round.
+# absent (consumed by a review that COMPLETED — subagent_stop discharges it, not
+# this script) but .last-plan-path names a file that still exists, this is a
+# re-review, a second pass someone asked for explicitly, not a misfire. Nothing
+# DEMANDS that pass: the reviewer's blocking Next-step option routes forward,
+# not back into another round.
+#
+# This script spends NO gate. The discharge used to live at its end, which put
+# it at review START: an opened-and-abandoned review left the lead un-gated, and
+# on the harness where a shell read of SKILL.md triggers the preload, reading the
+# skill body was enough. The `rm -f` below is a different act — see it there.
 #
 # ACCEPTED LIMIT: .last-plan-path is NOT session-scoped. A later session with
 # no marker falls back to the PREVIOUS session's plan while that file exists,
@@ -57,5 +63,3 @@ emit_system_context_rendered_for plan-reviewer
 emit_path_var PLAN_FILE "$PLAN_PATH"
 emit_var PLAN_SOURCE "$PLAN_SOURCE"
 echo "$PLAN_PATH" > "${SMM_DIR}/.last-plan-path"
-
-rm -f "$MARKER"

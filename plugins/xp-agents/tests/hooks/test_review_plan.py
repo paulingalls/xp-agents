@@ -126,13 +126,21 @@ class TestReviewPlanPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("SPRINT_FILE=", result.stdout)
 
-    def test_preload_clears_plan_marker(self):
-        """Marker file removed after preload runs."""
+    def test_preload_leaves_the_plan_marker(self):
+        """Marker file survives the preload: it is not this script's to spend.
+
+        It used to be deleted here, which put the discharge at review START — so
+        an opened-and-abandoned /xp-review-plan left the lead un-gated, and on the
+        harness where a shell read of SKILL.md triggers the preload, reading the
+        skill body was enough. story-021 moved it to the reviewer's completion
+        (`subagent_stop._handle_plan_review_done`); see
+        tests/hooks/test_gate_discharge.py.
+        """
         plan_path = self._write_plan()
         marker = self.smm_dir / ".plan-awaiting-review"
         marker.write_text(str(plan_path))
         self._run_preload(_PRELOAD_SCRIPT)
-        self.assertFalse(marker.exists())
+        self.assertTrue(marker.exists())
 
     def test_preload_no_plan_exits_ok(self):
         """No plan marker → exits 0, PLAN_FILE not in output."""
@@ -219,28 +227,42 @@ class TestReviewPlanPreload(_IntegrationTestCase):
         self.assertIn("PLAN_SOURCE=marker", result.stdout)
 
     def test_preload_rereview_tags_plan_source_last_reviewed(self):
-        """Second pass (no marker, fallback) tags PLAN_SOURCE=last-reviewed."""
+        """Second pass (no marker, fallback) tags PLAN_SOURCE=last-reviewed.
+
+        The marker is removed between the two runs BY HAND, standing in for the
+        act that removes it in production: the plan reviewer completing
+        (`subagent_stop._handle_plan_review_done`). It used to disappear because
+        the first preload run deleted it, which is exactly what story-021
+        stopped — so this fixture now has to say what a re-review is a second
+        pass AFTER.
+        """
         plan_path = self._write_plan()
-        (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
+        marker = self.smm_dir / ".plan-awaiting-review"
+        marker.write_text(str(plan_path))
         self._run_preload(_PRELOAD_SCRIPT)
+        marker.unlink()
 
         second = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertIn("PLAN_SOURCE=last-reviewed", second.stdout)
 
-    def test_preload_first_pass_still_consumes_marker(self):
-        """Gate pin: the marker is still consumed on a successful first pass.
+    def test_preload_leaves_a_gate_only_a_completed_review_can_clear(self):
+        """Gate pin, inverted by story-021 and still about the same risk.
 
         lead_gates registers PLAN_AWAITING_REVIEW with no active_when, so it
-        stays armed until the marker file disappears. The fallback must not
-        trade a broken re-review for a permanently blocked lead.
+        stays armed until the marker file disappears — which is why "who removes
+        it" matters at all. That is now the reviewer's completion, not this
+        script, so the pin here is that a successful first pass leaves it. The
+        old worry (do not trade a broken re-review for a permanently blocked
+        lead) is answered by re-running /xp-review-plan to completion: the gate
+        is never consulted on a Skill call, only on Write/Edit/MultiEdit.
         """
         plan_path = self._write_plan()
         marker = self.smm_dir / ".plan-awaiting-review"
         marker.write_text(str(plan_path))
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(marker.exists())
+        self.assertTrue(marker.exists())
 
     def test_preload_dead_marker_then_rereview_does_not_resurrect_stale_plan(self):
         """Two-invocation sequence: dead marker error must NOT poison the fallback.
