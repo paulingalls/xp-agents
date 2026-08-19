@@ -87,15 +87,18 @@ class TestResolverIsTheSoleSourceOfTheCommand(unittest.TestCase):
         assert invocation is not None
         self.assertTrue(Path(invocation.argv[0]).is_file())
 
-    def test_the_outlier_skills_are_reached_through_the_resolver(self):
-        """The two the hardcoded default would have got wrong."""
+    def test_the_outlier_skill_is_reached_through_the_resolver(self):
+        """The one the hardcoded default would still get wrong.
+
+        There were two. xp-assign was the other, because its invocation carried
+        `--consume-gate` — and that flag went when the gate it spent moved to the
+        act that satisfies it (story-021), so nothing but a differently-named
+        entry point distinguishes a skill from the default any more. Pinned as
+        one case rather than left asserting an empty argv twice.
+        """
         kickoff = skill_preload_map.resolve_preload("xp-kickoff")
         assert kickoff is not None
         self.assertEqual(Path(kickoff.argv[0]).name, "check_session_needs.sh")
-
-        assign = skill_preload_map.resolve_preload("xp-assign")
-        assert assign is not None
-        self.assertEqual(assign.argv[1:], ["--consume-gate"])
 
     def test_a_skill_we_do_not_ship_injects_nothing(self):
         """A third-party or built-in skill reaches this handler routinely; the

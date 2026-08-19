@@ -155,20 +155,13 @@ _REGISTRY: dict[Site, Verdict] = {
         "sprint stop gate's 'run /xp-accept' nudge — a suppressed reminder, not "
         "a spent gate: nothing becomes permitted that was forbidden.",
     ),
-    # -- xp-assign ----------------------------------------------------------
-    Site("xp-assign/scripts/preload.sh", "--consume-gate", ""): _guarded(
-        "The option parse. Registered alongside the consume it enables because "
-        "this flag is what makes that consume reachable from a hook at all: "
-        "`skill_preload_map._EXTRA_ARGS` puts `--consume-gate` straight into "
-        "the injected argv, so the injection path really does opt in.",
-    ),
-    Site("xp-assign/scripts/preload.sh", "consume_marker", "ASSIGN_PENDING"): _guarded(
-        "Consumes the assign Write gate (`lead_gates`), which blocks Write "
-        "while an unspawned teammate story exists. Spent on a refused call, an "
-        "unassigned story's Write gate is gone with no assignment made. Like "
-        "ACCEPT the consume is self-unblocking — /xp-assign Step 3 writes the "
-        "teammate prompt file — so it cannot move to PostToolUse.",
-    ),
+    # -- xp-assign: no entry, and that is the point -------------------------
+    # It had two — the `--consume-gate` option parse and the
+    # `consume_marker ASSIGN_PENDING` it enabled — and both were DELETED with
+    # their sites (story-021) rather than reclassified, because
+    # `test_no_registry_entry_is_dead` treats an entry matching no site as the
+    # defect it is. The gate discharges from sprint state now, so the assign
+    # preload mutates nothing a refusal or a read could spend.
     # -- the four close preloads --------------------------------------------
     Site("xp-free-close/scripts/preload.sh", "--detector", "close_restart"): _guarded(
         _CLOSE_RESTART_RECORD

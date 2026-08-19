@@ -44,8 +44,12 @@ _TARGET_VERBS: tuple[str, ...] = (
 _RM_F = re.compile(r"(?<![\w-])rm\s+-f(?![\w-])(\s+(?P<target>\S+))?")
 
 # Flags whose PRESENCE is the mutation: the flag is the verb and there is no
-# separate target. `--consume-gate` appears twice in `xp-assign` — the option
-# parse and the guarded consume — and both are real, so both are registered.
+# separate target. `--arm-only` is the only one with a site today; `--consume`
+# had one (`xp-assign`'s `--consume-gate`, retired in story-021) and stays in the
+# alternation because this is a SCAN, whose job is to name a site that does not
+# exist yet — unlike the registry beside it, where an entry matching no site is
+# the defect. Read a green run as "no `--consume-*` flag was added", not as
+# coverage of one.
 _FLAG_VERB = re.compile(r"--(?:consume|arm-only)[\w-]*")
 
 # A shell redirect writing INTO the SMM dir. Not a helper call, so no other

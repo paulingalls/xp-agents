@@ -9,16 +9,23 @@ locator in context and needs a hook to run the preload and inject its output
 instead.
 
 Derivation, not a maintained registry: the script name comes from the
-`skills/*/scripts/*.sh` glob (so a differently-named entry point, like
+`skills/*/scripts/*.sh` glob, so a differently-named entry point, like
 `xp-kickoff/scripts/check_session_needs.sh`, resolves for free — nothing to
-keep in sync, nothing to drift), and only the ARGUMENTS a script needs beyond
-its own path live in a hand-maintained table (`_EXTRA_ARGS`, one entry today).
+keep in sync, nothing to drift. Nothing is hand-maintained here at all now: the
+table of extra arguments went with its last entry (`xp-assign`'s
+`--consume-gate`, story-021), removed rather than left as a lookup over an
+empty dict whose own superset guard an empty set satisfies vacuously.
+
+What an invocation IS has not narrowed: it is still argv AND environment, and
+`PreloadInvocation.argv` is a list precisely so a script that needs an argument
+can be given one. Re-add the table if a second such script appears — with a
+guard that fails on an empty one.
 
 The conformance pin that compared this resolver against each `!`...`` line
 (`tests/skills/test_skill_preload_map.py`) was retired with the last line
 (story-013), as its own docstring required — removed rather than left scanning
 an empty set. What it proved is asserted directly against the resolver now:
-per-skill script name, `_EXTRA_ARGS`, and the env-name contract.
+per-skill script name and the env-name contract.
 
 `CLAUDE_PLUGIN_DATA` is the one name every shipped invocation requires
 forwarded, and an empty value is a SUPPORTED state, not a failure: it is
@@ -40,14 +47,6 @@ import plugin_loader
 # forwarded — not a copy of the ambient environment. Today this is uniform
 # across all 17 preload-bearing skills.
 _REQUIRED_ENV: tuple[str, ...] = ("CLAUDE_PLUGIN_DATA",)
-
-# The one hand-maintained fact this module needs beyond the glob: arguments a
-# script requires beyond its own path. Guarded by a superset test against the
-# glob-derived skill set — a renamed or deleted skill leaves a loud dead
-# entry here rather than a silent no-op.
-_EXTRA_ARGS: dict[str, tuple[str, ...]] = {
-    "xp-assign": ("--consume-gate",),
-}
 
 
 @dataclass(frozen=True)
@@ -113,7 +112,7 @@ def resolve_preload(skill_name: str) -> PreloadInvocation | None:
     if script is None:
         return None
 
-    argv = [str(script.resolve()), *_EXTRA_ARGS.get(skill_name, ())]
+    argv = [str(script.resolve())]
     env = {name: os.environ.get(name, "") for name in _REQUIRED_ENV}
     return PreloadInvocation(argv=argv, env=env)
 
