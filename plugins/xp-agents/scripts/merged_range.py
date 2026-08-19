@@ -29,16 +29,30 @@ from commits import _run_git
 # stays behind when git's object format changes under both.
 from git_head import _OBJECT_NAME_RE
 
+# The range walk's own bound, mirroring `commit_observer_history._TIMEOUT_SECONDS`
+# — a patchable constant rather than a shipped env knob, because the only reader
+# who needs it shorter is a test driving the timeout. `first_parent_range` took
+# no bound at all before, so this states the one it was inheriting.
+_TIMEOUT_SECONDS = 5
+
 
 def first_parent_range(
     cwd: str, base: str, head: str, *, limit: int
 ) -> list[str] | None:
     """Commits on `head`'s first-parent chain that `base` cannot reach, oldest first.
 
-    None when git cannot answer — which is the meaningful case, not an empty
+    None when git RAN and refused — which is the meaningful case, not an empty
     one: `base` unknown to this repo (rewritten by a rebase, garbage-collected,
     or a marker written by another checkout) is a state the caller must report,
     while "nothing new" is a legitimate empty list.
+
+    Raises `commits.GitUnavailable` when git never answered at all. That is the ONLY
+    reason this reads `strict` and no other caller of `_run_git` does: collapsed
+    into the same None, a walk that merely timed out reached the caller as a
+    rewritten history, which it reports as such and then advances past — so the
+    range's commits are never recorded, their resolve trailers never link, and
+    the artifact left behind sends the next reader hunting a rebase that never
+    happened. A retry can change a timeout; nothing can change the refusal.
 
     Every commit returned is reachable from `head` BY CONSTRUCTION — that is
     what `base..head` means — so this query IS `commit_observer`'s reachability
@@ -65,6 +79,8 @@ def first_parent_range(
             f"{base}..{head}",
         ],
         cwd,
+        timeout=_TIMEOUT_SECONDS,
+        strict=True,
     )
     if out is None:
         return None

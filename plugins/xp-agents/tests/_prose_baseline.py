@@ -212,7 +212,13 @@ PROSE_MEASURED: dict[str, int] = {
     # three constants story-016 moved to worktree_state.py, and the surviving
     # rationale is richer anyway (`_nul_paths`'s docstring, which that module
     # imports). Banked downward rather than left as slack.
-    "plugins/xp-agents/scripts/commits.py": 204,
+    # 204 -> 211 (story-025): `_run_git` gained `strict`, and the lines are the
+    # ones a later reader would otherwise undo — that only a TIMEOUT is
+    # retryable, and that a missing binary keeps the decline because raising
+    # there leaves a git-less checkout re-forking the same read forever. The
+    # file is now 449 of its 450 sub-cap, so the next addition takes an
+    # extraction rather than more prose.
+    "plugins/xp-agents/scripts/commits.py": 211,
     # Arrives above the floor, so it records a ceiling on its first commit —
     # no absolute quoted here, per this file's own rule that prose ABOUT the
     # numbers goes stale exactly the way the numbers do.
@@ -260,8 +266,13 @@ PROSE_MEASURED: dict[str, int] = {
     # 197 -> 199: the review's fix to the owed reset — a reconcile owing nothing
     # new must not overwrite one still owed, and the settle moved BELOW the
     # reconcile so a decline settles on its own call — and the two lines say
-    # which loss each shape prevented.
-    "plugins/xp-agents/scripts/commit_observer.py": 199,
+    # which loss each shape prevented. 199 -> 208 (story-025): a git read that
+    # never answered joins the quiet decline path, and the two notes say why it
+    # is not the raise path — `bash_post_tool` calls `observe` unguarded, so a
+    # raise leaves the whole handler and takes test detection, both commit
+    # nudges and the TDD signals with it, which the raise-path contract was
+    # silent about because its test asserts in-process.
+    "plugins/xp-agents/scripts/commit_observer.py": 208,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.

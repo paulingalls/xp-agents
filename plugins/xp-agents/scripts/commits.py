@@ -25,11 +25,23 @@ from diff_filenames import get_filenames_from_diff
 REVIEW_CYCLE_THRESHOLD: int = 2
 
 
-def _run_git(args: list[str], cwd: str, timeout: float = 5) -> str | None:
+class GitUnavailable(RuntimeError):
+    """git never answered, and a retry could change that — see ``strict``."""
+
+
+def _run_git(
+    args: list[str], cwd: str, timeout: float = 5, *, strict: bool = False
+) -> str | None:
     """Run a git command, return stripped stdout or None on failure.
 
     ``timeout`` is PER CALL, so a caller inside a bounded hook divides its own
     budget across its reads — see `get_code_files_for_review`'s ``scan_budget_s``.
+
+    ``strict`` raises `GitUnavailable` for the ONE failure a retry could change
+    — a TIMEOUT — rather than collapsing it into the `None` that also means "git
+    ran and refused". Every other shape keeps that decline: a missing binary is
+    permanent, so raising there would leave a git-less checkout retrying the
+    same read forever. Default False, so an unasking caller reads as before.
     """
     try:
         result = subprocess.run(
@@ -37,7 +49,10 @@ def _run_git(args: list[str], cwd: str, timeout: float = 5) -> str | None:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+    except subprocess.TimeoutExpired as e:
+        if strict:
+            raise GitUnavailable(f"git did not answer within {timeout}s") from e
+    except OSError:
         pass
     return None
 
@@ -406,6 +421,7 @@ from merged_range import (  # noqa: E402  intentional mid-file re-export
 
 __all__ = [
     "REVIEW_CYCLE_THRESHOLD",
+    "GitUnavailable",
     "commit_repo_candidates",
     "count_commits_since",
     "dash_c_unreachable",
