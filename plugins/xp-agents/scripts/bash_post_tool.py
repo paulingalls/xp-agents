@@ -151,7 +151,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     tool_input = input_data.get("tool_input", {})
     tool_response = input_data.get("tool_response", {})
     agent_id = identity.resolve_agent_id(input_data)
-    cwd = input_data.get("cwd", ".")
+    # `.get("cwd", ".")` only applies its default when the KEY is absent — an
+    # explicit `cwd: null` payload (the shape `identity.extract_worktree_name`'s
+    # own docstring says payloads carry) returns None right through it. Two
+    # normalizations because two different readers want different answers:
+    # `observe` and the attribution site must see the real None so they can
+    # decline/omit rather than fabricate; the subprocess-shaped readers below
+    # (`_handle_commit`, `_working_tree_is_test_only`, the uncommitted-files
+    # probe) get the "." fallback they already tolerate.
+    raw_cwd = input_data.get("cwd") or None  # three-valued: str | None
+    cwd = raw_cwd or "."
 
     command = tool_input.get("command", "")
     # tool_response can be a dict with stdout/stderr or a string
@@ -203,7 +212,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     commit_observer.observe(
         smm_dir,
         agent_id,
-        cwd,
+        raw_cwd,
         is_xp_agent_leak=leaked_identity,
     )
 
@@ -305,7 +314,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             concern_metadata: dict = {
                 "action": CONCERN_ACTION_TRANSIENT_TEST,
                 **run_attribution.run_attribution_metadata(
-                    input_data.get("cwd"),
+                    raw_cwd,
                     failed=failed,
                     total=trustworthy_total,
                     errors=errors,

@@ -115,7 +115,7 @@ MAX_RECONCILE = 10
 
 
 def observe(
-    smm_dir: Path, agent_id: str, cwd: str, *, is_xp_agent_leak: bool = False
+    smm_dir: Path, agent_id: str, cwd: str | None, *, is_xp_agent_leak: bool = False
 ) -> None:
     """Record every commit that reached HEAD since this checkout was last seen.
 
@@ -153,7 +153,11 @@ def observe(
     older hash is judged against a watermark this call may just have moved.
     """
     head = git_head.read_head(cwd)
-    if head is None:
+    # `cwd is None` is redundant with `head is None` at runtime — `read_head`
+    # answers None for a None cwd too — but it is what narrows `cwd` from
+    # `str | None` to `str` for every line below, for the type checker rather
+    # than for behavior.
+    if head is None or cwd is None:
         return
     record = commit_observer_state.read_record(smm_dir, cwd)
     last_seen = commit_observer_state.record_field(

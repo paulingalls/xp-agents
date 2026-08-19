@@ -107,13 +107,22 @@ def _common_dir(gitdir: Path) -> Path:
     return common if common.is_absolute() else (gitdir / common).resolve()
 
 
-def read_head(cwd: str) -> str | None:
+def read_head(cwd: str | None) -> str | None:
     """The commit hash HEAD resolves to in the repo containing `cwd`, or None.
 
     None means "could not say" — not a repo, an unreadable HEAD, a symref to a
     branch with no commits yet (a fresh `git init`), or a ref this reader could
-    not find in either the loose files or `packed-refs`.
+    not find in either the loose files or `packed-refs`. Also None for a `cwd`
+    of `None` itself — the one caller (`commit_observer.observe`) sees this
+    for an explicit `cwd: null` payload, and "cannot say" is this module's
+    existing answer to every failure, not a new one. Deliberately narrower
+    than a blanket falsy check: an EMPTY string is a different case
+    (`Path("")` is `Path(".")`, so it walks up from the process cwd and
+    answers about whatever repo it finds there) — left alone rather than
+    folded into this guard.
     """
+    if cwd is None:
+        return None
     dirs = resolve_git_dirs(cwd)
     if dirs is None:
         return None

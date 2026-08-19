@@ -17,21 +17,25 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import bash_post_tool
+import git_head
 import post_tool_use
 from conftest import (
     _HookTestCase,
+    _IntegrationTestCase,
     _make_bash_input,
     _make_write_input,
     make_event,
     refuting_discovery,
 )
 from event_helpers import events_of_type
+from event_metadata import METADATA_KEY_CWD
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
 # make_event(...) call's behavior.
 from event_schema import (
     EVENT_TYPE_ASSUMPTION,
+    EVENT_TYPE_CONCERN,
     EVENT_TYPE_CONVENTION,
     EVENT_TYPE_DECISION,
     EVENT_TYPE_QUESTION,
@@ -302,7 +306,6 @@ class TestPostToolUseHooksConfig(unittest.TestCase):
 
 
 import post_tool_exit_plan  # noqa: E402
-from event_schema import EVENT_TYPE_CONCERN  # noqa: E402
 
 
 class TestPostToolExitPlan(_HookTestCase):
@@ -417,6 +420,78 @@ class TestBashPostToolCodeReviewMentionsAreCadenceHonest(_HookTestCase):
         result = self._assert_not_none(result)
         self.assertIn("/xp-quality-review", result)
         self.assertNotIn("/code-review", result)
+
+
+class TestBashPostToolNullCwd(_IntegrationTestCase):
+    """story-026 leg 1: a payload carrying an explicit `cwd: null` must not
+    kill the hook. `bash_post_tool.py` used to read it via
+    `input_data.get("cwd", ".")`, whose default only applies when the KEY is
+    absent — an explicit null sails through as None, and
+    `commit_observer.observe` then reached `git_head.read_head(None)` ->
+    `Path(None)` -> an uncaught `TypeError`, exiting non-zero and silencing
+    every post-Bash behaviour (test-run detection, the TDD red/green signal,
+    both commit nudges) for the rest of the session.
+
+    Driven as a real subprocess: only the runtime's own read of the exit
+    status can observe this crash — an in-process call to `bash_post_tool.run`
+    never sees a process exit code.
+    """
+
+    def test_null_cwd_exits_zero_and_test_run_status_still_recorded(self):
+        result = self._run_script(
+            "bash_post_tool.py",
+            {
+                "session_id": "null-cwd",
+                "tool_name": "Bash",
+                "tool_input": {"command": "python3 -m pytest tests/"},
+                "tool_response": {"stdout": "===== 5 passed in 0.3s ====="},
+                "cwd": None,
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        events = self._read_events()
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
+        self.assertTrue(any("5 passed" in s["content"] for s in statuses))
+
+
+class TestGitHeadFalsyCwd(unittest.TestCase):
+    """`None` and `""` are different bugs, not one falsy case: `read_head(None)`
+    raised `TypeError` before this story (the crash leg 1 fixes);
+    `read_head("")` never raised — `Path("")` is `Path(".")`, so it just walks
+    up from the process cwd. Asserted separately so a fix for one is never
+    mistaken for covering the other."""
+
+    def test_none_cwd_answers_cannot_say_instead_of_raising(self):
+        self.assertIsNone(git_head.read_head(None))
+
+    def test_empty_string_cwd_does_not_raise(self):
+        git_head.read_head("")  # must not raise
+
+
+class TestBashPostToolNullCwdAttribution(_HookTestCase):
+    """story-026 leg 1, row 3: the attribution site must stay three-valued.
+    `run_attribution.run_attribution_metadata` omits `cwd` when it is not
+    given one — passing the normalized "." fallback instead of the raw
+    payload value would record a fabricated `cwd: "."` on a null-cwd run,
+    which is worse than an honest omission."""
+
+    _WATERMARK_ID = "test-post-tool-null-cwd-attribution"
+
+    def test_null_cwd_concern_omits_cwd_metadata(self):
+        with patch("bash_post_tool._working_tree_is_test_only", return_value=False):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="===== 3 passed, 2 failed in 1.2s =====",
+                    cwd=None,
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_locked(self.smm_dir, self._WATERMARK_ID)
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concerns), 1)
+        self.assertNotIn(METADATA_KEY_CWD, concerns[0]["metadata"])
 
 
 if __name__ == "__main__":
