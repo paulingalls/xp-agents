@@ -25,6 +25,10 @@ valid plan to review) or `PLAN_FILE`/`PLAN_SOURCE` plus, when they exist,
 If `PLAN_FILE_ERROR` is present, report it verbatim to the user and stop —
 do not spawn the reviewer.
 
+Stopping is safe: any armed marker has already been collected rather than left as
+a gate no review could clear, so the lead is not write-blocked. Re-enter plan
+mode to re-arm.
+
 ## Step 2: Spawn the Reviewer (single unconditional spawn)
 
 Otherwise, spawn `xp-agents:xp-plan-reviewer` unconditionally, threading

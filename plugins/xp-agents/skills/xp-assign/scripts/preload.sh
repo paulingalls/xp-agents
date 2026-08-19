@@ -25,13 +25,17 @@ if [ -f "${SMM_DIR}/sprint.json" ]; then
     echo "SPRINT_FILE=$(sprint_render_to_tempfile)"
 fi
 
-# One batch computation emits all four Layer-3 decision vars in a single Python
+# One batch computation emits every Layer-3 decision var in a single Python
 # startup so the TARGET-IDENTITY INVARIANT cannot drift across duplicated filters:
 #   TEAMMATE_STORY_IDS     — the teammate batch /xp-schedule promoted
 #                            (in-progress + execution_mode=teammate), consumed by
 #                            the skill to split + spawn (symmetric with FRONTIER_IDS).
 #   SOLO_TARGET            — a lone in-progress solo story, if any; the skill
 #                            selects it BEFORE the batch (solo-first drain).
+#   IN_AGENT_STORY_IDS     — in-progress stories /xp-assign resolved in-agent.
+#                            Never a spawn target; the DRAIN GUARD reads it,
+#                            because such a story occupies the main checkout
+#                            while appearing in neither of the two vars above.
 #   RECOMMENDED_TIER_STORY — the spawn target, resolved SOLO-FIRST and otherwise
 #                            as the first un-spawned story in batch order — the
 #                            SAME precedence and order the skill pre-flight
@@ -53,7 +57,7 @@ sys.path.insert(0, sys.argv[2])
 from pathlib import Path
 
 from markers import read_teammate_config
-from sprint_store import load_sprint
+from sprint_store import load_sprint, select_promoted_teammate_stories
 from teammate_config_cli import _token_from_config
 from worktree import find_teammate_worktree_for_story
 
@@ -62,11 +66,10 @@ cwd = sys.argv[4]
 sprint = load_sprint(smm_dir)
 teammate_default = _token_from_config(read_teammate_config(smm_dir))
 stories = [] if sprint is None else sprint["stories"]
-batch = [
-    s["id"]
-    for s in stories
-    if s.get("status") == "in-progress" and s.get("execution_mode") == "teammate"
-]
+# THE shared selector, not a fourth spelling of its two literals: this block is
+# embedded Python with ${PLUGIN_ROOT}/smm already on sys.path, so the reuse the
+# TARGET-IDENTITY INVARIANT wants is an import, not a convention.
+batch = [s["id"] for s in select_promoted_teammate_stories(stories)]
 
 # Solo target: a single in-progress solo story is the in-place execution-shape
 # target (story-008), INDEPENDENT of the teammate batch — a mixed frontier must
@@ -81,6 +84,18 @@ solo_in_progress = [
     if s.get("status") == "in-progress" and s.get("execution_mode") == "solo"
 ]
 solo_target = solo_in_progress[0] if len(solo_in_progress) == 1 else ""
+
+# The third value the DRAIN GUARD needs. A story /xp-assign resolved in-agent
+# is live work in the MAIN CHECKOUT, but neither solo nor teammate, so it shows
+# in neither var above and the guard cannot see it — and a teammate spawn checks
+# out the base branch in that same checkout (Step 2). Emitted as its own list,
+# NOT folded into solo_target: solo_target is the in-place SPAWN target, and a
+# story already decided in-agent must never become one.
+in_agent_in_progress = [
+    s["id"]
+    for s in stories
+    if s.get("status") == "in-progress" and s.get("execution_mode") == "in-agent"
+]
 
 # Spawn target, SOLO-FIRST — the same precedence the skill pre-flight applies,
 # so the advertised target and the resolved one agree (on a mismatch the skill
@@ -147,6 +162,7 @@ if target:
 print("\n".join([
     "TEAMMATE_STORY_IDS=" + " ".join(batch),
     "SOLO_TARGET=" + solo_target,
+    "IN_AGENT_STORY_IDS=" + " ".join(in_agent_in_progress),
     "RECOMMENDED_TIER_STORY=" + target,
     "RECOMMENDED_TIER=" + tier,
     "RECOMMENDED_EFFORT=" + effort,
@@ -155,7 +171,7 @@ print("\n".join([
 ' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" "$(pwd)" 2>/dev/null) \
     || TEAMMATE_OUT=""
 if [ -z "$TEAMMATE_OUT" ]; then
-    TEAMMATE_OUT=$'TEAMMATE_STORY_IDS=\nSOLO_TARGET=\nRECOMMENDED_TIER_STORY=\nRECOMMENDED_TIER=none\nRECOMMENDED_EFFORT=\nTEAMMATE_DEFAULT=inherit'
+    TEAMMATE_OUT=$'TEAMMATE_STORY_IDS=\nSOLO_TARGET=\nIN_AGENT_STORY_IDS=\nRECOMMENDED_TIER_STORY=\nRECOMMENDED_TIER=none\nRECOMMENDED_EFFORT=\nTEAMMATE_DEFAULT=inherit'
 fi
 echo "$TEAMMATE_OUT"
 

@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Reading a skill's body must spend none of its gates.
+"""Who discharges the PLAN gate, and who must not be blocked by it.
+
+The assign gate's half of this question moved to `test_assign_gate_discharge.py`
+when the two together crossed the 500-line cap — the seam is the gate, because
+the two clear by completely different mechanisms: the plan gate has no
+`active_when` and is cleared only by the act it demands, while the assign gate is
+state-derived. Anything shared by both lives in `_gate_discharge_case.py`.
+
+Reading a skill's body must spend neither of them.
 
 On the second harness there is no skill tool call: the model reads `SKILL.md`
 with a shell command, and that read IS the invocation the injection handler
@@ -30,43 +38,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
-import lead_gates
 import markers
 from _gate_discharge_case import _READ_COMMANDS, _RealHookTestCase
-from _lead_gate_fixtures import BRANCH_001, _AssignGateTestCase
-from conftest import _s, _sprint_json
-
-
-class TestReadingTheAssignBodySpendsNoAssignGate(_RealHookTestCase):
-    """The assign gate: `cat xp-assign/SKILL.md` used to consume ASSIGN_PENDING.
-
-    The preload's own `--consume-gate` opt-in was the earlier defence, and it
-    cannot hold here: the injected argv passes the flag, so the hook-side run a
-    read triggers IS the opting-in caller. The gate has no discharging act in
-    the preload at all now — nothing arms or spends it there.
-    """
-
-    def _arm(self) -> Path:
-        markers.marker_write(
-            self.smm_dir, markers.ASSIGN_PENDING, "sprint-001 story-001"
-        )
-        return markers.marker_path(self.smm_dir, markers.ASSIGN_PENDING)
-
-    def test_a_read_injects_state_and_leaves_the_assign_gate_armed(self):
-        for command in _READ_COMMANDS:
-            with self.subTest(command=command):
-                gate = self._arm()
-                context = self._read_skill_body("xp-assign", command)
-                self.assertIn(
-                    "SMM_DIR=",
-                    context,
-                    "the real assign preload did not run, so the gate surviving "
-                    "measures nothing",
-                )
-                self.assertTrue(
-                    gate.is_file(),
-                    f"a `{command}` of the assign body spent the lead's assign gate",
-                )
 
 
 class TestReadingTheReviewPlanBodySpendsNoPlanGate(_RealHookTestCase):
@@ -96,42 +69,80 @@ class TestReadingTheReviewPlanBodySpendsNoPlanGate(_RealHookTestCase):
                 )
 
 
-class TestAReadSpendsNothingWhenTheMarkerHoldsNoPath(_RealHookTestCase):
-    """The shape the plugin actually arms on one of its two paths.
+class TestAMarkerHoldingNoPathIsCollected(_RealHookTestCase):
+    """The shape the plugin actually arms on one of its two paths — and the one
+    story-021 left with no exit at all.
 
-    `_arm_plan_gate` points at a plan file that EXISTS — correct for the case
-    it covers, and what keeps the sibling test non-vacuous, but not the only
-    shape shipped. `subagent_stop`'s Plan-via-Agent-tool arm has no plan path
-    in its payload so it writes the agent id, and `post_tool_exit_plan` falls
-    back to the same when ExitPlanMode hands over no `filePath`. The marker
-    therefore routinely holds a non-path, `[ ! -f "$PLAN_PATH" ]` is always
-    true, and a plain `cat` reached the consume — spending the gate with no
-    review. AC1 was measured only on the shape that avoids that branch.
+    `_arm_plan_gate` points at a plan file that EXISTS. That is the shape
+    `post_tool_exit_plan` arms when ExitPlanMode hands over a `filePath`, and it
+    is not the only one shipped: `subagent_stop`'s Plan-via-Agent-tool leg has no
+    plan path in its payload, so it writes the AGENT ID, and the same fallback
+    catches an ExitPlanMode that supplies none. The marker then holds a non-path,
+    `[ ! -f "$PLAN_PATH" ]` is always true, and the preload took a branch that
+    neither consumed nor permitted a review: SKILL.md says stop without spawning
+    the reviewer, and the reviewer's completion is the gate's only discharge. So
+    the armed state had no exit, and re-entering plan mode through the same leg
+    re-armed the same payload.
 
-    The consume stays where the content IS a path: a marker naming a deleted
-    plan can never be satisfied by a review, so collecting it is what stops a
-    lead being write-blocked with nothing to do. A non-path is the opposite
-    case — the plan exists, only its location is unknown — and re-entering plan
-    mode re-arms with a real path.
+    THE ACT THAT DISCHARGES IT IS RUNNING /xp-review-plan (AC2). It collects,
+    like the sibling arm where the marker names a deleted plan, and for the same
+    reason: a gate no review can clear is garbage, and garbage is collected
+    rather than left blocking. story-021 refused to consume here because a plain
+    `cat` of the skill body would spend it — an objection that holds only while
+    the gate is SATISFIABLE, which this one is not.
+
+    Deliberately NOT the alternative the customer rejected: falling back to
+    `.last-plan-path`. That file is written in exactly one place, the success
+    tail of this same preload, so it always names the PREVIOUSLY reviewed plan —
+    reviewing it would let a completed review of plan A discharge the gate armed
+    for plan B, silently. See the plan's rationale; do not re-propose it.
     """
 
     def _arm_with_agent_id(self) -> Path:
-        markers.marker_write(self.smm_dir, markers.PLAN_AWAITING_REVIEW, "main")
-        return markers.marker_path(self.smm_dir, markers.PLAN_AWAITING_REVIEW)
+        """Arm through the REAL writer, so the payload is the shipped one.
 
-    def test_a_read_leaves_a_non_path_plan_gate_armed(self):
+        `subagent_stop.run` on a finished `Plan` agent is what puts a non-path in
+        this marker. Hand-writing "main" would prove the preload handles a string
+        of that shape, not that it handles what the plugin arms.
+        """
+        result = self._run_hook(
+            "subagent_stop.py",
+            {
+                "session_id": "gate-discharge",
+                "agent_id": "plan-1",
+                "agent_type": "Plan",
+                "last_assistant_message": "Plan ready",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        gate = markers.marker_path(self.smm_dir, markers.PLAN_AWAITING_REVIEW)
+        self.assertTrue(gate.is_file(), "the real writer armed nothing")
+        self.assertFalse(
+            Path(gate.read_text().strip()).is_file(),
+            "the fixture armed a real path — this case is about a NON-path",
+        )
+        return gate
+
+    def test_running_the_skill_collects_a_non_path_marker(self):
         for command in _READ_COMMANDS:
             with self.subTest(command=command):
                 gate = self._arm_with_agent_id()
-                self._read_skill_body("xp-review-plan", command)
-                self.assertTrue(
+                context = self._read_skill_body("xp-review-plan", command)
+                self.assertIn(
+                    "PLAN_FILE_ERROR=",
+                    context,
+                    "the preload emitted no diagnostic, so it did not reach the "
+                    "non-path branch and the collect below measures nothing",
+                )
+                self.assertFalse(
                     gate.is_file(),
-                    f"a `{command}` of the review-plan body spent the plan gate "
-                    "through the misfire branch — the shape subagent_stop arms",
+                    "a marker holding no plan path has no act that can satisfy "
+                    "it, so it must be collected rather than left blocking",
                 )
 
     def test_the_misfire_branch_still_collects_a_deleted_plan(self):
-        """The other direction, so the fix is not a blunt disable.
+        """The sibling arm, unchanged — so the collapse is not a blunt widening.
 
         A marker naming a path that does not exist is unsatisfiable garbage and
         must still be collected, or a lead holding one is write-blocked with no
@@ -148,6 +159,33 @@ class TestAReadSpendsNothingWhenTheMarkerHoldsNoPath(_RealHookTestCase):
             gate.is_file(),
             "a marker naming a deleted plan must still be collected",
         )
+
+    def test_both_collecting_arms_clear_the_last_reviewed_pointer(self):
+        """`.last-plan-path` must go with the marker on BOTH arms.
+
+        Left behind, the next invocation finds no marker, falls back to the
+        pointer and silently re-emits the PREVIOUSLY reviewed plan instead of the
+        loud "no plan marker" it owes the lead — the same reason the deleted-plan
+        arm already cleared it, now that the non-path arm collects too.
+        """
+        pointer = self.smm_dir / ".last-plan-path"
+        previous = self.tmpdir / "previously-reviewed.md"
+        previous.write_text("# story-000 An earlier plan\n", encoding="utf-8")
+        for payload, label in (
+            (str(self.tmpdir / "gone.md"), "a path that names nothing"),
+            ("plan-1", "no path at all"),
+        ):
+            with self.subTest(marker_holds=label):
+                pointer.write_text(str(previous))
+                markers.marker_write(
+                    self.smm_dir, markers.PLAN_AWAITING_REVIEW, payload
+                )
+                self._read_skill_body("xp-review-plan")
+                self.assertFalse(
+                    pointer.exists(),
+                    f"the marker held {label} and the stale pointer survived — "
+                    "the next run resurrects the previously reviewed plan",
+                )
 
 
 class TestTheReviewPlanRunIsNotBlockedByItsOwnGate(_RealHookTestCase):
@@ -301,77 +339,6 @@ class TestACompletedPlanReviewDischargesTheGate(_RealHookTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(gate.exists(), "an unrelated subagent spent the plan gate")
         self.assertEqual(self._plan_reviewed_events(), [])
-
-
-class TestTheAssignMarkerStaysArmedButInert(_AssignGateTestCase):
-    """The contract dropping `--consume-gate` rests on, pinned as a sequence.
-
-    Nothing consumes ASSIGN_PENDING at assign time any more, so the marker now
-    outlives the act it demanded. That is only safe because the gate is
-    state-derived: `_unspawned_teammate_story_exists` is its `active_when`, and
-    `lead_gates`'s own prose says it "goes false the moment the last teammate is
-    spawned, and stays false through accept and close."
-
-    A quote is not a test. The existing suite pins the spawned case and the
-    already-done case as separate scenarios; what this adds is the LIFECYCLE —
-    one story walked from un-spawned through accept and close, with the
-    predicate read at each step. The step that matters is the last two: the
-    worktree is gone by then, so a predicate keying on the worktree alone would
-    read the story as un-spawned again and re-block the lead forever with a
-    marker no act can now clear.
-    """
-
-    def _sprint_at(self, status: str) -> None:
-        (self.smm_dir / "sprint.json").write_text(
-            _sprint_json(
-                [
-                    _s(
-                        "story-001",
-                        "As a user I can log in",
-                        status,
-                        execution_mode="teammate",
-                        branch_name=BRANCH_001,
-                    )
-                ]
-            )
-        )
-
-    def _predicate(self) -> bool:
-        """The gate's `active_when`, read directly.
-
-        `cwd` only reaches the worktree lookup, which `_spawned` patches, so the
-        fixtures' own placeholder is the honest value here.
-        """
-        return lead_gates._unspawned_teammate_story_exists(
-            {"cwd": "/tmp"}, self.smm_dir
-        )
-
-    def test_it_goes_false_at_the_spawn_and_stays_false_through_close(self):
-        self._arm()
-
-        self._sprint_at("in-progress")
-        with self._spawned():
-            self.assertTrue(
-                self._predicate(),
-                "an un-spawned promoted story has something to assign",
-            )
-        with self._spawned("story-001"):
-            self.assertFalse(
-                self._predicate(),
-                "the last teammate is spawned — nothing left to assign",
-            )
-
-        # Accept and close: the story leaves in-progress and the worktree is
-        # torn down, so `_spawned()` reports none live from here on.
-        for status in ("reviewing", "closing", "done"):
-            with self.subTest(status=status):
-                self._sprint_at(status)
-                with self._spawned():
-                    self.assertFalse(
-                        self._predicate(),
-                        f"the marker revived at status={status} — the lead is now "
-                        "write-gated by a gate no act can clear",
-                    )
 
 
 if __name__ == "__main__":

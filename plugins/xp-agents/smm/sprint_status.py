@@ -200,8 +200,16 @@ def select_promoted_teammate_stories(stories: list[dict]) -> list[dict]:
     `select_closing_stories` / `select_in_motion_stories`: the selector is the
     shared thing, and the boolean is derived from it, not the other way round.
 
-    (The preload's copy is in shell and cannot import this; it stays a known
-    duplicate — see the standing Reuse concern — but the Python side is one.)
+    /xp-assign's preload imports it too: that block is embedded Python with the
+    `smm` dir on sys.path, so the duplicate the standing Reuse concern named is
+    gone rather than accepted. Its solo and in-agent filters have no selector to
+    share yet — one literal pair each, at one site each.
+
+    `execution_mode` has a THIRD value, `in-agent`, which /xp-assign records for
+    the outcome where it decides not to spawn at all. It is correctly excluded
+    here: there is no teammate to spawn for such a story. That exclusion is what
+    discharges the assign gate — `lead_gates` reads this selector, so a story
+    dropping out of it is how "the assignment is resolved" reaches the gate.
     """
     return [
         s

@@ -158,5 +158,69 @@ class TestTeammateNameCannotEscapeTheNamespace(unittest.TestCase):
                 self.assertEqual(teammate_runner.safe_name(name), name)
 
 
+class TestIsProjectPromptPathRecognisesOnlyThePromptItself(unittest.TestCase):
+    """The Write gate's exemption predicate — it decides which write skips a gate.
+
+    Over-answering True hands the exemption to a path the spawn does not own, so
+    the recognition is asserted against paths `project_prompt_path` BUILT, and
+    the refusals against everything else.
+    """
+
+    SMM = "/data/proj-a/smm"
+
+    def _prompt(self, sprint_id: str | None) -> Path:
+        import teammate_runner
+
+        return teammate_runner.project_prompt_path(
+            self.SMM, "worktree-story-001", sprint_id=sprint_id
+        )
+
+    def test_the_paths_the_writer_builds_are_recognised(self):
+        import teammate_runner
+
+        for sprint_id in ("sprint-117", None):
+            with self.subTest(sprint_id=sprint_id):
+                self.assertTrue(
+                    teammate_runner.is_project_prompt_path(
+                        self.SMM, self._prompt(sprint_id)
+                    )
+                )
+
+    def test_a_traversing_path_does_not_borrow_the_exemption(self):
+        """Lexical `..` must not pass for a member of the namespace.
+
+        `Path.parent` does not collapse `..`, so `<project>/../x.prompt.txt`
+        compared segment-wise looks like a direct child of the project dir while
+        it RESOLVES a level above it — the gap a path guard exists to close.
+        """
+        import teammate_runner
+
+        project = self._prompt(None).parent
+        for path in (
+            project / ".." / "escape.prompt.txt",
+            project / "sprint-117" / ".." / ".." / "escape.prompt.txt",
+        ):
+            with self.subTest(path=str(path)):
+                self.assertFalse(
+                    teammate_runner.is_project_prompt_path(self.SMM, path),
+                    "a path resolving outside the project namespace was "
+                    "recognised as a prompt the spawn owns",
+                )
+
+    def test_a_non_prompt_or_foreign_path_is_refused(self):
+        import teammate_runner
+
+        project = self._prompt(None).parent
+        for path in (
+            project / "notes.md",
+            project / ".prompt.txt",
+            project / "a" / "b" / "x.prompt.txt",
+            project.parent / "proj-b" / "x.prompt.txt",
+            Path("/etc/passwd.prompt.txt"),
+        ):
+            with self.subTest(path=str(path)):
+                self.assertFalse(teammate_runner.is_project_prompt_path(self.SMM, path))
+
+
 if __name__ == "__main__":
     unittest.main()

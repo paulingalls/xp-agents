@@ -307,7 +307,15 @@ PROSE_MEASURED: dict[str, int] = {
     # reader deletes the `story_metrics` check that depends on it.
     "plugins/xp-agents/scripts/identity.py": 239,
     "plugins/xp-agents/scripts/in_place_marker.py": 291,
-    "plugins/xp-agents/scripts/lead_gates.py": 166,
+    # 166 -> 195 (story-023): the assign gate gained a fourth way to go false
+    # (teammate support off) and, more importantly, a docstring that ENUMERATES
+    # all four. story-021 shipped a discharge covering only some of /xp-assign's
+    # outcomes and nothing else could clear the rest, so "which outcomes clear
+    # this, and how" is the fact whose absence cost a permanent write block —
+    # recorded rather than left to be re-derived. The rest is the exemption
+    # rename: `machinery_exempt` now covers the teammate prompt as well as the
+    # plan file, and both the field and the parameter have to say why.
+    "plugins/xp-agents/scripts/lead_gates.py": 195,
     "plugins/xp-agents/scripts/lint_runners.py": 177,
     "plugins/xp-agents/scripts/linter_invocation.py": 201,
     "plugins/xp-agents/scripts/linter_tables.py": 290,
@@ -350,7 +358,14 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
     "plugins/xp-agents/scripts/staged_lint.py": 221,
     "plugins/xp-agents/scripts/tdd_check.py": 133,
-    "plugins/xp-agents/scripts/teammate_runner.py": 182,
+    # 182 -> 199 (story-023): `is_project_prompt_path`, the inverse of
+    # `project_prompt_path`, added so the lead's Write gate can recognise the one
+    # write /xp-assign owes its own spawn. Its docstring is long relative to its
+    # five lines of code because the two facts a reader needs are both negative:
+    # why it is NOT a substring test (drift, and it would accept another
+    # project's prompts) and why it is deliberately sprint-agnostic (the sprint
+    # id resolves fail-open, so pinning it could reject a path the writer owns).
+    "plugins/xp-agents/scripts/teammate_runner.py": 199,
     "plugins/xp-agents/scripts/test_attribution.py": 151,
     "plugins/xp-agents/scripts/test_parsing.py": 151,
     "plugins/xp-agents/scripts/verify_acceptance.py": 159,

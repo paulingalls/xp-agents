@@ -169,7 +169,7 @@ Every skill is inline: it runs in the main agent for full tool access (AskUserQu
 - `/xp-plan` — create/update execution plan with milestones (`execution_plan.json`)
 - `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.json`)
 - `/xp-accept` — acceptance testing gate, mark stories done/deferred, dispatch `/xp-story-close` per accepted story; post-loop dispatches `/xp-schedule` for the next frontier (or `/xp-sprint-review` when none remain)
-- `/xp-schedule` — sole owner of `scheduled → in-progress`: promote the next dependency-satisfied frontier, decide mode (solo vs CLI teammates), set each story's `execution_mode`, and (solo) JIT-create the branch. Runs before planning; state-derived gates (write + EnterPlanMode) enforce it
+- `/xp-schedule` — sole owner of `scheduled → in-progress`: promote the next dependency-satisfied frontier, decide mode (solo vs CLI teammates), set each story's `execution_mode`, and (solo) JIT-create the branch. Runs before planning; state-derived gates (write + EnterPlanMode) enforce it. It owns the *promoted* shape only — `/xp-assign` re-records `execution_mode` as the shape actually executed, and is the sole writer of `in-agent`
 - `/xp-assign` — per-story: read the most-recent per-story plan, target the lowest-id un-spawned teammate story, create its branch, and spawn ONE teammate via `spawn_teammate.py` (per-story plan→review→spawn loop, NOT a batch fan-out). Teammate-only — mode selection and solo branching belong to `/xp-schedule`. Auto-runs after `/xp-schedule` promotion and `/xp-review-plan` (one story at a time)
 - `/xp-story-close` — per-accepted-story: review (close-reviewer mode=story), merge into sprint base via `close_common.py merge`, cleanup teammate worktree if present. Does NOT promote or branch the next story
 - `/xp-sprint-close` — push sprint branch, fork close-reviewer, merge into target, cleanup
@@ -410,6 +410,8 @@ Mode selection happens at `/xp-schedule`, **before** planning — not at `/xp-as
 **Solo mode** — chosen when the frontier is a single story, or 2+ stories share file domains. `/xp-schedule` promotes the lowest-id story, sets `execution_mode=solo`, JIT-creates its branch, and the lead plans + executes it directly (no `/xp-assign`).
 
 **CLI teammate mode** — chosen when 2+ frontier stories have non-overlapping file domains (user confirms). `/xp-schedule` promotes the whole frontier (`execution_mode=teammate`); the lead then loops plan→review→`/xp-assign` per story, one at a time.
+
+**`in-agent`** — the third `execution_mode` value, and the only one `/xp-schedule` never writes. `/xp-assign`'s execution-shape decision can resolve a story by *not* spawning (the plan reviewer recommends in-agent, or the lead forces it), and the lead then implements it in the main checkout. It is recorded because the assign write-gate self-clears from "every promoted teammate story has a worktree": an outcome that creates no worktree needs some other durable trace, or the gate blocks the lead forever with no act that can clear it.
 
 Flow:
 1. `/xp-schedule` reads the frontier, picks mode, promotes (`scheduled → in-progress`), sets `execution_mode`; solo also JIT-branches.
