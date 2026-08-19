@@ -265,16 +265,17 @@ def _take_claim(skill: str) -> bool:
 
 
 def _refresh_heartbeat(input_data: dict) -> None:
-    """Write the liveness heartbeat before the preload reads it.
+    """Record that this hook ran, so other sessions can see this one is alive.
 
-    Ordering is the whole point: the preload refuses and emits a banner instead
-    of state when the heartbeat is stale, so a write placed after the run would
-    inject that banner. That ordering is this module's alone to keep — on the
-    shell-read leg `pre_tool_skill` never fires, so this is the only refresher.
+    Position stopped mattering with story-009, which deleted the preload that
+    read this marker and refused on a stale one. The write survives for
+    `coordination` and `close_cycle_abandonment`, which ask about OTHER sessions
+    and do not care when in this handler it lands — and stays ours on the
+    shell-read leg, where `pre_tool_skill` never fires.
 
-    The WRITE is the shipped one, called rather than copied: the body here was a
-    line-for-line duplicate of `pre_tool_skill.refresh_heartbeat`. Never raises;
-    a heartbeat that cannot be written must not cost the injection.
+    Called rather than copied (the body duplicated
+    `pre_tool_skill.refresh_heartbeat`). Never raises: a heartbeat that cannot
+    be written must not cost the injection.
     """
     pre_tool_skill.refresh_heartbeat(input_data)
 

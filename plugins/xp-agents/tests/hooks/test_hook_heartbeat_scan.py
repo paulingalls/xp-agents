@@ -209,8 +209,9 @@ class TestFreshestSibling(_ScanTestCase):
         self.assertIsNone(hook_heartbeat_scan.freshest_sibling(self.smm_dir, NOW))
 
     def test_the_shared_unsuffixed_marker_is_not_a_sibling(self):
-        """`check_liveness` reads that one directly; counting it here would
-        let a session vouch for itself through the sibling path."""
+        """A session's own unsuffixed marker is read directly by whoever
+        addresses it; counting it as a SIBLING would let a session vouch for
+        itself through the other-sessions path."""
         markers.marker_write(self.smm_dir, markers.HOOK_HEARTBEAT, {"written_at": NOW})
         self.assertIsNone(hook_heartbeat_scan.freshest_sibling(self.smm_dir, NOW))
 

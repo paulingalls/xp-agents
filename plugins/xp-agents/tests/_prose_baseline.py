@@ -70,7 +70,14 @@ PROSE_MEASURED: dict[str, int] = {
     # carries why it CALLS those predicates instead of respelling them, why
     # it no-ops on the second harness, and that the two processes race
     # benignly. A reader without those would reasonably delete the call.
-    "plugins/xp-agents/scripts/preload_injection.py": 151,
+    # 151 -> 154 (story-009): `_refresh_heartbeat`'s docstring said ordering was
+    # "the whole point" because the preload refused on a stale heartbeat. That
+    # reader is deleted, so the claim was false and the replacement has to say
+    # what the write is FOR now — two consumers that never lived in this file.
+    # This is the claim-narrowing case above: the true statement is longer than
+    # the false one it replaces. Cut three times first; a fourth pass would have
+    # been deleting the reason, which this table says the measure must not buy.
+    "plugins/xp-agents/scripts/preload_injection.py": 154,
     "plugins/xp-agents/scripts/close_cycle_abandonment.py": 139,
     "plugins/xp-agents/scripts/close_cycle_stop_gate.py": 163,
     "plugins/xp-agents/scripts/close_gate_commands.py": 149,
@@ -286,7 +293,14 @@ PROSE_MEASURED: dict[str, int] = {
     # and the argument for a rewrite-not-a-second-walk went with it. The
     # footprint paragraph that took this file to 140 stayed; it is about this
     # gate's own placement and belongs nowhere else.
-    "plugins/xp-agents/scripts/hook_liveness.py": 196,
+    # RETIRED (story-009): hook_liveness.py 196 -> 111 prose lines, below the
+    # floor, so the entry goes rather than being re-recorded — this table's own
+    # rule, because an entry for a file that has shrunk below the floor is a
+    # re-entry allowance: the comparison stops running and every deleted line
+    # could come back to the old number with nothing red. The verdict machinery
+    # left (`check_liveness`, its result type, four reason builders, the CLI)
+    # and most of the prose was the argument for THOSE; the primitive's own
+    # reasons are untouched.
     # 227 -> 239: CLOSE_CYCLE_AGENT_ID lands here rather than in
     # `event_metadata` — it is an agent identity, not an event metadata key, and
     # the note has to say why the id is read as a discriminator or a future

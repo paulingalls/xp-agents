@@ -81,9 +81,10 @@ def within_window(age: float | None, stale_after: float = STALE_AFTER_SECONDS) -
     teammate cannot. A caller that needs a tighter answer passes its own value
     rather than growing a second implementation.
 
-    NOT every caller, though, and the bounds are spelled out twice more — in
-    `hook_liveness.check_liveness` and `close_cycle_abandonment
-    .owner_session_is_live`. Returning `bool` is what excludes them: it
+    NOT every caller, though, and the bound is spelled out again in
+    `close_cycle_abandonment.owner_session_is_live` (and in
+    `coordination._session_is_live`, which asks the same question about another
+    session). Returning `bool` is what excludes them: it
     collapses unreadable into False, and both answer `bool | None` precisely so
     an unreadable heartbeat falls to their age fallback instead of reading as a
     dead owner. Extracting a shared `unageable()` was tried and reverted —

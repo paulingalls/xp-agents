@@ -31,7 +31,7 @@ import markers
 import session_start
 import user_prompt_log
 from _heartbeat_fixtures import env as _env
-from _heartbeat_fixtures import heartbeat_payload
+from _heartbeat_fixtures import heartbeat_payload, is_beating
 from conftest import _HookTestCase
 
 
@@ -84,13 +84,16 @@ class TestSessionStartWritesHeartbeat(_HeartbeatWriterTestCase):
         self.assertGreaterEqual(data["written_at"], before)
         self.assertLessEqual(data["written_at"], time.time())
 
-    def test_the_heartbeat_reads_back_as_live(self):
-        """The point of the whole exercise: a preload asking right after a
-        session start gets a positive verdict rather than a refusal."""
+    def test_the_heartbeat_reads_back_as_fresh(self):
+        """The point of the whole exercise: a reader asking right after a
+        session start finds this session beating.
+
+        Asked of the surviving primitive — the verdict reader this used to call
+        is deleted. The question was always "did the writer write", not "what
+        does the verdict say", so the repoint loses nothing.
+        """
         self._run("startup", "sess-live")
-        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-live")):
-            result = hook_liveness.check_liveness(self.smm_dir)
-        self.assertTrue(result.live, result.reason)
+        self.assertIs(is_beating(self.smm_dir, "sess-live"), True)
 
 
 class TestSessionStartSkipsNonMainPaths(_HeartbeatWriterTestCase):
@@ -175,12 +178,11 @@ class TestUserPromptSubmitRefreshesHeartbeat(_HeartbeatWriterTestCase):
         self._run("implement the story")
         self.assertTrue(self._wrote(self.SESSION))
 
-    def test_the_refreshed_heartbeat_reads_back_as_live(self):
+    def test_the_refreshed_heartbeat_reads_back_as_fresh(self):
+        """A stale heartbeat, refreshed by the hook, reads fresh again."""
         self._seed_stale()
         self._run("please carry on")
-        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.SESSION)):
-            result = hook_liveness.check_liveness(self.smm_dir)
-        self.assertTrue(result.live, result.reason)
+        self.assertIs(is_beating(self.smm_dir, self.SESSION), True)
 
 
 class TestUserPromptSubmitWritesOnEveryTurn(_HeartbeatWriterTestCase):

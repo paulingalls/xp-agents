@@ -38,20 +38,12 @@ PINNED_SESSION_ID_VAR = "XP_SESSION_ID"
 STRIPPED_SESSION_ID_VARS = ("CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID")
 TEST_SESSION_ID = "xp-agents-test-session"
 
-# The preload liveness check's escape hatch, and the suite's containment for it.
-#
-# Six `_run_preload` definitions drive preloads, three of them SHADOWING the
-# base-class method with different signatures. Seeding a live heartbeat in one
-# covers a sixth of the surface, and a seventh runner would opt out by simply
-# not knowing it had to. Worse, the byte-budget path fails SILENTLY:
-# `assert_preload_under_budgets` collects only outputs OVER budget, and a short
-# refusal banner is under every budget — so the suite would go green while
-# measuring the refusal instead of the preload.
-#
-# So the bypass is pinned once, here, using the escape hatch the feature ships
-# anyway. The dedicated liveness suites unset it explicitly; that is where the
-# real behavior is exercised.
-SKIP_LIVENESS_ENV = "XP_SKIP_LIVENESS_CHECK"
+# SKIP_LIVENESS_ENV retired. It pinned OFF a preload liveness check that could
+# refuse and emit a banner instead of state — a real hazard while that check
+# existed, because `assert_preload_under_budgets` collects only outputs OVER
+# budget and a short refusal banner is under every budget, so the suite would
+# have gone green while measuring the refusal. The check is deleted, so there is
+# no refusal to suppress and no escape hatch to pin.
 
 # Strip environment variables that would leak a parent shell's state into
 # test subprocesses.
@@ -116,7 +108,6 @@ for _leaked_var in STRIPPED_VARS:
     os.environ.pop(_leaked_var, None)
 
 os.environ[PINNED_SESSION_ID_VAR] = TEST_SESSION_ID
-os.environ[SKIP_LIVENESS_ENV] = "1"
 
 # Pin XP_AGENTS_DATA to a throwaway dir for the whole test session. With
 # SMM_DIR stripped above, any production code that derives its SMM in-process

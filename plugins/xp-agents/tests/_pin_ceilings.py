@@ -48,7 +48,9 @@ BAND_CEILINGS = {
     # room for another helper: the next addition here takes an extraction, as
     # the three before it did (_preload_emit, _preload_diff and
     # _preload_liveness all came out of this file).
-    "plugins/xp-agents/skills/_preload_base.sh": 483,
+    # 483 -> 482 (story-009): the liveness source line and its rationale left
+    # with the fragment they named. Banked rather than left as slack.
+    "plugins/xp-agents/skills/_preload_base.sh": 482,
     # 447 -> 484, crossing the 450 floor: three execution tests for the `.js`
     # branch of the staged-tests gate. Its only coverage was a regex over the
     # glob line, which is exactly what this file's own harness exists to

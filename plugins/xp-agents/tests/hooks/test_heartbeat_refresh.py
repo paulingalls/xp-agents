@@ -196,28 +196,6 @@ class TestPreToolSkillRefreshesHeartbeat(_RefreshTestCase):
         self.assertFalse(self._wrote())
 
 
-class TestSkillPathSelfRescues(_RefreshTestCase):
-    """AC#2, with the ordering trap called out: the refusal fires in the
-    skill's OWN preload, which now runs after PreToolUse:Skill, so a skill
-    invocation genuinely self-rescues a stale heartbeat. The precondition
-    (marker verified stale first) is asserted, not assumed — without it this
-    test would pass trivially against a do-nothing implementation too."""
-
-    def test_stale_marker_then_skill_invocation_reads_back_live(self):
-        self._seed_stale()
-        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.SESSION)):
-            before = hook_liveness.check_liveness(self.smm_dir)
-            self.assertFalse(before.live, "precondition: marker must start stale")
-
-            pre_tool_skill.refresh_heartbeat(
-                _make_skill_input("xp-sprint-start", session_id=self.SESSION),
-                smm_dir=self.smm_dir,
-            )
-
-            after = hook_liveness.check_liveness(self.smm_dir)
-        self.assertTrue(after.live, after.reason)
-
-
 class TestPreToolSkillWritesOnBlockPaths(_IntegrationTestCase):
     """AC#4, the dead-site guard this story exists to prevent regressing.
 
@@ -254,39 +232,3 @@ class TestPreToolSkillWritesOnBlockPaths(_IntegrationTestCase):
             self.smm_dir, hook_liveness.heartbeat_marker(self.SESSION)
         )
         self.assertIsInstance(data, dict)
-
-
-class TestE2ELivenessAfterToolUseFollowingStale(_RefreshTestCase):
-    """AC#5. Full-pipeline proof: a stale heartbeat, followed by an ordinary
-    tool use through each of the three sites, reads back live through the
-    shipped CLI status verdict — not just through the marker file."""
-
-    def test_bash_post_tool_then_status_reports_live(self):
-        self._seed_stale()
-        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.SESSION)):
-            bash_post_tool.run(
-                _make_bash_input("echo hi", session_id=self.SESSION),
-                smm_dir=self.smm_dir,
-            )
-            result = hook_liveness.check_liveness(self.smm_dir)
-        self.assertTrue(result.live, result.reason)
-        self.assertEqual(hook_liveness.EXIT_LIVE, 0)
-
-    def test_post_tool_use_then_status_reports_live(self):
-        self._seed_stale()
-        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.SESSION)):
-            post_tool_use.run(
-                _make_write_input(session_id=self.SESSION), smm_dir=self.smm_dir
-            )
-            result = hook_liveness.check_liveness(self.smm_dir)
-        self.assertTrue(result.live, result.reason)
-
-    def test_pre_tool_skill_then_status_reports_live(self):
-        self._seed_stale()
-        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.SESSION)):
-            pre_tool_skill.refresh_heartbeat(
-                _make_skill_input("xp-sprint-start", session_id=self.SESSION),
-                smm_dir=self.smm_dir,
-            )
-            result = hook_liveness.check_liveness(self.smm_dir)
-        self.assertTrue(result.live, result.reason)

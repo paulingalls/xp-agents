@@ -32,6 +32,31 @@ HOOK_LIVENESS_PY = Path(__file__).parent.parent / "scripts" / "hook_liveness.py"
 _NO_SESSION_ENV = dict.fromkeys(hook_liveness.SESSION_ID_ENV_CANDIDATES, "")
 
 
+def is_beating(smm_dir: Path, session_id: str, *, now: float | None = None):
+    """Is this session's heartbeat fresh? None when it cannot be aged.
+
+    Replaces the deleted verdict reader for the tests that only ever asked
+    "did the writer write" — most uses of `check_liveness` in this suite were
+    that question, not a test of the verdict itself, and they outlived the
+    reader.
+
+    Deliberately THREE-VALUED, matching what the two surviving production
+    consumers return (`coordination._session_is_live`,
+    `close_cycle_abandonment.owner_session_is_live`): an unageable heartbeat is
+    "cannot tell", never "dead". A two-valued helper here would let a test
+    assert a certainty no shipped caller ever gets.
+    """
+    import time
+
+    import hook_heartbeat_scan
+
+    path = markers.marker_path(smm_dir, hook_liveness.heartbeat_marker(session_id))
+    age = hook_heartbeat_scan.sibling_age(smm_dir, path, now or time.time())
+    if age is None:
+        return None
+    return 0 <= age < hook_liveness.STALE_AFTER_SECONDS
+
+
 def env(**overrides: str) -> dict[str, str]:
     """A process env with no discoverable session id, plus any overrides."""
     return {**_NO_SESSION_ENV, **overrides}
