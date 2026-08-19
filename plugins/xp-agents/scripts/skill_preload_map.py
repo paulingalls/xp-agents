@@ -49,6 +49,16 @@ import plugin_loader
 _REQUIRED_ENV: tuple[str, ...] = ("CLAUDE_PLUGIN_DATA",)
 
 
+class PreloadMapError(ValueError):
+    """The resolver's OWN breakage — a skill ships an ambiguous `scripts/`
+    dir — as distinct from `ValueError`'s other use here (a name that names no
+    shipped skill at all). A `ValueError` subclass, not a sibling: existing
+    callers that catch `ValueError` (`resolve_preload_required`, its tests)
+    keep working unchanged, while a caller that needs to tell "the resolver
+    itself is broken for this one skill" apart from "not a skill we ship" can
+    catch this type specifically."""
+
+
 @dataclass(frozen=True)
 class PreloadInvocation:
     argv: list[str] = field(default_factory=list)
@@ -61,25 +71,27 @@ def _skills_dir() -> Path:
     return plugin_loader.resolve_plugin_root() / "skills"
 
 
-def _discover_preload_scripts() -> dict[str, Path]:
-    """Every skill's own preload script, keyed by skill name.
+def _discover_preload_scripts() -> tuple[dict[str, Path], frozenset[str]]:
+    """`(every skill's own preload script keyed by name, the ambiguous ones)`.
 
-    Exactly one `.sh` per skill's `scripts/` dir is assumed; a skill that
-    ships two fails loudly here rather than silently picking one.
+    Exactly one `.sh` per skill's `scripts/` dir is assumed. A skill that ships
+    two is SKIPPED from the map rather than raised here for the whole tree —
+    `resolve_preload` raises for that one skill specifically, using the
+    ambiguous set returned alongside the map, so one skill's broken
+    `scripts/` dir does not take the other sixteen's injection down with it.
     """
     by_skill: dict[str, list[Path]] = {}
     for script in sorted(_skills_dir().glob("*/scripts/*.sh")):
         by_skill.setdefault(script.parent.parent.name, []).append(script)
 
     scripts: dict[str, Path] = {}
+    ambiguous: set[str] = set()
     for name, paths in by_skill.items():
         if len(paths) != 1:
-            raise ValueError(
-                f"{name} ships {len(paths)} preload scripts under scripts/, "
-                f"expected exactly one: {[str(p) for p in paths]}"
-            )
+            ambiguous.add(name)
+            continue
         scripts[name] = paths[0]
-    return scripts
+    return scripts, frozenset(ambiguous)
 
 
 def _names_a_shipped_skill(skill_name: str) -> bool:
@@ -101,14 +113,29 @@ def _names_a_shipped_skill(skill_name: str) -> bool:
 def resolve_preload(skill_name: str) -> PreloadInvocation | None:
     """The preload invocation `skill_name` declares, or None if it has none.
 
-    Raises ValueError for a skill name that names no shipped skill at all —
-    distinct from None, which means "this skill exists and declares no
-    preload."
+    Four outcomes, checked in this order, each distinct from the others:
+
+    - not a shipped skill at all -> `ValueError` ("no such skill")
+    - shipped, but its own `scripts/` dir is ambiguous -> `PreloadMapError`
+      ("the resolver is broken for THIS skill", not "declares no preload")
+    - shipped, unambiguous, no script -> None ("declares no preload")
+    - shipped, unambiguous, one script -> the invocation
+
+    The ambiguous check must run BEFORE the map lookup: a skill skipped out of
+    `_discover_preload_scripts`'s map is simply absent from it, which reads
+    identically to "ships no preload" unless checked against the ambiguous set
+    first.
     """
     if not _names_a_shipped_skill(skill_name):
         raise ValueError(f"unknown skill: {skill_name!r}")
 
-    script = _discover_preload_scripts().get(skill_name)
+    scripts, ambiguous = _discover_preload_scripts()
+    if skill_name in ambiguous:
+        raise PreloadMapError(
+            f"{skill_name} ships more than one preload script under scripts/"
+        )
+
+    script = scripts.get(skill_name)
     if script is None:
         return None
 
