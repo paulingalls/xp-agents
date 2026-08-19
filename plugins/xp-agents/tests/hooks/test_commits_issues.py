@@ -4,6 +4,7 @@
 Split from test_commits.py -- issue-matching and file-listing helpers.
 """
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -30,6 +31,61 @@ from event_schema import (
 
 _SUBPROCESS = "commits.subprocess.run"
 _WATERMARK_ID = "test-commits-issues"
+_SCRIPTS = Path(__file__).parent.parent.parent / "scripts"
+
+# ---------------------------------------------------------------------------
+# _run_git's three-valued result
+# ---------------------------------------------------------------------------
+
+
+class TestRunGitStrict(unittest.TestCase):
+    """AC3, proved rather than audited: the widened result reaches only the
+    one caller that asked for it.
+
+    `_run_git` collapsed every failure into `None`, so a caller could not tell
+    a read that TIMED OUT — retryable — from git running and refusing. Widening
+    that for one caller must not move any of the other seventeen call sites,
+    and the rows above (`test_git_failure_returns_empty`,
+    `test_exception_returns_empty`) are the unchanged-behaviour half of the
+    same claim: they drive the default path and must stay green untouched.
+    """
+
+    @patch(_SUBPROCESS, side_effect=subprocess.TimeoutExpired("git", 5))
+    def test_a_timeout_still_declines_by_default(self, _mock):
+        """The byte-for-byte old behaviour, which is what makes every existing
+        call site safe without being edited."""
+        self.assertIsNone(commits._run_git(["git", "status"], "/tmp"))
+
+    @patch(_SUBPROCESS, side_effect=subprocess.TimeoutExpired("git", 5))
+    def test_a_timeout_raises_only_when_asked(self, _mock):
+        with self.assertRaises(commits.GitUnavailable):
+            commits._run_git(["git", "status"], "/tmp", strict=True)
+
+    @patch(_SUBPROCESS, side_effect=FileNotFoundError("no git on PATH"))
+    def test_a_missing_binary_declines_even_when_asked(self, _mock):
+        """`FileNotFoundError` is an `OSError`, and it is PERMANENT. Routed to
+        the retryable path it would leave a git-less checkout never advancing
+        and re-forking the same read on every call, forever."""
+        self.assertIsNone(commits._run_git(["git", "status"], "/tmp", strict=True))
+
+    @patch(_SUBPROCESS)
+    def test_a_non_zero_exit_declines_even_when_asked(self, mock_run):
+        """git RAN and refused — a bad revision, and no retry changes it."""
+        mock_run.return_value = SimpleNamespace(returncode=128, stdout="")
+        self.assertIsNone(commits._run_git(["git", "status"], "/tmp", strict=True))
+
+    def test_exactly_one_call_site_asks_for_it(self):
+        """The audit AC3 would otherwise need a human to redo on every change.
+        A second opt-in is not forbidden — it is a decision, and this row is
+        where it gets made rather than arriving unnoticed inside a diff."""
+        askers = [
+            f.name
+            for f in sorted(_SCRIPTS.glob("*.py"))
+            for line in f.read_text().splitlines()
+            if "strict=True" in line
+        ]
+        self.assertEqual(askers, ["merged_range.py"])
+
 
 # ---------------------------------------------------------------------------
 # get_code_files_for_review
