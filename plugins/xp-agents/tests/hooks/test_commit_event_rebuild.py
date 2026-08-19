@@ -81,6 +81,12 @@ _CAPPED_FILES = (
     # of file the other three would otherwise grow into. The review-cycle split
     # is the cap doing its job — the sprint-007 close review's rows crossed it.
     _SCRIPTS_DIR / "commit_observer.py",
+    # What the observer SAYS when it cannot record what it can see, split off
+    # when the rewrite-detection and owed-reset work would have pushed the
+    # observer through the cap. Capped on arrival, per this list's own rule:
+    # a file added only once it is crowded has already had its placement
+    # decision made for it.
+    _SCRIPTS_DIR / "commit_observer_reports.py",
     _SCRIPTS_DIR / "git_head.py",
     Path(__file__).resolve().parent / "test_commit_observer.py",
     Path(__file__).resolve().parent / "test_commit_observer_cycle.py",

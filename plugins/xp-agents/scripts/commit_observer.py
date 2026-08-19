@@ -39,9 +39,9 @@ recording at most the single newest commit.
 
 For the same reason this module does NOT borrow the observing Bash's command
 string. There is no command to name — an `ls` did not produce the commit it
-happens to notice — so the decline records below identify the OBSERVER as their
-source rather than stamping `Command: <some unrelated ls>` on a commit it had
-nothing to do with.
+happens to notice — so the decline records in `commit_observer_reports` identify
+the OBSERVER as their source rather than stamping `Command: <some unrelated ls>`
+on a commit it had nothing to do with.
 
 ## Where it runs, and what it deliberately does not touch
 
@@ -69,8 +69,8 @@ import _common
 import code_files
 import commit_emit
 import commit_event
+import commit_observer_reports
 import commits
-import concerns
 import git_head
 import identity
 import markers
@@ -99,8 +99,9 @@ _MARKER_FIELD = "head"
 # accounted for weeks ago.
 #
 # Declining is the safe direction, and the decline is LOUD: see
-# `_record_range_declined`. Truncating instead would report success over a
-# silent cap, which is the failure mode this whole story exists to remove.
+# `commit_observer_reports.record_range_declined`. Truncating instead would
+# report success over a silent cap, which is the failure mode this whole story
+# exists to remove.
 MAX_RECONCILE = 10
 
 # The observer's OWN lock file, never the event log's. `flock` conflicts
@@ -113,12 +114,6 @@ _LOCK_FILE = ".commit-observer.lock"
 # best-effort advisory file, where blocking a synchronous hook for the event
 # log's 10s is its own problem. On expiry the range simply stays open.
 _LOCK_TIMEOUT_SECONDS = 2
-
-_OBSERVER_SOURCE = (
-    "Recorded by the post-Bash commit observer, which compares HEAD against "
-    "the last one it saw in this checkout. No command is named because none "
-    "was observed making it."
-)
 
 
 def _marker_key(cwd: str) -> str:
@@ -219,7 +214,7 @@ def _reconcile(
         cwd, last_seen, head, limit=MAX_RECONCILE + 1
     )
     if revs is None:
-        _record_range_declined(
+        commit_observer_reports.record_range_declined(
             smm_dir,
             agent_id,
             head,
@@ -229,7 +224,7 @@ def _reconcile(
         )
         return
     if len(revs) > MAX_RECONCILE:
-        _record_range_declined(
+        commit_observer_reports.record_range_declined(
             smm_dir,
             agent_id,
             head,
@@ -358,10 +353,14 @@ def _record_one(
         from_commit_only=True,
     )
     if event is None:
-        _record_declined(smm_dir, agent_id, rev, "git would not return its message")
+        commit_observer_reports.record_declined(
+            smm_dir, agent_id, rev, "git would not return its message"
+        )
         return False
     if not _append_or_raise(smm_dir, event):
-        _record_declined(smm_dir, agent_id, rev, "the event log refused the event")
+        commit_observer_reports.record_declined(
+            smm_dir, agent_id, rev, "the event log refused the event"
+        )
         return False
     # So a later commit in the SAME range is not read against a stale log: a
     # merge later in the range rebuilds its own recorded-hash index off this
@@ -397,45 +396,3 @@ def _append_or_raise(smm_dir: Path, event: dict) -> bool:
 def _hash_of(event: dict) -> str:
     """The event's commit hash, for a diagnostic that must not raise itself."""
     return str(event.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH, "?"))
-
-
-def _record_declined(smm_dir: Path, agent_id: str, rev: str, why: str) -> None:
-    """A commit reachable from HEAD that no event will carry is reported.
-
-    AC3: a declined reconcile is distinguishable from a successful one — a
-    CONCERN carrying the hash, where a success is a COMMIT event carrying it.
-    The backgrounded case recorded NEITHER, which is the defect being fixed; a
-    new silent path here would reproduce it one module over.
-    """
-    _append_concern(
-        smm_dir,
-        agent_id,
-        f"A commit at {rev[:12]} is reachable from HEAD with no recorded event, "
-        f"and {why}, so nothing was recorded for it. Any resolve trailer on it "
-        f"is unlinked. {_OBSERVER_SOURCE}",
-        metadata={METADATA_KEY_COMMIT_HASH: rev},
-    )
-
-
-def _record_range_declined(
-    smm_dir: Path, agent_id: str, head: str, reason: str
-) -> None:
-    """The whole range was refused. Say which range, and why."""
-    _append_concern(
-        smm_dir,
-        agent_id,
-        f"Commit reconciliation declined at HEAD {head[:12]}: {reason} "
-        f"{_OBSERVER_SOURCE}",
-        metadata={METADATA_KEY_COMMIT_HASH: head},
-    )
-
-
-def _append_concern(
-    smm_dir: Path, agent_id: str, content: str, *, metadata: dict
-) -> None:
-    """Never raise: an observation must not break the user's Bash call."""
-    with contextlib.suppress(OSError, ValueError):
-        _common.append_safe(
-            smm_dir,
-            concerns.make_concern(content, "low", agent_id, metadata=metadata),
-        )
