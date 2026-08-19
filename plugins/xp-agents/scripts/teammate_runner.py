@@ -166,9 +166,11 @@ def is_project_prompt_path(smm_dir: str | Path, path: str | Path) -> bool:
     Sprint-agnostic by construction — ``_project_dir`` appends the sprint token
     as ONE segment, so matching the project dir and its direct children keeps the
     answer independent of re-resolving the (fail-open) sprint id, which may differ from
-    what the ``--print-prompt-path`` query saw.
+    what the ``--print-prompt-path`` query saw. Normalised lexically first, since
+    ``Path.parent`` keeps ``..`` as a segment; not ``resolve()``, which would
+    also follow symlinks and refuse the writer's own ``/tmp`` path.
     """
-    candidate = Path(path)
+    candidate = Path(os.path.normpath(path))
     if not candidate.name.removesuffix(PROMPT_SUFFIX) or not candidate.name.endswith(
         PROMPT_SUFFIX
     ):

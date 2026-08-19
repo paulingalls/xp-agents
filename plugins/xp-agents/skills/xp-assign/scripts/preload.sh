@@ -57,7 +57,7 @@ sys.path.insert(0, sys.argv[2])
 from pathlib import Path
 
 from markers import read_teammate_config
-from sprint_store import load_sprint
+from sprint_store import load_sprint, select_promoted_teammate_stories
 from teammate_config_cli import _token_from_config
 from worktree import find_teammate_worktree_for_story
 
@@ -66,11 +66,10 @@ cwd = sys.argv[4]
 sprint = load_sprint(smm_dir)
 teammate_default = _token_from_config(read_teammate_config(smm_dir))
 stories = [] if sprint is None else sprint["stories"]
-batch = [
-    s["id"]
-    for s in stories
-    if s.get("status") == "in-progress" and s.get("execution_mode") == "teammate"
-]
+# THE shared selector, not a fourth spelling of its two literals: this block is
+# embedded Python with ${PLUGIN_ROOT}/smm already on sys.path, so the reuse the
+# TARGET-IDENTITY INVARIANT wants is an import, not a convention.
+batch = [s["id"] for s in select_promoted_teammate_stories(stories)]
 
 # Solo target: a single in-progress solo story is the in-place execution-shape
 # target (story-008), INDEPENDENT of the teammate batch — a mixed frontier must

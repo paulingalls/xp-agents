@@ -129,8 +129,10 @@ quiet once no promoted teammate story is missing its worktree, and an in-agent
 outcome creates none — so unrecorded it reads as "not assigned yet", and the lead
 stays write-blocked with no act that can clear it. `/xp-schedule` still owns
 promotion; this records the shape executed, and is the only writer of `in-agent`.
-Branch 1 persists nothing: `off` is a session setting the lead can reverse, so
-that shape is not decided yet and its gate clears from the setting instead.
+Branch 1 persists nothing — with no spawn possible there is no executed shape
+to record. Its gate clears from the setting instead, and clearing means the
+marker is CONSUMED: re-enabling teammate support later does not bring the gate
+back, only the next plan review re-arms it.
 
 **Override audit event.** When the chosen tier differs from the recommendation
 (branch 2's forced in-agent, or branch 5 when the customer keeps the default),

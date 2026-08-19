@@ -189,7 +189,8 @@ def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
         # so the gate demands an impossible act. Only an EXPLICIT off clears —
         # read_teammate_config fail-safes to enabled=True on a missing, corrupt
         # or unrecognized marker, so every read it cannot trust keeps blocking,
-        # the same direction as the reads above.
+        # the same direction as the reads above. But REVERSIBLE, unlike them, and
+        # check_lead_gates DELETES on a False: re-enabling needs a new review.
         return False
     cwd = input_data.get("cwd", ".")
     live_branches = worktree.live_teammate_branch_by_story(cwd)
