@@ -14,9 +14,8 @@ sessions would otherwise read-modify-write the same marker with no lock
 between them, and a lost update reads exactly like a dead runtime. That
 choice is what makes a scan necessary, and this module is that scan —
 extracted from `hook_liveness` so a reader asking about ANOTHER session's
-runtime (`coordination.has_active_teammates`) can age one heartbeat without
-importing the verdict machinery, which only ever answers about the process
-it runs in.
+runtime (`coordination.has_active_teammates`, `close_cycle_abandonment
+.owner_session_is_live`) can age one heartbeat without importing the writer.
 """
 
 import sys
@@ -76,8 +75,8 @@ def within_window(age: float | None, stale_after: float = STALE_AFTER_SECONDS) -
     FUTURE_SKEW_GRACE_SECONDS for why the far end is bounded at all.
 
     `stale_after` is the far end only, and it is a parameter because "still
-    good" is not one question: the preload check tolerates a user who stepped
-    away between prompts, while a Stop gate deciding whether to release on a
+    good" is not one question: the reap tolerates a user who stepped away
+    between prompts, while a Stop gate deciding whether to release on a
     teammate cannot. A caller that needs a tighter answer passes its own value
     rather than growing a second implementation.
 
@@ -127,27 +126,3 @@ def reap_stale_siblings(smm_dir: Path, keep: Path, now: float) -> None:
             path.unlink()
         except OSError:
             continue
-
-
-def freshest_sibling(smm_dir: Path, now: float) -> float | None:
-    """Age of the youngest per-session heartbeat still inside the threshold.
-
-    None means no other session's hooks have run recently. Two callers in
-    `hook_liveness` need "is the runtime alive anywhere" — the absent-marker
-    path and the stale path — and they must reach the same answer without
-    sharing a verdict, because absence and staleness are different diagnoses
-    even when the scan result is identical.
-
-    What this no longer feeds is a LIVE verdict. A neighbour's heartbeat is
-    evidence about that neighbour; both callers use this only to say so in
-    their refusal.
-    """
-    freshest: float | None = None
-    for path in smm_dir.glob(SESSION_GLOB):
-        age = sibling_age(smm_dir, path, now)
-        # `within_window` already rejects None; the explicit leg is what lets a
-        # static reader narrow `age` to a float for the `min` below.
-        if age is None or not within_window(age):
-            continue
-        freshest = age if freshest is None else min(freshest, age)
-    return freshest

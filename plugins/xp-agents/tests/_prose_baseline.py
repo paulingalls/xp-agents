@@ -293,7 +293,7 @@ PROSE_MEASURED: dict[str, int] = {
     # and the argument for a rewrite-not-a-second-walk went with it. The
     # footprint paragraph that took this file to 140 stayed; it is about this
     # gate's own placement and belongs nowhere else.
-    # RETIRED (story-009): hook_liveness.py 196 -> 111 prose lines, below the
+    # RETIRED (story-009): hook_liveness.py 196 -> 114 prose lines, below the
     # floor, so the entry goes rather than being re-recorded — this table's own
     # rule, because an entry for a file that has shrunk below the floor is a
     # re-entry allowance: the comparison stops running and every deleted line

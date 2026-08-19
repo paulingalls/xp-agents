@@ -13,8 +13,10 @@ long-running teammate keeps a live verdict:
 - `pre_tool_skill.py`   — PreToolUse:Skill, before the skill's own preload
 
 A fourth tool-use site — `review_cycle_done.py`, PostToolUse:Skill|Agent —
-landed later (story-004) and is pinned in
-tests/integration/test_hook_liveness_e2e.py, not here.
+landed later (story-004). Its placement pins moved HERE when the e2e suite
+that held them was deleted with the liveness verdict reader (story-009): the
+verdict is gone, the write site is not, and its placement is the same property
+the three above are pinned for.
 
 Marker mechanics are tested in test_hook_heartbeat_marker.py /
 test_hook_heartbeat_liveness.py; the writer PATTERN is tested in
@@ -42,11 +44,13 @@ import hook_liveness
 import markers
 import post_tool_use
 import pre_tool_skill
+import review_cycle_done
 from _heartbeat_fixtures import env as _env
 from _heartbeat_fixtures import heartbeat_payload
 from conftest import (
     _HookTestCase,
     _IntegrationTestCase,
+    _make_agent_input,
     _make_bash_input,
     _make_skill_input,
     _make_write_input,
@@ -193,6 +197,57 @@ class TestPreToolSkillRefreshesHeartbeat(_RefreshTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
+        self.assertFalse(self._wrote())
+
+
+class TestReviewCycleDoneRefreshesHeartbeat(_RefreshTestCase):
+    """The PostToolUse:Skill|Agent site, and the two ways it goes dead.
+
+    Be honest about the reach: `hooks.json` registers PreToolUse for `Skill`
+    only while PostToolUse is `Skill|Agent`, so an `Agent` dispatch gets no
+    pre-write at all. An orchestrating lead that spawns subagents without
+    touching bash or the filesystem is the population this site reaches — thin,
+    but the one the other three miss.
+
+    Placement, like the rest of this suite. `run()` returns at `_detect_target`
+    for anything off the allowlist, and again for an xp-agent completion, so a
+    write placed after either is dead for most of what this hook sees.
+    """
+
+    _OFF_ALLOWLIST = "general-purpose"
+
+    def _completion(self, subagent_type: str, **overrides):
+        return review_cycle_done.run(
+            _make_agent_input(subagent_type, session_id=self.SESSION, **overrides),
+            smm_dir=self.smm_dir,
+        )
+
+    def test_a_completion_off_the_allowlist_still_refreshes(self):
+        """The write sits ahead of `_detect_target`: it records that this HOOK
+        ran, not that this particular completion mattered."""
+        self._seed_stale()
+        before = time.time()
+        with patch.dict(os.environ, _env()):
+            self._completion(self._OFF_ALLOWLIST)
+        data = self._payload()
+        assert isinstance(data, dict)
+        self.assertGreaterEqual(data["written_at"], before)
+
+    def test_an_xp_subagent_completion_seen_from_a_main_session_refreshes(self):
+        """The guard's subject is who is EXECUTING (`agent_type`), not who just
+        completed (`tool_input.subagent_type`). Reading the second would
+        exclude every xp- subagent completion observed from a main session —
+        most of them — leaving this site almost no population."""
+        with patch.dict(os.environ, _env()):
+            self._completion("xp-code-reviewer")
+        self.assertTrue(self._wrote())
+
+    def test_xp_agent_writes_no_heartbeat(self):
+        """The recursion guard, mirrored from bash_post_tool.py. Paired with
+        the positive cases above — alone it would pass against a hook that
+        writes nothing at all."""
+        with patch.dict(os.environ, _env()):
+            self._completion(self._OFF_ALLOWLIST, agent_type="xp-code-reviewer")
         self.assertFalse(self._wrote())
 
 

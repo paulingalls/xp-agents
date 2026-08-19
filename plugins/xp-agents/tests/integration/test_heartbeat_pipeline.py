@@ -3,20 +3,25 @@
 
 The unit suite (tests/hooks/test_heartbeat_writers.py) calls `run()` in
 process, which proves the placement but not the plumbing. This drives a hook as
-the platform does — a separate `python3`, JSON on stdin, resolving the SMM for
-itself — because that is where the failures the feature exists to catch
-actually live: an import that only resolves under the test runner's sys.path,
-or a heartbeat written somewhere no other process looks.
+the platform does — a separate `python3`, JSON on stdin, resolving the SMM
+through the same env the platform hands it — because that is where the failures
+the feature exists to catch actually live: an import that only resolves under
+the test runner's sys.path, or a heartbeat written somewhere no other process
+looks.
 
 **Repointed, not deleted.** This used to read the verdict back through the
 shipped `hook_liveness.py status` CLI, on the argument that a file on disk is
 not the claim — the claim is that a fresh process asking "are hooks running"
-gets yes. That CLI is gone with the rest of the verdict reader, but the
-property it demonstrated is the one thing that still proves the KEPT write
-sites work end to end, so it is asked of the surviving primitive instead: a
-fresh process resolves the SMM itself, addresses the same session's marker, and
-ages it. If that stops working, `coordination` and `close_cycle_abandonment`
-both silently lose their liveness signal.
+gets yes. That CLI is gone with the rest of the verdict reader, but the WRITE
+half of that claim is the one thing that still proves the KEPT write sites work
+end to end, so it is asked of the surviving primitive instead: a separate
+process writes, and a reader that is not that process addresses the same
+session's marker and ages it. If that stops working, `coordination` and
+`close_cycle_abandonment` both silently lose their liveness signal.
+
+What this does NOT prove, and did not before either: the READER crossing a
+process boundary. Both surviving consumers run inside a hook, so the in-process
+read here is the shape they use.
 """
 
 import subprocess

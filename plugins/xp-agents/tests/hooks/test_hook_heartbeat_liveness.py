@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hook-liveness heartbeat: concurrent sessions, write safety, and the CLI.
+"""Hook-liveness heartbeat: concurrent sessions, write safety, the id chain.
 
 Split from test_hook_heartbeat_marker.py, which holds the marker
 definition and the staleness predicate.
@@ -38,7 +38,7 @@ class TestConcurrentSessionsShareOneSmm(_HookTestCase):
         with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=session_id)):
             hook_liveness.write_heartbeat(self.smm_dir, now=at)
 
-    def _beating(self, session_id: str, at: float):
+    def _beating(self, session_id: str, at: float) -> bool | None:
         """Is this session beating, as the surviving consumers ask it.
 
         Was `check_liveness`, which answered about the process it ran in and
@@ -86,12 +86,10 @@ class TestConcurrentSessionsShareOneSmm(_HookTestCase):
     def test_a_far_future_sibling_is_reaped_and_vouches_for_nobody(self):
         """A sibling dated far ahead is not evidence of a live runtime.
 
-        Both sibling scans share one bounds helper for this: unreaped, a
-        heartbeat dated years out never expires, so it would sit in the
-        SESSION_GLOB forever and answer every "is the runtime alive anywhere"
-        scan in the affirmative. No verdict can be reached through a sibling
-        any more, but the reap and the bound still have to hold — the
-        remaining sibling scan feeds the session-mismatch diagnosis.
+        Unreaped, a heartbeat dated years out never expires, so it would sit
+        in the SESSION_GLOB forever and every reader that globs it — this reap
+        included — would read it as a live session's file. The bound at the
+        future end is what expires it instead.
         """
         self._write_as("clock-ahead", self.NOW + 10 * hook_liveness.STALE_AFTER_SECONDS)
         self._write_as("me", self.NOW)

@@ -5,7 +5,7 @@ The story this file belongs to deletes the VERDICT reader — `check_liveness`,
 its `Liveness` result, its reason-building helpers and the `status` CLI — and
 keeps the HEARTBEAT primitive. The split is not a preference: the reader had
 exactly one consumer and story-020 measured that consumer inert, while the
-primitive has three that are not.
+primitive has the two below, and neither is.
 
 **The proof of a keep is a CONSUMER's behaviour, never a name.** A test that
 lists survivors passes trivially and reddens only on an import error — the
@@ -30,7 +30,6 @@ and had to be amended.
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -71,14 +70,18 @@ class TestTheHeartbeatPrimitiveIsLoadBearing(_HookTestCase):
             True,
         )
 
-    def test_a_no_op_writer_makes_the_owner_unreadable(self):
-        """The mutation. With nothing written there is no marker to age, so the
-        answer is None — "cannot tell" — not False. The distinction matters to
-        the caller: `owner_session_is_live` returning None sends it to the age
-        fallback, while False would record an abandonment against a live close.
+    def test_the_owner_is_unreadable_when_the_writer_never_ran(self):
+        """The mutation: the same call, with the write withheld.
+
+        Withheld by NOT MAKING IT — a `patch.object` on `write_heartbeat` would
+        only stub the name this test calls itself, which is the same thing said
+        less honestly. Nothing else in this method's path writes a heartbeat.
+
+        With nothing written there is no marker to age, so the answer is None —
+        "cannot tell" — not False. The distinction matters to the caller:
+        `owner_session_is_live` returning None sends it to the age fallback,
+        while False would record an abandonment against a live close.
         """
-        with patch.object(hook_liveness, "write_heartbeat", lambda *a, **k: None):
-            hook_liveness.write_heartbeat(self.smm_dir, session_id=_OWNER)
         self.assertIsNone(
             close_cycle_abandonment.owner_session_is_live(self.smm_dir, _OWNER),
             "the abandonment detector no longer depends on the heartbeat, so "
@@ -95,11 +98,11 @@ class TestTheHeartbeatPrimitiveIsLoadBearing(_HookTestCase):
         hook_liveness.write_heartbeat(self.smm_dir, session_id=_OWNER)
         self.assertIs(coordination._session_is_live(self.smm_dir, _OWNER), True)
 
-    def test_a_no_op_writer_makes_coordination_undecided(self):
+    def test_coordination_is_undecided_when_the_writer_never_ran(self):
+        """The same mutation against the second consumer — see above for why
+        the write is withheld rather than stubbed."""
         import coordination
 
-        with patch.object(hook_liveness, "write_heartbeat", lambda *a, **k: None):
-            hook_liveness.write_heartbeat(self.smm_dir, session_id=_OWNER)
         self.assertIsNone(
             coordination._session_is_live(self.smm_dir, _OWNER),
             "the Stop-gate conflict check no longer depends on the heartbeat",

@@ -27,10 +27,11 @@ is itself a green check certifying something untrue. What this pin does NOT see:
   headless `claude -p` session, and that stays invisible here. Accurate today
   (the spawn script runs exactly one harness); it becomes a leak the day the
   spawn is neutral, and this pin will not be what catches it.
-* Shell prose bound to a variable instead of echoed — `_preload_liveness.sh`
-  assigns a whole user-facing sentence to `_liveness_reason`. Scanning every
-  string literal in every shell file would reach it, at the cost of judging
-  command arguments as English.
+* Shell prose bound to a variable instead of echoed. A shell file may assign a
+  whole user-facing sentence to a variable and echo the variable later; the
+  model reads the echo, not the sentence. Scanning every string literal in
+  every shell file would reach it, at the cost of judging command arguments as
+  English.
 * A documentation URL, which `_PATHY` blanks along with real dotfile paths.
   Both harnesses' readers get pointed at one harness's docs, and neither name
   can be rewritten without naming nothing.
