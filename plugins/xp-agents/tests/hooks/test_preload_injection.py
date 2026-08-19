@@ -331,6 +331,69 @@ class TestHandlerRunsAsAHook(_HookTestCase):
         self.assertIn("MARKER=delivered", completed.stdout)
 
 
+class TestPreloadResolverAmbiguityIsContained(_HookTestCase):
+    """story-026 leg 2: one skill shipping two `.sh` files under its own
+    `scripts/` dir used to make `_discover_preload_scripts` raise for the
+    WHOLE map, and `run_preload`'s bare `except ValueError` could not tell
+    that global failure apart from "not a skill we ship" — so it returned
+    None at exit 0, and every OTHER preload-bearing skill resolved off that
+    same map lost its injection too, silently. The next teammate to extract a
+    shared shell helper into a second `.sh` under any skill's `scripts/` would
+    turn injection off for all 17 skills at once, with nothing in the logs.
+    """
+
+    def _fake_root(self) -> Path:
+        root = Path(self.smm_dir) / "plugin"
+        ambiguous = root / "skills" / "xp-ambiguous" / "scripts"
+        ambiguous.mkdir(parents=True)
+        _write_script(ambiguous / "preload.sh", 'echo "AMBIGUOUS-A"')
+        _write_script(ambiguous / "extra.sh", 'echo "AMBIGUOUS-B"')
+        healthy = root / "skills" / "xp-healthy" / "scripts"
+        healthy.mkdir(parents=True)
+        _write_script(healthy / "preload.sh", 'echo "HEALTHY-STATE"')
+        return root
+
+    def test_ambiguous_skill_logs_and_others_still_resolve(self):
+        root = self._fake_root()
+        with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": str(root)}):
+            ambiguous_output = preload_injection.run_preload(
+                "xp-ambiguous", str(self.smm_dir)
+            )
+            healthy_output = preload_injection.run_preload(
+                "xp-healthy", str(self.smm_dir)
+            )
+        self.assertIsNone(ambiguous_output)
+        self.assertEqual(healthy_output, "HEALTHY-STATE\n")
+        errors_path = self.smm_dir / "hook_errors.jsonl"
+        self.assertTrue(errors_path.exists())
+        self.assertIn("xp-ambiguous", errors_path.read_text())
+
+    def test_unknown_skill_name_stays_a_silent_no_op(self):
+        """Most tool calls reaching this handler are not ours — a third-party
+        or built-in skill must not become loud just because the resolver now
+        distinguishes its OWN breakage."""
+        root = self._fake_root()
+        errors_path = self.smm_dir / "hook_errors.jsonl"
+        with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": str(root)}):
+            output = preload_injection.run_preload(
+                "not-a-real-skill", str(self.smm_dir)
+            )
+        self.assertIsNone(output)
+        self.assertFalse(errors_path.exists())
+
+    def test_ambiguous_skill_is_distinguishable_from_a_no_preload_skill(self):
+        """Both used to surface as a plain `None` from `resolve_preload` if the
+        ambiguous one were merely dropped from the map — indistinguishable
+        from "this skill exists and declares no preload." They must not be."""
+        root = self._fake_root()
+        no_preload = root / "skills" / "xp-quiet" / "scripts"
+        no_preload.mkdir(parents=True)
+        with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": str(root)}):
+            with self.assertRaises(skill_preload_map.PreloadMapError):
+                skill_preload_map.resolve_preload("xp-ambiguous")
+            self.assertIsNone(skill_preload_map.resolve_preload("xp-quiet"))
+
+
 class TestInjectedStateMatchesInstructionTimeState(unittest.TestCase):
     """The mechanism swap must not change WHAT arrives, only how.
 

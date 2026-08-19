@@ -151,7 +151,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     tool_input = input_data.get("tool_input", {})
     tool_response = input_data.get("tool_response", {})
     agent_id = identity.resolve_agent_id(input_data)
-    cwd = input_data.get("cwd", ".")
+    # `.get("cwd", ".")` defaults only on a MISSING key: an explicit
+    # `cwd: null` payload (a shape `identity.extract_worktree_name` documents)
+    # returns None through it. Kept three-valued because `observe` and the
+    # attribution site derive a CHECKOUT from this value, where "." fabricates
+    # `main` — they must see the real None and decline/omit. The git-subprocess
+    # readers below take "." (this process's cwd). `_handle_commit` is impure:
+    # it shells out AND keys the review watermark off it, so a null-cwd commit
+    # in a worktree still settles under `main` — pre-dates this fix, unfixed.
+    raw_cwd: str | None = input_data.get("cwd") or None
+    cwd = raw_cwd or "."
 
     command = tool_input.get("command", "")
     # tool_response can be a dict with stdout/stderr or a string
@@ -203,7 +212,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     commit_observer.observe(
         smm_dir,
         agent_id,
-        cwd,
+        raw_cwd,
         is_xp_agent_leak=leaked_identity,
     )
 
@@ -305,7 +314,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             concern_metadata: dict = {
                 "action": CONCERN_ACTION_TRANSIENT_TEST,
                 **run_attribution.run_attribution_metadata(
-                    input_data.get("cwd"),
+                    raw_cwd,
                     failed=failed,
                     total=trustworthy_total,
                     errors=errors,

@@ -150,11 +150,23 @@ def run_preload(skill: str, cwd: str) -> str | None:
     """That skill's own preload output, or None if it has none or it failed.
 
     Returns None — never a partial or error stream — on every failure mode:
-    an unknown skill name, a skill that ships no preload, a non-zero exit, a
-    timeout, or empty output. The caller injects nothing in each case.
+    an unknown skill name, a skill that ships no preload, an ambiguous
+    `scripts/` dir, a non-zero exit, a timeout, or empty output. The caller
+    injects nothing in each case, but not all of them are equally silent —
+    see the two `except` clauses below.
     """
     try:
         invocation = skill_preload_map.resolve_preload(skill)
+    except skill_preload_map.PreloadMapError as e:
+        # The resolver's OWN breakage, for THIS one skill — distinct from
+        # "not a skill we ship". Logged rather than swallowed: this is the
+        # one failure mode here that a fix elsewhere in the plugin (a second
+        # `.sh` landing under some skill's `scripts/`) could introduce, and it
+        # must not vanish at exit 0 the way it did before this story.
+        _common.log_hook_error(
+            f"run_preload: {e}", error_class="PreloadMapError", skill=skill
+        )
+        return None
     except ValueError:
         # Names no skill we ship (a third-party or built-in skill). Not an
         # error: most tool calls that reach this handler are not ours.
