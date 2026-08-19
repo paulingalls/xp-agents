@@ -143,6 +143,11 @@ def observe(
     It does NOT advance when the reconcile RAISES: that recorded nothing, so
     advancing would silently drop the range this exists to catch. The
     per-commit dedup makes the next Bash's retry resume rather than duplicate.
+    That path is the EXPENSIVE one, not a free "leave it open": nothing guards
+    this call, so a raise leaves the whole PostToolUse handler — test-run
+    detection, the commit nudges and the TDD signals never run for that Bash.
+    A failure that needs only the range left open belongs in the quiet `except`
+    in the body below, which costs none of that.
 
     An OWED reset is settled on the very next Bash carrying a usable identity,
     whether or not HEAD moved — that Bash is overwhelmingly one where it did
@@ -177,10 +182,14 @@ def observe(
                 )
                 or owed
             )
-        except _append_impl.LockTimeoutError:
-            # Another observer holds the record lock. Return WITHOUT
-            # advancing, so the next Bash walks the same range — and without
-            # raising into the user's Bash call to say so.
+        except (_append_impl.LockTimeoutError, commits.GitUnavailable):
+            # Another observer holds the record lock, or a git read never
+            # answered. Return WITHOUT advancing, so the next Bash walks the
+            # same range — and without raising into the user's Bash call to say
+            # so. The git leg joins this one rather than the raise path below
+            # BECAUSE of that second half: `bash_post_tool` calls `observe`
+            # unguarded, so a raise leaves its `run()` entirely and takes test
+            # detection, both commit nudges and the TDD signals with it.
             return
     settled = False
     if owed and not is_xp_agent_leak:
@@ -213,9 +222,10 @@ def _reconcile(
             smm_dir,
             agent_id,
             head,
-            f"git could not describe the range {last_seen[:12]}..{head[:12]}. The "
-            "last-seen commit is unknown to this checkout — rewritten by a "
-            "rebase, garbage-collected, or written by another repository.",
+            f"git could not describe the range {last_seen[:12]}..{head[:12]}. "
+            "Either the last-seen commit is unknown to this checkout — "
+            "rewritten by a rebase, garbage-collected, or written by another "
+            "repository — or git could not be run here at all.",
         )
         return None
     if len(revs) > MAX_RECONCILE:

@@ -12,8 +12,13 @@ HEAD without reaching the log. A per-file copy of this class is how a fix to the
 seeding shape reaches one suite and not the others.
 """
 
+import os
+import shutil
 import sys
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -31,6 +36,15 @@ from event_schema import EVENT_TYPE_COMMIT
 # has to ride on. `ls` rather than anything git: the observer must not need a
 # git-shaped command to notice that HEAD moved.
 ORDINARY_BASH = "ls -la"
+
+# The one argument the observer's range walk passes and no other git read on
+# this path does: `git rev-list --first-parent --reverse --max-count=N base..head`.
+# `count_commits_since` walks `rev-list --count --first-parent`, and a shim
+# keyed on `rev-list` alone would stall that too. Scoping matters because
+# `observe` and `bash_post_tool` make several individually-bounded git reads —
+# a blanket shim lets a row pass or fail for a reason other than the one it
+# asserts.
+RANGE_WALK_ONLY = "--reverse"
 
 
 class _ObserverCase(_RebuildTestCase):
@@ -50,6 +64,44 @@ class _ObserverCase(_RebuildTestCase):
     def observe(self) -> str | None:
         """A later ordinary Bash — where the catch-up happens."""
         return self.run_hook(ORDINARY_BASH)
+
+    def stalling_git_path(self, *, seconds: int = 30) -> str:
+        """`$PATH` with a `git` in front that HANGS on the range walk alone.
+
+        A shim rather than `patch("subprocess.run", side_effect=TimeoutExpired)`:
+        patching the exception asserts only that the `except` clause does what
+        it was just written to do, while a shim drives a real timeout through
+        the real call. The subprocess row cannot patch anything at all, which
+        is the second reason this is a shim and not a mock.
+        """
+        real_git = shutil.which("git")
+        self.assertIsNotNone(real_git, "these cases need a real git to fall through to")
+        shim_dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, shim_dir, True)
+        shim = shim_dir / "git"
+        shim.write_text(
+            "#!/bin/sh\n"
+            f'for a in "$@"; do\n'
+            f'  [ "$a" = "{RANGE_WALK_ONLY}" ] && exec sleep {seconds}\n'
+            f"done\n"
+            f'exec {real_git} "$@"\n'
+        )
+        shim.chmod(0o755)
+        return f"{shim_dir}{os.pathsep}{os.environ['PATH']}"
+
+    @contextmanager
+    def stalling_git(self, *, seconds: int = 30):
+        """The shim above, in force for an in-process `observe`."""
+        with patch.dict(os.environ, {"PATH": self.stalling_git_path(seconds=seconds)}):
+            yield
+
+    @contextmanager
+    def no_git(self):
+        """No `git` on PATH at all — the permanent failure, not a retryable one."""
+        empty = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, empty, True)
+        with patch.dict(os.environ, {"PATH": str(empty)}):
+            yield
 
     def marker(self) -> dict | None:
         data = markers.marker_read(self.smm_dir, markers.LAST_SEEN_HEAD, "main")
