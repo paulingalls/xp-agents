@@ -236,7 +236,25 @@ PROSE_MEASURED: dict[str, int] = {
     # swallows a lock timeout, so its return cannot distinguish written from
     # dropped, and a dropped event that advanced the marker is a commit no event
     # will ever carry).
-    "plugins/xp-agents/scripts/commit_observer.py": 184,
+    # 184 -> 178 -> 171 (story-022): two extractions, each banked DOWNWARD on
+    # the commit that made it — the report paths to `commit_observer_reports.py`
+    # and the observation record plus its deferred reset to
+    # `commit_observer_state.py`. An entry left above the tree is a re-entry
+    # allowance, and the extracted lines could come back here for free.
+    # 171 -> 189: the rewrite decline arrived, and its notes are the ones a
+    # later reader would otherwise undo — that EVERY git call this module added
+    # sits below the cheap exit and why (a sibling hook path is bounded at 5s,
+    # and one unbudgeted read broke it once this sprint), that the range is
+    # declined wholesale to match the two declines already there rather than
+    # inventing a third shape, and that the decline still OWES its reset
+    # because the marker advances past it. 189 -> 197: the module docstring's
+    # "do not restore the reflog check" rule now says what survives that change
+    # and why — without it the new reflog read reads as the forbidden one.
+    # 197 -> 199: the review's fix to the owed reset — a reconcile owing nothing
+    # new must not overwrite one still owed, and the settle moved BELOW the
+    # reconcile so a decline settles on its own call — and the two lines say
+    # which loss each shape prevented.
+    "plugins/xp-agents/scripts/commit_observer.py": 199,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.

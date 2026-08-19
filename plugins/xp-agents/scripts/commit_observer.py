@@ -37,11 +37,19 @@ older than HEAD by construction.
 guard for a different claim, and adding it would silently reduce this module to
 recording at most the single newest commit.
 
+That rule is about `reflog -1` and about ATTRIBUTION, and it survives a later
+change that may look like its opposite: `commit_observer_history` does read the
+reflog, but it reads the BRANCH's entries and asks whether history inside the
+range was REPLACED — a property of the range, not a claim about who made it.
+The veto above fails because one entry cannot describe a range; that read
+cannot fail the same way, and it declines the range rather than vetoing every
+commit but the newest.
+
 For the same reason this module does NOT borrow the observing Bash's command
 string. There is no command to name — an `ls` did not produce the commit it
-happens to notice — so the decline records below identify the OBSERVER as their
-source rather than stamping `Command: <some unrelated ls>` on a commit it had
-nothing to do with.
+happens to notice — so the decline records in `commit_observer_reports` identify
+the OBSERVER as their source rather than stamping `Command: <some unrelated ls>`
+on a commit it had nothing to do with.
 
 ## Where it runs, and what it deliberately does not touch
 
@@ -57,7 +65,6 @@ an ordinary foreground commit leaves the range open across both, so the next
 plain Bash still reconciles the one that was missed.
 """
 
-import contextlib
 import sys
 from pathlib import Path
 
@@ -69,22 +76,24 @@ import _common
 import code_files
 import commit_emit
 import commit_event
+import commit_observer_history
+import commit_observer_reports
+import commit_observer_state
 import commits
-import concerns
 import git_head
-import identity
 import markers
 import merged_range
-import review_records
+from commit_observer_state import read_last_seen_head
 from event_schema import METADATA_KEY_COMMIT_HASH
 
 __all__ = [
     "MAX_RECONCILE",
+    # Re-exported: the record moved to `commit_observer_state`, but "where did
+    # this checkout last see HEAD" is a question about the OBSERVER, and every
+    # caller asks it of this module.
     "observe",
     "read_last_seen_head",
 ]
-
-_MARKER_FIELD = "head"
 
 # How many unrecorded commits may appear between two observations before this
 # module declines the whole range and says so.
@@ -99,56 +108,10 @@ _MARKER_FIELD = "head"
 # accounted for weeks ago.
 #
 # Declining is the safe direction, and the decline is LOUD: see
-# `_record_range_declined`. Truncating instead would report success over a
-# silent cap, which is the failure mode this whole story exists to remove.
+# `commit_observer_reports.record_range_declined`. Truncating instead would
+# report success over a silent cap, which is the failure mode this whole story
+# exists to remove.
 MAX_RECONCILE = 10
-
-# The observer's OWN lock file, never the event log's. `flock` conflicts
-# between two open file descriptions in the same process, so taking the events
-# lock while holding it — `bulk_append_safe` takes it per append — would
-# deadlock this hook against itself.
-_LOCK_FILE = ".commit-observer.lock"
-
-# Short on purpose. `flock_with_timeout`'s own docstring names this case: a
-# best-effort advisory file, where blocking a synchronous hook for the event
-# log's 10s is its own problem. On expiry the range simply stays open.
-_LOCK_TIMEOUT_SECONDS = 2
-
-_OBSERVER_SOURCE = (
-    "Recorded by the post-Bash commit observer, which compares HEAD against "
-    "the last one it saw in this checkout. No command is named because none "
-    "was observed making it."
-)
-
-
-def _marker_key(cwd: str) -> str:
-    """Which checkout's HEAD this is. The keying the commit path already uses.
-
-    Per repo/worktree, never per session: the SMM is shared across worktrees,
-    and a teammate's commits move ITS head, not the lead's. Sharing one marker
-    would make every worktree look to every other like a giant unexplained
-    jump — and then get declined by the cap above, forever.
-    """
-    return identity.review_watermark_key(cwd)
-
-
-def read_last_seen_head(smm_dir: Path, cwd: str) -> str | None:
-    """The HEAD this checkout was last observed at, or None when never seen."""
-    data = markers.marker_read(smm_dir, markers.LAST_SEEN_HEAD, _marker_key(cwd))
-    if not isinstance(data, dict):
-        return None
-    value = data.get(_MARKER_FIELD)
-    return value if isinstance(value, str) and value else None
-
-
-def _write_last_seen_head(smm_dir: Path, cwd: str, commit_hash: str) -> None:
-    with contextlib.suppress(OSError, ValueError):
-        markers.marker_write(
-            smm_dir,
-            markers.LAST_SEEN_HEAD,
-            {_MARKER_FIELD: commit_hash},
-            _marker_key(cwd),
-        )
 
 
 def observe(
@@ -180,29 +143,53 @@ def observe(
     It does NOT advance when the reconcile RAISES: that recorded nothing, so
     advancing would silently drop the range this exists to catch. The
     per-commit dedup makes the next Bash's retry resume rather than duplicate.
+
+    An OWED reset is settled on the very next Bash carrying a usable identity,
+    whether or not HEAD moved — that Bash is overwhelmingly one where it did
+    not, and waiting for a HEAD move would wait for the next commit, which is
+    precisely the commit the reset exists to make the gate see. It is settled
+    AFTER the reconcile so that a range whose own DECLINE owes a reset settles
+    it on the same call rather than one Bash later, and so a reset owed to an
+    older hash is judged against a watermark this call may just have moved.
     """
     head = git_head.read_head(cwd)
     if head is None:
         return
-    last_seen = read_last_seen_head(smm_dir, cwd)
-    if last_seen == head:
-        return
-    if last_seen is not None:
+    record = commit_observer_state.read_record(smm_dir, cwd)
+    last_seen = commit_observer_state.record_field(
+        record, commit_observer_state.MARKER_FIELD
+    )
+    owed = commit_observer_state.record_field(
+        record, commit_observer_state.OWED_RESET_FIELD
+    )
+    if last_seen is not None and last_seen != head:
         try:
-            _reconcile(
-                smm_dir,
-                agent_id,
-                cwd,
-                last_seen,
-                head,
-                is_xp_agent_leak=is_xp_agent_leak,
+            # `or owed`: rebinding DROPPED a reset still owed from an earlier
+            # walk, whenever this one had nothing left to record.
+            owed = (
+                _reconcile(
+                    smm_dir,
+                    agent_id,
+                    cwd,
+                    last_seen,
+                    head,
+                    is_xp_agent_leak=is_xp_agent_leak,
+                )
+                or owed
             )
         except _append_impl.LockTimeoutError:
             # Another observer holds the record lock. Return WITHOUT
             # advancing, so the next Bash walks the same range — and without
             # raising into the user's Bash call to say so.
             return
-    _write_last_seen_head(smm_dir, cwd, head)
+    settled = False
+    if owed and not is_xp_agent_leak:
+        settled = commit_observer_state.settle_owed_reset(smm_dir, agent_id, cwd, owed)
+        if settled:
+            owed = None
+    if last_seen == head and not settled:
+        return
+    commit_observer_state.write_record(smm_dir, cwd, head, owed)
 
 
 def _reconcile(
@@ -213,13 +200,16 @@ def _reconcile(
     head: str,
     *,
     is_xp_agent_leak: bool,
-) -> None:
-    """Record the unrecorded commits in `last_seen..head`, oldest first."""
+) -> str | None:
+    """Record the unrecorded commits in `last_seen..head`, oldest first.
+
+    Returns the hash whose cycle reset is now OWED, or None when nothing is.
+    """
     revs = merged_range.first_parent_range(
         cwd, last_seen, head, limit=MAX_RECONCILE + 1
     )
     if revs is None:
-        _record_range_declined(
+        commit_observer_reports.record_range_declined(
             smm_dir,
             agent_id,
             head,
@@ -227,9 +217,9 @@ def _reconcile(
             "last-seen commit is unknown to this checkout — rewritten by a "
             "rebase, garbage-collected, or written by another repository.",
         )
-        return
+        return None
     if len(revs) > MAX_RECONCILE:
-        _record_range_declined(
+        commit_observer_reports.record_range_declined(
             smm_dir,
             agent_id,
             head,
@@ -238,14 +228,45 @@ def _reconcile(
             "elsewhere, not a commit this session made, so NONE of the range was "
             "recorded and any resolve trailer on it is unlinked.",
         )
-        return
+        return None
 
     # The cheap pre-check, outside the lock: most ranges here are fully recorded.
     events, _ = _common.load_events_with_resolutions(smm_dir)
     already = commit_event.recorded_commit_hashes(events)
     pending = [rev for rev in revs if rev not in already]
     if not pending:
-        return
+        return None
+
+    # EVERY git call this module added sits below this line, and that placement
+    # is a budget rather than a preference: `observe` runs on every ordinary
+    # Bash, a sibling hook path is bounded at 5s, and one unbudgeted git read
+    # has already broken that bound once this sprint. Above here the cost is a
+    # HEAD read, a marker read and a string compare; the rare reconcile that
+    # reaches here adds at most three forks (two `merge-base --is-ancestor`,
+    # one reflog read), plus one more on the owed-reset path in `observe`.
+    #
+    # Declined WHOLESALE, matching the two declines above rather than inventing
+    # a third shape. The alternative — per-commit `patch-id` identity — asks a
+    # question this module has no way to bound.
+    if commit_observer_history.range_was_rewritten(cwd, last_seen, head):
+        commit_observer_reports.record_range_declined(
+            smm_dir,
+            agent_id,
+            head,
+            f"history after {last_seen[:12]} was rewritten. The hashes now in "
+            "the range are new ones for work already recorded under the old "
+            "ones, so recording them would apply their trailers twice and "
+            "advance the review watermark past unreviewed work. NONE of the "
+            "range was recorded.",
+        )
+        # The marker still advances on a decline, so `_end_cycle_for_the_range`
+        # below never runs for this range and `quality_review_done` stays
+        # latched — which is the very defect the owed reset exists for, reached
+        # by a new route. Owed to HEAD rather than to anything inside the range:
+        # every commit in it is one this observer just refused to record, so a
+        # reset to one would point the gate's `{sha}..HEAD` diff at a commit
+        # carrying no event.
+        return head
     review_cadence = markers.read_review_cadence(smm_dir)
     newest_recorded: str | None = None
 
@@ -258,7 +279,7 @@ def _reconcile(
     # sibling process can still double-record. That needs both writers to take
     # it — a change this module deliberately leaves alone. Said out loud: an
     # undocumented partial fix reads as a complete one.
-    with _observer_lock(smm_dir):
+    with commit_observer_state.observer_lock(smm_dir):
         # REBOUND, not merely re-read: `_record_one` mutates this list in place
         # so a merge later in the range sees earlier appends, and the pre-lock
         # snapshot would derive its trailers from a log that has since moved.
@@ -286,43 +307,24 @@ def _reconcile(
         # the commit is always right, mutating cycle state under a wrong identity
         # is not. INSIDE the lock: released first, a slower observer's older hash
         # lands after a faster one's and walks the watermark backwards.
-        if newest_recorded and not is_xp_agent_leak:
-            _end_cycle_for_the_range(smm_dir, cwd, revs, recorded)
-
-
-def _end_cycle_for_the_range(
-    smm_dir: Path, cwd: str, revs: list[str], recorded: set[str]
-) -> None:
-    """End the cycle for the NEWEST commit in the range the log now carries.
-
-    Not for whichever of them this observer recorded: a foreground commit that
-    already ended its own cycle sits at the top of the same range (the
-    backgrounded case, one commit later), so keying the reset to the older hash
-    walks the watermark BACKWARDS over it and clears the review that ran in
-    between. A watermark already there means that reset happened.
-    """
-    watermark_key = identity.review_watermark_key(cwd)
-    newest = next((rev for rev in reversed(revs) if rev in recorded), None)
-    if newest is None or newest == review_records.read_review_watermark(
-        smm_dir, watermark_key
-    ):
-        return
-    review_records.end_review_cycle(
-        smm_dir, watermark_key, identity.review_flags_key(cwd), newest
-    )
-
-
-def _observer_lock(smm_dir: Path) -> "contextlib.AbstractContextManager[None]":
-    """Serialize this checkout's observers around the read-check-append.
-
-    Held across `_record_one`'s git reads, which is bounded on purpose: only
-    the rare path reaches here, only other observers contend, and
-    `MAX_RECONCILE` caps the walk. Building outside the lock instead would
-    derive merge trailers from the snapshot the lock exists to invalidate.
-    """
-    return _append_impl.flock_with_timeout(
-        smm_dir / _LOCK_FILE, timeout_s=_LOCK_TIMEOUT_SECONDS
-    )
+        #
+        # OWED, not dropped, when the identity is wrong. Skipping the reset is
+        # the deliberate part; losing it is not, and it WAS lost — the marker
+        # advanced past the skip, so the range never came back and
+        # `quality_review_done` stayed latched for good. Returning it up to
+        # `observe` rather than simply not advancing the marker, because that
+        # naive fix deadlocks: the next walk finds everything already recorded,
+        # hits the `if not pending` exit above, and never reaches this line
+        # again.
+        if newest_recorded is None:
+            return None
+        newest = commit_observer_state.newest_recorded_in_range(revs, recorded)
+        if newest is None:
+            return None
+        if is_xp_agent_leak:
+            return newest
+        commit_observer_state.end_cycle_for(smm_dir, cwd, newest)
+    return None
 
 
 def _record_one(
@@ -358,10 +360,14 @@ def _record_one(
         from_commit_only=True,
     )
     if event is None:
-        _record_declined(smm_dir, agent_id, rev, "git would not return its message")
+        commit_observer_reports.record_declined(
+            smm_dir, agent_id, rev, "git would not return its message"
+        )
         return False
     if not _append_or_raise(smm_dir, event):
-        _record_declined(smm_dir, agent_id, rev, "the event log refused the event")
+        commit_observer_reports.record_declined(
+            smm_dir, agent_id, rev, "the event log refused the event"
+        )
         return False
     # So a later commit in the SAME range is not read against a stale log: a
     # merge later in the range rebuilds its own recorded-hash index off this
@@ -397,45 +403,3 @@ def _append_or_raise(smm_dir: Path, event: dict) -> bool:
 def _hash_of(event: dict) -> str:
     """The event's commit hash, for a diagnostic that must not raise itself."""
     return str(event.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH, "?"))
-
-
-def _record_declined(smm_dir: Path, agent_id: str, rev: str, why: str) -> None:
-    """A commit reachable from HEAD that no event will carry is reported.
-
-    AC3: a declined reconcile is distinguishable from a successful one — a
-    CONCERN carrying the hash, where a success is a COMMIT event carrying it.
-    The backgrounded case recorded NEITHER, which is the defect being fixed; a
-    new silent path here would reproduce it one module over.
-    """
-    _append_concern(
-        smm_dir,
-        agent_id,
-        f"A commit at {rev[:12]} is reachable from HEAD with no recorded event, "
-        f"and {why}, so nothing was recorded for it. Any resolve trailer on it "
-        f"is unlinked. {_OBSERVER_SOURCE}",
-        metadata={METADATA_KEY_COMMIT_HASH: rev},
-    )
-
-
-def _record_range_declined(
-    smm_dir: Path, agent_id: str, head: str, reason: str
-) -> None:
-    """The whole range was refused. Say which range, and why."""
-    _append_concern(
-        smm_dir,
-        agent_id,
-        f"Commit reconciliation declined at HEAD {head[:12]}: {reason} "
-        f"{_OBSERVER_SOURCE}",
-        metadata={METADATA_KEY_COMMIT_HASH: head},
-    )
-
-
-def _append_concern(
-    smm_dir: Path, agent_id: str, content: str, *, metadata: dict
-) -> None:
-    """Never raise: an observation must not break the user's Bash call."""
-    with contextlib.suppress(OSError, ValueError):
-        _common.append_safe(
-            smm_dir,
-            concerns.make_concern(content, "low", agent_id, metadata=metadata),
-        )

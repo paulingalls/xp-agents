@@ -58,6 +58,22 @@ class _ObserverCase(_RebuildTestCase):
     def recorded_hashes(self) -> list[str]:
         return [e["metadata"].get("commit_hash") for e in self.commit_events()]
 
+    def reword_rebase(self, base: str, message: str) -> None:
+        """A reword-rebase: `base` survives untouched, everything after it is
+        rewritten to new hashes carrying the same trailers.
+
+        Here rather than in one suite because two of them need the same
+        specimen — one asserts what is NOT recorded from it, the other what the
+        decline still owes. A real `git rebase`, never `git commit --amend`:
+        amend rewrites the same way but sets no ORIG_HEAD and writes no
+        `rebase` reflog entry, so it exercises neither signal and would pass
+        against a module that detects nothing.
+        """
+        msg_file = self.repo / ".rebase-message"
+        msg_file.write_text(message)
+        self.git("rebase", "--no-ff", base, "-x", f"git commit --amend -F {msg_file}")
+        msg_file.unlink()
+
     def record_commit_event(self, commit_hash: str) -> None:
         """Pretend a commit already reached the log, as the branch point has."""
         _common.append_safe(

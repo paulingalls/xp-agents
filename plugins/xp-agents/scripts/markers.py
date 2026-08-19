@@ -114,6 +114,8 @@ QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=T
 # checkout but the writer's. Deliberately NOT in _AGENT_SCOPED_MARKERS: a
 # checkout outlives every session, and swept at session end it left the next one
 # cold-starting, so a HEAD move after a session's last Bash was unrecoverable.
+# Both reasons are also why it carries a SECOND field, `owed_reset` — see
+# `commit_observer_state`.
 LAST_SEEN_HEAD = MarkerDef(".last-seen-head-{agent_id}.json", "json", agent_scoped=True)
 
 
