@@ -61,11 +61,12 @@ PROSE_MEASURED: dict[str, int] = {
     # there rather than on every Bash, and why it runs before the xp-agent
     # return. Both are decisions a reader would otherwise reverse — the first
     # looks like an oversight, the second like a leak.
-    # 133 -> 142 (story-026): the cwd read now carries why it normalizes into
-    # two three-valued variables instead of one fallback string — the
-    # distinction a caller would otherwise collapse back into the null-cwd
-    # crash this story fixes.
-    "plugins/xp-agents/scripts/bash_post_tool.py": 142,
+    # 133 -> 141 (story-026): the cwd read now carries why it normalizes into
+    # two variables instead of one fallback string — the distinction a caller
+    # would otherwise collapse back into the null-cwd crash this story fixes.
+    # Named `raw_cwd: str | None` rather than commented, and the review trimmed
+    # the `_handle_commit` claim to the one that is true.
+    "plugins/xp-agents/scripts/bash_post_tool.py": 141,
     "plugins/xp-agents/scripts/branch_lifecycle.py": 149,
     "plugins/xp-agents/scripts/branch_resolution.py": 207,
     "plugins/xp-agents/scripts/branching.py": 180,
@@ -269,10 +270,10 @@ PROSE_MEASURED: dict[str, int] = {
     # new must not overwrite one still owed, and the settle moved BELOW the
     # reconcile so a decline settles on its own call — and the two lines say
     # which loss each shape prevented.
-    # 199 -> 203 (story-026): `observe`'s `cwd` widened to `str | None` for the
+    # 199 -> 201 (story-026): `observe`'s `cwd` widened to `str | None` for the
     # null-cwd fix, and the guard clause says why the seemingly-redundant
     # `cwd is None` check is there — for the type checker, not new behavior.
-    "plugins/xp-agents/scripts/commit_observer.py": 203,
+    "plugins/xp-agents/scripts/commit_observer.py": 201,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.

@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import bash_post_tool
+import commit_observer_state
 import git_head
 import post_tool_use
 from conftest import (
@@ -363,6 +364,29 @@ class TestBashPostToolNullCwd(_IntegrationTestCase):
         events = self._read_events()
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertTrue(any("5 passed" in s["content"] for s in statuses))
+
+    def test_null_cwd_records_no_observation_for_a_fabricated_checkout(self):
+        """Not crashing is not enough: the observer must receive the RAW None,
+        never the "." the git-subprocess readers take. Its record is keyed by
+        `identity.review_watermark_key(cwd)`, where "." keys `main` and a
+        worktree path keys `story-0NN` — so "." seeds a last-seen record for a
+        checkout this Bash never named, stranding the real lower bound of the
+        range the next Bash walks. The row above stays green either way, which
+        is exactly why this one exists.
+        """
+        result = self._run_script(
+            "bash_post_tool.py",
+            {
+                "session_id": "null-cwd",
+                "tool_name": "Bash",
+                "tool_input": {"command": "echo hi"},
+                "tool_response": {"stdout": "hi"},
+                "cwd": None,
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(commit_observer_state.read_last_seen_head(self.smm_dir, "."))
 
 
 class TestGitHeadFalsyCwd(unittest.TestCase):

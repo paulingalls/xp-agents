@@ -151,15 +151,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     tool_input = input_data.get("tool_input", {})
     tool_response = input_data.get("tool_response", {})
     agent_id = identity.resolve_agent_id(input_data)
-    # `.get("cwd", ".")` only applies its default when the KEY is absent — an
-    # explicit `cwd: null` payload (the shape `identity.extract_worktree_name`'s
-    # own docstring says payloads carry) returns None right through it. Two
-    # normalizations because two different readers want different answers:
-    # `observe` and the attribution site must see the real None so they can
-    # decline/omit rather than fabricate; the subprocess-shaped readers below
-    # (`_handle_commit`, `_working_tree_is_test_only`, the uncommitted-files
-    # probe) get the "." fallback they already tolerate.
-    raw_cwd = input_data.get("cwd") or None  # three-valued: str | None
+    # `.get("cwd", ".")` defaults only on a MISSING key: an explicit
+    # `cwd: null` payload (a shape `identity.extract_worktree_name` documents)
+    # returns None through it. Kept three-valued because `observe` and the
+    # attribution site derive a CHECKOUT from this value, where "." fabricates
+    # `main` — they must see the real None and decline/omit. The git-subprocess
+    # readers below take "." (this process's cwd). `_handle_commit` is impure:
+    # it shells out AND keys the review watermark off it, so a null-cwd commit
+    # in a worktree still settles under `main` — pre-dates this fix, unfixed.
+    raw_cwd: str | None = input_data.get("cwd") or None
     cwd = raw_cwd or "."
 
     command = tool_input.get("command", "")

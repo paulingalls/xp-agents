@@ -153,10 +153,8 @@ def observe(
     older hash is judged against a watermark this call may just have moved.
     """
     head = git_head.read_head(cwd)
-    # `cwd is None` is redundant with `head is None` at runtime — `read_head`
-    # answers None for a None cwd too — but it is what narrows `cwd` from
-    # `str | None` to `str` for every line below, for the type checker rather
-    # than for behavior.
+    # `cwd is None` is redundant at runtime — `read_head` answers None for a
+    # None cwd too — but it narrows `cwd` to `str` below, for the checker.
     if head is None or cwd is None:
         return
     record = commit_observer_state.read_record(smm_dir, cwd)
