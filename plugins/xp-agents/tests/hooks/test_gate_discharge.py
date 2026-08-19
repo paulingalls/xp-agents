@@ -26,84 +26,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import lead_gates
 import markers
+from _gate_discharge_case import _READ_COMMANDS, _RealHookTestCase
 from _lead_gate_fixtures import BRANCH_001, _AssignGateTestCase
-from conftest import _PLUGIN_ROOT, _IntegrationTestCase, _s, _sprint_json
-
-# The shapes the second harness's trigger actually takes. Not the whole
-# `_READ_COMMANDS` set — the point is that the gate survives a read, and one
-# pager plus one head is enough to show the property is not `cat`-specific.
-_READ_COMMANDS = ("cat", "head", "less")
-
-
-class _RealHookTestCase(_IntegrationTestCase):
-    """Drive a shipped hook as its own process, against the shipped plugin."""
-
-    def _run_hook(self, script: str, payload: dict) -> subprocess.CompletedProcess:
-        """Through the shared driver, not a sixth hand-rolled `subprocess.run`.
-
-        `CLAUDE_PLUGIN_ROOT` is the one override these cases need: the preloads
-        the hooks below shell out to resolve their shared library through it.
-        """
-        return self._run_script_with_env(
-            script, payload, {"CLAUDE_PLUGIN_ROOT": str(_PLUGIN_ROOT)}
-        )
-
-    def _skill_md(self, skill: str) -> Path:
-        return _PLUGIN_ROOT / "skills" / skill / "SKILL.md"
-
-    def _injected_context(self, result: subprocess.CompletedProcess) -> str:
-        """The additionalContext the handler emitted, or "" when it emitted none.
-
-        Read out of the real envelope rather than off raw stdout so a handler
-        that printed the preload's output without the `hookSpecificOutput`
-        wrapper — which reaches no model — cannot read as delivery.
-        """
-        self.assertEqual(result.returncode, 0, result.stderr)
-        if not result.stdout.strip():
-            return ""
-        payload = json.loads(result.stdout)
-        return payload.get("hookSpecificOutput", {}).get("additionalContext", "")
-
-    def _arm_plan_gate(self) -> Path:
-        """Arm the plan gate at a plan file that EXISTS, and return the marker.
-
-        The existing file is load-bearing. Pointed at a missing one the
-        review-plan preload takes its misfire branch, which clears the marker as
-        garbage collection and returns early — so a fixture without a plan file
-        would pass a "the gate survived" test against code that spends it.
-        """
-        plan = self.tmpdir / "plan.md"
-        plan.write_text("# story-001 A plan\n\nStep 1.\n", encoding="utf-8")
-        markers.marker_write(self.smm_dir, markers.PLAN_AWAITING_REVIEW, str(plan))
-        return markers.marker_path(self.smm_dir, markers.PLAN_AWAITING_REVIEW)
-
-    def _read_skill_body(self, skill: str, command: str = "cat") -> str:
-        """Inject for a shell READ of `skill`'s body, and return what it injected.
-
-        The claim is released first. On this leg the handler takes one claim per
-        (session, skill) to collapse the burst of reads a single invocation
-        produces, and the suite pins ONE session id — so a second drive in the
-        same test would measure the claim, not the preload, and report "nothing
-        injected" for a reason that has nothing to do with the gate. The shipped
-        release is a 10s TTL, which a test must not sleep through.
-        """
-        for claim in self.smm_dir.glob(".preload-claim-*"):
-            claim.unlink()
-        result = self._run_hook(
-            "preload_injection.py",
-            {
-                "tool_name": "Bash",
-                "tool_input": {"command": f"{command} {self._skill_md(skill)}"},
-                "cwd": str(self.tmpdir),
-                "session_id": "gate-discharge",
-            },
-        )
-        return self._injected_context(result)
+from conftest import _s, _sprint_json
 
 
 class TestReadingTheAssignBodySpendsNoAssignGate(_RealHookTestCase):
@@ -163,6 +94,60 @@ class TestReadingTheReviewPlanBodySpendsNoPlanGate(_RealHookTestCase):
                     gate.is_file(),
                     f"a `{command}` of the review-plan body spent the plan gate",
                 )
+
+
+class TestAReadSpendsNothingWhenTheMarkerHoldsNoPath(_RealHookTestCase):
+    """The shape the plugin actually arms on one of its two paths.
+
+    `_arm_plan_gate` points at a plan file that EXISTS — correct for the case
+    it covers, and what keeps the sibling test non-vacuous, but not the only
+    shape shipped. `subagent_stop`'s Plan-via-Agent-tool arm has no plan path
+    in its payload so it writes the agent id, and `post_tool_exit_plan` falls
+    back to the same when ExitPlanMode hands over no `filePath`. The marker
+    therefore routinely holds a non-path, `[ ! -f "$PLAN_PATH" ]` is always
+    true, and a plain `cat` reached the consume — spending the gate with no
+    review. AC1 was measured only on the shape that avoids that branch.
+
+    The consume stays where the content IS a path: a marker naming a deleted
+    plan can never be satisfied by a review, so collecting it is what stops a
+    lead being write-blocked with nothing to do. A non-path is the opposite
+    case — the plan exists, only its location is unknown — and re-entering plan
+    mode re-arms with a real path.
+    """
+
+    def _arm_with_agent_id(self) -> Path:
+        markers.marker_write(self.smm_dir, markers.PLAN_AWAITING_REVIEW, "main")
+        return markers.marker_path(self.smm_dir, markers.PLAN_AWAITING_REVIEW)
+
+    def test_a_read_leaves_a_non_path_plan_gate_armed(self):
+        for command in _READ_COMMANDS:
+            with self.subTest(command=command):
+                gate = self._arm_with_agent_id()
+                self._read_skill_body("xp-review-plan", command)
+                self.assertTrue(
+                    gate.is_file(),
+                    f"a `{command}` of the review-plan body spent the plan gate "
+                    "through the misfire branch — the shape subagent_stop arms",
+                )
+
+    def test_the_misfire_branch_still_collects_a_deleted_plan(self):
+        """The other direction, so the fix is not a blunt disable.
+
+        A marker naming a path that does not exist is unsatisfiable garbage and
+        must still be collected, or a lead holding one is write-blocked with no
+        act that can clear it.
+        """
+        markers.marker_write(
+            self.smm_dir,
+            markers.PLAN_AWAITING_REVIEW,
+            str(self.tmpdir / "gone.md"),
+        )
+        gate = markers.marker_path(self.smm_dir, markers.PLAN_AWAITING_REVIEW)
+        self._read_skill_body("xp-review-plan")
+        self.assertFalse(
+            gate.is_file(),
+            "a marker naming a deleted plan must still be collected",
+        )
 
 
 class TestTheReviewPlanRunIsNotBlockedByItsOwnGate(_RealHookTestCase):

@@ -38,26 +38,45 @@ fi
 # Misfire short-circuit — skip SMM/sprint renders when there's no valid plan.
 if [ -z "$PLAN_PATH" ] || [ ! -f "$PLAN_PATH" ]; then
     if [ -f "$MARKER" ]; then
-        echo "PLAN_FILE_ERROR=Marker '$(flat "$PLAN_PATH")' invalid. Re-enter plan mode or check ~/.claude/plans/."
-        # Clear the stale last-reviewed pointer too — otherwise the NEXT
-        # invocation silently resurrects the previously reviewed plan
-        # instead of reporting the loud "no plan" error it should.
-        rm -f "$LAST_PLAN_PATH_FILE"
+        case "$PLAN_PATH" in
+        */*)
+            # A PATH that names nothing. Unsatisfiable: no review can ever clear
+            # the gate this arms, so a lead holding it would be write-blocked
+            # with no act available. Collect it — the plan has to be re-entered,
+            # which re-arms from scratch.
+            #
+            # Through the marker helper, load-bearing twice over: it is the
+            # convention (one spelling of the filename, symlink refusal), and it
+            # keeps this act spelled DIFFERENTLY from the discharge that used to
+            # sit at the end of this script. The mutation registry keys a site on
+            # (script, verb, target), so while both were `rm -f "$MARKER"` the two
+            # collapsed into one entry and a re-added discharge would have been
+            # absorbed by this one, unnoticed.
+            echo "PLAN_FILE_ERROR=Marker '$(flat "$PLAN_PATH")' invalid — it names a plan file that does not exist. Re-enter plan mode or check ~/.claude/plans/."
+            # Clear the stale last-reviewed pointer too — otherwise the NEXT
+            # invocation silently resurrects the previously reviewed plan
+            # instead of reporting the loud "no plan" error it should.
+            rm -f "$LAST_PLAN_PATH_FILE"
+            consume_marker PLAN_AWAITING_REVIEW
+            ;;
+        *)
+            # NOT a path — the shape the plugin arms routinely. `subagent_stop`'s
+            # Plan-via-Agent-tool leg has no plan path in its payload and writes
+            # the agent id; `post_tool_exit_plan` falls back to the same when
+            # ExitPlanMode hands over no filePath.
+            #
+            # Do NOT collect it. The case above is "the plan is gone"; this one is
+            # "the plan exists, only its location is unknown", and consuming here
+            # is what let a plain `cat` of this SKILL.md spend the gate with no
+            # review — the defect this story exists to remove. The lead is not
+            # stranded: re-entering plan mode re-arms through ExitPlanMode with a
+            # real path, and plan files are exempt from the gate meanwhile.
+            echo "PLAN_FILE_ERROR=The plan marker records no plan path (it holds '$(flat "$PLAN_PATH")'). Re-enter plan mode so the marker is re-armed with the plan's location, then re-run."
+            ;;
+        esac
     else
         echo "PLAN_FILE_ERROR=No plan marker. Run EnterPlanMode/ExitPlanMode first."
     fi
-    # GARBAGE COLLECTION, not a discharge: the marker names a plan file that
-    # does not exist, so no review can ever satisfy the gate it arms and a lead
-    # left holding it would be write-blocked with nothing to do about it. The
-    # plan has to be re-entered, which re-arms this from scratch.
-    #
-    # Through the marker helper, and that is load-bearing twice over: it is the
-    # convention (one spelling of the filename, symlink refusal), and it keeps
-    # this act spelled DIFFERENTLY from the discharge that used to sit at the end
-    # of this script. The mutation registry keys a site on (script, verb, target),
-    # so while both were `rm -f "$MARKER"` the two collapsed into one entry and a
-    # re-added discharge would have been absorbed by this one, unnoticed.
-    consume_marker PLAN_AWAITING_REVIEW
     exit 0
 fi
 
