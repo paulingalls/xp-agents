@@ -14,10 +14,11 @@ rather than listing them, so the leg that matters is "the NEXT one cannot arrive
 unclassified" — a new preload that consumes a marker fails this suite until
 someone says, in `_REGISTRY`, what a refusal does to it.
 
-The scan itself lives in `_preload_mutation_scan`, split off at the 500-line
-cap. Read its docstring for what it sees and — the part that matters — what it
-does not: it is a verb scan over shell text, blind to the Python those scripts
-shell out to.
+Two siblings hold the other halves, both split off at the 500-line cap. The
+scan is `_preload_mutation_scan` — read its docstring for what it sees and, the
+part that matters, what it does not: a verb scan over shell text, blind to the
+Python those scripts shell out to. The verdict table is
+`_preload_side_effect_registry`, which is where a new site gets classified.
 
 The classification is about a REFUSAL, not about whether the mutation is good.
 `GUARDED` does not mean "cannot happen"; it means the gate-refusal path no longer
@@ -29,7 +30,6 @@ preload, and `TestResidueThisStoryDoesNotClose` says so out loud.
 import sys
 import tempfile
 import unittest
-from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -37,245 +37,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import pre_tool_skill
 import preload_injection
-from _preload_mutation_scan import _DEFINITION_TARGET, Site, scan_mutation_sites
-from conftest import _PLUGIN_ROOT, _SMMTestCase
-
-_SKILLS_DIR = _PLUGIN_ROOT / "skills"
-
-# ---------------------------------------------------------------------------
-# The registry
-# ---------------------------------------------------------------------------
-
-#: Mutates state that gates a REAL operation, and running the preload for a call
-#: that was refused spends it. No entry carries it today —
-#: `TestNoSiteIsStillExposed` is what makes that a checked claim — and the
-#: constant stays so a NEW site can be classified honestly and fail that test.
-EXPOSED = "exposed"
-
-#: Was EXPOSED. `preload_injection.run()` now computes the gate verdict itself
-#: and declines to run the preload at all when the call will be refused.
-GUARDED = "guarded"
-
-#: Survives a refusal without consequence, for the reason recorded beside it.
-HARMLESS = "harmless"
-
-
-@dataclass(frozen=True)
-class Verdict:
-    classification: str
-    reason: str
-
-
-def _guarded(reason: str) -> Verdict:
-    """Was EXPOSED, and is reached no more on the gate-refusal path.
-
-    `preload_injection.run()` computes `pre_tool_skill`'s own block verdict —
-    by calling the shipped predicates, not by respelling them — before it
-    resolves the invocation, and returns None when either fires. The preload
-    process is never started, so every mutation in the script is skipped, not
-    just the one this entry names.
-
-    The reason is kept as written while the site was exposed: what a refusal
-    WOULD cost is the fact that makes the guard load-bearing, and a reader who
-    only sees "guarded" has no way to weigh removing it.
-    """
-    return Verdict(GUARDED, reason)
-
-
-_DEFINITION = Verdict(
+from _preload_mutation_scan import Site, scan_mutation_sites
+from _preload_side_effect_registry import (
+    _REGISTRY,
+    _SKILLS_DIR,
+    EXPOSED,
+    GUARDED,
     HARMLESS,
-    "A shell function definition, not a call site: sourcing it mutates nothing. "
-    "Registered rather than filtered out so the population stays the size it "
-    "looks. Its call sites are classified per-script below.",
 )
-
-_SWEPT_AT_SESSION_START = (
-    "Session-scoped and unconditionally consumed by "
-    "`session_markers._STALE_SESSION_MARKERS` at every fresh SessionStart, so "
-    "an arm left by a refused call cannot outlive the session that made it. "
-)
-
-_CLOSE_CYCLE_ARM = (
-    "Arms the close-cycle Stop gate. An arm with no close behind it is not "
-    "swept — `close_cycle_abandonment.record_abandonment` OWNS this marker and "
-    "files a high-severity abandonment concern for it at the next SessionStart, "
-    "which a later close's own count then reads as a reason to abort. AC2 names "
-    "this case: no armed close cycle may survive a refusal."
-)
-
-_ORPHAN_CLOSE_EVENT = (
-    "Appends a `close_started` status event for a close that never ran. The "
-    "orphaned-event problem is explicitly out of scope for story-019 and "
-    "recorded as its own finding; what IS in scope is that the gate-refusal "
-    "path no longer reaches the emission at all."
-)
-
-_CLOSE_RESTART_RECORD = (
-    "Records an ABANDONED previous close cycle: `record_abandonment` appends a "
-    "high-severity concern and then consumes CLOSE_CYCLE_ACTIVE. Run for a call "
-    "that was refused, it can disarm a close that is live in another window — "
-    "the owner-liveness read falls back to age whenever the owning session's "
-    "heartbeat cannot be read, and the SMM is shared across worktrees. The "
-    "record is also the input Step 6's abort-default weighs, so a refused call "
-    "feeding it moves a later close's verdict."
-)
-
-_REGISTRY: dict[Site, Verdict] = {
-    # -- the shared library every preload sources ---------------------------
-    Site("_preload_markers.sh", "consume_marker", _DEFINITION_TARGET): _DEFINITION,
-    Site("_preload_markers.sh", "write_marker", _DEFINITION_TARGET): _DEFINITION,
-    Site(
-        "_preload_base.sh", "emit_close_started_event", _DEFINITION_TARGET
-    ): _DEFINITION,
-    Site("_preload_base.sh", "append.sh", ""): _guarded(_ORPHAN_CLOSE_EVENT),
-    Site("_preload_base.sh", "rm -f", "$out"): Verdict(
-        HARMLESS,
-        "Deletes the render tempfile this same function just created, on its "
-        "own failure path. Nothing outside the failed call ever held the path.",
-    ),
-    Site("_preload_base.sh", "rm -f", "{}"): Verdict(
-        HARMLESS,
-        "The stale-render-tempfile sweep. Its patterns are per-invocation "
-        "render artifacts that no gate reads, and the one cross-step artifact "
-        "that must NOT be in scope is pinned by `test_preload_sweep_scope.py`. "
-        "A refusal makes the sweep no more destructive than a normal run.",
-    ),
-    # -- xp-accept ----------------------------------------------------------
-    Site("xp-accept/scripts/preload.sh", "consume_marker", "ACCEPT"): _guarded(
-        "Consumes the run-accept-before-mark-done gate that "
-        "`pre_tool_bash` enforces. Spent on a refused call, the next mark-done "
-        "sails through with no acceptance ever verified. The consume must stay "
-        "HERE and at preload start — it is load-bearing self-unblocking for "
-        "/xp-accept's own Step 4 `update-story done` — so the only safe fix is "
-        "not to run the preload for a call that will be refused.",
-    ),
-    Site("xp-accept/scripts/preload.sh", "write_marker", "ACCEPT_IN_FLIGHT"): Verdict(
-        HARMLESS,
-        _SWEPT_AT_SESSION_START + "Its only mid-session effect is to DEFER the "
-        "sprint stop gate's 'run /xp-accept' nudge — a suppressed reminder, not "
-        "a spent gate: nothing becomes permitted that was forbidden.",
-    ),
-    # -- xp-assign: no entry, and that is the point -------------------------
-    # It had two — the `--consume-gate` option parse and the
-    # `consume_marker ASSIGN_PENDING` it enabled — and both were DELETED with
-    # their sites (story-021) rather than reclassified, because
-    # `test_no_registry_entry_is_dead` treats an entry matching no site as the
-    # defect it is. The gate discharges from sprint state now, so the assign
-    # preload mutates nothing a refusal or a read could spend.
-    # -- the four close preloads --------------------------------------------
-    Site("xp-free-close/scripts/preload.sh", "--detector", "close_restart"): _guarded(
-        _CLOSE_RESTART_RECORD
-    ),
-    Site("xp-free-close/scripts/preload.sh", "--arm-only", ""): _guarded(
-        _CLOSE_CYCLE_ARM
-    ),
-    Site(
-        "xp-free-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ACTIVE"
-    ): _guarded(_CLOSE_CYCLE_ARM + " This is the fallback arm for the line above."),
-    Site("xp-free-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ID"): Verdict(
-        HARMLESS,
-        _SWEPT_AT_SESSION_START + "It only STAMPS concerns raised during a "
-        "close; with no close running nothing is stamped.",
-    ),
-    Site(
-        "xp-free-close/scripts/preload.sh", "emit_close_started_event", "free"
-    ): _guarded(_ORPHAN_CLOSE_EVENT),
-    Site("xp-plan-close/scripts/preload.sh", "--detector", "close_restart"): _guarded(
-        _CLOSE_RESTART_RECORD
-    ),
-    Site("xp-plan-close/scripts/preload.sh", "--arm-only", ""): _guarded(
-        _CLOSE_CYCLE_ARM
-    ),
-    Site(
-        "xp-plan-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ACTIVE"
-    ): _guarded(_CLOSE_CYCLE_ARM + " This is the fallback arm for the line above."),
-    Site("xp-plan-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ID"): Verdict(
-        HARMLESS,
-        _SWEPT_AT_SESSION_START + "It only STAMPS concerns raised during a "
-        "close; with no close running nothing is stamped.",
-    ),
-    Site(
-        "xp-plan-close/scripts/preload.sh", "emit_close_started_event", "plan"
-    ): _guarded(_ORPHAN_CLOSE_EVENT),
-    Site("xp-sprint-close/scripts/preload.sh", "--detector", "close_restart"): _guarded(
-        _CLOSE_RESTART_RECORD
-    ),
-    Site("xp-sprint-close/scripts/preload.sh", "--arm-only", ""): _guarded(
-        _CLOSE_CYCLE_ARM
-    ),
-    Site(
-        "xp-sprint-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ACTIVE"
-    ): _guarded(_CLOSE_CYCLE_ARM + " This is the fallback arm for the line above."),
-    Site(
-        "xp-sprint-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ID"
-    ): Verdict(
-        HARMLESS,
-        _SWEPT_AT_SESSION_START + "It only STAMPS concerns raised during a "
-        "close; with no close running nothing is stamped.",
-    ),
-    Site(
-        "xp-sprint-close/scripts/preload.sh", "emit_close_started_event", "sprint"
-    ): _guarded(_ORPHAN_CLOSE_EVENT),
-    Site(
-        "xp-story-close/scripts/preload.sh", "write_marker", "CLOSE_CYCLE_ID"
-    ): Verdict(
-        HARMLESS,
-        _SWEPT_AT_SESSION_START + "Story-close does not arm the Stop gate at "
-        "all (it is not in `close_cycle_stop_gate._GATE_ARMING_CLOSE_MODES`), "
-        "so this id is the only close-cycle state it writes.",
-    ),
-    Site(
-        "xp-story-close/scripts/preload.sh", "emit_close_started_event", "story"
-    ): _guarded(_ORPHAN_CLOSE_EVENT),
-    Site("xp-story-close/scripts/preload.sh", "rm -f", "$err_file"): Verdict(
-        HARMLESS,
-        "Deletes the `mktemp` stderr capture created three lines above, inside "
-        "the same function. No other process can name the path.",
-    ),
-    # -- xp-review-plan -----------------------------------------------------
-    Site("xp-review-plan/scripts/preload.sh", "rm -f", "$MARKER"): _guarded(
-        "Deletes `.plan-awaiting-review`, the gate saying a plan still needs "
-        "review. Consumed on a refused call, the plan is silently treated as "
-        "reviewed and the next invocation reports no plan at all.",
-    ),
-    Site("xp-review-plan/scripts/preload.sh", "rm -f", "$LAST_PLAN_PATH_FILE"): Verdict(
-        HARMLESS,
-        "Clears `.last-plan-path`, a POINTER to the previously reviewed plan, "
-        "and only on the branch that already reported PLAN_FILE_ERROR. No gate "
-        "reads it; the next successful run rewrites it.",
-    ),
-    Site(
-        "xp-review-plan/scripts/preload.sh", ">SMM_DIR", "${SMM_DIR}/.last-plan-path"
-    ): Verdict(
-        HARMLESS,
-        "Writes the same pointer. Overwritten by the next run and read by "
-        "nothing that gates an operation, so a value written for a call that "
-        "never happened costs one stale suggestion at most.",
-    ),
-    # -- xp-sprint-review ---------------------------------------------------
-    Site("xp-sprint-review/scripts/preload.sh", "rm -f", "$REVIEW_INPUT"): Verdict(
-        HARMLESS,
-        "Deletes the `mktemp` file this same run created two lines above, on "
-        "its own failure path. Nothing else has been told the path.",
-    ),
-    # -- xp-work-selection --------------------------------------------------
-    Site(
-        "xp-work-selection/scripts/preload.sh", "write_marker", "NEEDS_HOUSEKEEPING"
-    ): _guarded(
-        "Arms `housekeeping_stop_gate`, which then BLOCKS Stop for everyone "
-        "sharing the SMM until the housekeeper runs and consumes it. Armed by a "
-        "refused call, a gate exists for work nobody asked for — and the SMM is "
-        "shared across worktrees, so a teammate's refusal gates the lead.",
-    ),
-    Site(
-        "xp-work-selection/scripts/preload.sh", "write_marker", "HOUSEKEEPING_ARMED"
-    ): Verdict(
-        HARMLESS,
-        _SWEPT_AT_SESSION_START + "It is the once-per-session RECORD that makes "
-        "the arm above decidable, and it gates nothing on its own — its only "
-        "effect is to suppress a second arm in the same session.",
-    ),
-}
+from conftest import _SMMTestCase
 
 
 class TestEveryMutationSiteIsClassified(unittest.TestCase):
@@ -346,6 +116,59 @@ class TestTheScanIsNotVacuous(unittest.TestCase):
         self.assertNotEqual(scan_mutation_sites(_SKILLS_DIR) - scoped, set())
 
 
+class TestTwoSitesInOneScriptStayDistinguishable(unittest.TestCase):
+    """A key collision inside one script is a blind spot, and it had one.
+
+    `Site` keys on (script, verb, target) and `_REGISTRY` is keyed by `Site`, so
+    two lines that spell the same verb and target in the same script collapse to
+    ONE entry. xp-review-plan had exactly that: `rm -f "$MARKER"` appeared twice —
+    once as garbage collection on the misfire branch, once as the gate discharge
+    at the end. Removing the discharge (story-021) left the key alive via the
+    other line, so the registry could not have told anyone if a
+    gate-discharging `rm -f` were added back.
+
+    Distinguished by giving the surviving act its own spelling: the misfire
+    branch consumes through the marker helper, which is the convention anyway
+    (one spelling of the filename, symlink refusal), and leaves `rm -f "$MARKER"`
+    matching nothing — which is the shape a re-added discharge takes, since it is
+    the shape the one that was removed had.
+
+    A LIMIT, and it is the same limit one level down: two lines that both spell
+    `consume_marker PLAN_AWAITING_REVIEW` would collide in turn. Read this as
+    "the historical spelling is no longer absorbed", not as "no collision is
+    possible".
+    """
+
+    def _shipped_review_plan_plus(self, extra: str) -> set[Site]:
+        """The shipped review-plan preload with `extra` appended, scanned alone."""
+        body = (_SKILLS_DIR / "xp-review-plan" / "scripts" / "preload.sh").read_text(
+            encoding="utf-8"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts = Path(tmp) / "xp-review-plan" / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "preload.sh").write_text(body + extra, encoding="utf-8")
+            return scan_mutation_sites(Path(tmp))
+
+    def test_the_shipped_script_is_fully_classified(self):
+        """The control. If the unmodified script already had an unclassified
+        site, the leg below would pass on that instead of on the new line."""
+        self.assertEqual(self._shipped_review_plan_plus("") - set(_REGISTRY), set())
+
+    def test_a_readded_gate_discharge_is_named(self):
+        """Re-add the discharge that was removed, in the spelling it had."""
+        unclassified = self._shipped_review_plan_plus('\nrm -f "$MARKER"\n') - set(
+            _REGISTRY
+        )
+        self.assertEqual(
+            unclassified,
+            {Site("xp-review-plan/scripts/preload.sh", "rm -f", "$MARKER")},
+            "a gate-discharging `rm -f` came back and the registry absorbed it "
+            "into a sibling entry — the story-017 defect class, a non-match "
+            "reading as coverage",
+        )
+
+
 class TestNoSiteIsStillExposed(unittest.TestCase):
     """The claim story-019 makes, checkable rather than prose.
 
@@ -399,6 +222,15 @@ class TestResidueThisStoryDoesNotClose(_SMMTestCase):
     On both, the preload runs and its mutations land, exactly as before this
     story. AC3's third clause sanctions a pinned-with-reason residue; an
     unstated one would be the overclaim story-017 spent four increments removing.
+
+    A THIRD residue, and it is not a refusal at all: on the second harness a
+    shell READ of a `SKILL.md` is what triggers the preload, so the close
+    preloads still arm a close cycle and emit `close_started` for a `cat` of a
+    close skill's body. story-021 moved the two gates that HAD a satisfying act
+    to that act; a close cycle's arming does not have one — the act that
+    satisfies it is the whole close, which the arming exists to bracket. Named
+    and checked below rather than fixed here; it is recorded elsewhere as its
+    own finding.
     """
 
     def test_a_refusal_the_predicates_cannot_predict_leaves_the_preload_running(self):
@@ -411,6 +243,36 @@ class TestResidueThisStoryDoesNotClose(_SMMTestCase):
         self.assertFalse(preload_injection._refused_by_a_gate(allowed))
         self.assertIsNone(pre_tool_skill.teammate_block_reason(allowed))
         self.assertIsNone(pre_tool_skill.accept_evidence_block_reason(allowed))
+
+    def test_reading_a_close_body_still_reaches_a_close_cycle_arm(self):
+        """The residue stated as a measurement, in the two halves that make it real.
+
+        First: a plain `cat` of each close skill's body resolves to that skill,
+        so the read really is what runs its preload. Second: that preload really
+        does carry an arming site, and the registry's verdict on it is GUARDED —
+        a claim about the gate-REFUSAL path, which a read never travels. Nothing
+        here stops the arm; the point is that it is written down and would go red
+        if someone deleted the residue without deleting the cause.
+        """
+        sites = scan_mutation_sites(_SKILLS_DIR)
+        # Three of the four close skills. xp-story-close arms no close cycle of
+        # its own — it runs inside the accept loop's — so naming it here would
+        # assert a site it does not have.
+        for skill in ("xp-free-close", "xp-plan-close", "xp-sprint-close"):
+            with self.subTest(skill=skill):
+                body = _SKILLS_DIR / skill / "SKILL.md"
+                self.assertEqual(
+                    preload_injection.skill_from_command(f"cat {body}"), skill
+                )
+                arms = [
+                    site
+                    for site in sites
+                    if site.script == f"{skill}/scripts/preload.sh"
+                    and site.target == "CLOSE_CYCLE_ACTIVE"
+                ]
+                self.assertTrue(arms, "the close-cycle arm left this preload")
+                for site in arms:
+                    self.assertEqual(_REGISTRY[site].classification, GUARDED)
 
 
 if __name__ == "__main__":

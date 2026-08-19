@@ -46,7 +46,18 @@ if [ -z "$PLAN_PATH" ] || [ ! -f "$PLAN_PATH" ]; then
     else
         echo "PLAN_FILE_ERROR=No plan marker. Run EnterPlanMode/ExitPlanMode first."
     fi
-    rm -f "$MARKER"
+    # GARBAGE COLLECTION, not a discharge: the marker names a plan file that
+    # does not exist, so no review can ever satisfy the gate it arms and a lead
+    # left holding it would be write-blocked with nothing to do about it. The
+    # plan has to be re-entered, which re-arms this from scratch.
+    #
+    # Through the marker helper, and that is load-bearing twice over: it is the
+    # convention (one spelling of the filename, symlink refusal), and it keeps
+    # this act spelled DIFFERENTLY from the discharge that used to sit at the end
+    # of this script. The mutation registry keys a site on (script, verb, target),
+    # so while both were `rm -f "$MARKER"` the two collapsed into one entry and a
+    # re-added discharge would have been absorbed by this one, unnoticed.
+    consume_marker PLAN_AWAITING_REVIEW
     exit 0
 fi
 
