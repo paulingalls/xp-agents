@@ -45,6 +45,8 @@ whole close cycle.
    **A live solo story drains: while `SOLO_TARGET` names one there is no fall-through to the batch**, until it is accepted — a teammate spawn checks out the base branch (step 2) in the main checkout an in-place solo teammate is concurrently committing in. It is the one place the **plan → SPAWN → accept** precedence yields: re-invoking during that spawn earns only its refusal, and re-invoking after it exits re-runs the finished story (the exclusive claim is released at exit) — so its accept comes first.
 
    **The hole: >1 in-progress solo story.** The preload cannot pick one, so `SOLO_TARGET` arrives empty — indistinguishable from "no solo story", and empty is NOT proof the drain is over. Before selecting the batch, confirm `SPRINT_FILE` shows no `in-progress` + `execution_mode=solo` story; reconcile one that is (accept or defer) rather than spawn into its checkout.
+
+   **An `in-agent` story also occupies the main checkout**, and renders as neither solo nor teammate, so neither var above shows it. `IN_AGENT_STORY_IDS` lists them; non-empty means this session's OWN work is live here. Don't accept or defer it — it is not a concurrent process. Commit or stash it before Step 2's `git checkout "$BASE"` moves the checkout out from under it, then continue the spawn.
 5. **Target lookup (teammate batch only).** When `MODE=teammate`, resolve the lowest-id un-spawned story in `TEAMMATE_STORY_IDS` — the first whose teammate worktree is not yet live:
    ```bash
    TARGET=""
@@ -79,8 +81,8 @@ Evaluate the branches **in this order** and act on the first that matches:
 | # | Condition | Action |
 |---|---|---|
 | 1 | `TEAMMATE_DEFAULT` is `off` | **Exit, no spawn.** Output a one-line hint at the kickoff teammate-support setting (re-run /xp-kickoff to enable teammates). |
-| 2 | `--in-agent` flag passed | **Force in-agent. Exit, no spawn.** Output "this story is in-agent appropriate; continue in the existing checkout." Write a tier_override event UNLESS `RECOMMENDED_TIER` was also `in-agent` (the pick matches). |
-| 3 | `RECOMMENDED_TIER` is `in-agent` | **Exit, no spawn.** Output "continue here — spawning a teammate is pure overhead for this story." No override event: the pick matches the recommendation. |
+| 2 | `--in-agent` flag passed | **Force in-agent. Persist the outcome (below), then exit, no spawn.** Output "this story is in-agent appropriate; continue in the existing checkout." Write a tier_override event UNLESS `RECOMMENDED_TIER` was also `in-agent` (the pick matches). |
+| 3 | `RECOMMENDED_TIER` is `in-agent` | **Persist the outcome (below), then exit, no spawn.** Output "continue here — spawning a teammate is pure overhead for this story." No override event: the pick matches the recommendation. |
 | 4 | `RECOMMENDED_TIER` matches `TEAMMATE_DEFAULT` (both a tier in `haiku`/`sonnet`/`opus`/`fable`) | **Silent spawn** at that tier: set the story's `executor_model` and forward `--model`. No question. |
 | 5 | `RECOMMENDED_TIER` is a tier that **diverges** from `TEAMMATE_DEFAULT` | Ask EXACTLY ONE `AskUserQuestion`: apply the recommended tier `Y`, or keep the default `X`? Spawn at the chosen tier. If the customer keeps the default (rejects the recommendation), write a tier_override event. |
 | 6 | `RECOMMENDED_TIER` is `none` | **Silent apply the default.** If `TEAMMATE_DEFAULT` is a tier, spawn at it; if it is `inherit`, spawn with NO `--model` flag (orchestrator tier). No override event. |
@@ -112,6 +114,23 @@ support it), degrading to the model default rather than erroring.
 **never** written to `executor_model`. It only ever drives the exit / no-spawn
 branches (2 and 3). The spawning branches set `executor_model` ONLY to a valid
 tier in `haiku`/`sonnet`/`opus`, or leave it untouched on the `inherit` outcome.
+It IS a valid `execution_mode` — the field that means "how is this story
+executed".
+
+**Persist the no-spawn outcome (branches 2 and 3 only), before exiting:**
+
+```bash
+echo '{"execution_mode":"in-agent"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
+  --smm-dir ${SMM_DIR} edit-story "$TARGET"
+```
+
+This is what discharges the write gate that demanded /xp-assign. The gate goes
+quiet once no promoted teammate story is missing its worktree, and an in-agent
+outcome creates none — so unrecorded it reads as "not assigned yet", and the lead
+stays write-blocked with no act that can clear it. `/xp-schedule` still owns
+promotion; this records the shape executed, and is the only writer of `in-agent`.
+Branch 1 persists nothing: `off` is a session setting the lead can reverse, so
+that shape is not decided yet and its gate clears from the setting instead.
 
 **Override audit event.** When the chosen tier differs from the recommendation
 (branch 2's forced in-agent, or branch 5 when the customer keeps the default),

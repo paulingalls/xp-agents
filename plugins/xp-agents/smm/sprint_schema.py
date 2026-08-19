@@ -39,11 +39,19 @@ IN_MOTION_STORY_STATUSES = frozenset({"in-progress", "reviewing", "closing"})
 # separately at every call site.
 UNDER_ACCEPTANCE_STORY_STATUSES = frozenset({"reviewing", "closing"})
 
-# How a story is executed once its frontier is promoted. Set by
-# /xp-schedule; read by the plan-review gate (subagent_stop) to decide
-# whether to arm .assign-pending (teammate only). Optional story field —
-# absent means not-yet-promoted.
-VALID_EXECUTION_MODES = frozenset({"solo", "teammate"})
+# How a story is executed once its frontier is promoted. /xp-schedule
+# writes the promotion shape (solo | teammate); /xp-assign re-records the
+# shape actually executed, which is where `in-agent` comes from — the
+# no-spawn outcome of the per-story execution-shape decision. Read by the
+# plan-review gate (subagent_stop) to decide whether to arm .assign-pending
+# (teammate only). Optional story field — absent means not-yet-promoted.
+#
+# `in-agent` exists so that outcome leaves a DURABLE TRACE. The assign gate
+# self-clears from "no promoted teammate story lacks a worktree", and an
+# in-agent story creates no worktree, so without a recorded mode it stays
+# indistinguishable from "not assigned yet" and the gate blocks the lead
+# forever with no act that can clear it (story-023).
+VALID_EXECUTION_MODES = frozenset({"solo", "teammate", "in-agent"})
 
 # Which model the lead picks for a teammate's spawn during per-story
 # planning. Forwarded by /xp-assign to spawn_teammate.py --model.

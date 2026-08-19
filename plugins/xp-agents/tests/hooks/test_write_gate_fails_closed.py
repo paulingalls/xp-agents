@@ -117,7 +117,9 @@ class TestAssignGatePredicateFailsClosed(_AssignGateTestCase):
         self._arm("{ not json")
         (self.smm_dir / ".question-gate").write_text("q")
         with self.assertRaises(_common.BlockedError):
-            lead_gates.check_lead_gates(_lead_write(), self.smm_dir, is_plan_file=False)
+            lead_gates.check_lead_gates(
+                _lead_write(), self.smm_dir, is_machinery_write=False
+            )
         self.assertTrue((self.smm_dir / ".question-gate").exists())
 
     def test_a_corrupt_sprint_never_consumes_the_marker_via_the_predicate(self):

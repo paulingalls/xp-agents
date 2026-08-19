@@ -46,12 +46,18 @@ class _LeadGate(NamedTuple):
     A gate whose demanded action is the only thing that could clear it (a plan
     review, a user's answer) has no state to derive from and leaves this None;
     it then costs nothing beyond the marker stat.
+
+    *machinery_exempt* exempts the writes that ARE the machinery the gate
+    demands, so a gate cannot block the act that satisfies it. Two qualify: the
+    plan file a review reads, and the teammate prompt /xp-assign hands its own
+    spawn. This table owns the POLICY, pre_tool_write.run the path math. False is
+    right only where the demanded act involves no write — a user's answer.
     """
 
     marker: markers.MarkerDef
     reason: str
     short: str
-    plan_files_exempt: bool
+    machinery_exempt: bool
     active_when: Callable[[dict, Path], bool] | None = None
 
 
@@ -138,8 +144,20 @@ def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
     False therefore means the sprint positively says there is nothing to assign,
     never "could not tell".
 
+    FOUR WAYS IT GOES FALSE, one per outcome /xp-assign can reach — a discharge
+    covering only some outcomes strands the rest, and nothing else can rescue
+    them (there is no `marker_consume(ASSIGN_PENDING)` anywhere): the teammate
+    was SPAWNED; the story was ACCEPTED (it leaves in-progress); the lead chose
+    IN-AGENT, which /xp-assign records as `execution_mode=in-agent` so the story
+    drops out of the promoted set — that recorded value IS the discharge, since
+    the outcome creates no worktree and an unrecorded one is indistinguishable
+    from "not assigned yet"; or teammate support is OFF (the check below).
+
     HOT PATH. Reached only after the marker stat and the teammate exemption; the
-    stale case returns before touching git. ONE `git worktree list` answers every
+    stale case returns before touching git. The teammate-config read sits LAST
+    among the early returns: placed first it would add a marker read to every
+    armed-gate write in cases that never reach git today; here it can only save
+    the subprocess. ONE `git worktree list` answers every
     story — find_teammate_worktree_for_story re-runs it per call, costing a
     subprocess PER STORY on every Write/Edit. See check_lead_gates. The scope
     read is a single small file read and stays AHEAD of that subprocess: it can
@@ -165,6 +183,14 @@ def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
         if not promoted:
             return False  # armed for stories that are no longer promoted
 
+    if not markers.read_teammate_config(smm_dir)["enabled"]:
+        # Teammate support is OFF: /xp-assign's first branch exits without a
+        # spawn and nothing else creates the worktree this predicate looks for,
+        # so the gate demands an impossible act. Only an EXPLICIT off clears —
+        # read_teammate_config fail-safes to enabled=True on a missing, corrupt
+        # or unrecognized marker, so every read it cannot trust keeps blocking,
+        # the same direction as the reads above.
+        return False
     cwd = input_data.get("cwd", ".")
     live_branches = worktree.live_teammate_branch_by_story(cwd)
     return any(not _story_is_spawned(story, live_branches) for story in promoted)
@@ -185,7 +211,7 @@ _LEAD_GATES: tuple[_LeadGate, ...] = (
         "Run /xp-review-plan before writing code. "
         "Plan review extracts assumptions, decisions, and risks for the SMM.",
         "Plan review required before implementation.",
-        plan_files_exempt=True,
+        machinery_exempt=True,
     ),
     _LeadGate(
         markers.ASSIGN_PENDING,
@@ -193,7 +219,7 @@ _LEAD_GATES: tuple[_LeadGate, ...] = (
         "teammate (per-story pipeline — one spawn per invocation) "
         "before writing code.",
         "Work assignment required before implementation.",
-        plan_files_exempt=True,
+        machinery_exempt=True,
         active_when=_unspawned_teammate_story_exists,
     ),
     _LeadGate(
@@ -204,13 +230,13 @@ _LEAD_GATES: tuple[_LeadGate, ...] = (
         "id: it does not clear the gate and fabricates an answer the user "
         "never gave.",
         "Blocking question requires user answer.",
-        plan_files_exempt=False,
+        machinery_exempt=False,
     ),
 )
 
 
 def check_lead_gates(
-    input_data: dict, smm_dir: Path | None, is_plan_file: bool
+    input_data: dict, smm_dir: Path | None, is_machinery_write: bool
 ) -> None:
     """Raise BlockedError for the first armed AND active lead-only gate.
     Teammates exempt.
@@ -244,13 +270,18 @@ def check_lead_gates(
     *smm_dir* is handed to the probe rather than left to its env fallback: that
     leg reads $SMM_DIR and fails CLOSED without it, which would misread a live
     in-place teammate as the lead and over-gate it.
+
+    *is_machinery_write* covers the plan file AND the teammate prompt file: the
+    assign gate is armed at precisely the moment /xp-assign must write that
+    prompt (batch promoted, no worktree yet), so a gate that blocked it blocked
+    its own discharge, with no recovery but deleting a marker by hand.
     """
     if smm_dir is None:
         return
 
     is_teammate: bool | None = None
     for gate in _LEAD_GATES:
-        if gate.plan_files_exempt and is_plan_file:
+        if gate.machinery_exempt and is_machinery_write:
             continue
         if not markers.marker_exists(smm_dir, gate.marker):
             continue

@@ -202,6 +202,12 @@ def select_promoted_teammate_stories(stories: list[dict]) -> list[dict]:
 
     (The preload's copy is in shell and cannot import this; it stays a known
     duplicate — see the standing Reuse concern — but the Python side is one.)
+
+    `execution_mode` has a THIRD value, `in-agent`, which /xp-assign records for
+    the outcome where it decides not to spawn at all. It is correctly excluded
+    here: there is no teammate to spawn for such a story. That exclusion is what
+    discharges the assign gate — `lead_gates` reads this selector, so a story
+    dropping out of it is how "the assignment is resolved" reaches the gate.
     """
     return [
         s

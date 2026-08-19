@@ -93,11 +93,19 @@ class TestStoryBranchNameField(unittest.TestCase):
 
 
 class TestStoryExecutionModeField(unittest.TestCase):
-    """Optional execution_mode story field: "solo" | "teammate" | absent.
+    """Optional execution_mode story field: "solo" | "teammate" | "in-agent" |
+    absent.
 
-    Set by /xp-schedule when it promotes a frontier; read by the
-    plan-review gate (subagent_stop) to decide whether to arm
-    .assign-pending. Optional — absent is valid (pre-promotion stories).
+    /xp-schedule writes the promotion shape when it promotes a frontier;
+    /xp-assign re-records the shape actually executed, which is the only
+    source of "in-agent". Read by the plan-review gate (subagent_stop) to
+    decide whether to arm .assign-pending. Optional — absent is valid
+    (pre-promotion stories).
+
+    "in-agent" was added by story-023: it is the no-spawn outcome of the
+    execution-shape decision, and until it could be PERSISTED that outcome
+    left no durable trace, so the assign gate — which self-clears from "no
+    promoted teammate story lacks a worktree" — could never go quiet for it.
     """
 
     def test_story_without_execution_mode_valid(self):
@@ -137,9 +145,25 @@ class TestStoryExecutionModeField(unittest.TestCase):
         errors = sprint_schema.validate_sprint(sprint)
         self.assertTrue(any("execution_mode" in e for e in errors), errors)
 
+    def test_execution_mode_in_agent_valid(self):
+        """The /xp-assign no-spawn outcome. Rejected before story-023, which
+        made the branch that decides it unable to record its own result."""
+        story = _make_story(execution_mode="in-agent")
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
     def test_valid_execution_modes_constant(self):
+        """The closed set, pinned so a fourth value is a deliberate act.
+
+        Every shipped reader keys on `== "teammate"` or `== "solo"`, so a new
+        value flows through as "neither" — which is right for the spawn
+        target and WRONG for /xp-assign's drain guard, whose job is "is the
+        main checkout busy?". Widening this set means auditing that guard.
+        """
         self.assertEqual(
-            sprint_schema.VALID_EXECUTION_MODES, frozenset({"solo", "teammate"})
+            sprint_schema.VALID_EXECUTION_MODES,
+            frozenset({"solo", "teammate", "in-agent"}),
         )
 
 

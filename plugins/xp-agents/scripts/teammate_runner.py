@@ -129,6 +129,9 @@ def project_log_dir(smm_dir: str | Path, *, sprint_id: str | None) -> Path:
     return _project_dir(smm_dir, sprint_id)
 
 
+PROMPT_SUFFIX = ".prompt.txt"
+
+
 def project_prompt_path(
     smm_dir: str | Path, name: str, *, sprint_id: str | None
 ) -> Path:
@@ -144,7 +147,34 @@ def project_prompt_path(
     ``safe_name``. This is the leaf guard; ``spawn_teammate.main`` refuses the
     same name at the boundary, BEFORE any side effect.
     """
-    return _project_dir(smm_dir, sprint_id) / f"{safe_name(name)}.prompt.txt"
+    return _project_dir(smm_dir, sprint_id) / f"{safe_name(name)}{PROMPT_SUFFIX}"
+
+
+def is_project_prompt_path(smm_dir: str | Path, path: str | Path) -> bool:
+    """True when *path* is a teammate prompt file in *smm_dir*'s own namespace.
+
+    The inverse of ``project_prompt_path``, for a caller holding a path that must
+    decide whether the SPAWN owns it — today the lead's Write gate, which has to
+    let /xp-assign write the prompt its own spawn reads while the assign gate is
+    armed (see ``lead_gates.check_lead_gates``).
+
+    Keyed on THIS module's path builder, never on a substring: it shares
+    ``_project_dir`` and ``PROMPT_SUFFIX`` with the writer, so the namespace
+    moves at both ends together. A ``"/xp-agents-teammates/" in path`` test
+    drifts the moment the layout changes AND accepts another project's prompts.
+
+    Sprint-agnostic by construction — ``_project_dir`` appends the sprint token
+    as ONE segment, so matching the project dir and its direct children keeps the
+    answer independent of re-resolving the (fail-open) sprint id, which may differ from
+    what the ``--print-prompt-path`` query saw.
+    """
+    candidate = Path(path)
+    if not candidate.name.removesuffix(PROMPT_SUFFIX) or not candidate.name.endswith(
+        PROMPT_SUFFIX
+    ):
+        return False
+    project = _project_dir(smm_dir, None)
+    return candidate.parent == project or candidate.parent.parent == project
 
 
 # Watchdog: max silence (no .ping()) before SIGTERM. 900s = 15 min,

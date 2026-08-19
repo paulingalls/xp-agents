@@ -8,6 +8,7 @@ than being imported test-module-to-test-module. Follows the `tests/_*.py`
 convention (_branching_fixtures, _event_fixtures, _spawn_guard).
 """
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -18,8 +19,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import lead_gates
+import markers
 import pre_tool_write
-from conftest import _HookTestCase, _make_write_input, _s, _sprint_json
+import subagent_stop
+from conftest import (
+    _PLUGIN_ROOT,
+    _HookTestCase,
+    _make_write_input,
+    _s,
+    _sprint_json,
+    run_cli,
+)
 
 # The branch /xp-assign cuts for a story and records ON the story (Step 2) BEFORE
 # it spawns the teammate onto it (Step 4). A story counts as spawned only when a
@@ -73,6 +83,51 @@ class _AssignGateTestCase(_HookTestCase):
         if sprint_json is not None:
             (self.smm_dir / "sprint.json").write_text(sprint_json)
 
+    def _arm_via_plan_review(self, sprint_json: str | None = None) -> Path:
+        """Arm the gate the way the plugin does — a plan review COMPLETING.
+
+        `_arm` writes the payload by hand, which is a legacy-format pin, and a
+        discharge proved against a hand-armed marker has not been proved against
+        the path that arms it: the shipped payload is scope-formatted from live
+        sprint state, and the predicate INTERSECTS against it. A hand-written
+        one cannot be wrong in that way, so it cannot catch it either.
+
+        Returns the marker path, so a caller can assert the discharge deleted it.
+        """
+        if sprint_json is not None:
+            (self.smm_dir / "sprint.json").write_text(sprint_json)
+        subagent_stop._handle_plan_review_done(
+            self.smm_dir,
+            {"agent_type": "xp-plan-reviewer", "agent_id": "xp-plan-reviewer"},
+        )
+        marker = markers.marker_path(self.smm_dir, markers.ASSIGN_PENDING)
+        if not marker.is_file():
+            raise AssertionError(
+                "the real writer armed nothing — the fixture's sprint has no "
+                "promoted teammate story, so every assertion below is vacuous"
+            )
+        return marker
+
+    def _record_execution_mode(self, story_id: str, mode: str) -> None:
+        """Persist `execution_mode` through the CLI /xp-assign itself calls.
+
+        Not a hand-edited sprint.json: `edit-story` validates against
+        `sprint_schema.VALID_EXECUTION_MODES`, so a test that wrote the file
+        directly would go green while the value the skill actually persists was
+        still being rejected at the boundary.
+        """
+        result = run_cli(
+            _PLUGIN_ROOT / "smm" / "sprint_cli.py",
+            ["edit-story", story_id],
+            self.smm_dir,
+            stdin_data=json.dumps({"execution_mode": mode}),
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"edit-story {story_id} execution_mode={mode!r} was refused: "
+                f"{result.stderr.strip()}"
+            )
+
     def _spawned(self, *story_ids: str, branches: dict[str, str] | None = None):
         """Patch the worktree lookup: the named stories have a live teammate.
 
@@ -106,6 +161,8 @@ class _AssignGateTestCase(_HookTestCase):
         that accepted any BlockedError would pass for the wrong reason.
         """
         try:
-            lead_gates.check_lead_gates(input_data, self.smm_dir, is_plan_file=False)
+            lead_gates.check_lead_gates(
+                input_data, self.smm_dir, is_machinery_write=False
+            )
         except _common.BlockedError as e:  # pragma: no cover - failure path
             self.fail(f"assign gate fired when it should not have: {e}")
