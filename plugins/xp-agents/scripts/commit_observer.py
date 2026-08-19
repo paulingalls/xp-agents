@@ -144,13 +144,13 @@ def observe(
     advancing would silently drop the range this exists to catch. The
     per-commit dedup makes the next Bash's retry resume rather than duplicate.
 
-    An OWED reset is settled first, above the unchanged-HEAD return. That
-    placement is the point rather than an accident of ordering: a reset is owed
-    because the observation that earned it ran under a leaked `xp-` identity,
-    and the very next Bash carrying a usable identity is overwhelmingly one
-    where HEAD has not moved at all. Settled below that return it would wait
-    for the next commit — which is precisely the commit the reset exists to
-    make the gate see.
+    An OWED reset is settled on the very next Bash carrying a usable identity,
+    whether or not HEAD moved — that Bash is overwhelmingly one where it did
+    not, and waiting for a HEAD move would wait for the next commit, which is
+    precisely the commit the reset exists to make the gate see. It is settled
+    AFTER the reconcile so that a range whose own DECLINE owes a reset settles
+    it on the same call rather than one Bash later, and so a reset owed to an
+    older hash is judged against a watermark this call may just have moved.
     """
     head = git_head.read_head(cwd)
     if head is None:
@@ -162,30 +162,33 @@ def observe(
     owed = commit_observer_state.record_field(
         record, commit_observer_state.OWED_RESET_FIELD
     )
-    if (
-        owed
-        and not is_xp_agent_leak
-        and commit_observer_state.settle_owed_reset(smm_dir, agent_id, cwd, owed)
-    ):
-        owed = None
-        commit_observer_state.write_record(smm_dir, cwd, last_seen or head, None)
-    if last_seen == head:
-        return
-    if last_seen is not None:
+    if last_seen is not None and last_seen != head:
         try:
-            owed = _reconcile(
-                smm_dir,
-                agent_id,
-                cwd,
-                last_seen,
-                head,
-                is_xp_agent_leak=is_xp_agent_leak,
+            # `or owed`: rebinding DROPPED a reset still owed from an earlier
+            # walk, whenever this one had nothing left to record.
+            owed = (
+                _reconcile(
+                    smm_dir,
+                    agent_id,
+                    cwd,
+                    last_seen,
+                    head,
+                    is_xp_agent_leak=is_xp_agent_leak,
+                )
+                or owed
             )
         except _append_impl.LockTimeoutError:
             # Another observer holds the record lock. Return WITHOUT
             # advancing, so the next Bash walks the same range — and without
             # raising into the user's Bash call to say so.
             return
+    settled = False
+    if owed and not is_xp_agent_leak:
+        settled = commit_observer_state.settle_owed_reset(smm_dir, agent_id, cwd, owed)
+        if settled:
+            owed = None
+    if last_seen == head and not settled:
+        return
     commit_observer_state.write_record(smm_dir, cwd, head, owed)
 
 

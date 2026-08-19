@@ -183,6 +183,22 @@ class TestALeakedIdentityStillOwesTheReset(_GateCase):
             ]
         )
 
+    def test_an_owed_reset_outlives_an_observation_with_nothing_to_record(self):
+        """The marker advances on every HEAD move, including one whose commits
+        another path already recorded. Letting that walk REPLACE the owed hash
+        loses it exactly as the un-deferred skip did: nothing pending, nothing
+        owed, and the latch stays set for good."""
+        self._observe_under_a_leak()
+        later = self.commit("feat: recorded by the commit path", path="src/b.py")
+        self.record_commit_event(later)
+        self.run_hook(ORDINARY_BASH, agent_type="xp-leaked")
+
+        self.observe()
+        self._stage_two_code_files()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run_the_commit_gate()
+
     def test_an_owed_hash_the_watermark_is_already_past_is_not_applied(self):
         """Walking the watermark BACKWARDS is the defect `86d4d129` fixed
         earlier this sprint. An owed reset must not reintroduce it by a new
@@ -250,7 +266,6 @@ class TestADeclinedRewriteAlsoOwesItsReset(_GateCase):
         self.reword_rebase(base, "feat: reworded\n")
 
         self.observe()
-        self.observe()
         self._stage_two_code_files()
 
         with self.assertRaises(_common.BlockedError):
@@ -266,7 +281,10 @@ class TestADeclinedRewriteAlsoOwesItsReset(_GateCase):
         self.reword_rebase(base, "feat: reworded\n")
         head = self.head()
 
-        self.observe()
+        # ONE observation. The declining call settles the reset it owes when
+        # the identity may apply it: the next thing after a rebase is routinely
+        # the commit whose gate must not read satisfied off the stale review,
+        # and a second Bash is not guaranteed to arrive before it.
         self.observe()
 
         self.assertEqual(

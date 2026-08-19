@@ -250,7 +250,11 @@ PROSE_MEASURED: dict[str, int] = {
     # because the marker advances past it. 189 -> 197: the module docstring's
     # "do not restore the reflog check" rule now says what survives that change
     # and why — without it the new reflog read reads as the forbidden one.
-    "plugins/xp-agents/scripts/commit_observer.py": 197,
+    # 197 -> 199: the review's fix to the owed reset — a reconcile owing nothing
+    # new must not overwrite one still owed, and the settle moved BELOW the
+    # reconcile so a decline settles on its own call — and the two lines say
+    # which loss each shape prevented.
+    "plugins/xp-agents/scripts/commit_observer.py": 199,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.

@@ -60,10 +60,18 @@ class TestTheCheapPath(_ObserverCase):
     more than the gap it closes."""
 
     def test_an_unchanged_head_shells_out_to_nothing(self):
+        """BOTH fork sites, because they are not the same one: the message and
+        file reads go through `commits._run_git`, while the ancestry and reflog
+        reads call `subprocess.run` themselves — so pinning only the first
+        certifies a path a later fork can be added to without reddening."""
         self.seed_observer()
-        with patch("commits._run_git") as run_git:
+        with (
+            patch("commits._run_git") as run_git,
+            patch("commit_observer_history.subprocess.run") as ancestry,
+        ):
             self.observe()
         run_git.assert_not_called()
+        ancestry.assert_not_called()
 
     def test_an_unchanged_head_does_not_read_the_event_log(self):
         self.seed_observer()
