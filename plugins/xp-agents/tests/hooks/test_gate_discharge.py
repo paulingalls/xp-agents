@@ -44,13 +44,13 @@ class _RealHookTestCase(_IntegrationTestCase):
     """Drive a shipped hook as its own process, against the shipped plugin."""
 
     def _run_hook(self, script: str, payload: dict) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            ["python3", str(_PLUGIN_ROOT / "scripts" / script)],
-            input=json.dumps(payload),
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=self._env_with_plugin_root(),
+        """Through the shared driver, not a sixth hand-rolled `subprocess.run`.
+
+        `CLAUDE_PLUGIN_ROOT` is the one override these cases need: the preloads
+        the hooks below shell out to resolve their shared library through it.
+        """
+        return self._run_script_with_env(
+            script, payload, {"CLAUDE_PLUGIN_ROOT": str(_PLUGIN_ROOT)}
         )
 
     def _skill_md(self, skill: str) -> Path:

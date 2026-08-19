@@ -26,8 +26,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Verbs that take a target as their next token. The target is what makes two
-# sites in one script separately classifiable — `xp-review-plan` deletes both a
-# gate and a pointer with `rm -f`, and only one of them matters on a refusal.
+# sites in one script separately classifiable — `xp-review-plan` deletes the
+# `.last-plan-path` pointer with `rm -f` and consumes the plan gate with
+# `consume_marker`, and only one of them matters on a refusal.
 #
 # `--detector` is a FLAG rather than a shell helper, and it sits here rather than
 # in `_FLAG_VERB` below for the same reason: the detector name is the target, and

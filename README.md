@@ -247,7 +247,7 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 | Hook Event | What Fires | XP Practice |
 |---|---|---|
 | **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, kickoff gate | Communication, On-Site Customer |
-| **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, `.plan-awaiting-review` gate blocks writes until `/xp-review-plan` clears it, `.assign-pending` gate blocks writes until `/xp-assign` clears it (worktree teammates exempt) | TDD, Planning Game |
+| **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, `.plan-awaiting-review` gate blocks writes until a plan review COMPLETES (cleared at the reviewer's SubagentStop, not when `/xp-review-plan` starts), `.assign-pending` gate blocks writes while a promoted teammate story has no live worktree — it self-clears from sprint state once every one is spawned, so `/xp-assign` spends nothing (worktree teammates exempt) | TDD, Planning Game |
 | **PreToolUse** (Bash) | Commit-gated review cycle (`/xp-quality-review`; Tier 1 secret/pattern scan on the staged diff), branch-protection advisories, cd-into-worktree-git advisory. No Bash file-modification coordination gate — `pre_tool_write` covers Edit/Write; cross-agent Bash damage is caught at story-close merge. | Coding Standards, Refactoring |
 | **PreToolUse** (Skill) | Prepare per-skill review guidance before a skill runs | Coding Standards |
 | **PreToolUse** (EnterPlanMode) | Schedule gate — blocks plan entry until `/xp-schedule` promotes a frontier | Planning Game |
