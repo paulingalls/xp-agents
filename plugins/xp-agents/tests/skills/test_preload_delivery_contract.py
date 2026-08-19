@@ -43,10 +43,11 @@ Known limits, recorded rather than fixed:
 - A sibling story changes the four close skills' preloads. When it lands their
   recorded markers change and going red here is CORRECT, not a regression:
   re-seed the table from the new output, do not loosen the rules.
-- No heartbeat machinery. `_env_hygiene` pins `XP_SKIP_LIVENESS_CHECK=1` at
-  import and `_run_preload` copies `os.environ`, so no preload driven by this
-  runner can refuse; `test_preload_liveness.py` owns that behaviour. The one
-  `REFUSAL_HEADER` tripwire below exists to catch that pin coming undone.
+- No heartbeat machinery, and no longer any need to suppress it. The liveness
+  reader that could refuse a preload is deleted, so there is nothing to pin off
+  and nothing to trip over: every preload driven here runs to its own end. The
+  suppression env var and the tripwire that watched for the banner both retired
+  with it.
 """
 
 import sys
@@ -64,7 +65,6 @@ from _preload_delivery_fixtures import (
     Marker,
     Rule,
 )
-from _preload_fixtures import REFUSAL_HEADER
 from conftest import (
     _bootstrap_seeded_smm,
     _run_preload,
@@ -244,14 +244,6 @@ class TestDeliveredMarkers(unittest.TestCase):
             failures,
             "recorded state markers missing from delivered preload output:\n"
             + "\n".join(failures),
-        )
-
-    def test_no_output_is_a_liveness_refusal(self):
-        """Tripwire only. A refusal here means `_env_hygiene`'s skip pin came
-        undone and every marker above was matched against a banner."""
-        refusing = sorted(s for s, out in self.outputs.items() if REFUSAL_HEADER in out)
-        self.assertFalse(
-            refusing, f"preloads that refused instead of running: {refusing}"
         )
 
 

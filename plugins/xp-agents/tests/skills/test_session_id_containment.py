@@ -190,16 +190,6 @@ class TestSessionIdContainment(unittest.TestCase):
         stripped = "|".join(["unset"] * len(_env_hygiene.STRIPPED_SESSION_ID_VARS))
         self.assertEqual(proc.stdout, f"{_env_hygiene.TEST_SESSION_ID}|{stripped}")
 
-    def test_the_bypass_is_pinned_on(self):
-        """One bypass pin covers all six `_run_preload` definitions.
-
-        Seeding a heartbeat per runner would cover a sixth of the surface, and a
-        seventh runner would opt out by simply not knowing. The dedicated
-        liveness suites unset it explicitly — that is where the real behavior is
-        exercised.
-        """
-        self.assertEqual(os.environ.get(_env_hygiene.SKIP_LIVENESS_ENV), "1")
-
 
 class TestLefthookMirrorsTheStrip(unittest.TestCase):
     """CLAUDE.md's two-place convention: `env -u` in lefthook.yml must match.

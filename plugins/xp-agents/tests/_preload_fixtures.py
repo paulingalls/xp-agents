@@ -32,23 +32,16 @@ def _no_env() -> dict:
 # Non-vacuity: a glob that silently stops matching must fail loudly rather
 # than report a green scan of nothing (the story-001 lesson). Duplicated
 # across test_preload_wiring.py and test_skill_preload_map.py used to be two
-# copies of this same number (concern f81a974e98e8) — homed here, beside
-# REFUSAL_HEADER, for the same reason: importing a `test_*` module for a
-# constant makes pytest execute that file under a second module name.
+# copies of this same number (concern f81a974e98e8) — homed here because
+# importing a `test_*` module for a constant makes pytest execute that file
+# under a second module name.
 _EXPECTED_PRELOADS = 17
 
 
-# The liveness refusal's own heading, as `skills/_preload_liveness.sh` echoes
-# it. It must not be confusable with the base's pre-existing no-SMM-at-all exit:
-# "there is no shared model here" and "the shared model is here but the runtime
-# maintaining it is dead" are different failures with different fixes.
-#
-# Anchored in this shared module rather than in whichever suite spelled it
-# first: two suites now assert against it, and importing a `test_*` module for a
-# constant makes pytest execute that file under a second module name. No
-# separate pin against the shell fragment is needed — every consumer asserts it
-# against REAL preload stdout, so a reworded banner goes red there.
-REFUSAL_HEADER = "## Hook Runtime: not live"
+# REFUSAL_HEADER retired with the liveness reader it named. No preload can
+# emit that banner any more — the fragment that echoed it is deleted — so a
+# constant for it would be a string nothing can produce, and the tripwire that
+# watched for it was watching a state that can no longer occur.
 
 
 # ratchet(measured, current, 100, rounding=ceil, floor=100) — see

@@ -22,14 +22,14 @@ successful:
 1. Run the preload in the SESSION's cwd. Run it in the skill directory and it
    resolves a different project's state.
 2. Run the command the skill's own line names, via `skill_preload_map`. A
-   hardcoded `preload.sh` is right on fourteen skills and WRONG on two — one
-   takes an extra flag, one names a different script, and one of the two is the
-   most-used skill.
-3. Write the heartbeat FIRST. The preload scripts carry their own liveness check
-   and emit a refusal banner *instead of state* when no fresh heartbeat exists,
-   so skipping this injects a refusal that reads like output. `pre_tool_skill.py`
-   refreshes it on the skill trigger, but this is a separate process and the
-   second harness's trigger has no refresh at all.
+   hardcoded `preload.sh` is right on every skill but one, which names a
+   different script — and the resolver is still the answer, because "all but
+   one" is exactly the shape that reads as safe until it is not.
+3. Write the heartbeat. Ordering no longer matters — story-009 deleted the
+   preload-side liveness check that refused with a banner instead of state, so
+   there is nothing here to race. It still has to happen: `pre_tool_skill.py`
+   refreshes on the skill trigger, but this is a separate process and the second
+   harness's trigger has no refresh at all, so this is that path's only writer.
 4. A preload that fails, times out, or prints nothing must inject NOTHING.
    Injecting a partial stream or an error as though it were state is this
    milestone's own failure class arriving from inside.
@@ -265,16 +265,17 @@ def _take_claim(skill: str) -> bool:
 
 
 def _refresh_heartbeat(input_data: dict) -> None:
-    """Write the liveness heartbeat before the preload reads it.
+    """Record that this hook ran, so other sessions can see this one is alive.
 
-    Ordering is the whole point: the preload refuses and emits a banner instead
-    of state when the heartbeat is stale, so a write placed after the run would
-    inject that banner. That ordering is this module's alone to keep — on the
-    shell-read leg `pre_tool_skill` never fires, so this is the only refresher.
+    Position stopped mattering with story-009, which deleted the preload that
+    read this marker and refused on a stale one. The write survives for
+    `coordination` and `close_cycle_abandonment`, which ask about OTHER sessions
+    and do not care when in this handler it lands — and stays ours on the
+    shell-read leg, where `pre_tool_skill` never fires.
 
-    The WRITE is the shipped one, called rather than copied: the body here was a
-    line-for-line duplicate of `pre_tool_skill.refresh_heartbeat`. Never raises;
-    a heartbeat that cannot be written must not cost the injection.
+    Called rather than copied (the body duplicated
+    `pre_tool_skill.refresh_heartbeat`). Never raises: a heartbeat that cannot
+    be written must not cost the injection.
     """
     pre_tool_skill.refresh_heartbeat(input_data)
 

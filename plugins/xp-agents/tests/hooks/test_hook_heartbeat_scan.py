@@ -2,8 +2,8 @@
 """The per-session heartbeat scan, tested as the primitive it now is.
 
 `hook_heartbeat_scan` was extracted from `hook_liveness` so a second reader
-could ask "is THAT session's runtime alive" without importing the verdict
-machinery. Its callers' suites cover it end-to-end already; what they cannot
+could ask "is THAT session's runtime alive" without importing the writer.
+Its callers' suites cover it end-to-end already; what they cannot
 cover is the primitive's own contract at the boundaries — the window's two
 ends, the three ways a sibling is unreadable, and the two files the reaping
 glob must never match. Those are here.
@@ -51,8 +51,8 @@ class _ScanTestCase(_HookTestCase):
 
 
 class TestWindowHasTwoEnds(unittest.TestCase):
-    """`within_window` is the one home for the bounds, so the three scans
-    that ask "is this heartbeat still good" cannot drift apart."""
+    """`within_window` is the one home for the bounds, so every scan that
+    asks "is this heartbeat still good" cannot drift apart."""
 
     def test_unageable_is_not_evidence_of_freshness(self):
         self.assertFalse(hook_heartbeat_scan.within_window(None))
@@ -185,34 +185,6 @@ class TestReapStaleSiblings(_ScanTestCase):
             hook_heartbeat_scan.reap_stale_siblings(
                 self.smm_dir, keep, NOW + 10 * hook_heartbeat_scan.STALE_AFTER_SECONDS
             )
-
-
-class TestFreshestSibling(_ScanTestCase):
-    """ "Is the runtime alive anywhere" — shared by two callers that must
-    reach the same answer without sharing a verdict."""
-
-    def test_nothing_planted_is_none(self):
-        self.assertIsNone(hook_heartbeat_scan.freshest_sibling(self.smm_dir, NOW))
-
-    def test_the_youngest_age_wins(self):
-        self._plant("older", at=NOW - 600)
-        self._plant("younger", at=NOW - 5)
-        self.assertEqual(hook_heartbeat_scan.freshest_sibling(self.smm_dir, NOW), 5)
-
-    def test_a_stale_sibling_is_not_freshness(self):
-        self._plant("stale", at=NOW - hook_heartbeat_scan.STALE_AFTER_SECONDS)
-        self.assertIsNone(hook_heartbeat_scan.freshest_sibling(self.smm_dir, NOW))
-
-    def test_an_unreadable_sibling_is_not_freshness(self):
-        corrupt = self._plant("corrupt")
-        corrupt.write_text("{not json", encoding="utf-8")
-        self.assertIsNone(hook_heartbeat_scan.freshest_sibling(self.smm_dir, NOW))
-
-    def test_the_shared_unsuffixed_marker_is_not_a_sibling(self):
-        """`check_liveness` reads that one directly; counting it here would
-        let a session vouch for itself through the sibling path."""
-        markers.marker_write(self.smm_dir, markers.HOOK_HEARTBEAT, {"written_at": NOW})
-        self.assertIsNone(hook_heartbeat_scan.freshest_sibling(self.smm_dir, NOW))
 
 
 class TestTheExtractionKeptOneHomeForTheBounds(_HookTestCase):

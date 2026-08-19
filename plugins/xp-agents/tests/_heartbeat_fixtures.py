@@ -17,6 +17,7 @@ it the provenance the test means it to have.
 import contextlib
 import os
 import sys
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
@@ -24,12 +25,39 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import hook_heartbeat_scan
 import hook_liveness
 import markers
 
-HOOK_LIVENESS_PY = Path(__file__).parent.parent / "scripts" / "hook_liveness.py"
-
 _NO_SESSION_ENV = dict.fromkeys(hook_liveness.SESSION_ID_ENV_CANDIDATES, "")
+
+
+def is_beating(
+    smm_dir: Path, session_id: str, *, now: float | None = None
+) -> bool | None:
+    """Is this session's heartbeat fresh? None when it cannot be aged.
+
+    Replaces the deleted verdict reader for the tests that only ever asked
+    "did the writer write" — most uses of that reader in this suite were that
+    question, not a test of the verdict itself, and they outlived it.
+
+    Deliberately THREE-VALUED, matching what the two surviving production
+    consumers return (`coordination._session_is_live`,
+    `close_cycle_abandonment.owner_session_is_live`): an unageable heartbeat is
+    "cannot tell", never "dead". A two-valued helper here would let a test
+    assert a certainty no shipped caller ever gets.
+
+    The window itself is `within_window`'s, not a second spelling of it. A
+    fixture that respelled the bounds would drift from the shipped ones exactly
+    where it matters — a heartbeat inside the future-skew grace is fresh to
+    every production reader, and a hand-rolled `0 <= age` would call it dead.
+    """
+    path = markers.marker_path(smm_dir, hook_liveness.heartbeat_marker(session_id))
+    stamp = time.time() if now is None else now
+    age = hook_heartbeat_scan.sibling_age(smm_dir, path, stamp)
+    if age is None:
+        return None
+    return hook_heartbeat_scan.within_window(age)
 
 
 def env(**overrides: str) -> dict[str, str]:

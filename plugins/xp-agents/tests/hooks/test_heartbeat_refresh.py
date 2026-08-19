@@ -13,8 +13,10 @@ long-running teammate keeps a live verdict:
 - `pre_tool_skill.py`   — PreToolUse:Skill, before the skill's own preload
 
 A fourth tool-use site — `review_cycle_done.py`, PostToolUse:Skill|Agent —
-landed later (story-004) and is pinned in
-tests/integration/test_hook_liveness_e2e.py, not here.
+landed later (story-004). Its placement pins moved HERE when the e2e suite
+that held them was deleted with the liveness verdict reader (story-009): the
+verdict is gone, the write site is not, and its placement is the same property
+the three above are pinned for.
 
 Marker mechanics are tested in test_hook_heartbeat_marker.py /
 test_hook_heartbeat_liveness.py; the writer PATTERN is tested in
@@ -42,11 +44,13 @@ import hook_liveness
 import markers
 import post_tool_use
 import pre_tool_skill
+import review_cycle_done
 from _heartbeat_fixtures import env as _env
 from _heartbeat_fixtures import heartbeat_payload
 from conftest import (
     _HookTestCase,
     _IntegrationTestCase,
+    _make_agent_input,
     _make_bash_input,
     _make_skill_input,
     _make_write_input,
@@ -196,26 +200,55 @@ class TestPreToolSkillRefreshesHeartbeat(_RefreshTestCase):
         self.assertFalse(self._wrote())
 
 
-class TestSkillPathSelfRescues(_RefreshTestCase):
-    """AC#2, with the ordering trap called out: the refusal fires in the
-    skill's OWN preload, which now runs after PreToolUse:Skill, so a skill
-    invocation genuinely self-rescues a stale heartbeat. The precondition
-    (marker verified stale first) is asserted, not assumed — without it this
-    test would pass trivially against a do-nothing implementation too."""
+class TestReviewCycleDoneRefreshesHeartbeat(_RefreshTestCase):
+    """The PostToolUse:Skill|Agent site, and the two ways it goes dead.
 
-    def test_stale_marker_then_skill_invocation_reads_back_live(self):
+    Be honest about the reach: `hooks.json` registers PreToolUse for `Skill`
+    only while PostToolUse is `Skill|Agent`, so an `Agent` dispatch gets no
+    pre-write at all. An orchestrating lead that spawns subagents without
+    touching bash or the filesystem is the population this site reaches — thin,
+    but the one the other three miss.
+
+    Placement, like the rest of this suite. `run()` returns at `_detect_target`
+    for anything off the allowlist, and again for an xp-agent completion, so a
+    write placed after either is dead for most of what this hook sees.
+    """
+
+    _OFF_ALLOWLIST = "general-purpose"
+
+    def _completion(self, subagent_type: str, **overrides):
+        return review_cycle_done.run(
+            _make_agent_input(subagent_type, session_id=self.SESSION, **overrides),
+            smm_dir=self.smm_dir,
+        )
+
+    def test_a_completion_off_the_allowlist_still_refreshes(self):
+        """The write sits ahead of `_detect_target`: it records that this HOOK
+        ran, not that this particular completion mattered."""
         self._seed_stale()
-        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.SESSION)):
-            before = hook_liveness.check_liveness(self.smm_dir)
-            self.assertFalse(before.live, "precondition: marker must start stale")
+        before = time.time()
+        with patch.dict(os.environ, _env()):
+            self._completion(self._OFF_ALLOWLIST)
+        data = self._payload()
+        assert isinstance(data, dict)
+        self.assertGreaterEqual(data["written_at"], before)
 
-            pre_tool_skill.refresh_heartbeat(
-                _make_skill_input("xp-sprint-start", session_id=self.SESSION),
-                smm_dir=self.smm_dir,
-            )
+    def test_an_xp_subagent_completion_seen_from_a_main_session_refreshes(self):
+        """The guard's subject is who is EXECUTING (`agent_type`), not who just
+        completed (`tool_input.subagent_type`). Reading the second would
+        exclude every xp- subagent completion observed from a main session —
+        most of them — leaving this site almost no population."""
+        with patch.dict(os.environ, _env()):
+            self._completion("xp-code-reviewer")
+        self.assertTrue(self._wrote())
 
-            after = hook_liveness.check_liveness(self.smm_dir)
-        self.assertTrue(after.live, after.reason)
+    def test_xp_agent_writes_no_heartbeat(self):
+        """The recursion guard, mirrored from bash_post_tool.py. Paired with
+        the positive cases above — alone it would pass against a hook that
+        writes nothing at all."""
+        with patch.dict(os.environ, _env()):
+            self._completion(self._OFF_ALLOWLIST, agent_type="xp-code-reviewer")
+        self.assertFalse(self._wrote())
 
 
 class TestPreToolSkillWritesOnBlockPaths(_IntegrationTestCase):
@@ -254,39 +287,3 @@ class TestPreToolSkillWritesOnBlockPaths(_IntegrationTestCase):
             self.smm_dir, hook_liveness.heartbeat_marker(self.SESSION)
         )
         self.assertIsInstance(data, dict)
-
-
-class TestE2ELivenessAfterToolUseFollowingStale(_RefreshTestCase):
-    """AC#5. Full-pipeline proof: a stale heartbeat, followed by an ordinary
-    tool use through each of the three sites, reads back live through the
-    shipped CLI status verdict — not just through the marker file."""
-
-    def test_bash_post_tool_then_status_reports_live(self):
-        self._seed_stale()
-        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.SESSION)):
-            bash_post_tool.run(
-                _make_bash_input("echo hi", session_id=self.SESSION),
-                smm_dir=self.smm_dir,
-            )
-            result = hook_liveness.check_liveness(self.smm_dir)
-        self.assertTrue(result.live, result.reason)
-        self.assertEqual(hook_liveness.EXIT_LIVE, 0)
-
-    def test_post_tool_use_then_status_reports_live(self):
-        self._seed_stale()
-        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.SESSION)):
-            post_tool_use.run(
-                _make_write_input(session_id=self.SESSION), smm_dir=self.smm_dir
-            )
-            result = hook_liveness.check_liveness(self.smm_dir)
-        self.assertTrue(result.live, result.reason)
-
-    def test_pre_tool_skill_then_status_reports_live(self):
-        self._seed_stale()
-        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.SESSION)):
-            pre_tool_skill.refresh_heartbeat(
-                _make_skill_input("xp-sprint-start", session_id=self.SESSION),
-                smm_dir=self.smm_dir,
-            )
-            result = hook_liveness.check_liveness(self.smm_dir)
-        self.assertTrue(result.live, result.reason)
