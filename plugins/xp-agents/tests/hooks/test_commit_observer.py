@@ -26,11 +26,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import _append_impl
 import _common
 import commit_observer
 import markers
-from _commit_repo_case import _MergeCase
+from _commit_repo_case import UNREADABLE_F, _MergeCase
 from _observer_case import ORDINARY_BASH, _ObserverCase
 from conftest import make_event
 from event_schema import EVENT_TYPE_COMMIT
@@ -215,6 +214,134 @@ class TestDeclinesAreReported(_ObserverCase):
         self.assertNotIn(ORDINARY_BASH, content)
 
 
+class TestARewrittenRangeIsDeclined(_ObserverCase):
+    """`commit_event.recorded_commit_hashes` dedups on the hash alone, and its
+    own docstring concedes that a rebased branch's hashes never match. A
+    rewrite that leaves the last-seen commit intact and rewrites what follows
+    therefore puts NEW hashes in the range: they re-record, re-apply their
+    trailers, double-count their metrics, and advance the review watermark past
+    work no review has seen.
+
+    Declined WHOLESALE rather than identified per commit, matching what this
+    module already does with a range it cannot describe and one past its cap.
+    """
+
+    def _rewrite_a_recorded_commit(self) -> tuple[str, str]:
+        """Record a commit through the ordinary path, then rewrite it.
+
+        Recorded FIRST and by the commit path, because that is what leaves the
+        observer's marker at `base` while the log already carries the original
+        hash — which is the state a rebase then makes wrong. Returns the
+        concern id its trailer names and the post-rewrite HEAD.
+        """
+        concern_id = self.seed_concern()
+        self.seed_observer()
+        base = self.head()
+        self.commit(f"feat: original\n\nResolves-Event: {concern_id}", path="src/a.py")
+        self.run_hook(UNREADABLE_F)
+        self.assertEqual(
+            len(self.commit_events()), 1, "the commit path did not record it"
+        )
+        self.reword_rebase(base, f"feat: reworded\n\nResolves-Event: {concern_id}\n")
+        return concern_id, self.head()
+
+    def _events_resolving(self, concern_id: str) -> int:
+        return sum(
+            1
+            for e in self.commit_events()
+            if concern_id in ((e.get("metadata") or {}).get("resolves") or [])
+        )
+
+    def test_a_rewritten_commit_is_not_recorded_a_second_time(self):
+        self._rewrite_a_recorded_commit()
+
+        self.observe()
+
+        self.assertEqual(len(self.commit_events()), 1)
+
+    def test_a_rewritten_commits_trailer_is_not_applied_a_second_time(self):
+        """The duplicate event and the duplicate resolution are separate
+        losses, and either alone under-describes the defect: an id resolved
+        twice is a concern closed by a commit that never existed."""
+        concern_id, _ = self._rewrite_a_recorded_commit()
+
+        self.observe()
+
+        self.assertEqual(self._events_resolving(concern_id), 1)
+
+    def test_the_decline_says_which_head_it_declined_at(self):
+        """AC3: recording on weaker evidence is refused, and the refusal is
+        visible. A silent decline is the same silence this module exists for."""
+        _, head = self._rewrite_a_recorded_commit()
+
+        self.observe()
+
+        declined = [c for c in self.concerns() if head[:12] in c["content"]]
+        self.assertEqual(len(declined), 1)
+        self.assertIn("rewritten", declined[0]["content"])
+
+    def test_a_later_merge_overwriting_orig_head_does_not_hide_the_rewrite(self):
+        """ORIG_HEAD is sticky, and ANY later merge overwrites it with a commit
+        that is still in our history — so that leg goes quiet on a repo where
+        work continued after the rebase, which is every repo. The branch
+        reflog is the second reading of the same event."""
+        self._rewrite_a_recorded_commit()
+        self.git("checkout", "-q", "-b", "side", "HEAD~1")
+        self.commit("feat: side work", path="src/side.py")
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--no-ff", "side", "-m", "merge side")
+
+        self.observe()
+
+        self.assertEqual(len(self.commit_events()), 1)
+
+    def test_an_expired_reflog_does_not_hide_the_rewrite(self):
+        """The other leg, on its own. The branch reflog is commonly unusable —
+        expired at `gc.reflogExpire`, absent in a fresh clone, never written
+        with `core.logAllRefUpdates` off — and with it present BOTH legs fire,
+        so either would look pinned while doing nothing."""
+        self._rewrite_a_recorded_commit()
+        self.erase_reflog()
+
+        self.observe()
+
+        self.assertEqual(len(self.commit_events()), 1)
+
+    def test_an_ordinary_merges_sticky_orig_head_is_not_a_signal(self):
+        """Git sets ORIG_HEAD on any rebase, merge or reset and leaves it
+        indefinitely, so its EXISTENCE says nothing: a repo carrying one from a
+        merge months ago would decline every range forever. That is the same
+        collapse that rules out `reflog -1`, reached by a different door."""
+        self.seed_observer()
+        self.git("checkout", "-q", "-b", "side")
+        self.commit("feat: side work", path="src/side.py")
+        self.git("checkout", "-q", "main")
+        self.commit("feat: main work", path="src/main.py")
+        self.git("merge", "-q", "--no-ff", "side", "-m", "merge side")
+        self.assertTrue((self.repo / ".git" / "ORIG_HEAD").exists())
+
+        self.observe()
+
+        self.assertEqual(self.concerns(), [])
+        self.assertEqual(len(self.commit_events()), 2)
+
+    def test_a_repo_with_no_usable_signal_still_records(self):
+        """The fail direction, and it is a decision rather than an oversight:
+        POSITIVE detection declines, absence of a signal RECORDS. Read the
+        other way, this module records nothing on any repo without a reflog,
+        which is most of them — the same collapse that rules out `reflog -1`.
+        A happy-path case cannot show this, because a happy path HAS signals.
+        """
+        self.seed_observer()
+        self.commit("feat: ordinary work", path="src/a.py")
+        self.erase_reflog()
+
+        self.observe()
+
+        self.assertEqual(len(self.commit_events()), 1)
+        self.assertEqual(self.concerns(), [])
+
+
 class TestAMergeBringsInNoExtraCommits(_MergeCase, _ObserverCase):
     """`--first-parent`, and why it is load-bearing rather than tidiness.
 
@@ -255,101 +382,6 @@ class TestAMergeBringsInNoExtraCommits(_MergeCase, _ObserverCase):
             e for e in self.commit_events() if e["metadata"].get("commit_hash") == merge
         ]
         self.assertTrue(tagged[0]["metadata"].get("is_merge"))
-
-
-class TestMarkerKeying(_ObserverCase):
-    """The SMM is shared across worktrees, so one shared record would read as
-    an unexplained jump in every checkout but the one that wrote it."""
-
-    def test_the_marker_is_keyed_on_the_checkout_not_the_session(self):
-        self.seed_observer()
-        self.assertIsNotNone(self.marker())
-        self.assertIsNone(
-            markers.marker_read(
-                self.smm_dir, markers.LAST_SEEN_HEAD, "worktree-story-999"
-            )
-        )
-
-    def test_another_checkouts_head_is_not_read_as_this_ones(self):
-        markers.marker_write(
-            self.smm_dir,
-            markers.LAST_SEEN_HEAD,
-            {"head": "0" * 40},
-            "worktree-story-999",
-        )
-        self.assertIsNone(
-            commit_observer.read_last_seen_head(self.smm_dir, str(self.repo))
-        )
-
-
-class TestTwoObserversSharingACheckout(_ObserverCase):
-    """AC3. `observe()` runs on every non-commit Bash, so two hooks in one
-    checkout can reach the same unrecorded commit at the same time.
-
-    WHAT THESE PROVE, AND WHAT THEY DO NOT. They prove the RE-CHECK under the
-    lock: the dedup no longer rests on a snapshot taken before the append, so a
-    commit another observer recorded in the window is seen and skipped. That is
-    the part that makes the fix work.
-
-    They do NOT prove mutual exclusion between two OS processes. `flock`'s
-    SIGALRM timeout only arms on the main thread, so a threaded test cannot
-    exercise the real primitive at all, and a two-process test belongs in
-    tests/integration/. Claiming the stronger property from this evidence would
-    be exactly the overclaim the previous story spent four increments removing.
-    """
-
-    def _observe_directly(self) -> None:
-        """Straight into the module, not through `run_hook`: the patch below
-        wraps a function the surrounding hook pipeline also calls, and the
-        window being modelled is `_reconcile`'s own."""
-        commit_observer.observe(self.smm_dir, "main", str(self.repo))
-
-    def test_a_commit_recorded_after_the_first_read_is_not_duplicated(self):
-        """The real race window. Today's check reads a snapshot taken BEFORE
-        the append, so a competitor landing in between is invisible to it."""
-        self.seed_observer()
-        landed = self.commit("feat: x")
-        real = _common.load_events_with_resolutions
-        planted = []
-
-        def competing(smm_dir, *args, **kwargs):
-            result = real(smm_dir, *args, **kwargs)
-            if not planted:
-                planted.append(True)
-                _common.append_safe(
-                    smm_dir,
-                    make_event(
-                        EVENT_TYPE_COMMIT,
-                        content="feat: x",
-                        metadata={
-                            "commit_hash": landed,
-                            "action": "commit_success",
-                        },
-                    ),
-                )
-            return result
-
-        with patch("_common.load_events_with_resolutions", side_effect=competing):
-            self._observe_directly()
-        self.assertEqual(self.recorded_hashes(), [landed])
-
-    def test_a_lock_it_cannot_take_leaves_the_range_open(self):
-        """The observer must never raise into the user's Bash call, and must
-        not advance the marker over a range it did not record — the next Bash
-        retries, and the per-commit dedup makes that resume rather than
-        duplicate."""
-        self.seed_observer()
-        before = self.marker()
-        landed = self.commit("feat: x")
-        with patch(
-            "commit_observer_state.observer_lock",
-            side_effect=_append_impl.LockTimeoutError("busy"),
-        ):
-            self._observe_directly()
-        self.assertEqual(self.commit_events(), [])
-        self.assertEqual(self.marker(), before)
-        self._observe_directly()
-        self.assertEqual(self.recorded_hashes(), [landed])
 
 
 if __name__ == "__main__":

@@ -94,16 +94,13 @@ class TestReviewCycle(_ObserverCase):
         )
 
 
-class TestALeakedIdentityStillOwesTheReset(_ObserverCase):
-    """Skipping the reset under a leaked `xp-` identity is deliberate. The
-    marker advancing PAST the skip is not: the range never comes back, so the
-    reset is lost permanently rather than deferred.
+class _GateCase(_ObserverCase):
+    """An observer case that can also ask the REAL commit gate a question.
 
-    Asserted as the CONSEQUENCE the reset exists to produce, not as a marker
-    value. `quality_review_done` left latched means the next 2+-code-file
-    commit reads the gate satisfied off a review that predates the commit and
-    ships unreviewed — a test that only read a marker would pass against a fix
-    that left exactly that hole open.
+    Every class below asserts the same consequence — that the next
+    2+-code-file commit does not pass on a review predating it — because that
+    is what a lost reset costs. A marker's value is not that assertion: it
+    passes against a fix that leaves the gate broken.
     """
 
     def _stage_two_code_files(self) -> None:
@@ -118,7 +115,7 @@ class TestALeakedIdentityStillOwesTheReset(_ObserverCase):
 
         `_HookTestCase` auto-mocks `commits.get_staged_diff` to "" for every
         hook test, and an empty staged diff is a gate that counts no code files
-        and so blocks nothing — the assertion below would pass against any
+        and so blocks nothing — the assertions below would pass against any
         implementation, including none. Stopped for the call and restarted
         whichever way it returns, since a block is a raise.
         """
@@ -129,6 +126,19 @@ class TestALeakedIdentityStillOwesTheReset(_ObserverCase):
             )
         finally:
             self._staged_diff_patch.start()
+
+
+class TestALeakedIdentityStillOwesTheReset(_GateCase):
+    """Skipping the reset under a leaked `xp-` identity is deliberate. The
+    marker advancing PAST the skip is not: the range never comes back, so the
+    reset is lost permanently rather than deferred.
+
+    Asserted as the CONSEQUENCE the reset exists to produce, not as a marker
+    value. `quality_review_done` left latched means the next 2+-code-file
+    commit reads the gate satisfied off a review that predates the commit and
+    ships unreviewed — a test that only read a marker would pass against a fix
+    that left exactly that hole open.
+    """
 
     def _observe_under_a_leak(self) -> None:
         """The defect's setup: a commit recorded while the identity was wrong."""
@@ -219,6 +229,48 @@ class TestALeakedIdentityStillOwesTheReset(_ObserverCase):
             len([c for c in self.concerns() if "owed" in c["content"].lower()]),
             1,
             "a dropped owed reset must not re-file its trace on every Bash",
+        )
+
+
+class TestADeclinedRewriteAlsoOwesItsReset(_GateCase):
+    """A rewrite decline reaches the SAME defect by a second route.
+
+    The marker still advances on a decline (advance on DECLINE, never on
+    RAISE), so `_end_cycle_for_the_range` never runs for that range —
+    `quality_review_done` stays latched exactly as it did after a leak, and the
+    next 2+-code-file commit passes on a review that predates the rewritten
+    work. Closing that door is part of the decline, not a follow-up.
+    """
+
+    def test_the_next_two_file_commit_does_not_pass_after_a_declined_rewrite(self):
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        self.seed_observer()
+        base = self.head()
+        self.commit("feat: original", path="src/a.py")
+        self.reword_rebase(base, "feat: reworded\n")
+
+        self.observe()
+        self.observe()
+        self._stage_two_code_files()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run_the_commit_gate()
+
+    def test_the_reset_is_owed_to_head_not_to_a_rewritten_hash(self):
+        """Owed to the hash the range was declined AT. Any commit inside the
+        range is one this observer just refused to record, so resetting to it
+        would point the gate's `{sha}..HEAD` diff at a commit with no event."""
+        self.seed_observer()
+        base = self.head()
+        self.commit("feat: original", path="src/a.py")
+        self.reword_rebase(base, "feat: reworded\n")
+        head = self.head()
+
+        self.observe()
+        self.observe()
+
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), head
         )
 
 

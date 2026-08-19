@@ -96,6 +96,12 @@ _CAPPED_FILES = (
     _SCRIPTS_DIR / "git_head.py",
     Path(__file__).resolve().parent / "test_commit_observer.py",
     Path(__file__).resolve().parent / "test_commit_observer_cycle.py",
+    # The multi-checkout, multi-process cases, split off when this story's
+    # rewrite cases pushed `test_commit_observer.py` past this cap. That group
+    # rather than the new one: the cap forces A placement decision, and the
+    # cases the story's own acceptance command gates belong in the file it
+    # names. Capped on arrival like everything above.
+    Path(__file__).resolve().parent / "test_commit_observer_sharing.py",
     Path(__file__).resolve().parent / "test_commit_event_recording.py",
 )
 

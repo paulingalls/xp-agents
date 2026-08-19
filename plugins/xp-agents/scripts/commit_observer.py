@@ -37,6 +37,14 @@ older than HEAD by construction.
 guard for a different claim, and adding it would silently reduce this module to
 recording at most the single newest commit.
 
+That rule is about `reflog -1` and about ATTRIBUTION, and it survives a later
+change that may look like its opposite: `commit_observer_history` does read the
+reflog, but it reads the BRANCH's entries and asks whether history inside the
+range was REPLACED — a property of the range, not a claim about who made it.
+The veto above fails because one entry cannot describe a range; that read
+cannot fail the same way, and it declines the range rather than vetoing every
+commit but the newest.
+
 For the same reason this module does NOT borrow the observing Bash's command
 string. There is no command to name — an `ls` did not produce the commit it
 happens to notice — so the decline records in `commit_observer_reports` identify
@@ -68,6 +76,7 @@ import _common
 import code_files
 import commit_emit
 import commit_event
+import commit_observer_history
 import commit_observer_reports
 import commit_observer_state
 import commits
@@ -224,6 +233,37 @@ def _reconcile(
     pending = [rev for rev in revs if rev not in already]
     if not pending:
         return None
+
+    # EVERY git call this module added sits below this line, and that placement
+    # is a budget rather than a preference: `observe` runs on every ordinary
+    # Bash, a sibling hook path is bounded at 5s, and one unbudgeted git read
+    # has already broken that bound once this sprint. Above here the cost is a
+    # HEAD read, a marker read and a string compare; the rare reconcile that
+    # reaches here adds at most three forks (two `merge-base --is-ancestor`,
+    # one reflog read), plus one more on the owed-reset path in `observe`.
+    #
+    # Declined WHOLESALE, matching the two declines above rather than inventing
+    # a third shape. The alternative — per-commit `patch-id` identity — asks a
+    # question this module has no way to bound.
+    if commit_observer_history.range_was_rewritten(cwd, last_seen, head):
+        commit_observer_reports.record_range_declined(
+            smm_dir,
+            agent_id,
+            head,
+            f"history after {last_seen[:12]} was rewritten. The hashes now in "
+            "the range are new ones for work already recorded under the old "
+            "ones, so recording them would apply their trailers twice and "
+            "advance the review watermark past unreviewed work. NONE of the "
+            "range was recorded.",
+        )
+        # The marker still advances on a decline, so `_end_cycle_for_the_range`
+        # below never runs for this range and `quality_review_done` stays
+        # latched — which is the very defect the owed reset exists for, reached
+        # by a new route. Owed to HEAD rather than to anything inside the range:
+        # every commit in it is one this observer just refused to record, so a
+        # reset to one would point the gate's `{sha}..HEAD` diff at a commit
+        # carrying no event.
+        return head
     review_cadence = markers.read_review_cadence(smm_dir)
     newest_recorded: str | None = None
 

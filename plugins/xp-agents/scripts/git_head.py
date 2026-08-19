@@ -29,7 +29,7 @@ make; this module's job is to answer cheaply or not at all.
 import re
 from pathlib import Path
 
-__all__ = ["read_head", "resolve_git_dirs"]
+__all__ = ["read_head", "read_head_ref", "resolve_git_dirs"]
 
 # A full object name, anchored. Anything else in a HEAD or ref file — a symref
 # loop, a truncated write, an `ORIG_HEAD` style annotation — is not an answer.
@@ -125,6 +125,26 @@ def read_head(cwd: str) -> str | None:
         # Detached HEAD stores the object name directly.
         return raw if _OBJECT_NAME_RE.match(raw) else None
     return _resolve_ref(gitdir, commondir, raw[len(_SYMREF_PREFIX) :].strip())
+
+
+def read_head_ref(cwd: str) -> str | None:
+    """The BRANCH ref HEAD points at (`refs/heads/x`), or None when detached.
+
+    The name rather than the value, for a caller that needs to address the
+    branch itself — a per-branch reflog is stored under its ref name, and there
+    is no such log at all while HEAD is detached. None means "no branch to
+    address": detached, unreadable, or not a repo. Kept here rather than
+    hand-parsed by the caller, because a second reader of the symref prefix is
+    a second place for git's HEAD format to be got wrong.
+    """
+    dirs = resolve_git_dirs(cwd)
+    if dirs is None:
+        return None
+    raw = _read(dirs[0] / "HEAD")
+    if raw is None or not raw.startswith(_SYMREF_PREFIX):
+        return None
+    refname = raw[len(_SYMREF_PREFIX) :].strip()
+    return refname if refname.startswith("refs/heads/") else None
 
 
 def _resolve_ref(gitdir: Path, commondir: Path, refname: str) -> str | None:

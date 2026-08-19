@@ -241,7 +241,16 @@ PROSE_MEASURED: dict[str, int] = {
     # and the observation record plus its deferred reset to
     # `commit_observer_state.py`. An entry left above the tree is a re-entry
     # allowance, and the extracted lines could come back here for free.
-    "plugins/xp-agents/scripts/commit_observer.py": 171,
+    # 171 -> 189: the rewrite decline arrived, and its notes are the ones a
+    # later reader would otherwise undo — that EVERY git call this module added
+    # sits below the cheap exit and why (a sibling hook path is bounded at 5s,
+    # and one unbudgeted read broke it once this sprint), that the range is
+    # declined wholesale to match the two declines already there rather than
+    # inventing a third shape, and that the decline still OWES its reset
+    # because the marker advances past it. 189 -> 197: the module docstring's
+    # "do not restore the reflog check" rule now says what survives that change
+    # and why — without it the new reflog read reads as the forbidden one.
+    "plugins/xp-agents/scripts/commit_observer.py": 197,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.
