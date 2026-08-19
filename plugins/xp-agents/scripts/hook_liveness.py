@@ -3,16 +3,19 @@
 
 When the runtime stops enforcing, its gates vanish and the session looks normal.
 
-Sprint-007 left the verdict INERT in production, not merely narrowed: the one
-reader is reached only from `preload_injection.run`, which calls
-`_refresh_heartbeat` before `run_preload`, so stale and absent are both
-unreachable there. The staleness predicate below is still correct and still
-exercised by direct invocation — story-009 owns the ordering and whether any of
-this survives.
+There is no VERDICT here any more. A reader once turned this marker into a
+live/not-live answer and a preload refused on it, but that reader was reachable
+only from the injection hook — so it judged a runtime already running — and the
+handler wrote the heartbeat immediately before the preload read it. Inert by
+construction, so story-009 deleted it rather than reordering the write.
 
-The primitive only — write helper, session-id candidate chain, staleness
-predicate, thin CLI. The hooks that refresh the marker and the preload that
-consumes it live elsewhere.
+What remains is the primitive: the write helper, the session-id candidate
+chain, and the marker naming. Its consumers ask about OTHER sessions, which is
+the question the deleted reader could never answer —
+`coordination._session_is_live` for the Stop gates' conflict check, and
+`close_cycle_abandonment.owner_session_is_live` for whether a close cycle's
+owner is still running. Both answer `bool | None` and treat an unageable
+heartbeat as "cannot tell"; anything added here should keep that shape.
 """
 
 import sys
