@@ -236,11 +236,12 @@ PROSE_MEASURED: dict[str, int] = {
     # swallows a lock timeout, so its return cannot distinguish written from
     # dropped, and a dropped event that advanced the marker is a commit no event
     # will ever carry).
-    # 184 -> 178 (story-022): the three report paths moved to
-    # `commit_observer_reports.py` and took their prose with them. Banked
-    # DOWNWARD rather than left at 184 — an entry above the tree is a re-entry
+    # 184 -> 178 -> 171 (story-022): two extractions, each banked DOWNWARD on
+    # the commit that made it — the report paths to `commit_observer_reports.py`
+    # and the observation record plus its deferred reset to
+    # `commit_observer_state.py`. An entry left above the tree is a re-entry
     # allowance, and the extracted lines could come back here for free.
-    "plugins/xp-agents/scripts/commit_observer.py": 178,
+    "plugins/xp-agents/scripts/commit_observer.py": 171,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.

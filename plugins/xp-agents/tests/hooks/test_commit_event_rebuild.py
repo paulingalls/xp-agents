@@ -87,6 +87,12 @@ _CAPPED_FILES = (
     # a file added only once it is crowded has already had its placement
     # decision made for it.
     _SCRIPTS_DIR / "commit_observer_reports.py",
+    # The observation record and the review-cycle reset it can owe, and the
+    # ancestry reads that decide where a hash sits. Both capped on arrival for
+    # the reason above: the observer is the file they were split OUT of, so
+    # uncapped they are simply somewhere to move its growth to.
+    _SCRIPTS_DIR / "commit_observer_state.py",
+    _SCRIPTS_DIR / "commit_observer_history.py",
     _SCRIPTS_DIR / "git_head.py",
     Path(__file__).resolve().parent / "test_commit_observer.py",
     Path(__file__).resolve().parent / "test_commit_observer_cycle.py",

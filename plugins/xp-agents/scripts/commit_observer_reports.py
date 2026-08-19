@@ -26,6 +26,7 @@ from event_schema import METADATA_KEY_COMMIT_HASH
 __all__ = [
     "OBSERVER_SOURCE",
     "record_declined",
+    "record_owed_reset_dropped",
     "record_range_declined",
 ]
 
@@ -65,6 +66,28 @@ def record_range_declined(smm_dir: Path, agent_id: str, head: str, reason: str) 
         f"Commit reconciliation declined at HEAD {head[:12]}: {reason} "
         f"{OBSERVER_SOURCE}",
         metadata={METADATA_KEY_COMMIT_HASH: head},
+    )
+
+
+def record_owed_reset_dropped(smm_dir: Path, agent_id: str, owed: str) -> None:
+    """A review-cycle reset that was owed and can no longer be placed.
+
+    Owed because the observation that earned it ran under a leaked identity;
+    unplaceable because git can no longer resolve the hash it was owed to — a
+    rebase or a prune took it. Kept, it wedges the observer's marker forever
+    AND leaves the latched review flag it exists to clear fully live; dropped
+    in silence, the unreviewed commit that follows is the one thing nobody
+    hears about. So it goes, and says so, exactly once.
+    """
+    append_concern(
+        smm_dir,
+        agent_id,
+        f"A review-cycle reset owed to commit {owed[:12]} was dropped: git can "
+        f"no longer resolve that commit, so there is no safe hash to reset to. "
+        f"A quality-review flag may still be set from a review that predates "
+        f"the work that commit carried — run /xp-quality-review before the next "
+        f"commit rather than trusting the gate. {OBSERVER_SOURCE}",
+        metadata={METADATA_KEY_COMMIT_HASH: owed},
     )
 
 

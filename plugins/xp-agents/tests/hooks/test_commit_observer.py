@@ -342,7 +342,7 @@ class TestTwoObserversSharingACheckout(_ObserverCase):
         before = self.marker()
         landed = self.commit("feat: x")
         with patch(
-            "commit_observer._observer_lock",
+            "commit_observer_state.observer_lock",
             side_effect=_append_impl.LockTimeoutError("busy"),
         ):
             self._observe_directly()
