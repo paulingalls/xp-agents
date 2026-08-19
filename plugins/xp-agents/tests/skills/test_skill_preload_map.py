@@ -35,8 +35,10 @@ def _all_preload_skill_names() -> list[str]:
 
 
 class TestCommonDefaultResolution(unittest.TestCase):
-    """15 of 17 preload-bearing skills resolve to `scripts/preload.sh` with
-    no extra arguments — the common default."""
+    """16 of 17 preload-bearing skills resolve to `scripts/preload.sh` with no
+    extra arguments — the common default. xp-assign joined them when its
+    `--consume-gate` argument went (story-021); xp-kickoff is the last outlier,
+    and only on the script's NAME."""
 
     def test_the_scan_finds_every_preload(self):
         self.assertEqual(
@@ -62,7 +64,7 @@ class TestCommonDefaultResolution(unittest.TestCase):
         self.assertTrue(Path(invocation.argv[0]).is_file())
 
     def test_every_common_default_skill_resolves(self):
-        outliers = {"xp-assign", "xp-kickoff"}
+        outliers = {"xp-kickoff"}
         for name in _all_preload_skill_names():
             if name in outliers:
                 continue
@@ -101,23 +103,35 @@ class TestOutliers(unittest.TestCase):
         self.assertEqual(Path(invocation.argv[0]).name, "check_session_needs.sh")
         self.assertEqual(invocation.argv[1:], [])
 
-    def test_xp_assign_carries_consume_gate(self):
-        invocation = skill_preload_map.resolve_preload("xp-assign")
-        assert invocation is not None
-        self.assertEqual(Path(invocation.argv[0]).name, "preload.sh")
-        self.assertEqual(invocation.argv[1:], ["--consume-gate"])
+    def test_no_shipped_skill_resolves_to_an_extra_argument(self):
+        """The `_EXTRA_ARGS` table is gone, and this is what replaced it.
 
-    def test_extra_args_table_is_subset_of_discovered_skills(self):
-        """Superset guard: every _EXTRA_ARGS key must name a skill the glob
-        actually discovered. A renamed or deleted skill leaves a loud dead
-        entry here rather than a silently ignored one."""
-        discovered = set(_all_preload_skill_names())
-        extra_args_keys = set(skill_preload_map._EXTRA_ARGS.keys())
-        self.assertTrue(
-            extra_args_keys <= discovered,
-            f"_EXTRA_ARGS names skills the glob no longer finds: "
-            f"{extra_args_keys - discovered}",
-        )
+        It held exactly one entry, `xp-assign: --consume-gate`, and went when
+        that flag did (story-021). Its superset guard could not stay: it asserted
+        `keys <= discovered`, which an EMPTY set satisfies vacuously — a guard
+        scanning nothing while reporting green, the defect class story-017
+        landed to stop.
+
+        So the pin inverts. Rather than checking a table nothing populates, walk
+        every discovered skill and assert the resolver hands each one its script
+        path and nothing else. That is a claim about the shipped tree, it fails
+        the moment an argument reappears, and it cannot pass by being empty —
+        `test_the_scan_finds_every_preload` holds the population.
+
+        It overlaps `test_every_common_default_skill_resolves` on purpose: that
+        one excuses named outliers, and an outlier list is exactly where an
+        argument would hide. This one excuses none.
+        """
+        for name in _all_preload_skill_names():
+            with self.subTest(skill=name):
+                invocation = skill_preload_map.resolve_preload(name)
+                assert invocation is not None
+                self.assertEqual(
+                    invocation.argv[1:],
+                    [],
+                    f"{name} resolves to an extra argument, which every caller "
+                    f"— including a shell READ of its SKILL.md — now passes",
+                )
 
 
 class TestEnvironmentContract(unittest.TestCase):
@@ -190,8 +204,8 @@ class TestAbsenceVsFailure(unittest.TestCase):
 # this obligation in advance — retire the class and its `_parse_skill_md_
 # invocation`/`_assert_conforms` helpers once the line-bearing set reached
 # zero, rather than leave a scan of an empty set reporting green. The
-# argv/env properties it proved (per-skill script name, `--consume-gate` on
-# xp-assign, the env-name contract) are still covered above by
+# argv/env properties it proved (per-skill script name, the absence of any
+# extra argument, the env-name contract) are still covered above by
 # TestCommonDefaultResolution, TestOutliers and TestEnvironmentContract,
 # which assert the resolver directly rather than against a line that no
 # longer exists.

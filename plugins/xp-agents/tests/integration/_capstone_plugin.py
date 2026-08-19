@@ -41,9 +41,11 @@ from typing import NamedTuple
 # The namespace `strip_our_namespace` accepts. Not a preference — see §1 above.
 OUR_PLUGIN_NAME = "xp-agents"
 
-# Deliberately not `xp-assign`, which carries an `_EXTRA_ARGS` entry in
-# `skill_preload_map`: borrowing a name with special resolution would test that
-# entry rather than the delivery chain.
+# Deliberately not a shipped skill's name: borrowing one would test that skill's
+# resolution rather than the delivery chain. (`xp-assign` was the standing
+# example, back when `skill_preload_map` kept a table of extra arguments and
+# xp-assign held its only entry; the table went with the entry in story-021, and
+# a fixture with its own name is still the right shape.)
 SKILL_NAME = "xp-capstone-probe"
 
 _TOKEN_KEY = "CAPSTONE_TOKEN"

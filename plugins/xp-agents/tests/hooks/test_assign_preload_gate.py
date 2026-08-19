@@ -1,15 +1,25 @@
 #!/usr/bin/env python3
-"""Pin: reading what the assign preload emits must not disarm the plan-review
-gate (story-010 AC4).
+"""Pin: no run of the assign preload disarms the plan-review gate (story-010 AC4).
 
 The preload deleted a LIVE gate marker as its last act, so merely inspecting its
-output consumed the gate. Non-mutating is now the default and the consume is
-opted into — because the accident happened exactly twice, both times on the
-unmarked path.
+output consumed the gate. Story-010 made non-mutating the DEFAULT and put the
+consume behind a `--consume-gate` opt-in, because the accident had happened
+exactly twice, both times on the unmarked path.
 
-Split out of `test_spawn_determinism.py` at 651 lines. Two halves, and both are
-needed: the behavioural one drives the real preload, the static one proves the
-real invocation actually passes the opt-in.
+That opt-in could not survive hook-side injection (story-021). The resolver put
+the flag straight into the injected argv, and on the second harness the trigger
+for that injection IS a shell read of `SKILL.md` — so a plain `cat` of the assign
+body was the opting-in caller, and the accident came back through a door no flag
+could close. The consume is gone entirely now; the gate self-clears from sprint
+state instead (`lead_gates._unspawned_teammate_story_exists`), so the marker can
+outlive the assignment armed but inert.
+
+So the property is no longer "the default is safe" but "there is no unsafe path".
+Two halves, and both are needed: the behavioural one drives the real preload,
+including with the retired flag, since the arg loop is gone and a stray flag is
+now just an ignored argument; the static one proves the script names no
+gate-mutating verb at all, which is what stops the consume being reintroduced
+under a new opt-in.
 """
 
 import subprocess
@@ -24,25 +34,22 @@ import marker_names
 import skill_preload_map
 from conftest import _PLUGIN_ROOT, _IntegrationTestCase
 
-_ASSIGN_SKILL = _PLUGIN_ROOT / "skills" / "xp-assign" / "SKILL.md"
 _ASSIGN_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-assign" / "scripts" / "preload.sh"
 
-# The opt-in the real assign invocation passes. Named here once so the prose pin
-# and the behavioral pins cannot drift onto two different spellings.
-_CONSUME_FLAG = "--consume-gate"
+# The retired opt-in. Kept as a literal so the "an unknown argument changes
+# nothing" leg passes the flag that used to mean something, rather than an
+# invented one that never could.
+_RETIRED_FLAG = "--consume-gate"
 
 
-class TestAssignPreloadIsNonDestructiveByDefault(_IntegrationTestCase):
-    """Inspecting the preload must not disarm a gate (AC4).
+class TestAssignPreloadNeverDisarmsTheGate(_IntegrationTestCase):
+    """No argv reaches a consume, because there is no consume to reach (AC4).
 
-    The marker is a live gate read by the lead's write gate and re-armed by the
+    The marker is a live gate read by the lead's write gate and armed by the
     plan-review SubagentStop hook. Its old `rm -f` ran unconditionally as the
     preload's last line, so anyone running the preload to see what it emits
-    cleared the gate — which happened twice while this story was being planned.
-
-    An `--inspect` flag would reproduce the accident: the inspector is exactly
-    the caller who does not know to pass a flag. So the safe path is the DEFAULT
-    and the real invocation opts in.
+    cleared the gate — which happened twice while story-010 was being planned,
+    and again through the injection path once the flagged form shipped.
     """
 
     def _marker(self) -> Path:
@@ -65,68 +72,61 @@ class TestAssignPreloadIsNonDestructiveByDefault(_IntegrationTestCase):
             "running the preload for inspection deleted the live gate marker",
         )
 
-    def test_bare_run_still_emits_the_decision_vars(self):
-        """Non-mutating must not mean degraded: inspection is only useful if the
-        emitted vars are the same ones the real invocation gets."""
+    def test_the_retired_flag_is_now_an_ignored_argument(self):
+        """The arg loop went with the flag, and a `case` with no `*)` arm exits 0
+        silently — so a caller still passing the flag must get a NORMAL run, not
+        a consume and not an error."""
+        marker = self._arm()
+        result = self._run(_RETIRED_FLAG)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(marker.is_file(), f"{_RETIRED_FLAG} still spends the gate")
+        self.assertIn("TEAMMATE_DEFAULT=", result.stdout)
+
+    def test_a_run_still_emits_the_decision_vars(self):
+        """Non-mutating must not mean degraded: the run is only useful if the
+        emitted vars are the ones /xp-assign actually decides on."""
         self._arm()
         result = self._run()
         self.assertEqual(result.returncode, 0, result.stderr)
         for var in ("SMM_DIR=", "TEAMMATE_DEFAULT=", "RECOMMENDED_TIER="):
             self.assertIn(var, result.stdout)
 
-    def test_opt_in_consumes_the_marker(self):
+    def test_two_runs_in_a_row_both_leave_the_gate(self):
+        """The gate now outlives the act it demanded, so the interesting count is
+        not one run but many: /xp-assign is re-invoked once per story in a
+        batch, and every one of those runs sees an armed marker."""
         marker = self._arm()
-        result = self._run(_CONSUME_FLAG)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(marker.is_file())
-
-    def test_opt_in_consumes_exactly_once_and_a_second_run_is_clean(self):
-        """ "Exactly once" has a second half: the consume must not error when the
-        marker is already gone, or a re-invoked /xp-assign fails on the preload."""
-        marker = self._arm()
-        first = self._run(_CONSUME_FLAG)
-        self.assertEqual(first.returncode, 0, first.stderr)
-        self.assertFalse(marker.is_file())
-        second = self._run(_CONSUME_FLAG)
-        self.assertEqual(second.returncode, 0, second.stderr)
-        self.assertFalse(marker.is_file())
-
-    def test_opt_in_still_emits_the_decision_vars(self):
-        self._arm()
-        result = self._run(_CONSUME_FLAG)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("TEAMMATE_DEFAULT=", result.stdout)
+        for attempt in (1, 2):
+            with self.subTest(attempt=attempt):
+                result = self._run()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(marker.is_file())
 
 
-class TestAssignPreloadConsumeWiring(unittest.TestCase):
-    """The static half: the real invocation opts in, via the marker helper."""
+class TestAssignPreloadNamesNoGateMutation(unittest.TestCase):
+    """The static half: the script cannot spend the gate by any spelling.
 
-    def test_skill_invocation_passes_the_consume_flag(self):
-        """The RESOLVER now holds the real assign invocation — if it does not
-        opt in, the gate is never consumed and /xp-assign re-arms against
-        itself forever.
+    Both spellings are named because they are the two that shipped. `rm -f` on a
+    hand-written path was the original; `consume_marker` was its safer
+    replacement, and safer is not the same as absent — a marker helper called
+    from the preload spends the gate exactly as thoroughly.
+    """
 
-        Repointed, not weakened. This read the `!`-injected line in SKILL.md
-        until that line was deleted and hook-side injection took over; the
-        oracle moved with the mechanism, because the resolver is what the
-        handler actually runs. Reading the deleted line would have made this
-        pin assert against a channel nothing uses.
-        """
-        invocation = skill_preload_map.resolve_preload_required("xp-assign")
-        self.assertIn(
-            _CONSUME_FLAG,
-            invocation.argv,
-            f"the resolved assign invocation does not pass {_CONSUME_FLAG}: "
-            f"{invocation.argv}",
-        )
-
-    def test_preload_consumes_through_the_marker_helper(self):
-        """`rm -f` on a marker path bypasses the marker convention (symlink
-        refusal, one spelling of the filename). `consume_marker` already
-        exists in the shared preload base."""
+    def test_the_preload_neither_names_the_marker_nor_consumes_it(self):
         preload = _ASSIGN_PRELOAD.read_text(encoding="utf-8")
         self.assertNotIn(marker_names.ASSIGN_PENDING, preload)
-        self.assertIn("consume_marker ASSIGN_PENDING", preload)
+        self.assertNotIn("consume_marker", preload)
+
+    def test_the_resolved_invocation_passes_no_arguments(self):
+        """The injected argv is what a shell read of `SKILL.md` runs, so an
+        argument added here is an argument a READ passes. There is nothing left
+        for one to switch on today, and this is where a new one would show up."""
+        invocation = skill_preload_map.resolve_preload_required("xp-assign")
+        self.assertEqual(
+            invocation.argv[1:],
+            [],
+            f"the resolved assign invocation gained an argument: {invocation.argv}",
+        )
 
 
 if __name__ == "__main__":

@@ -188,7 +188,8 @@ def _handle_close_reviewer_done(smm_dir: Path, input_data: dict) -> None:
 
 
 def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> None:
-    """Record the plan reviewer's completion; arm the teammate assign gate.
+    """Record the plan reviewer's completion; arm the assign gate, discharge the
+    plan gate.
 
     Returns None and emits NO continuing context. On SubagentStop, returned
     additionalContext is delivered to the SUBAGENT and continues its turn —
@@ -254,6 +255,23 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> None:
     _common.append_safe(smm_dir, event)
 
     _emit_subagent_complete(smm_dir, input_data)
+
+    # THE plan gate's discharge, and the only one: a review that COMPLETED is
+    # exactly what PLAN_AWAITING_REVIEW demands. It used to be spent by
+    # /xp-review-plan's preload, i.e. at review START, so an opened-and-abandoned
+    # review left the lead un-gated with no review having happened — and on the
+    # harness where a shell read of SKILL.md is what triggers the preload, a plain
+    # `cat` of the skill body spent it too.
+    #
+    # Same order as _handle_close_reviewer_done, for the same reason: emit FIRST,
+    # consume SECOND — a crash between them must leave evidence, not a silently
+    # consumed marker. No backstop for an abandoned review, and that was measured
+    # rather than assumed: `check_lead_gates` is reached only from
+    # `pre_tool_write` (Write/Edit/MultiEdit) and `pre_tool_skill` never consults
+    # `lead_gates`, so the gate cannot block the Skill call that clears it.
+    # Recovery is re-running /xp-review-plan to completion, which is the act the
+    # gate demands.
+    markers.marker_consume(smm_dir, markers.PLAN_AWAITING_REVIEW)
 
     return None
 

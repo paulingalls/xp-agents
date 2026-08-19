@@ -140,18 +140,20 @@ class TestAssignPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("PLAN_FILE=", result.stdout)
 
-    def test_preload_clears_assign_pending_marker(self):
-        """Preload clears .assign-pending marker when the caller opts in.
+    def test_preload_leaves_the_assign_pending_marker(self):
+        """The preload spends no gate, whatever it is passed.
 
-        `--consume-gate` (story-010): the bare run is the inspection path and
-        leaves the live gate armed. See
-        test_spawn_determinism.TestAssignPreloadIsNonDestructiveByDefault.
+        It used to consume the marker behind a `--consume-gate` opt-in, which
+        story-021 removed: the injected argv passed the flag and a shell read of
+        SKILL.md triggers that injection, so the opt-in did not distinguish an
+        invocation from a read. See test_assign_preload_gate.py for the full
+        pin — this leg only keeps the preload suite honest about it.
         """
         marker = self.smm_dir / ".assign-pending"
         marker.write_text("review-1")
-        result = self._run_preload(_PRELOAD_SCRIPT, args=["--consume-gate"])
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(marker.exists(), "assign-pending marker should be cleared")
+        self.assertTrue(marker.exists(), "assign-pending marker should survive")
 
 
 _SKILL_MD = Path(__file__).parent.parent.parent / "skills" / "xp-assign" / "SKILL.md"

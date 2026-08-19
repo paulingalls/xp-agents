@@ -346,9 +346,10 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
     ) -> subprocess.CompletedProcess:
         """Run a preload.sh script as a subprocess.
 
-        `args` is the preload's own argv — needed since a preload may gate a
-        mutation behind an opt-in flag (xp-assign's `--consume-gate`), so the
-        bare call and the real skill invocation are DIFFERENT runs to test.
+        `args` is the preload's own argv. No shipped preload takes an argument
+        today — xp-assign's `--consume-gate` was the last, retired with the
+        consume it guarded (story-021) — so this exists for the runs that assert
+        an argument changes NOTHING, and for the next preload that needs one.
         """
         if not script_path.is_file():
             self.skipTest(f"Preload script not found: {script_path}")

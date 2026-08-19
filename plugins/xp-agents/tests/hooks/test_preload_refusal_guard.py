@@ -9,9 +9,14 @@ precisely so nothing is spent.
 The property is one the injecting handler cannot observe. `pre_tool_skill.py`
 sits on the same PreToolUse entry and can BLOCK the invocation; hooks on one
 entry run in parallel. So the handler computes the same verdict itself and
-declines to run the preload at all — which is the only place the side effect
-can be stopped, because none of the consumes can move to PostToolUse: each
-unblocks an operation the skill performs during its OWN run.
+declines to run the preload at all — which is the only place a side effect can be
+stopped for the mutations that remain, because those consumes cannot move to
+PostToolUse: each unblocks an operation the skill performs during its OWN run.
+
+A guard, not the answer. Where a gate HAS an act that satisfies it, moving the
+discharge there is stronger, and story-021 did that for the two that a plain
+shell read of a `SKILL.md` could spend — a read this guard cannot see, since
+both its predicates key on `tool_input.skill`.
 """
 
 import ast
@@ -54,11 +59,19 @@ class TestARefusedCallRunsNoPreload(_HookTestCase):
     same two shipped predicates, and declines to run the preload at all.
 
     That matters because several preloads mutate shared state BY RUNNING —
-    `/xp-accept` consumes the mark-done gate, `/xp-assign` consumes the assign
-    Write gate, `/xp-review-plan` deletes `.plan-awaiting-review`. None of those
-    consumes can move to PostToolUse: each unblocks an operation the skill
-    performs during its OWN run. So the only place to stop the side effect is
-    before the preload starts.
+    `/xp-accept` consumes the mark-done gate, and the four close preloads arm a
+    close cycle and emit a close-started event. `/xp-accept`'s consume cannot
+    move to PostToolUse: it unblocks an operation the skill performs during its
+    OWN run. So for those the only place to stop the side effect is before the
+    preload starts.
+
+    Two sites left this list rather than being defended better: `/xp-assign`'s
+    assign-gate consume and `/xp-review-plan`'s `.plan-awaiting-review` delete
+    both went in story-021, which discharges each gate at the act that satisfies
+    it. This guard was never enough for them on its own — it keys on
+    `tool_input.skill`, which the second harness's payload does not carry, so a
+    shell read of a `SKILL.md` reached the preload with no refusal to detect.
+    `tests/hooks/test_gate_discharge.py` holds that property now.
 
     Each specimen below asserts BOTH halves — the gate marker survives AND
     nothing is injected. Either alone passes on a broken half: a handler that
@@ -76,7 +89,11 @@ class TestARefusedCallRunsNoPreload(_HookTestCase):
         self.teammate_cwd = Path(self.smm_dir) / "worktree-story-001"
         self.teammate_cwd.mkdir()
         # A real gate marker, written through the production helper so the
-        # filename is the one the shipped preload would consume.
+        # filename is a real one — the marker a refused call must not lose.
+        # ASSIGN_PENDING is a convenient specimen, not a claim about the assign
+        # preload: that one spends no gate any more (story-021). What is under
+        # test here is the HANDLER, and `_spending_preload` below is what stands
+        # in for any preload that still mutates by running.
         self.gate = markers.marker_path(Path(self.smm_dir), markers.ASSIGN_PENDING)
         markers.marker_write(Path(self.smm_dir), markers.ASSIGN_PENDING, "story-001")
         # Stands in for any mutating preload — see `_spending_preload`.
@@ -96,7 +113,9 @@ class TestARefusedCallRunsNoPreload(_HookTestCase):
         """The shipped refusal: a live CLI teammate invoking a lead-owned skill.
 
         Before this guard the teammate's blocked /xp-assign still ran the
-        preload, which consumed the LEAD's assign gate.
+        preload, which consumed the LEAD's assign gate. The specimen keeps that
+        skill name because it is the refusal that shipped; the mutation it drives
+        is the local fake, since the real assign preload spends nothing now.
         """
         output = self._run(
             {

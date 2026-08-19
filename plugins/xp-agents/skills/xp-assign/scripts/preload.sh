@@ -1,24 +1,16 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-assign: emit plan/sprint/SMM paths; consume the assign gate
-# ONLY when the caller opts in with --consume-gate.
+# Preload for xp-assign: emit plan/sprint/SMM paths. Mutates NO gate.
 #
-# Non-mutating is the DEFAULT because the mutating path used to be the unmarked
-# one: the gate marker is live (a lead write gate reads it, the plan-review
-# SubagentStop hook arms it), and every run — including a run made just to read
-# what the preload emits — deleted it. That disarmed the plan-review gate twice
-# while this preload was being read. An `--inspect` flag would not have helped:
-# the person inspecting is exactly the caller who does not know to pass a flag.
-# So the skill's `!`-injected invocation opts IN, and everything else is safe.
+# It used to consume the assign gate, behind an `--consume-gate` opt-in added
+# after two runs made just to READ what this emits deleted a live marker. The
+# opt-in could not survive hook-side injection: the injected invocation passed
+# the flag, so the run a plain `cat` of SKILL.md triggers was itself the
+# opting-in caller. The gate is state-derived instead — `lead_gates` goes quiet
+# the moment the last teammate is spawned — so the marker can simply outlive
+# the assignment, armed but inert, and no run of this script can spend it.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
-
-CONSUME_GATE=no
-for arg in "$@"; do
-    case "$arg" in
-        --consume-gate) CONSUME_GATE=yes ;;
-    esac
-done
 
 echo "SMM_DIR=${SMM_DIR}"
 echo "PLUGIN_ROOT=${PLUGIN_ROOT}"
@@ -205,11 +197,4 @@ if [ -f "$PLAN_MARKER" ]; then
             emit_path_var PLAN_FILE "$PLAN_PATH"
         fi
     fi
-fi
-
-# Consume the gate through the marker helper, not `rm -f` on a hand-spelled
-# path: the helper owns the filename and refuses a symlink. Idempotent, so a
-# re-invoked /xp-assign whose gate is already consumed still exits 0.
-if [ "$CONSUME_GATE" = yes ]; then
-    consume_marker ASSIGN_PENDING
 fi
