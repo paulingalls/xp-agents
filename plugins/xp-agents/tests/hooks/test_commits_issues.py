@@ -45,8 +45,8 @@ class TestRunGitStrict(unittest.TestCase):
     `_run_git` collapsed every failure into `None`, so a caller could not tell
     a read that TIMED OUT — retryable — from git running and refusing. Widening
     that for one caller must not move any of the other seventeen call sites,
-    and the rows above (`test_git_failure_returns_empty`,
-    `test_exception_returns_empty`) are the unchanged-behaviour half of the
+    and `TestGetCodeFilesForReview`'s `test_git_failure_returns_empty` and
+    `test_exception_returns_empty` below are the unchanged-behaviour half of the
     same claim: they drive the default path and must stay green untouched.
     """
 

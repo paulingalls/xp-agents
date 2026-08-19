@@ -35,11 +35,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import markers
-import merged_range
 from _observer_case import ORDINARY_BASH, _ObserverCase
 from conftest import _make_bash_input
 
 _POST_TOOL_HOOK = Path(__file__).parent.parent.parent / "scripts" / "bash_post_tool.py"
+
+# By NAME, because a module-level `import merged_range` here failed collection:
+# it and `commits` import each other, so whichever loads first wins and this
+# file's alphabetical block put the losing one first. `patch` resolves at ROW
+# time, after `_ObserverCase` has loaded the pair in the working order.
+_RANGE_WALK_BOUND = "merged_range._TIMEOUT_SECONDS"
 
 
 class TestARetryableFailureIsNotARewrite(_ObserverCase):
@@ -54,7 +59,7 @@ class TestARetryableFailureIsNotARewrite(_ObserverCase):
         landed = self.commit("feat: x")
 
         with (
-            patch.object(merged_range, "_TIMEOUT_SECONDS", 0.5),
+            patch(_RANGE_WALK_BOUND, 0.5),
             self.stalling_git(),
         ):
             self.observe()
@@ -88,7 +93,11 @@ class TestARetryableFailureIsNotARewrite(_ObserverCase):
         the retryable path would leave a git-less checkout never advancing its
         marker and re-forking the walk on every Bash for the rest of the
         session. `git_head.read_head` is a plain file read, so no git on PATH
-        does not short-circuit `observe` before it gets here."""
+        does not short-circuit `observe` before it gets here.
+
+        The concern must not name a cause this leg cannot support either: a
+        non-zero exit and an unspawnable binary arrive as the same `None`, so
+        the message offers both rather than the rebase it used to assert."""
         self.seed_observer()
         head = self.commit("feat: x")
 
@@ -96,7 +105,9 @@ class TestARetryableFailureIsNotARewrite(_ObserverCase):
             self.observe()
 
         self.assertEqual(self.commit_events(), [])
-        self.assertIn("unknown to this checkout", self.concerns()[0]["content"])
+        content = self.concerns()[0]["content"]
+        self.assertIn("unknown to this checkout", content)
+        self.assertIn("could not be run here at all", content)
         self.assertEqual(self.marker(), {"head": head})
 
     def test_the_hook_survives_a_stalled_range_walk(self):

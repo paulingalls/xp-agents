@@ -222,9 +222,10 @@ def _reconcile(
             smm_dir,
             agent_id,
             head,
-            f"git could not describe the range {last_seen[:12]}..{head[:12]}. The "
-            "last-seen commit is unknown to this checkout — rewritten by a "
-            "rebase, garbage-collected, or written by another repository.",
+            f"git could not describe the range {last_seen[:12]}..{head[:12]}. "
+            "Either the last-seen commit is unknown to this checkout — "
+            "rewritten by a rebase, garbage-collected, or written by another "
+            "repository — or git could not be run here at all.",
         )
         return None
     if len(revs) > MAX_RECONCILE:
