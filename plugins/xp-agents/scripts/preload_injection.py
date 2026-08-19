@@ -22,14 +22,14 @@ successful:
 1. Run the preload in the SESSION's cwd. Run it in the skill directory and it
    resolves a different project's state.
 2. Run the command the skill's own line names, via `skill_preload_map`. A
-   hardcoded `preload.sh` is right on fourteen skills and WRONG on two — one
-   takes an extra flag, one names a different script, and one of the two is the
-   most-used skill.
-3. Write the heartbeat FIRST. The preload scripts carry their own liveness check
-   and emit a refusal banner *instead of state* when no fresh heartbeat exists,
-   so skipping this injects a refusal that reads like output. `pre_tool_skill.py`
-   refreshes it on the skill trigger, but this is a separate process and the
-   second harness's trigger has no refresh at all.
+   hardcoded `preload.sh` is right on every skill but one, which names a
+   different script — and the resolver is still the answer, because "all but
+   one" is exactly the shape that reads as safe until it is not.
+3. Write the heartbeat. Ordering no longer matters — story-009 deleted the
+   preload-side liveness check that refused with a banner instead of state, so
+   there is nothing here to race. It still has to happen: `pre_tool_skill.py`
+   refreshes on the skill trigger, but this is a separate process and the second
+   harness's trigger has no refresh at all, so this is that path's only writer.
 4. A preload that fails, times out, or prints nothing must inject NOTHING.
    Injecting a partial stream or an error as though it were state is this
    milestone's own failure class arriving from inside.
