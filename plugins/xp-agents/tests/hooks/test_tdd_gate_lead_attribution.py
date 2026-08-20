@@ -85,12 +85,8 @@ class TestTheLeadIsNotHeldOnAnotherTreesRed(_GateTestCase):
         them, and row 2 already covers the gate behaviour.
 
         Pinned HERE because the whole "in-place needs no exemption" argument
-        rests on it. An earlier version of this row instead authored the event
-        under the teammate's NAME and exempted it with a live marker — pinning a
-        state production cannot produce, and paying for a per-event filesystem
-        lookup whose only reachable effect was to exempt a REAL worktree
-        teammate whose name collided with a leaked marker, reinstating the very
-        defect this suite exists for.
+        rests on it, and because a row that authored under the teammate's NAME
+        instead would pin a state production cannot produce.
         """
         self.assertEqual(identity.resolve_agent_id({"cwd": "/repo/main"}), "main")
         self.assertFalse(identity.is_teammate_agent_id("main"))

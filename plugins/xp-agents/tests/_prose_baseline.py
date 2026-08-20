@@ -322,10 +322,10 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.
-    # 169 -> 181: the window comment claimed both callers' errors "self-heal"
-    # and that only one had a backstop; a Bash-only teammate gets no entry, so
-    # that failure is upstream of the window and permanent. Number untouched.
-    "plugins/xp-agents/scripts/coordination.py": 181,
+    # 169 -> 185: a Bash-only teammate gets no entry, so its failure is upstream
+    # of this window and permanent; the first correction then overstated the other
+    # way, so the residual that DOES depend on the number is named too.
+    "plugins/xp-agents/scripts/coordination.py": 185,
     "plugins/xp-agents/scripts/dash_c_tokens.py": 129,
     "plugins/xp-agents/scripts/framework_detect.py": 122,
     # Crossed the floor on gaining `stages_all_tracked_changes`, so it records a
@@ -429,11 +429,11 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/shell_exit_structure.py": 291,
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
     "plugins/xp-agents/scripts/staged_lint.py": 221,
-    # 133 -> 168: `_is_another_trees_agent` retires three stale claims about the
-    # lead reading unfiltered, and keeps the two rulings a reader would reverse —
-    # why an in-place teammate needs NO exemption (its events are authored
-    # `main`), and the subagent path the filter cannot cover.
-    "plugins/xp-agents/scripts/tdd_check.py": 168,
+    # 133 -> 175: retires three "the lead reads unfiltered" claims, says what the
+    # predicate recognises (a STORY WORKTREE, not "another tree"), and names the
+    # three gaps that follow — opaque subagent id, a worktree not named
+    # `worktree-story-*`, and post-merge, where close_verify_gate is the backstop.
+    "plugins/xp-agents/scripts/tdd_check.py": 175,
     # 182 -> 199 (story-023): `is_project_prompt_path`, the inverse of
     # `project_prompt_path`, added so the lead's Write gate can recognise the one
     # write /xp-assign owes its own spawn. Its docstring is long relative to its

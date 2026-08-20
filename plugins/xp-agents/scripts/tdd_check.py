@@ -132,34 +132,41 @@ def reader_scope_owner(
     return _reader_scope(events, cwd, smm_dir)[1]
 
 
-def _is_another_trees_agent(agent_id: str) -> bool:
-    """Does `agent_id` name an agent working in a DIFFERENT working tree?
+def _is_another_trees_agent(agent_id: object) -> bool:
+    """Does `agent_id` name a STORY WORKTREE's agent — a tree that is not ours?
 
-    Only asked by the LEAD's read. A worktree teammate qualifies: its hook
-    process lives inside its own worktree, created for one story and removed at
-    close, so its test signals can never be about the lead's tree.
+    Only asked by the LEAD's read, and named for what it actually recognises: a
+    `spawn_teammate` story worktree, not "somewhere else" in general. While that
+    worktree exists its signals cannot be about the lead's tree.
 
-    An IN-PLACE teammate needs no exemption here, and an earlier version of this
-    function carried one that could not work. `spawn_teammate --in-place` does
-    run in the main checkout, so its red suite IS the lead's — but its events are
-    authored `main`, not its teammate name: `identity.resolve_agent_id` falls
-    back to `resolve_agent_id_from_cwd`, and a cwd with no `worktree-` segment
-    answers `main`. So the prefix test below already lets those signals through,
-    and the marker lookup that used to sit here could only ever fire for a
-    WORKTREE teammate whose name collided with a leaked in-place marker — where
-    it wrongly exempted a real other-tree signal and reinstated the defect this
-    filter exists to remove.
+    NOT `isinstance`-free. The value comes off an event, and a truthy non-string
+    reaching `.startswith` raises out of a Stop COMMAND hook, whose non-zero exit
+    disarms the gate — the same fail-open the falsy guard was added for, one type
+    away. House style is the explicit check (`hook_liveness.payload_session_id`).
 
-    NOT COVERED, deliberately: a subagent OF a worktree teammate. `bash_post_tool`
-    resolves the author through `resolve_agent_id`, which prefers the raw payload
-    `agent_id`, and the harness sends that only inside a subagent call — so a
-    teammate's `/xp-quality-review` files its red under an opaque id
-    indistinguishable from one of the lead's own subagents. Filtering opaque ids
-    would drop the lead's real failures, the worse error, so the false block
-    survives on that one path. It is also where the caller's coordination release
-    still earns its keep.
+    An IN-PLACE teammate needs no exemption. `spawn_teammate --in-place` runs in
+    the main checkout, so its red suite IS the lead's — and its events are
+    authored `main`, not its teammate name: `resolve_agent_id` prefers the
+    payload field, which the harness sends only inside a subagent call, so a
+    top-level in-place hook falls to `resolve_agent_id_from_cwd` and a
+    main-checkout path answers `main`. The prefix test therefore already lets
+    those signals through.
+
+    THREE gaps, none of them closable by widening this predicate:
+
+    * A subagent OF a worktree teammate authors under an opaque id (the payload
+      field is populated inside a subagent call), indistinguishable from one of
+      the lead's own. Filtering opaque ids would drop the lead's real failures,
+      the worse error, so the false block survives there — and that is where the
+      caller's coordination release still earns its keep.
+    * Any other-tree agent NOT named `worktree-story-*` — a harness's own
+      worktree, `extract_worktree_name`'s `explore-abc` shape, an Agent-Teams
+      teammate — authors `main` and still false-blocks the lead.
+    * AFTER the story merges, that code IS in the lead's tree, so an unresolved
+      teammate red the lead would once have blocked on is now invisible to it.
+      `close_verify_gate` is the backstop that makes this safe, not this filter.
     """
-    return is_teammate_agent_id(agent_id)
+    return isinstance(agent_id, str) and is_teammate_agent_id(agent_id)
 
 
 def find_last_test_signal(
@@ -214,7 +221,7 @@ def find_last_test_signal(
         # Placed ABOVE both branches deliberately: it must drop a teammate's
         # PASS as well as its fail, or a teammate's green run short-circuits the
         # walk below and clears the lead's own red suite.
-        if owner is None and _is_another_trees_agent(e.get("agent_id") or ""):
+        if owner is None and _is_another_trees_agent(e.get("agent_id")):
             continue
         content = e.get("content", "")
         etype = e.get("type", "")

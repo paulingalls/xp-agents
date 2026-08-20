@@ -111,18 +111,22 @@ _NO_AGE_LIMIT = 10**9  # ~31 years
 # PostToolUse refresh either. So a live-but-quiet teammate read as dead is a
 # state to expect, not a corner.
 #
-# What that costs differs by caller, and both now have a backstop. The sprint
-# gate falls through to `worktree.has_live_teammates`, a registration check that
-# still sees the teammate. The TDD gate had nothing and now answers a different
-# question instead: `tdd_check._is_another_trees_agent` drops a worktree
-# teammate's signals from the LEAD's read by AUTHOR, so the lead is never
-# offered that failure to refuse on in the first place.
+# What that costs differs by caller. The sprint gate falls through to
+# `worktree.has_live_teammates`, a registration check that still sees the
+# teammate. The TDD gate has no backstop and instead needs this question LESS:
+# `tdd_check._is_another_trees_agent` drops a story worktree's signals from the
+# LEAD's read by AUTHOR, so the common case never reaches here at all.
+#
+# NOT "solved" — the residual does still depend on this window. A failure filed
+# under an opaque subagent id, or by an other-tree agent whose name is not
+# `worktree-story-*`, survives that filter and lands on exactly the release
+# below.
 #
 # Attribution rather than a second liveness check, because the gap it closes is
 # not this window at all. A teammate that edits only through Bash never gets a
 # coordination entry (`post_tool_use` is the sole writer, registered on
-# Write|Edit|MultiEdit), and `has_active_teammates` iterates ENTRIES — no entry
-# the heartbeat below is never consulted for that agent. That failure sits
+# Write|Edit|MultiEdit), and `has_active_teammates` iterates ENTRIES — so with
+# no entry the heartbeat below is never consulted for that agent. That sits
 # upstream of this number and is permanent, not a window; an earlier version of
 # this comment surveyed the TTL-shaped instance and read as if it had surveyed
 # the whole gap.

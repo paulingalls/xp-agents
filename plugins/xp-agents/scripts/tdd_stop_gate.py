@@ -73,12 +73,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # where we would otherwise block.
         #
         # OVER-BROAD, and it no longer rests on "the lead reads unfiltered":
-        # `tdd_check._is_another_trees_agent` already dropped a worktree
-        # teammate's signals, so the only other-tree failure still reaching here
-        # is one filed under an opaque subagent id. For any other author — the
-        # lead's own `main` — this releases the lead's OWN red suite whenever a
-        # sibling is active. Narrowing it needs the failure's AUTHOR, which
-        # `find_last_test_signal` does not hand back.
+        # `tdd_check._is_another_trees_agent` already dropped a story worktree's
+        # signals, so the other-tree failures still reaching here are the ones
+        # that filter cannot name — an opaque subagent id, or a worktree whose
+        # name is not `worktree-story-*`. For any other author, including the
+        # lead's own `main`, this releases the lead's OWN red suite whenever a
+        # sibling holds a coordination entry, which is the fail-open direction.
+        #
+        # The narrowing is a RETURN TYPE, not a blocker: hand back
+        # `(signal, author)` and release only for an author this filter could not
+        # place. An earlier version of this comment called the missing author a
+        # constraint, which read as "cannot" when it means "not yet" — see the
+        # open concern on this line.
         if tdd_check.reader_scope_owner(events, cwd, smm_dir) is None:
             agent_id = identity.resolve_agent_id(input_data)
             if coordination.has_active_teammates(smm_dir, agent_id):
