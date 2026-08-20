@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import in_place_marker
+import identity
 from _tdd_gate_fixtures import TEAMMATE_CWD, _GateTestCase, filler, session_anchor
 from conftest import failing_tests_concern, passing_tests_status
 from identity import extract_worktree_name
@@ -45,11 +45,6 @@ _TEAMMATE = extract_worktree_name(TEAMMATE_CWD)
 gate uses rather than spelled again. That fixture's own docstring names two
 hand-written copies of a path a resolver parses as a drift hazard; a
 hand-written copy of what it RESOLVES TO is the same hazard one step on."""
-
-_IN_PLACE = "worktree-story-042"
-"""An IN-PLACE teammate's name. Also `worktree-`-prefixed — the prefix is how
-teammate detection works — which is exactly why the prefix alone cannot decide
-this: an in-place teammate commits in the LEAD's checkout."""
 
 _SUBAGENT = "aefef7af4afed4caf"
 """An opaque subagent id, the shape `resolve_agent_id` returns from the raw
@@ -78,26 +73,40 @@ class TestTheLeadIsNotHeldOnAnotherTreesRed(_GateTestCase):
         events = [session_anchor(), *filler(3), failing_tests_concern()]
         self.assertIsNotNone(self._stop(events, dirty=False))
 
-    def test_an_in_place_teammates_red_still_holds_the_lead(self):
-        """Row 3. An in-place teammate (`spawn_teammate --in-place`) runs in the
-        MAIN checkout, so its red IS about the lead's tree and must still gate —
-        even though its name carries the same `worktree-` prefix as row 1's.
+    def test_an_in_place_teammate_authors_as_the_lead(self):
+        """Row 3, and it is an AUTHORSHIP pin rather than a gate row — because
+        at the gate there is nothing left to distinguish.
 
-        The live marker is the ONLY thing that separates this row from row 1:
-        without it both hand the gate a `worktree-`-prefixed author read by an
-        `owner=None` reader, and asserting opposite outcomes on identical input
-        is unsatisfiable rather than discriminating.
+        `spawn_teammate --in-place` runs in the MAIN checkout, so its red suite
+        IS the lead's and must still gate. It does, for a reason that needs no
+        code: `resolve_agent_id` falls back to `resolve_agent_id_from_cwd`, and a
+        cwd with no `worktree-` segment answers `main`. Its events are therefore
+        authored exactly like the lead's own, the prefix test never considers
+        them, and row 2 already covers the gate behaviour.
 
-        `XP_TEAMMATE_NAME` is deliberately left UNSET. Setting it would make
-        THIS READER the teammate — `_reader_scope` would hand back a non-None
-        owner and the row would be about scoping, not about attribution.
+        Pinned HERE because the whole "in-place needs no exemption" argument
+        rests on it. An earlier version of this row instead authored the event
+        under the teammate's NAME and exempted it with a live marker — pinning a
+        state production cannot produce, and paying for a per-event filesystem
+        lookup whose only reachable effect was to exempt a REAL worktree
+        teammate whose name collided with a leaked marker, reinstating the very
+        defect this suite exists for.
         """
-        in_place_marker.in_place_marker_path(self.smm_dir, _IN_PLACE).touch()
-        events = [
-            session_anchor(),
-            *filler(3),
-            failing_tests_concern(agent_id=_IN_PLACE),
-        ]
+        self.assertEqual(identity.resolve_agent_id({"cwd": "/repo/main"}), "main")
+        self.assertFalse(identity.is_teammate_agent_id("main"))
+
+    def test_a_null_author_does_not_crash_the_gate(self):
+        """An event may carry `agent_id` present-and-NULL, and `.get(k, "")`
+        returns None for that shape rather than the default — the same trap that
+        took the whole post-Bash hook down through `cwd` one release ago. Here it
+        would raise AttributeError out of a Stop gate.
+
+        Reads as "not another tree's", so the signal still gates: an author we
+        cannot identify is not one we can prove is elsewhere.
+        """
+        concern = failing_tests_concern()
+        concern["agent_id"] = None
+        events = [session_anchor(), *filler(3), concern]
         self.assertIsNotNone(self._stop(events, dirty=False))
 
     def test_an_opaque_subagent_id_still_holds_the_lead(self):

@@ -17,36 +17,6 @@
 # would skip the symlink refusal too.
 #
 # Values are passed via sys.argv so content with quotes/backslashes is safe.
-#
-# XP_PRELOAD_UNVERIFIED_INVOCATION=1 says the hook could not prove this run
-# belongs to a real invocation. It is set on the second harness's read leg,
-# where a skill is loaded BY reading its body and a plain `cat` is therefore
-# indistinguishable from an invocation. The two mutating helpers answer it
-# DIFFERENTLY, and the asymmetry is the whole point:
-#
-#   write_marker  -> SKIP. Arming a gate for an invocation that may not be
-#                    happening is pure harm and has no upside: a `cat` of a
-#                    close skill's body would arm the close Stop gate with no
-#                    close running, and nothing would disarm it.
-#
-#   consume_marker -> PROCEED, deliberately, and this is the unhappy half.
-#                    Spending a gate on a read is a real defect (a `cat` of
-#                    xp-accept/SKILL.md discharges the accept gate, and the next
-#                    `update-story done` passes with acceptance never verified).
-#                    But skipping is WORSE for the one marker that matters:
-#                    ACCEPT is armed by the Write gate and this consume is its
-#                    ONLY discharge — see the comment at pre_tool_bash.py's
-#                    mark-done gate — so skipping wedges `update-story done`
-#                    permanently on that harness. Both directions are wrong,
-#                    which means the fix is a SECOND discharge for that gate,
-#                    not a choice here. Until then this helper keeps the usable
-#                    error over the unusable one, out loud rather than by
-#                    omission.
-#
-# PLAN_AWAITING_REVIEW, the only other consume in any preload, does have its
-# real discharge elsewhere (the reviewer's SubagentStop), so it would be safe to
-# skip — but one helper cannot skip for one caller and not another without
-# taking a marker name argument it does not need. Left uniform.
 
 consume_marker() {
     local marker_name="$1"
@@ -63,10 +33,6 @@ markers.marker_consume(Path(sys.argv[3]), getattr(markers, sys.argv[4]))
 write_marker() {
     local marker_name="$1"
     local content="$2"
-    # See the header: arming on an unproven invocation has no upside.
-    if [ -n "${XP_PRELOAD_UNVERIFIED_INVOCATION:-}" ]; then
-        return 0
-    fi
     python3 -c '
 import sys
 sys.path.insert(0, sys.argv[1])

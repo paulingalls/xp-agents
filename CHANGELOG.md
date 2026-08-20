@@ -2,58 +2,59 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
-## v5.21.1 — Three gates that answered about the wrong working tree
+## v5.21.1 — The lead's TDD gate asks whose working tree the failure was in
 
-Patch release: the three concerns v5.21.0 shipped with, taken off the backlog
-immediately rather than carried into a sprint.
+Patch release. One fix, and an honest account of two attempts that were reverted
+before they shipped.
 
-**The lead's TDD Stop gate now asks whose working tree the failing suite was
-in.** It was holding the lead on a *teammate's* transient red — observed live
-several times during the last sprint. The release meant to prevent that reads
-`.coordination.json`, and the only writer of an entry there is registered on
-`Write|Edit`, so a teammate that edits through Bash never had an entry to grade:
-not a stale window but a permanent hole. The obvious fix was the wrong one —
-copying the sprint gate's liveness backstop would stop the gate firing on *any*
-red while a teammate is live, including the lead's own, trading a false block
-for a false release. So the lead now gets the inverse of the filter a teammate
-already had: a signal authored by an agent working in another tree is not its
-business, in either direction.
+**The lead's TDD Stop gate was holding the lead on a *teammate's* transient
+red** — observed live several times during the last sprint. The release meant to
+prevent that reads `.coordination.json`, and the only writer of an entry there is
+registered on `Write|Edit`, so a teammate that edits through Bash never had an
+entry to grade: not a stale window but a permanent hole. The obvious fix was the
+wrong one — copying the sprint gate's liveness backstop would stop the gate
+firing on *any* red while a teammate is live, including the lead's own, trading a
+false block for a false release. So the lead now gets the inverse of the filter a
+teammate already had: a signal authored by an agent working in another tree is
+not its business.
 
 **Which closed a second defect nobody had reported, and it was the worse one.**
 The same reverse walk short-circuits on the first passing status it meets, and
 for the lead that status could be anyone's — so a teammate's *green* run cleared
 the lead's own *red* suite. A false block costs a re-run; that costs a stop on a
-broken tree. Both close on one filter, and both were red before it landed.
+broken tree. Both close on one filter.
 
-Three boundaries are pinned rather than assumed, because each is a way to get
-this wrong rather than a behaviour change: an **in-place** teammate still gates
-the lead (it commits in the lead's own checkout, though its name carries the
-same prefix — the live marker is the only thing that separates them from an
-event author alone); an opaque **subagent** id still gates (subagents run in
-their parent's tree); and a missing SMM dir filters nothing.
+The filter is one predicate over the event's author, with no filesystem access
+and no liveness probe. An in-place teammate needs no special case: it runs in the
+main checkout, so its events are authored `main` and the filter never considers
+them — pinned as an authorship fact, because the design rests on it. A subagent's
+opaque id still gates, which leaves one known gap: a *teammate's* subagent files
+its red under an id of that same shape, so the false block survives that path.
+Documented in the code rather than papered over.
 
-**A preload that cannot know it was really invoked now says so.** On the second
-harness a skill is loaded *by reading its body*, so a plain `cat` of a `SKILL.md`
-is indistinguishable from an invocation — and it ran preloads that mutate state.
-The handler declares that uncertainty and the two mutating shell helpers, which
-are a single choke point, rule on it separately: **arming is skipped** (a `cat`
-of a close skill's body armed the close Stop gate with no close running, and
-nothing disarms it), while **spending is not yet fixed** — for the accept gate
-that consume is the gate's *only* discharge, so skipping it would replace
-"acceptance unverified" with "`update-story done` wedged forever". Both
-directions are wrong, so the answer is a second discharge for that gate, now
-recorded as a blocking design decision rather than a deferral.
+**Two changes were reverted rather than shipped, both found by this release's own
+broad review.** They are named here because the concerns they targeted are still
+open, and the next attempt should start from why these failed.
 
-**A failed preload no longer keeps its claim.** The claim is taken before the
-run — the only ordering that collapses a burst of reads into one execution — so
-a run that failed left a live claim covering nothing, and every read for the
-rest of the window was refused. The claim prevented exactly the retry it exists
-to collapse.
+An attempt to stop a `cat` of a `SKILL.md` from arming a gate on the second
+harness was a **regression, not a guard**: on that harness a skill is loaded *by*
+reading its body, so every genuine preload run carried the suppression flag —
+`ACCEPT_IN_FLIGHT` was never armed during a real `/xp-accept` (restoring the very
+Stop loop that marker prevents) and housekeeping was never armed at kickoff. It
+also failed to cover the case it was justified by, since the close-cycle marker is
+armed elsewhere. `0ab41b5a02ba` remains open, and `55189b2b3e42` records why it
+needs a design rather than a patch: for the accept gate, the read-time consume is
+the gate's *only* discharge, so both spending it and skipping it are wrong.
 
-Also: the stale rationale each of these falsified, corrected in place rather
-than left to rot — including two docstrings that described the lead's read as
-unfiltered, and one claiming every caller of a marker probe pairs it with an
-env var that this release's new caller does not.
+An attempt to release a preload's claim when its run failed **re-ran side
+effects**: close preloads emit their `close_started` event and arm their cycle
+*before* the step that fails, so handing the claim back produced a second cycle
+id for one close. `8b4a39a99214` remains open; the honest fix is idempotent
+preloads, not a shorter claim.
+
+Also: a null `agent_id` on an event no longer raises out of the Stop gate — the
+same present-but-null shape that took down the whole post-Bash hook one release
+ago, in new code this time.
 
 ## v5.21.0 — Skills get their state from a hook, and no hook reaches a subagent
 

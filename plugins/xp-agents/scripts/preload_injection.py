@@ -146,22 +146,7 @@ def _claim_for(skill: str) -> markers.MarkerDef:
     return markers.MarkerDef(f".preload-claim-{skill}", "text", session_scoped=True)
 
 
-_UNVERIFIED_INVOCATION_ENV = "XP_PRELOAD_UNVERIFIED_INVOCATION"
-"""Declared to a preload that MIGHT not be running for a real invocation.
-
-The second harness loads a skill BY reading its body, so a read and an
-invocation are the same event and no signal separates them. A preload that arms
-or spends a marker would therefore do it on every `cat`. Rather than guess which
-scripts mutate, the uncertainty is declared and `skills/_preload_markers.sh` —
-the one place those mutations live — decides per helper what it means.
-
-Named for what is not known, not for a policy. The policy belongs at the choke
-point, where a marker that gains a second discharge can change its own answer
-without every caller here being revisited.
-"""
-
-
-def run_preload(skill: str, cwd: str, *, invocation_proven: bool = True) -> str | None:
+def run_preload(skill: str, cwd: str) -> str | None:
     """That skill's own preload output, or None if it has none or it failed.
 
     Returns None — never a partial or error stream — on every failure mode:
@@ -199,11 +184,7 @@ def run_preload(skill: str, cwd: str, *, invocation_proven: bool = True) -> str 
     try:
         completed = subprocess.run(
             invocation.argv,
-            env={
-                **os.environ,
-                **invocation.env,
-                **({} if invocation_proven else {_UNVERIFIED_INVOCATION_ENV: "1"}),
-            },
+            env={**os.environ, **invocation.env},
             cwd=cwd or None,
             capture_output=True,
             text=True,
@@ -258,28 +239,13 @@ def run(input_data: dict, **_kwargs) -> str | None:
         return None
 
     skill = skill_from_payload(input_data)
-    shell_read = False
     if skill is None:
         skill = skill_from_command(input_data.get("tool_input", {}).get("command", ""))
         if skill is None or not _take_claim(skill):
             return None
-        shell_read = True
 
     _refresh_heartbeat(input_data)
-    output = run_preload(
-        skill, input_data.get("cwd", ""), invocation_proven=not shell_read
-    )
-    if shell_read and output is None:
-        # The claim has to be taken BEFORE the run — that ordering is the only
-        # one that collapses a burst — so a run that then delivers nothing
-        # leaves a live claim standing for it. Every read for the rest of the
-        # window is refused, which turns one failed preload into a whole
-        # invocation with no state: the claim prevents exactly the retry it
-        # exists to collapse. Released here so the next read may try again.
-        #
-        # Only on the failing path. A successful run's claim is doing its job.
-        _release_claim(skill)
-    return output
+    return run_preload(skill, input_data.get("cwd", ""))
 
 
 def _refused_by_a_gate(input_data: dict) -> bool:
@@ -326,23 +292,6 @@ def _take_claim(skill: str) -> bool:
         smm_dir, ".preload-claim-*", ttl_seconds=_CLAIM_TTL_SECONDS * 60
     )
     return took
-
-
-def _release_claim(skill: str) -> None:
-    """Hand back a claim whose run delivered nothing.
-
-    Silent and best-effort, matching `_take_claim`'s fail-open posture: the
-    failure it follows has already been logged by `run_preload`, and a second
-    complaint about the bookkeeping for that failure adds noise, not signal.
-
-    No `marker_claim.release` exists because nothing needed one before: a claim
-    was only ever ended by its TTL or the stale sweep. `marker_consume` is the
-    same unlink those two perform, reached through the MarkerDef so the
-    session-scoped suffix resolves the same way it did on the way in.
-    """
-    smm_dir = _common.get_validated_smm_dir(None)
-    if smm_dir is not None:
-        markers.marker_consume(smm_dir, _claim_for(skill))
 
 
 def _refresh_heartbeat(input_data: dict) -> None:

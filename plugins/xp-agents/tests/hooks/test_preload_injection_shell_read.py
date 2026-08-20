@@ -163,64 +163,6 @@ class TestTheClaimCollapsesABurstWithoutStarvingTheNextRead(_HookTestCase):
         os.utime(claim, (stale, stale))
         self.assertEqual(preload_injection.run(self._read()), "STATE=x\n")
 
-    def test_a_failed_preload_does_not_keep_the_claim(self):
-        """The claim is taken BEFORE the preload runs, because that is the only
-        order that collapses a burst. So a preload that then FAILS leaves a live
-        claim standing for a run that delivered nothing, and every read for the
-        rest of the window is refused — the skill goes without state and the
-        retry the claim exists to collapse is the retry it prevents.
-
-        Released only on the FAILING path: a successful run must keep its claim,
-        which is `test_a_burst_of_reads_runs_the_preload_once` above.
-        """
-        with patch.object(
-            preload_injection, "run_preload", return_value=None
-        ) as failed:
-            self.assertIsNone(preload_injection.run(self._read()))
-            self.assertIsNone(preload_injection.run(self._read()))
-            self.assertEqual(failed.call_count, 2)
-
-    def test_the_read_leg_tells_its_preload_the_invocation_is_unproven(self):
-        """A read of a SKILL.md is indistinguishable from an invocation on the
-        second harness — the model loads a skill BY reading it — so a preload
-        that arms or spends a marker does so on every `cat`. Arming is pure
-        harm: a read of a close skill's body would arm the close Stop gate and
-        wedge it with no close running.
-
-        Suppressed by declaring it in the environment rather than by parsing the
-        preload: the helpers are one choke point, and the alternative is
-        guessing which scripts mutate.
-        """
-        env_probe = _write_script(
-            self.work / "env_probe.sh",
-            'echo "RO=${XP_PRELOAD_UNVERIFIED_INVOCATION:-unset}"',
-        )
-        with patch.object(
-            skill_preload_map,
-            "resolve_preload",
-            return_value=skill_preload_map.PreloadInvocation(argv=[str(env_probe)]),
-        ):
-            self.assertEqual(preload_injection.run(self._read()), "RO=1\n")
-
-    def test_the_skill_tool_leg_asserts_a_real_invocation(self):
-        """The control, and the reason the flag is not simply always on. A skill
-        TOOL call is a real invocation, so the gate it discharges is genuinely
-        being satisfied and the marker work must still happen."""
-        env_probe = _write_script(
-            self.work / "env_probe2.sh",
-            'echo "RO=${XP_PRELOAD_UNVERIFIED_INVOCATION:-unset}"',
-        )
-        payload = {
-            "tool_input": {"skill": "xp-agents:xp-accept"},
-            "cwd": str(self.work),
-        }
-        with patch.object(
-            skill_preload_map,
-            "resolve_preload",
-            return_value=skill_preload_map.PreloadInvocation(argv=[str(env_probe)]),
-        ):
-            self.assertEqual(preload_injection.run(payload), "RO=unset\n")
-
     def test_the_skill_tool_leg_takes_no_claim(self):
         """A skill tool call fires once per invocation, so there is no burst to
         collapse — and claiming there would starve a retry after the sibling

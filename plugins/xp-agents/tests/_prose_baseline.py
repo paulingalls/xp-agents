@@ -70,17 +70,26 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/branch_lifecycle.py": 149,
     "plugins/xp-agents/scripts/branch_resolution.py": 207,
     "plugins/xp-agents/scripts/branching.py": 180,
-    # 128 -> 168 over four stories, every step the same shape: this handler's
-    # failures are all silent, so each guard has to say what it stops or the next
-    # reader deletes it (the refusal verdict, the heartbeat's real consumers, the
-    # ambiguous-resolver log, and which failures are logged vs deliberately not).
-    # The per-step history is in the changelog; it is not a constraint on the
-    # file, and this table is 7 lines from its own cap.
-    # 168 -> 187: the unverified-invocation flag. A read of a SKILL.md and an
-    # invocation are ONE event on the second harness, so the module has to record
-    # what it cannot know, that the shell helpers rule per mutation, and why a
-    # claim is handed back when the run it covered delivered nothing.
-    "plugins/xp-agents/scripts/preload_injection.py": 187,
+    # 128 -> 151 (story-019): the handler now computes the blocking hook's
+    # own refusal verdict before running a preload, and the new function
+    # carries why it CALLS those predicates instead of respelling them, why
+    # it no-ops on the second harness, and that the two processes race
+    # benignly. A reader without those would reasonably delete the call.
+    # 151 -> 154 (story-009): `_refresh_heartbeat`'s docstring said ordering was
+    # "the whole point" because the preload refused on a stale heartbeat. That
+    # reader is deleted, so the claim was false and the replacement has to say
+    # what the write is FOR now — two consumers that never lived in this file.
+    # This is the claim-narrowing case above: the true statement is longer than
+    # the false one it replaces. Cut three times first; a fourth pass would have
+    # been deleting the reason, which this table says the measure must not buy.
+    # 154 -> 161 (story-026): `run_preload`'s docstring and its new
+    # `except PreloadMapError` branch now say why one ambiguous skill's
+    # `scripts/` dir must be logged rather than silently swallowed with every
+    # other skill's injection. 161 -> 168 (close review of sprint-007): the
+    # same docstring now splits the logged failures from the silent ones, and
+    # the two it gained — a preload that exits non-zero, and one wedged past
+    # the bound — each leave the skill blind after the claim is already spent.
+    "plugins/xp-agents/scripts/preload_injection.py": 168,
     "plugins/xp-agents/scripts/close_cycle_abandonment.py": 139,
     "plugins/xp-agents/scripts/close_cycle_stop_gate.py": 163,
     "plugins/xp-agents/scripts/close_gate_commands.py": 149,
@@ -420,15 +429,11 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/shell_exit_structure.py": 291,
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
     "plugins/xp-agents/scripts/staged_lint.py": 221,
-    # 133 -> 183: `_is_another_trees_agent` carries the five rulings a reader
-    # would otherwise reverse (in-place exemption, per-name marker over the
-    # name-free verdict, missing smm_dir filters nothing, the subagent path it
-    # does NOT cover, and what an existence-only marker costs a caller with no
-    # env var to pair it with), and retires two stale claims about the lead
-    # reading unfiltered. The last of those moved HERE from in_place_marker.py,
-    # which had no room for it: this is the caller that pays it. Call-site
-    # comment cut to a pointer; the rationale has one home.
-    "plugins/xp-agents/scripts/tdd_check.py": 183,
+    # 133 -> 170: `_is_another_trees_agent` retires two stale claims about the
+    # lead reading unfiltered, and keeps the two rulings a reader would reverse —
+    # why an in-place teammate needs NO exemption (its events are authored
+    # `main`), and the subagent path the filter cannot cover.
+    "plugins/xp-agents/scripts/tdd_check.py": 170,
     # 182 -> 199 (story-023): `is_project_prompt_path`, the inverse of
     # `project_prompt_path`, added so the lead's Write gate can recognise the one
     # write /xp-assign owes its own spawn. Its docstring is long relative to its

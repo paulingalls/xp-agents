@@ -67,43 +67,6 @@ class TestMarkerShellHelpers(_IntegrationTestCase):
                 self.assertEqual(marker_path.read_text(encoding="utf-8"), tricky)
                 marker_path.unlink()
 
-    def test_an_unproven_invocation_does_not_arm(self):
-        """The second harness cannot tell a read of a SKILL.md from an
-        invocation, so `write_marker` must not arm on one. Driven through the
-        real helper because the env var reaching the preload proves nothing on
-        its own — this is the half that has to honour it."""
-        env = {**self._test_env, "XP_PRELOAD_UNVERIFIED_INVOCATION": "1"}
-        script = f"set -e\nsource {_PRELOAD_BASE}\nwrite_marker NEEDS_HOUSEKEEPING x\n"
-        result = subprocess.run(
-            ["bash", "-c", script],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertFalse((self.smm_dir / markers.NEEDS_HOUSEKEEPING.name).exists())
-
-    def test_an_unproven_invocation_still_consumes(self):
-        """The asymmetry, pinned so it reads as a decision rather than an
-        oversight. Spending a gate on a read is a real defect, but for ACCEPT
-        this consume is the gate's ONLY discharge, so skipping it wedges
-        `update-story done` on that harness instead. Both directions are wrong;
-        the fix is a second discharge, which is not this helper's to invent."""
-        env = {**self._test_env, "XP_PRELOAD_UNVERIFIED_INVOCATION": "1"}
-        marker_path = self.smm_dir / markers.NEEDS_HOUSEKEEPING.name
-        marker_path.write_text("armed", encoding="utf-8")
-        script = f"set -e\nsource {_PRELOAD_BASE}\nconsume_marker NEEDS_HOUSEKEEPING\n"
-        result = subprocess.run(
-            ["bash", "-c", script],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertFalse(marker_path.exists())
-
     def test_consume_marker_removes_file(self):
         tricky = "hello 'world'"
         result = self._run_shell(
