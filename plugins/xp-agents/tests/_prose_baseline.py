@@ -85,8 +85,11 @@ PROSE_MEASURED: dict[str, int] = {
     # 154 -> 161 (story-026): `run_preload`'s docstring and its new
     # `except PreloadMapError` branch now say why one ambiguous skill's
     # `scripts/` dir must be logged rather than silently swallowed with every
-    # other skill's injection.
-    "plugins/xp-agents/scripts/preload_injection.py": 161,
+    # other skill's injection. 161 -> 168 (close review of sprint-007): the
+    # same docstring now splits the logged failures from the silent ones, and
+    # the two it gained — a preload that exits non-zero, and one wedged past
+    # the bound — each leave the skill blind after the claim is already spent.
+    "plugins/xp-agents/scripts/preload_injection.py": 168,
     "plugins/xp-agents/scripts/close_cycle_abandonment.py": 139,
     "plugins/xp-agents/scripts/close_cycle_stop_gate.py": 163,
     "plugins/xp-agents/scripts/close_gate_commands.py": 149,
@@ -137,7 +140,11 @@ PROSE_MEASURED: dict[str, int] = {
     # because it is the one place all three routes read it — and the close
     # emitter's old "a merge subject never carries a trailer" reasoning had to be
     # written down as false, or converging it looks like a style change.
-    "plugins/xp-agents/scripts/commit_emit.py": 249,
+    # 249 -> 225 at the sprint-007 close review: `merge_resolves` and the whole
+    # argument above LEFT for `merged_range`, which is the module its question
+    # is about. Banked as a deletion, not slack — the eight lines that stayed
+    # are the re-export's own reason.
+    "plugins/xp-agents/scripts/commit_emit.py": 225,
     # 167 -> 170: `is_merge` in the metadata table now says ANY merge HEAD, not
     # "close cycle, or the rebuild's merge arm" — that reading is what produced
     # the story_metrics defect.
@@ -227,7 +234,10 @@ PROSE_MEASURED: dict[str, int] = {
     # there leaves a git-less checkout re-forking the same read forever. The
     # file is now 449 of its 450 sub-cap, so the next addition takes an
     # extraction rather than more prose.
-    "plugins/xp-agents/scripts/commits.py": 211,
+    # 211 -> 209 (same review, banked DOWNWARD): the `merged_range` re-export
+    # block went, because importing it back made the pair a cycle. What replaces
+    # it is shorter and says why the absence is load-bearing.
+    "plugins/xp-agents/scripts/commits.py": 209,
     # Arrives above the floor, so it records a ceiling on its first commit —
     # no absolute quoted here, per this file's own rule that prose ABOUT the
     # numbers goes stale exactly the way the numbers do.
@@ -294,7 +304,21 @@ PROSE_MEASURED: dict[str, int] = {
     # 210 is `_prose_scan`'s reading of the MERGED file (128 docstring + 82
     # comment), not either side's number: neither was correct once both sets of
     # prose were present, and taking one would have been a guess.
-    "plugins/xp-agents/scripts/commit_observer.py": 210,
+    # 210 -> 218 (close review of sprint-007): the append's raise/return split
+    # now names OSError and says why it is on the raising side rather than with
+    # the permanent failures — `bulk_append` opens two files, so a read-only SMM
+    # or a symlinked lock path arrives that way, and it was escaping `observe`
+    # into a caller that runs it unguarded, killing the rest of the handler on
+    # every subsequent Bash. Without that sentence the next reader narrows the
+    # `except` back to the documented pair.
+    # 218 -> 225 in the same review: the reconcile's budget note claimed "at
+    # most three forks" while `_record_one` spends two per recorded commit, so
+    # the real worst case is `2 * MAX_RECONCILE + 5` against a declared 5000ms.
+    # The corrected note has to carry both the number and why bounding it is a
+    # choice (overrun the hook, or decline commits on a slow repo) — without the
+    # second half the next reader "fixes" it by adding a timeout that silently
+    # drops commit events.
+    "plugins/xp-agents/scripts/commit_observer.py": 225,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.
@@ -312,7 +336,19 @@ PROSE_MEASURED: dict[str, int] = {
     # this module and it auto-merged, so this is a re-measure of the union, not
     # an allowance for growth on either side. Re-recorded rather than golfed:
     # each side's notes carry the bug its own regex was written for.
-    "plugins/xp-agents/scripts/git_commits.py": 140,
+    # 140 -> 184 (close review of sprint-007): the module gained the pathspec
+    # predicate the ghost filter was missing, and three of its notes are the
+    # reason the code cannot be shortened — why a quoted argument is MASKED
+    # rather than deleted (deleting it feeds the pathspec to `-m`), why the
+    # value-option set is short in one direction and not the other, and which
+    # measured undercount `commit_names_a_pathspec` exists to stop. Re-recorded
+    # rather than golfed, for the reason the `stages_all_tracked_changes` note
+    # above gives: delete either and the next simplification reintroduces a
+    # silent gate failure. 184 -> 195 in the same review: the `git add` leg of
+    # the same scan moved here off the RAW command, and its note is the one that
+    # stops it collapsing into `stages_all_tracked_changes` — a narrow add
+    # widens the scan and does NOT make an unstaged deletion part of the commit.
+    "plugins/xp-agents/scripts/git_commits.py": 195,
     # Crossed the floor at the close review, at 130. Two thirds of it is the
     # gate's own boundary: which shapes it misses (`eval`), which it over-refuses
     # (a `;` that is compound-statement syntax), and why `|` after `&&` is not a

@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import commits
+import merged_range
 
 # ---------------------------------------------------------------------------
 # get_committed_files
@@ -396,6 +397,35 @@ class TestGetCommitMessageBody(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class TestMergedRangeImportsOnItsOwn(unittest.TestCase):
+    """`import merged_range` must work when nothing has imported `commits` yet.
+
+    The two used to import each other — this module for `_run_git`, `commits`
+    for a re-export of `merged_range_commits` — so whichever loaded first hit a
+    partially-initialised module and raised ImportError. Reachable today, not
+    hypothetically: `test_commit_observer_retry.py` carried a by-name `patch`
+    target purely to dodge it, and a shipped hook that imported this module
+    first would have exited non-zero at import, taking the gate it enforces
+    silently with it.
+
+    A SUBPROCESS, because in-process the suite has already imported both in the
+    working order and cannot see the failure at all.
+    """
+
+    def test_importing_it_before_commits_succeeds(self):
+        scripts = str(Path(__file__).parent.parent.parent / "scripts")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                f"import sys; sys.path.insert(0, {scripts!r}); import merged_range",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 class TestMergedRangeCommits(unittest.TestCase):
     """Every merge emitter's only path to a merged-in commit's trailer. Real repo,
     real `--no-ff` merge — git plumbing a mock cannot stand in for.
@@ -435,7 +465,7 @@ class TestMergedRangeCommits(unittest.TestCase):
         self._git("merge", "-q", "--no-ff", "-m", "Merge feature", "feature")
         merge_hash = self._git("rev-parse", "HEAD")
 
-        pairs = commits.merged_range_commits(str(self.repo), merge_hash)
+        pairs = merged_range.merged_range_commits(str(self.repo), merge_hash)
 
         bodies = "\n".join(body for _, body in pairs)
         self.assertIn("aaaaaaaaaaaa", bodies)
@@ -446,12 +476,12 @@ class TestMergedRangeCommits(unittest.TestCase):
 
     def test_non_merge_commit_yields_nothing(self):
         head = self._commit("c.py", "c = 1\n", "feat: c")
-        self.assertEqual(commits.merged_range_commits(str(self.repo), head), [])
+        self.assertEqual(merged_range.merged_range_commits(str(self.repo), head), [])
 
     def test_unknown_hash_yields_nothing(self):
         """Fails toward a MISS rather than raising into a synchronous hook."""
         self.assertEqual(
-            commits.merged_range_commits(str(self.repo), "deadbeefcafe"), []
+            merged_range.merged_range_commits(str(self.repo), "deadbeefcafe"), []
         )
 
 

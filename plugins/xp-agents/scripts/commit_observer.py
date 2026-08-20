@@ -184,14 +184,20 @@ def observe(
                 )
                 or owed
             )
-        except (_append_impl.LockTimeoutError, commits.GitUnavailable):
-            # Another observer holds the record lock, or a git read never
-            # answered. Return WITHOUT advancing, so the next Bash walks the
-            # same range — and without raising into the user's Bash call to say
-            # so. The git leg joins this one rather than the raise path below
-            # BECAUSE of that second half: `bash_post_tool` calls `observe`
-            # unguarded, so a raise leaves its `run()` entirely and takes test
-            # detection, both commit nudges and the TDD signals with it.
+        except (
+            _append_impl.LockTimeoutError,
+            commits.GitUnavailable,
+            OSError,
+        ):
+            # Another observer holds the record lock, a git read never answered,
+            # or the SMM would not take the write. Return WITHOUT advancing, so
+            # the next Bash walks the same range — and without raising into the
+            # user's Bash call to say so. The git and I/O legs join this one
+            # rather than the raise path below BECAUSE of that second half:
+            # `bash_post_tool` calls `observe` unguarded, so a raise leaves its
+            # `run()` entirely and takes test detection, both commit nudges and
+            # the TDD signals with it. `_append_or_raise` logs before raising, so
+            # the loss is traced rather than swallowed.
             return
     settled = False
     if owed and not is_xp_agent_leak:
@@ -253,9 +259,16 @@ def _reconcile(
     # is a budget rather than a preference: `observe` runs on every ordinary
     # Bash, a sibling hook path is bounded at 5s, and one unbudgeted git read
     # has already broken that bound once this sprint. Above here the cost is a
-    # HEAD read, a marker read and a string compare; the rare reconcile that
-    # reaches here adds at most three forks (two `merge-base --is-ancestor`,
-    # one reflog read), plus one more on the owed-reset path in `observe`.
+    # HEAD read, a marker read and a string compare.
+    #
+    # The ANCESTRY reads below are three forks (two `merge-base --is-ancestor`,
+    # one reflog read), plus one on the owed-reset path in `observe` — NOT the
+    # whole cost, and the earlier claim that they were undercounted it tenfold:
+    # `_record_one` spends two more per commit it records, so a full walk is
+    # `2 * MAX_RECONCILE + 5` forks at `_run_git`'s 5s default against this
+    # hook's declared 5000ms. Rare and capped, but unbudgeted: bounding it means
+    # choosing between overrunning the hook and declining commits on a slow
+    # repo, and that choice is recorded as debt rather than made here.
     #
     # Declined WHOLESALE, matching the two declines above rather than inventing
     # a third shape. The alternative — per-commit `patch-id` identity — asks a
@@ -394,14 +407,20 @@ def _append_or_raise(smm_dir: Path, event: dict) -> bool:
     `bulk_append_safe` logs a lock timeout and returns, so its caller cannot
     tell a written event from a dropped one — and a dropped one that advanced
     the marker is a commit no event will ever carry. Split by what a retry could
-    change: a lock timeout RAISES, leaving the range open for the next Bash,
-    while an invalid or oversize event is permanent and is reported against its
-    own hash. Its debt probe is not lost; that no-ops for a commit event. Its
-    hook_errors trace is kept by hand, so a wedged lock still leaves one.
+    change: a lock timeout or an I/O failure RAISES, leaving the range open for
+    the next Bash, while an invalid or oversize event is permanent and is
+    reported against its own hash. Its debt probe is not lost; that no-ops for a
+    commit event. Its hook_errors trace is kept by hand, so a wedged lock still
+    leaves one.
+
+    OSError is on the raising side and is NOT one of the two documented failures:
+    `bulk_append` opens the lock and the log, so a read-only or full SMM — and a
+    symlinked lock path, refused with a bare OSError — arrive that way. Uncaught
+    it left `observe` entirely, whose caller runs it unguarded.
     """
     try:
         _append_impl.bulk_append(smm_dir, [event])
-    except _append_impl.LockTimeoutError as e:
+    except (_append_impl.LockTimeoutError, OSError) as e:
         _common.log_hook_error(
             f"commit observer left {_hash_of(event)[:12]} unrecorded: {e}",
             error_class=type(e).__name__,

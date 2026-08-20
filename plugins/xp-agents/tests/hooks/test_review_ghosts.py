@@ -283,99 +283,69 @@ class TestADeletionTheCommandItselfStagesIsNoGhost(_GhostCase):
                 self.git("commit", "-q", "-m", "cleanup")
 
 
-class TestWhichCommandsStageEverything(unittest.TestCase):
-    """`stages_all_tracked_changes`, the predicate the rule keys on.
+class TestAPathspecCommitMakesItsDeletionsReal(_GhostCase):
+    """`git commit <pathspec>` commits the WORKING TREE, so the index rule breaks.
 
-    A false YES over-counts, which costs one extra review; a false NO is the
-    silent under-block above. So the forms are enumerated generously, and the
-    pins below say which way each judgement leans.
+    The ghost discriminator is "every deletion a commit actually makes is gone
+    from the INDEX too". True of `git commit`; false of `git commit a.py b.py`,
+    which commits the named paths straight out of the working tree — deletion
+    included, index never touched. Measured against real git below rather than
+    argued from the manual.
+
+    So the filter subtracted two paths a commit was about to remove and the gate
+    counted ZERO code files for it, where the widening leg had counted both
+    before the filter existed: the undercount-to-zero
+    `get_code_files_for_review`'s own docstring forbids, reached by the one
+    commit form whose premise does not hold.
     """
 
-    def test_the_forms_that_stage_every_tracked_deletion(self):
-        for command in (
-            "git add -A",
-            "git add --all",
-            "git add -A .",
-            "git add -u",
-            "git add --update",
-            "git add .",
-            "git commit -a",
-            "git commit -am wip",
-            "git commit -q -a -m wip",
-            "git commit --all -m wip",
-            "git -C /some/worktree add -A",
-            "git add \\\n  -A",
-            # Clustered short options. `-A` and `-v` are both bool flags, so
-            # git accepts either order in one token; matching `-A` alone made
-            # both a silent NO, which is the under-block direction.
-            "git add -Av",
-            "git add -vA",
-            "git commit -aq -m wip",
-        ):
-            with self.subTest(command=command):
-                self.assertTrue(git_commits.stages_all_tracked_changes(command))
+    _DOOMED = ("a.py", "b.py")
+    _PATHSPEC_COMMIT = "git commit -m 'drop both' a.py b.py"
 
-    def test_the_forms_that_do_not(self):
-        for command in (
-            "git add notes.md",
-            "git add src/",
-            "git add ./src",
-            "git commit -m notes",
-            "git commit --amend --no-edit",
-            "git commit -m 'add -A everywhere'",
-            "git status",
-            "git add -p",
-            "git add -n",
-            "git add -N src/x.py",
-            "git commit --author=alice -m wip",
-            "git commit --fixup=abc",
-            "git commit --untracked-files=all -m wip",
-        ):
-            with self.subTest(command=command):
-                self.assertFalse(git_commits.stages_all_tracked_changes(command))
+    def _two_doomed_code_files(self) -> None:
+        """Two code files inside `{watermark}..HEAD`, gone from the working tree
+        with the removal unstaged — the ghost shape exactly, up to the command."""
+        for name in self._DOOMED:
+            self._write(name, "print(1)\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "two files")
+        for name in self._DOOMED:
+            (self.repo / name).unlink()
 
-    def test_a_shared_scan_target_is_actually_consulted(self):
-        """The kwarg exists so a caller can share one `strip_quoted` pass with
-        `is_git_commit`, the way `bash_post_tool` already does for that
-        predicate. Untested it was a branch free to ignore what it was handed,
-        which is what `a7cb61e6d206` recorded: the two arguments here disagree,
-        so only reading `scan_target` can give the second answer.
+    def test_git_really_commits_them_from_the_working_tree(self):
+        """The premise, asked of git and not of the docs: nothing staged, both
+        paths still reported as unstaged deletions, and the commit removes them
+        anyway."""
+        self._two_doomed_code_files()
+
+        self.assertEqual(commits.get_staged_files(str(self.repo)), [])
+        self.assertEqual(
+            self.git("diff", "--name-only", "--diff-filter=D").split(),
+            list(self._DOOMED),
+        )
+        self.git("commit", "-q", "-m", "drop both", "a.py", "b.py")
+
+        self.assertEqual(
+            self.git("show", "--name-status", "--format=", "HEAD").split(),
+            ["D", "a.py", "D", "b.py"],
+        )
+
+    def test_the_gate_counts_the_files_that_commit_deletes(self):
+        """The regression, inverted into a pin. Two code files leave the tree,
+        so the gate has two to count and the review threshold is met."""
+        self._two_doomed_code_files()
+
+        self.assertEqual(self._scope(self._PATHSPEC_COMMIT), list(self._DOOMED))
+
+    def test_a_quoted_message_does_not_hide_the_pathspec(self):
+        """The form every agent writes. On the quote-STRIPPED command `-m` is
+        left adjacent to `a.py` and swallows it as its own value, so the paths
+        vanish and the filter runs anyway — which is why the pathspec scan
+        replaces a quoted argument with a filler TOKEN rather than deleting it.
         """
-        raw = "git commit -m notes"
-
-        self.assertFalse(git_commits.stages_all_tracked_changes(raw))
         self.assertTrue(
-            git_commits.stages_all_tracked_changes(
-                raw, scan_target="git add -A && git commit -m notes"
-            )
+            git_commits.commit_names_a_pathspec('git commit -m "drop both" a.py')
         )
-
-    def test_it_cannot_reach_across_a_shell_operator(self):
-        """A stage-all in a LATER command says nothing about this one, and the
-        reverse would let any trailing `git add -A` disarm the filter for a
-        commit that stages one path."""
-        self.assertFalse(
-            git_commits.stages_all_tracked_changes("git add notes.md && echo -A")
-        )
-        self.assertFalse(
-            git_commits.stages_all_tracked_changes("git commit -m x; ls -a")
-        )
-
-    def test_a_bare_newline_ends_a_command_like_a_semicolon(self):
-        """The operator class has to include the newline, or a multi-line
-        script reads as a stage-all because its LAST line carries an `-a`. That
-        stands the ghost filter down and hands back the over-block the filter
-        exists to prevent (concern 64c18a0a3a48). A `\\`-newline is the one
-        crossable form — the shell joins it away before git parses anything,
-        and the wrapped `git add \\<newline> -A` above stays a YES.
-        """
-        for command in (
-            "git add notes.md\ngit commit -m notes\nls -la",
-            "git commit -m x\nls -a",
-            "git add notes.md\nls .",
-        ):
-            with self.subTest(command=command):
-                self.assertFalse(git_commits.stages_all_tracked_changes(command))
 
 
 if __name__ == "__main__":

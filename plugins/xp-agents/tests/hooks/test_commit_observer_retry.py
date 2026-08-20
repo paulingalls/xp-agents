@@ -40,10 +40,11 @@ from conftest import _make_bash_input
 
 _POST_TOOL_HOOK = Path(__file__).parent.parent.parent / "scripts" / "bash_post_tool.py"
 
-# By NAME, because a module-level `import merged_range` here failed collection:
-# it and `commits` import each other, so whichever loads first wins and this
-# file's alphabetical block put the losing one first. `patch` resolves at ROW
-# time, after `_ObserverCase` has loaded the pair in the working order.
+# By NAME, so the patch resolves at ROW time rather than at collection. The
+# cycle that forced this (the two modules imported each other, so whichever
+# loaded first raised) is gone — `test_commits_git_helpers.py` pins that — and a
+# module-level import would work now; the by-name target is kept because it is
+# what `patch` wants anyway.
 _RANGE_WALK_BOUND = "merged_range._TIMEOUT_SECONDS"
 
 

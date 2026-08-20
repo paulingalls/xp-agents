@@ -12,18 +12,18 @@ the wrong commit in the range, or resetting for one the event log never took.
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import _append_impl
 import _common
+import commit_observer_history
 import pre_tool_bash_commit_gates
 import review_records
 from _observer_case import ORDINARY_BASH, _ObserverCase
+from commit_observer_state import OWED_RESET_FIELD
 
 
 class TestReviewCycle(_ObserverCase):
@@ -292,43 +292,68 @@ class TestADeclinedRewriteAlsoOwesItsReset(_GateCase):
         )
 
 
-class TestADroppedAppendIsNotSuccess(_ObserverCase):
-    """The event log's own lock can refuse the append. `bulk_append_safe` logs
-    that and returns, so "recorded" and "dropped" look identical to a caller
-    reading its return — and a dropped one that advanced the marker is a commit
-    no event will ever carry, which is the silence this module exists to end."""
+class TestAWatermarkTheRebaseLeftBehindStillGetsItsReset(_GateCase):
+    """The state the owed reset was invented for, and the one it was losing.
 
-    def test_a_dropped_event_leaves_the_range_open(self):
-        self.seed_observer()
-        before = self.marker()
-        landed = self.commit("feat: x")
-        with patch(
-            "_append_impl.bulk_append",
-            side_effect=_append_impl.LockTimeoutError("events.jsonl busy"),
-        ):
-            self.observe()
-        self.assertEqual(self.commit_events(), [])
-        self.assertEqual(self.marker(), before)
-        self.observe()
-        self.assertEqual(self.recorded_hashes(), [landed])
+    A review's cycle-ending commit leaves a watermark and a set
+    `quality_review_done`. The developer then rebases: the watermark is still
+    RESOLVABLE — the object survives in the reflog — but it is no longer an
+    ancestor of HEAD, so `is_ancestor(watermark, owed)` answers a flat False.
 
-    def test_a_dropped_event_does_not_end_the_review_cycle(self):
-        """The reset belongs to a commit the log carries. Ending the cycle for
-        one that was dropped points the gate's `{sha}..HEAD` diff at a commit
-        with no event and spends the coverage a review earned."""
+    That False was read as "the watermark is already past this hash" and the
+    reset was discarded, with nothing applied and nothing filed. Two histories
+    that DIVERGED answer False as well, and there the owed hash is the newer
+    work: the reverse question is what tells them apart, and asking it is the
+    difference between the latch being cleared and the next 2+-code-file commit
+    passing on a review that predates a rebase.
+    """
+
+    def _a_review_then_a_rebase(self) -> None:
         review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
         self.seed_observer()
-        self.commit("feat: x")
-        with patch(
-            "_append_impl.bulk_append",
-            side_effect=_append_impl.LockTimeoutError("events.jsonl busy"),
-        ):
-            self.observe()
-        self.assertEqual(review_records.read_review_watermark(self.smm_dir, "main"), "")
-        self.assertTrue(
-            review_records.read_review_flags(self.smm_dir, "main")[
-                "quality_review_done"
-            ]
+        base = self.head()
+        reviewed = self.commit("feat: original", path="src/a.py")
+        # What the review's own cycle-ending commit left behind.
+        review_records.write_review_watermark(self.smm_dir, "main", reviewed)
+        self.reword_rebase(base, "feat: reworded\n")
+
+    def test_the_watermark_is_still_resolvable_but_no_longer_an_ancestor(self):
+        """The premise, asked of git: this is the diverged case and not the
+        pruned one the sibling drop path is for."""
+        self._a_review_then_a_rebase()
+        watermark = review_records.read_review_watermark(self.smm_dir, "main")
+
+        self.assertEqual(
+            self.git("rev-parse", "--verify", f"{watermark}^{{commit}}"), watermark
+        )
+        self.assertIsNot(
+            commit_observer_history.is_ancestor(str(self.repo), watermark, self.head()),
+            None,
+            "git can still place both hashes, so this is divergence, not a prune",
+        )
+
+    def test_the_next_two_file_commit_does_not_pass_on_the_pre_rebase_review(self):
+        self._a_review_then_a_rebase()
+
+        self.observe()
+        self._stage_two_code_files()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run_the_commit_gate()
+
+    def test_the_reset_lands_on_head_rather_than_being_discarded(self):
+        self._a_review_then_a_rebase()
+        head = self.head()
+
+        self.observe()
+
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), head
+        )
+        self.assertNotIn(
+            OWED_RESET_FIELD,
+            self.marker() or {},
+            "an applied reset must not stay owed",
         )
 
 

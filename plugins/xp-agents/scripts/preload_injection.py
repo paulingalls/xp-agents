@@ -152,8 +152,15 @@ def run_preload(skill: str, cwd: str) -> str | None:
     Returns None — never a partial or error stream — on every failure mode:
     an unknown skill name, a skill that ships no preload, an ambiguous
     `scripts/` dir, a non-zero exit, a timeout, or empty output. The caller
-    injects nothing in each case, but not all of them are equally silent —
-    see the two `except` clauses below.
+    injects nothing in each case, but not all of them are equally silent.
+
+    Logged: the resolver's own breakage, and a preload that ran and FAILED —
+    a non-zero exit, or one wedged past the bound. Each leaves the skill
+    running with no state, and the shell-read leg has already spent its claim
+    by then, so the retry that claim exists to collapse injects nothing
+    either. Silent: a name we do not ship, and a skill declaring no preload.
+    Both are the ordinary case for tool calls that are not ours, and logging
+    them would bury the two above.
     """
     try:
         invocation = skill_preload_map.resolve_preload(skill)
@@ -184,10 +191,21 @@ def run_preload(skill: str, cwd: str) -> str | None:
             timeout=_PRELOAD_TIMEOUT_SECONDS,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as e:
+        _common.log_hook_error(
+            f"run_preload: {type(e).__name__}",
+            error_class="PreloadRunFailed",
+            skill=skill,
+        )
         return None
 
     if completed.returncode != 0:
+        _common.log_hook_error(
+            f"run_preload: exit {completed.returncode}",
+            error_class="PreloadRunFailed",
+            skill=skill,
+            stderr=completed.stderr,
+        )
         return None
     return completed.stdout or None
 

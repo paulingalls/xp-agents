@@ -33,12 +33,14 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import markers
+import subagent_stop
 from _gate_discharge_case import _READ_COMMANDS, _RealHookTestCase
 
 
@@ -283,17 +285,17 @@ class TestACompletedPlanReviewDischargesTheGate(_RealHookTestCase):
     completion rather than at the preload's start.
     """
 
+    def _reviewer_payload(self) -> dict:
+        return {
+            "session_id": "gate-discharge",
+            "agent_id": "review-1",
+            "agent_type": "xp-plan-reviewer",
+            "last_assistant_message": "Review complete",
+            "cwd": str(self.tmpdir),
+        }
+
     def _reviewer_stopped(self) -> subprocess.CompletedProcess:
-        return self._run_hook(
-            "subagent_stop.py",
-            {
-                "session_id": "gate-discharge",
-                "agent_id": "review-1",
-                "agent_type": "xp-plan-reviewer",
-                "last_assistant_message": "Review complete",
-                "cwd": str(self.tmpdir),
-            },
-        )
+        return self._run_hook("subagent_stop.py", self._reviewer_payload())
 
     def _plan_reviewed_events(self) -> list[dict]:
         return [
@@ -314,13 +316,33 @@ class TestACompletedPlanReviewDischargesTheGate(_RealHookTestCase):
     def test_the_evidence_is_written_before_the_marker_is_consumed(self):
         """Emit FIRST, consume SECOND, the rule its sibling close handler states:
         a crash between the two must leave evidence, not a silently consumed
-        marker. Observable after the fact as "the discharge never happens without
-        the record" — a consumed marker with no plan_reviewed event is the
-        ordering this asserts against.
+        marker.
+
+        Driven IN-PROCESS with a spy on the consume, because the ORDER is not
+        visible in the outcome: "the event exists and the marker is gone" is true
+        whichever way round those two lines run, so the assertion this class used
+        to make stayed green when they were swapped — while in production a crash
+        or a lock timeout between them left the gate discharged with no record at
+        all. The spy reads the log as it stood AT the consume, which is exactly
+        what such a crash would leave behind.
         """
         gate = self._arm_plan_gate()
-        self._reviewer_stopped()
-        self.assertEqual(len(self._plan_reviewed_events()), 1)
+        evidence_at_consume: list[int] = []
+        real_consume = markers.marker_consume
+
+        def spy(smm_dir, marker, *args, **kwargs):
+            if marker is markers.PLAN_AWAITING_REVIEW:
+                evidence_at_consume.append(len(self._plan_reviewed_events()))
+            return real_consume(smm_dir, marker, *args, **kwargs)
+
+        with patch.object(markers, "marker_consume", side_effect=spy):
+            subagent_stop.run(self._reviewer_payload(), smm_dir=self.smm_dir)
+
+        self.assertEqual(
+            evidence_at_consume,
+            [1],
+            "the gate was discharged before its plan_reviewed record existed",
+        )
         self.assertFalse(gate.exists())
 
     def test_another_subagent_finishing_does_not_clear_it(self):

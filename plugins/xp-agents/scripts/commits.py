@@ -5,7 +5,6 @@ Provides commit detection, parsing, and file enumeration used by both
 PreToolUse:Bash (gate) and PostToolUse:Bash (bookkeeping).
 """
 
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -234,7 +233,8 @@ def _unstaged_worktree_deletions(cwd: str, read=None) -> set[str]:
 
     Being in this set is necessary but NOT sufficient: a path here is only a
     ghost while the command about to run leaves it unstaged, which is why the
-    caller also asks `git_commits.stages_all_tracked_changes`.
+    caller also asks `git_commits.absorbs_unstaged_changes` — the index rule
+    above is the INDEX's, and `git commit <pathspec>` bypasses it.
 
     ``read`` is the caller's budgeted reader. It matters: this fork is a FIFTH
     git read inside a hook whose whole scan is bounded, and left on `_run_git`'s
@@ -292,13 +292,11 @@ def get_code_files_for_review(
     current-minus-coverage arithmetic rather than fix it.
     """
     # Asked once and read twice — by `wants_unstaged` here and by the ghost
-    # filter at the tail. `stages_all_tracked_changes` is the one spelling of
-    # the question; see git_commits.py for the forms a hand-rolled regex misses.
-    stages_all = git_commits.stages_all_tracked_changes(command)
+    # filter at the tail. `absorbs_unstaged_changes` is the one spelling of the
+    # question; see git_commits.py for the forms a hand-rolled regex misses.
+    absorbs_unstaged = git_commits.absorbs_unstaged_changes(command)
     wants_unstaged = bool(
-        include_unstaged
-        or re.search(git_commits.GIT_PREFIX + r"add\b", command)
-        or stages_all
+        include_unstaged or git_commits.stages_a_path(command) or absorbs_unstaged
     )
     legs = (
         int(staged_diff is None)
@@ -308,7 +306,7 @@ def get_code_files_for_review(
         # The ghost read at the tail. Counted whenever it CAN run, not when it
         # will: `widened` is not known until the legs above have run, and the
         # rule above is that the split must not depend on an earlier read.
-        + int(not stages_all)
+        + int(not absorbs_unstaged)
     )
     per_leg = scan_budget_s / legs if scan_budget_s is not None and legs else None
     read = (
@@ -334,10 +332,10 @@ def get_code_files_for_review(
         )
 
     # Unstaged tracked changes: either the caller asked outright, or the command
-    # will stage them itself. `stages_all` is asked ONCE, above, because the
-    # ghost filter below reads the SAME answer — two spellings of "stages
-    # everything" is how `commit -q -a` slipped past this gate, and the regex
-    # that arrived on the other side of this merge (`commit\s+-a`) missed
+    # will commit them itself. `absorbs_unstaged` is asked ONCE, above, because
+    # the ghost filter below reads the SAME answer — two spellings of that
+    # question is how `commit -q -a` slipped past this gate, and the regex that
+    # arrived on the other side of this merge (`commit\s+-a`) missed
     # `commit --all` as well.
     if wants_unstaged:
         extra_commands.append(["git", "diff", "--name-only", "-z"])
@@ -360,10 +358,10 @@ def get_code_files_for_review(
     # unstaged deletion for content the index is about to commit. No widening,
     # nothing to filter, no fork spent asking.
     #
-    # Nor is anything a ghost when the command stages everything: `git add -A`
-    # makes each unstaged deletion one that this commit performs.
+    # Nor is anything a ghost when the command commits beyond the index: `git
+    # add -A` and `git commit a.py` both perform the deletions they name.
     widened = all_files - staged_names
-    if widened and not stages_all:
+    if widened and not absorbs_unstaged:
         all_files -= widened & _unstaged_worktree_deletions(cwd, read=read)
 
     return [f for f in sorted(all_files) if code_files.is_code_file(f)]
@@ -409,15 +407,10 @@ from commit_trailers import (  # noqa: E402  intentional mid-file re-export
     parse_commit_message,
 )
 
-# -------------------------------------------------------------------
-# A merge's incoming commits — re-exported from merged_range
-# -------------------------------------------------------------------
-# Moved out when the per-commit reader took this file over its sub-cap. Imported
-# DOWN from here (that module imports `_run_git` back up), so this block must stay
-# below `_run_git`'s definition.
-from merged_range import (  # noqa: E402  intentional mid-file re-export
-    merged_range_commits,
-)
+# NO re-export of `merged_range` here, and that absence is load-bearing: that
+# module imports `_run_git` from this one, so an import back the other way made
+# the pair a CYCLE and `import merged_range` first raised ImportError. Its one
+# caller reaches it directly — see test_commits_git_helpers.py.
 
 __all__ = [
     "REVIEW_CYCLE_THRESHOLD",
@@ -442,7 +435,6 @@ __all__ = [
     "head_landing_facts",
     "is_escape_hatch_commit",
     "is_escape_hatch_message",
-    "merged_range_commits",
     "open_issues_matching_commit",
     "parse_commit_message",
     "parse_effective_cwd",

@@ -282,6 +282,21 @@ BAND_CEILINGS = {
     # with the execution and heartbeat classes — leaving both files well under
     # the 450 floor. A band entry taken on a file's first day is the shape the
     # file-size convention names as recurring debt.
+    # ENTERED ANYWAY at the sprint-007 close review, 447 -> 473: the two rows
+    # are that a preload which RAN and failed leaves a trace — non-zero exit, or
+    # wedged past the bound — and they belong beside the execution classes whose
+    # fixture they reuse, which is the split above's own criterion. The note
+    # above stands as the warning it was: the next addition here takes the split
+    # it names, the heartbeat family, which shares no fixture with either half.
+    "plugins/xp-agents/tests/hooks/test_preload_injection.py": 473,
+    # 447 -> 482 across sprint-007, and the growth is the POINT of this file:
+    # every entry is a measured number plus the reason its file's prose grew,
+    # and this sprint re-recorded nine of them. It cannot be split by subject —
+    # it is one table keyed by path, and a second table is a second place to
+    # look for a file's ceiling. What it can lose is history: entries whose
+    # files have since been rewritten carry rationale for numbers no longer in
+    # the table, and the changelog holds that. Nothing else here is spendable.
+    "plugins/xp-agents/tests/_prose_baseline.py": 482,
     # Entered the band with the derived variant's path-existence pin
     # (story-011): the source's own check covers hooks.json only, so a hook
     # authored straight into the variant could name a script that does not
@@ -295,7 +310,13 @@ BAND_CEILINGS = {
     # per-commit reader. The +7 buys two assertions the blob-returning helper could
     # not express: the incoming COUNT, and that the merge commit itself is filtered
     # out of its own range. Trimmed the prose first; the remainder is assertions.
-    "plugins/xp-agents/tests/hooks/test_commits_git_helpers.py": 459,
+    # 459 -> 489 at the sprint-007 close review, for the import-cycle row: the
+    # pair `merged_range`/`commits` raised ImportError whichever way round a
+    # future hook imported them, and it survived only on collection order. The
+    # row imports each first in a subprocess, so it cannot be greened by the
+    # order this suite happens to run in. 11 lines to the cap: what goes next is
+    # the merged-range group itself, which shares only `self.repo` with the rest.
+    "plugins/xp-agents/tests/hooks/test_commits_git_helpers.py": 489,
     # 452 -> 472 for the trailing-newline pins on the agent-id allowlist (`$`
     # matched before a final newline; `\Z` does not). The file sat at exactly
     # its own ceiling, and the cheapest way to stay under it was to put the

@@ -102,6 +102,14 @@ produces it so a reader can re-derive rather than trust it:
 | **6** heartbeat write sites | `write_heartbeat(` call sites in `scripts/*.py`, excluding the definition |
 | **53** test files touch it | files under `tests/` matching `liveness` or `heartbeat` |
 
+> **Landed since this was ruled (story-009).** `skills/_preload_liveness.sh` and
+> `hook_liveness.check_liveness` are gone, and `tests/hooks/test_liveness_scope.py`
+> pins their absence. So the table above is the price as it stood when the decision
+> was taken, not a description of the tree: `scripts/hook_liveness.py` survives at
+> 181 lines as the heartbeat WRITER only, and the file the "what it was protecting"
+> section below points at no longer exists. Nothing now detects a session running
+> with the hook runtime absent — that is the accepted residue, not an oversight.
+
 Against that: reachable in two places only — a harness that silently skips untrusted plugin
 hooks while still loading skills, and teammate preflight, where an uninstalled plugin yields
 an unenforced teammate indistinguishable from an enforced one. Neither is the daily solo

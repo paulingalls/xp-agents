@@ -103,6 +103,10 @@ _CAPPED_FILES = (
     # names. Capped on arrival like everything above.
     Path(__file__).resolve().parent / "test_commit_observer_sharing.py",
     Path(__file__).resolve().parent / "test_commit_event_recording.py",
+    # What the observer does when the APPEND refuses rather than the git read,
+    # split off when the sprint-007 close review's rebase row took the cycle
+    # suite over this cap. Capped on arrival like everything above.
+    Path(__file__).resolve().parent / "test_commit_observer_append.py",
 )
 
 

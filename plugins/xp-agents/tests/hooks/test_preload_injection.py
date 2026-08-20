@@ -180,6 +180,35 @@ class TestPreloadExecution(_HookTestCase):
                 preload_injection.run_preload("xp-accept", str(self.work))
             )
 
+    def test_a_failing_preload_says_so_in_the_error_log(self):
+        """Requirement 4 says inject NOTHING. It does not say say nothing.
+
+        A preload that exits non-zero leaves the skill running blind, and on the
+        shell-read leg the claim is already taken, so the rest of the burst
+        injects nothing either and the whole invocation proceeds with no state.
+        The resolver's own breakage is logged for exactly this reason; a broken
+        preload SCRIPT is the same class and was the one shape reaching exit 0
+        with no trace anywhere.
+        """
+        with self._fake('echo "half a table"; exit 3'):
+            self.assertIsNone(
+                preload_injection.run_preload("xp-accept", str(self.work))
+            )
+
+        trace = (self.smm_dir / "hook_errors.jsonl").read_text(encoding="utf-8")
+        self.assertIn("xp-accept", trace)
+        self.assertIn("3", trace)
+
+    def test_a_wedged_preload_says_so_too(self):
+        with (
+            self._fake("sleep 5; echo late"),
+            patch.object(preload_injection, "_PRELOAD_TIMEOUT_SECONDS", 1),
+        ):
+            preload_injection.run_preload("xp-accept", str(self.work))
+
+        trace = (self.smm_dir / "hook_errors.jsonl").read_text(encoding="utf-8")
+        self.assertIn("xp-accept", trace)
+
     def test_an_unexecutable_preload_injects_nothing(self):
         script = self.work / "not_executable.sh"
         script.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")

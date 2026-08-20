@@ -121,11 +121,14 @@ def write_record(
 def settle_owed_reset(smm_dir: Path, agent_id: str, cwd: str, owed: str) -> bool:
     """Apply or drop a reset a leaked observation could not apply. True = done.
 
-    False means "still owed" and is returned for one reason only: the observer
-    lock was busy, so another process is mid-reconcile and the next Bash should
-    try again. Every other answer RESOLVES the record, because a reset kept
-    across an answer it cannot use wedges the marker forever while leaving the
-    latch defect it exists to fix fully live.
+    False means "still owed" and is returned for one class of reason only: the
+    observer lock could not be taken — busy, so another process is mid-reconcile
+    and the next Bash should try again, or unopenable, which a read-only SMM and
+    a symlinked lock path both answer with a bare OSError. Every other answer
+    RESOLVES the record, because a reset kept across an answer it cannot use
+    wedges the marker forever while leaving the latch defect it exists to fix
+    fully live. Neither may escape: this call sits outside `observe`'s own
+    `except`, and its caller runs that unguarded.
 
     THREE states, all ruled here rather than left to discovery:
 
@@ -135,17 +138,21 @@ def settle_owed_reset(smm_dir: Path, agent_id: str, cwd: str, owed: str) -> bool
     * **Already at the owed hash.** That reset happened; a second one would
       clear the flags a review has set since and demand a re-review nobody
       asked for. Drop.
-    * **Otherwise apply only to a DESCENDANT of the current watermark.**
+    * **Otherwise drop it only when the watermark is strictly PAST it.**
       Walking the watermark backwards is the defect commit `86d4d129` fixed
-      earlier this sprint, and an owed reset is a new door onto exactly it.
+      earlier this sprint, and an owed reset is a new door onto exactly it —
+      but "not a descendant of the watermark" is not the same claim as "older
+      than the watermark", and reading it as one threw the reset away after
+      every rebase. `_watermark_is_ahead` separates them.
 
     The fourth answer is git's "I have never heard of that revision", which is
     why `is_ancestor` is three-valued: the owed hash was rewritten or pruned
     away — increment 3's own rewrite specimen can do it — and that is a loss to
     REPORT, not one to answer with a confident "not a descendant".
 
-    ONE fork, and only when a reset is genuinely owed, which is never the
-    common path.
+    At most TWO forks, and only when a reset is genuinely owed, which is never
+    the common path: the second is asked only when the first says "not a
+    descendant", which is itself the rare answer.
     """
     watermark_key = identity.review_watermark_key(cwd)
     try:
@@ -163,14 +170,33 @@ def settle_owed_reset(smm_dir: Path, agent_id: str, cwd: str, owed: str) -> bool
                         smm_dir, agent_id, owed
                     )
                     return True
-                if verdict is False:
+                if verdict is False and _watermark_is_ahead(cwd, watermark, owed):
                     return True
             review_records.end_review_cycle(
                 smm_dir, watermark_key, identity.review_flags_key(cwd), owed
             )
-    except _append_impl.LockTimeoutError:
+    except (_append_impl.LockTimeoutError, OSError):
         return False
     return True
+
+
+def _watermark_is_ahead(cwd: str, watermark: str, owed: str) -> bool:
+    """Is the watermark strictly PAST the owed hash — the one safe drop?
+
+    `is_ancestor(watermark, owed)` answering False covers two different
+    histories: the owed commit is OLDER, so a review has since ended at a
+    descendant of it and the reset already happened at a newer hash; or the two
+    DIVERGED, because a rebase left the watermark on a line HEAD no longer
+    reaches. Only the first is superseded. Dropping on the second discarded the
+    reset in precisely the state it was invented for, with no reset applied and
+    no trace filed, so the reverse question is asked before dropping.
+
+    Anything but a confident "yes, older" APPLIES, including git failing to
+    answer: over-applying costs one re-review, while under-applying leaves
+    `quality_review_done` latched and the next commit's gate reads satisfied off
+    a review that predates a rebase.
+    """
+    return commit_observer_history.is_ancestor(cwd, owed, watermark) is True
 
 
 def newest_recorded_in_range(revs: list[str], recorded: set[str]) -> str | None:

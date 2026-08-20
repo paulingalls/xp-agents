@@ -84,14 +84,44 @@ class TestClaimRefusesASymlink(_SMMTestCase):
 
     A claim that followed the link would write through it, and one that deleted
     it on staleness would remove a file it never owned.
+
+    The refusal below is `O_EXCL`'s, not `O_NOFOLLOW`'s, and saying so is what
+    keeps this class from claiming an assurance it does not measure: POSIX makes
+    `O_CREAT | O_EXCL` fail with EEXIST on a symlinked path whether the link
+    dangles or not, so a build with `O_NOFOLLOW` deleted stays green here. What
+    IS measurable, and is what the caller depends on, is the SECOND case: on
+    expiry the link itself goes and the file it pointed at does not. The sweep's
+    own half of that promise is pinned by `test_a_symlink_is_not_unlinked` in
+    `TestStaleClaimsAreReaped`, and is not repeated here.
     """
+
+    def _a_symlinked_claim_over(self, target: Path) -> None:
+        markers.marker_path(self.smm_dir, _CLAIM).symlink_to(target)
 
     def test_a_symlinked_claim_path_is_refused(self):
         target = Path(self.smm_dir) / "elsewhere"
         target.write_text("not ours", encoding="utf-8")
-        markers.marker_path(self.smm_dir, _CLAIM).symlink_to(target)
+        self._a_symlinked_claim_over(target)
 
         self.assertFalse(marker_claim.claim(self.smm_dir, _CLAIM, ttl_seconds=60))
+        self.assertEqual(target.read_text(encoding="utf-8"), "not ours")
+
+    def test_expiring_a_symlinked_claim_removes_the_link_not_its_target(self):
+        """The expiry leg stats through the link, so a STALE target makes the
+        claim retakeable — and that unlink must take the link. Taking the target
+        would delete a file this primitive never created, which is the one
+        outcome its docstring promises cannot happen."""
+        target = Path(self.smm_dir) / "elsewhere"
+        target.write_text("not ours", encoding="utf-8")
+        stale = time.time() - 120
+        os.utime(target, (stale, stale))
+        self._a_symlinked_claim_over(target)
+
+        self.assertTrue(marker_claim.claim(self.smm_dir, _CLAIM, ttl_seconds=60))
+
+        path = markers.marker_path(self.smm_dir, _CLAIM)
+        self.assertFalse(path.is_symlink(), "the link survived the retake")
+        self.assertTrue(path.is_file())
         self.assertEqual(target.read_text(encoding="utf-8"), "not ours")
 
 

@@ -43,6 +43,15 @@ import markers
 import resolution
 import review_records
 
+# `merge_resolves` lives in `merged_range` — it is a question ABOUT a merge's
+# incoming range, and it was the last thing keeping this file's range knowledge
+# here. Moved when one added import line took this file one over its 450 sub-cap
+# with no ratchet to record: the cap's whole job is to force that placement
+# decision, and the module named after the range is where the decision lands.
+# Re-exported because `merge_commit_event` reaches it as `commit_emit.
+# merge_resolves`.
+from merged_range import merge_resolves
+
 __all__ = [
     "HEAD_REBUILD_MAX_AGE_SECONDS",
     "build_commit_event",
@@ -108,56 +117,6 @@ def parse_commit_body(raw_body: str | None) -> tuple[list[str], str, bool]:
         return [], "", False
     resolves, body, has_trailer = commits.extract_resolves_trailer(raw_body)
     return resolves, _COAUTHOR_TRAILER_RE.sub("", body).strip(), has_trailer
-
-
-def merge_resolves(
-    cwd: str,
-    commit_hash: str,
-    authored: list[str],
-    *,
-    events: list[dict],
-) -> list[str]:
-    """`authored` UNION the trailers of merged-in commits whose event never landed.
-
-    ALL THREE merge emitters route through here, which is the point — it was
-    written twice with different answers, and the close-cycle copy replaced where
-    the hook routes unioned.
-
-    ONLY commits whose own event never landed. That is the entire rationale for
-    re-parsing at all — a teammate's per-commit events can fail to reach the shared
-    log, leaving the merge HEAD the only surviving record of that work — and
-    unfiltered the derivation is catastrophically wider than its rationale. A
-    back-merge (`git merge main` to keep a branch current) has two parents like any
-    other, and its incoming range is EVERY commit the branch had not seen: dozens
-    or hundreds, whose trailers landed with their own commits weeks ago. Unioning
-    those credits one merge with resolving them, and silently closes any that were
-    deliberately left open.
-
-    That range is bounded by the source/target RELATIONSHIP, never structurally, so
-    "the close cycle's range is its own story's commits" was never a property the
-    code had: a story branch that back-merged `main` carries main's commits in its
-    range at close time too.
-
-    UNION, never replace. The authored ids come from a body the operator may have
-    written — a `-m` on a hand merge, an edited conflict-finish message, or a
-    close-cycle body read back from HEAD — and replacing drops what they typed.
-
-    The bound is the LIVE log, NARROWER than "already recorded": compaction
-    archives commit events once their sprint leaves the retention window, and a
-    rebased branch's hashes never match, so either case still re-derives. Recorded
-    rather than implied — reading the archives here would put an unbounded read on
-    a synchronous hook.
-
-    `events` is the caller's already-locked read, so the filter costs no lock.
-    """
-    recorded = commit_event.recorded_commit_hashes(events)
-    unrecorded = [
-        body
-        for landed, body in commits.merged_range_commits(cwd, commit_hash)
-        if landed not in recorded
-    ]
-    derived, _, _ = commits.extract_resolves_trailer("\n".join(unrecorded))
-    return authored + [rid for rid in derived if rid not in authored]
 
 
 def build_commit_event(
