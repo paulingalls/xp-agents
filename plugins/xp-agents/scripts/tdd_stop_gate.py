@@ -68,10 +68,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # The release is the LEAD's alone. `find_last_test_signal` has already
         # scoped this read — a teammate saw only its own signals — so a teammate
         # reaching here is looking at a failure that is provably its own, and
-        # "a teammate may own it" is false by construction. Only the lead reads
-        # unscoped and can be looking at someone else's red suite. Same source
-        # as the scoping above, so the two cannot disagree; paid only on this
-        # branch, where we would otherwise block.
+        # "a teammate may own it" is false by construction. Same source as the
+        # scoping above, so the two cannot disagree; paid only on this branch,
+        # where we would otherwise block.
+        #
+        # OVER-BROAD, and it no longer rests on "the lead reads unfiltered":
+        # `tdd_check._is_another_trees_agent` already dropped a worktree
+        # teammate's signals, so the only other-tree failure still reaching here
+        # is one filed under an opaque subagent id. For any other author — the
+        # lead's own `main` — this releases the lead's OWN red suite whenever a
+        # sibling is active. Narrowing it needs the failure's AUTHOR, which
+        # `find_last_test_signal` does not hand back.
         if tdd_check.reader_scope_owner(events, cwd, smm_dir) is None:
             agent_id = identity.resolve_agent_id(input_data)
             if coordination.has_active_teammates(smm_dir, agent_id):

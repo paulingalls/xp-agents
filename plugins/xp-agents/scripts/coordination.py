@@ -120,8 +120,8 @@ _NO_AGE_LIMIT = 10**9  # ~31 years
 #
 # Attribution rather than a second liveness check, because the gap it closes is
 # not this window at all. A teammate that edits only through Bash never gets a
-# coordination entry (`post_tool_use` is the sole writer and is registered on
-# Write|Edit), and `has_active_teammates` iterates ENTRIES — so no entry means
+# coordination entry (`post_tool_use` is the sole writer, registered on
+# Write|Edit|MultiEdit), and `has_active_teammates` iterates ENTRIES — no entry
 # the heartbeat below is never consulted for that agent. That failure sits
 # upstream of this number and is permanent, not a window; an earlier version of
 # this comment surveyed the TTL-shaped instance and read as if it had surveyed

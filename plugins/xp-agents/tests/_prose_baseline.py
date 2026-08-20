@@ -429,11 +429,11 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/shell_exit_structure.py": 291,
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
     "plugins/xp-agents/scripts/staged_lint.py": 221,
-    # 133 -> 170: `_is_another_trees_agent` retires two stale claims about the
+    # 133 -> 168: `_is_another_trees_agent` retires three stale claims about the
     # lead reading unfiltered, and keeps the two rulings a reader would reverse —
     # why an in-place teammate needs NO exemption (its events are authored
     # `main`), and the subagent path the filter cannot cover.
-    "plugins/xp-agents/scripts/tdd_check.py": 170,
+    "plugins/xp-agents/scripts/tdd_check.py": 168,
     # 182 -> 199 (story-023): `is_project_prompt_path`, the inverse of
     # `project_prompt_path`, added so the lead's Write gate can recognise the one
     # write /xp-assign owes its own spawn. Its docstring is long relative to its

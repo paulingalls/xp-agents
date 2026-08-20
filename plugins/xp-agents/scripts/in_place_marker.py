@@ -268,12 +268,12 @@ def in_place_marker_exists(smm_dir: Path, name: str) -> bool:
     """True when an in-place teammate marker exists for `name`.
 
     Deliberately existence-only, NOT liveness like has_live_in_place_teammate
-    below. Adding a liveness probe here to "match" would flip the fail direction
-    for the identity callers — a probe misfire would demote a LIVE teammate to
-    the lead and lose its commit attribution. The gate's name-free verdict has no
-    name to pair with, which is why it (and only it) pays for liveness. A leaked
-    marker is inert only where a non-None XP_TEAMMATE_NAME is required too;
-    `tdd_check._is_another_trees_agent` says there what it pays instead.
+    below: every caller pairs this with a non-None XP_TEAMMATE_NAME, and that
+    pairing is what makes a leaked marker inert for them. Adding a liveness probe
+    here to "match" would flip the fail direction for those callers — a probe
+    misfire would demote a LIVE teammate to the lead and lose its commit
+    attribution. The gate's name-free verdict has no name to pair with, which is
+    why it (and only it) pays for liveness.
     """
     return in_place_marker_path(smm_dir, name).is_file()
 

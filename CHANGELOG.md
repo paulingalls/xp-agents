@@ -10,7 +10,7 @@ before they shipped.
 **The lead's TDD Stop gate was holding the lead on a *teammate's* transient
 red** — observed live several times during the last sprint. The release meant to
 prevent that reads `.coordination.json`, and the only writer of an entry there is
-registered on `Write|Edit`, so a teammate that edits through Bash never had an
+registered on `Write|Edit|MultiEdit`, so a teammate editing through Bash had no
 entry to grade: not a stale window but a permanent hole. The obvious fix was the
 wrong one — copying the sprint gate's liveness backstop would stop the gate
 firing on *any* red while a teammate is live, including the lead's own, trading a
@@ -49,8 +49,13 @@ the gate's *only* discharge, so both spending it and skipping it are wrong.
 An attempt to release a preload's claim when its run failed **re-ran side
 effects**: close preloads emit their `close_started` event and arm their cycle
 *before* the step that fails, so handing the claim back produced a second cycle
-id for one close. `8b4a39a99214` remains open; the honest fix is idempotent
-preloads, not a shorter claim.
+id for one close. The reverted commit had already carried a `Resolves-Event`
+trailer for `8b4a39a99214`, and reverting code cannot un-resolve an append-only
+event — so that id stays closed over a live defect, and the defect is re-recorded
+as `d4959d019cd8`, which was checked against the resolver rather than assumed
+open. (The first re-record, `17766cc63f6a`, read resolved itself; catching that
+took asking the resolver twice.) The honest fix is idempotent preloads, not a
+shorter claim.
 
 Also: a null `agent_id` on an event no longer raises out of the Stop gate — the
 same present-but-null shape that took down the whole post-Bash hook one release

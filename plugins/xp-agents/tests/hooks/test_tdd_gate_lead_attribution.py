@@ -10,8 +10,8 @@ tree. Both directions of that were wrong:
   bd245cc42c35, observed live several times during sprint-007). The release it
   was supposed to have — `coordination.has_active_teammates` — is not merely
   stale for these teammates, it never fires: `post_tool_use` is the only writer
-  of a coordination entry and it is registered on Write|Edit only, so a teammate
-  that edits through Bash never has an entry to grade.
+  of a coordination entry and it is registered on Write|Edit|MultiEdit only, so
+  a teammate that edits through Bash never has an entry to grade.
 
   RELEASING, and unrecorded. The reverse walk's pass short-circuit had no author
   check either, so a teammate's GREEN run un-gated the lead's own red suite. That
@@ -23,7 +23,7 @@ failure even about my working tree", which is the question; a liveness backstop
 answers "is somebody else running", which releases the lead's own red too.
 
 Split from test_tdd_gate_session_scope.py rather than added to it: that file is
-at 381 lines against a 450 band floor, and six rows would carry it across.
+at 385 lines against a 450 band floor, and six rows would carry it across.
 test_tdd_gate_in_place_teammate.py came out of the same file for the same
 reason.
 """

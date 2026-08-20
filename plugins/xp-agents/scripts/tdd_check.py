@@ -81,8 +81,8 @@ def _reader_scope(
     shared SMM would let a live in-place marker for a leaked `XP_TEAMMATE_NAME`
     misread the lead as a teammate). With neither a param nor the env, the
     in-place leg is unverifiable and fails closed (lead branch) — never CLOSED
-    in the disarming sense, since the lead branch's own unfiltered
-    whole-session scan still catches a same-process failure; it only loses the
+    in the disarming sense, since the lead branch drops only OTHER trees'
+    authors and a same-process failure is authored `main`; it only loses the
     tighter teammate-shaped window.
 
     For any other reader (the lead), the window anchors at the most recent
@@ -176,9 +176,7 @@ def find_last_test_signal(
     shared validated resolver (see `_reader_scope`), which also avoids a
     second `init.sh` derivation per hook.
 
-    The author filter below needs NO dir: authorship is on the event, and
-    reaching for the filesystem per event is what an earlier version of it did
-    wrong.
+    The author filter below needs no dir at all: authorship is on the event.
 
     Skips resolved concerns — a resolved test failure should not block.
 
