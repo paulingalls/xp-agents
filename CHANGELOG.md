@@ -76,6 +76,63 @@ falsified claim:
   review completes; the assign gate is no longer spendable by merely reading a
   skill.
 
+### Then the sprint's own broad review found that three of those gates had no discharge at all
+
+Moving each discharge to the satisfying act left outcomes with **no** satisfying
+act — a permanent write block with nothing the user could do. The review that
+found them is the same one described under v5.20.0, run against this sprint: it
+returned 20 verified findings, and these are the three that gated the release.
+
+**An armed gate now has a clearer for every outcome, not just the happy one.**
+There is no `marker_consume(ASSIGN_PENDING)` anywhere in the plugin — the only
+clearer is the write gate deleting the marker when its state predicate goes
+false, and that predicate reads worktree liveness. So every `/xp-assign` outcome
+that exits *without spawning* left it armed forever. `execution_mode` gains a
+third value, `in-agent`, which the assign skill records so the existing
+self-clearing path becomes reachable; teammates-off clears too, checked after the
+cheap early returns and before the `git worktree list` fork.
+
+**And the gate was blocking the write that satisfies it.** `/xp-assign` writes a
+teammate prompt file outside `~/.claude/plans/`, so the gate refused the write
+the spawn requires — the whole parallel pipeline would have stopped the moment
+this release shipped. The plan-file exemption became a named
+assignment-machinery exemption keyed on the function that *writes* that path, so
+the exemption cannot drift from the writer. It is a skip, not a discharge:
+sibling paths in the same directory still block.
+
+**A plan marker holding no path had no exit either.** The `Plan`-agent flow arms
+with an agent id rather than a file path, and that arm reported an error without
+clearing — so no review could run and nothing could clear it. It is now
+collected. The tempting alternative was rejected and the reason recorded: the
+last-reviewed-plan pointer is written only by the review's own success path, so
+it can never name the plan just armed, and reviewing it would have discharged a
+new plan's gate on an old plan's review.
+
+- **A retryable git failure is no longer a rewritten history.** `_run_git`
+  collapsed a timeout, an unspawnable binary and every non-zero exit into one
+  `None`, so a `rev-list` that merely timed out reached the observer as *history
+  rewritten by a rebase* — reported as such, and then advanced past, so the
+  range's commits were never recorded and their resolve trailers never linked.
+  The helper's failure vocabulary widens by **opt-in**: `strict=False` keeps
+  today's behaviour byte-for-byte for all 18 callers, and the one caller that
+  must discriminate asks. Only a timeout raises; "no git on PATH" is permanent
+  and keeps declining, because routing it to the retry path would re-fork the
+  walk forever.
+- **A null `cwd` no longer kills the post-Bash hook.** An explicit null in the
+  payload read as `None` rather than the default, and `Path(None)` raised — so
+  test-run detection, both commit nudges and the TDD signals stopped firing for
+  the rest of the session. The value stays three-valued rather than collapsing
+  to `"."`, because two readers need the distinction: the attribution metadata
+  omits the field rather than fabricating one, and the observer's checkout key
+  would otherwise flip from the worktree's identity to `main` and strand its
+  lower bound.
+- **One skill with two shell scripts no longer disables injection for all 17.**
+  The resolver built the whole map on every lookup and raised on any single
+  ambiguous skill, and its one caller read that global failure as "not a skill we
+  ship" — exit 0, no error, an injection that looked successful. Ambiguity is now
+  contained to the offending skill and logged; an unknown skill name is still a
+  silent no-op, because most tool calls reaching that handler are not ours.
+
 **Liveness was narrowed, then its reader was deleted.** The check that asked
 "are hooks running" was reachable only from the injection hook — so it judged a
 runtime already running — and that handler wrote the heartbeat immediately
@@ -88,10 +145,20 @@ and treat an unageable heartbeat as "cannot tell".
 
 ### Deferred, and named rather than absorbed
 
-Five stories did not ship: paying twice at close, the prose-leak pin's own blind
+Seven stories did not ship: paying twice at close, the prose-leak pin's own blind
 spots, a blocking question raised by a forked reviewer, working hook timeouts on
-both harnesses, and the domain-collision message that should name a dependency
-as the remedy.
+both harnesses, the domain-collision message that should name a dependency as the
+remedy, and two from the review above.
+
+**The two late deferrals were scoped on evidence, not on effort.** The second
+harness's read leg — where a plain `cat` of a skill body spends that skill's gate
+— is real and confirmed, but only the second harness registers injection on the
+Bash trigger, so it cannot fire on the first, and that harness's support is not
+yet released. Two vacuous test pins were likewise left: they report coverage
+while checking nothing, which is worth fixing and blocks nobody.
+
+The whole set stays recorded as open concerns rather than closed quietly, so the
+next work selection sees them.
 
 **The timeout deferral leaves a measured gap, recorded as one.** Neither
 injection entry declares a timeout, so both run at their harness default. The
