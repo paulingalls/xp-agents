@@ -21,11 +21,10 @@ What an invocation IS has not narrowed: it is still argv AND environment, and
 can be given one. Re-add the table if a second such script appears — with a
 guard that fails on an empty one.
 
-The conformance pin that compared this resolver against each `!`...`` line
-(`tests/skills/test_skill_preload_map.py`) was retired with the last line
-(story-013), as its own docstring required — removed rather than left scanning
-an empty set. What it proved is asserted directly against the resolver now:
-per-skill script name and the env-name contract.
+Nothing compares this resolver against a declaration in the skill body any
+more, because there is no declaration left to compare against: the per-skill
+script name and the env-name contract are asserted directly against the
+resolver, and it is the only statement of either.
 
 `CLAUDE_PLUGIN_DATA` is the one name every shipped invocation requires
 forwarded, and an empty value is a SUPPORTED state, not a failure: it is

@@ -140,11 +140,11 @@ PROSE_MEASURED: dict[str, int] = {
     # because it is the one place all three routes read it — and the close
     # emitter's old "a merge subject never carries a trailer" reasoning had to be
     # written down as false, or converging it looks like a style change.
-    # 249 -> 225 at the sprint-007 close review: `merge_resolves` and the whole
-    # argument above LEFT for `merged_range`, which is the module its question
-    # is about. Banked as a deletion, not slack — the eight lines that stayed
-    # are the re-export's own reason.
-    "plugins/xp-agents/scripts/commit_emit.py": 225,
+    # 249 -> 218 at the sprint-007 close review: `merge_resolves` and the whole
+    # argument above LEFT for `merged_range`, the module its question is about.
+    # The last eight went with a re-export that should not have existed — this
+    # file calls the function, so it imports it and publishes nothing.
+    "plugins/xp-agents/scripts/commit_emit.py": 218,
     # 167 -> 170: `is_merge` in the metadata table now says ANY merge HEAD, not
     # "close cycle, or the rebuild's merge arm" — that reading is what produced
     # the story_metrics defect.

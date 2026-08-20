@@ -18,6 +18,7 @@ import commit_emit
 import commit_handling
 import commits
 import identity
+import merged_range
 import review_records
 import sprint_store
 from event_schema import METADATA_KEY_COMMIT_HASH
@@ -110,7 +111,9 @@ def append_merge_commit_event(
     # is gated on the tag: on an event that counts, a re-parsed id would score as
     # a link nobody authored.
     if is_merge:
-        resolves = commit_emit.merge_resolves(cwd, commit_hash, resolves, events=events)
+        resolves = merged_range.merge_resolves(
+            cwd, commit_hash, resolves, events=events
+        )
     # Degrade gracefully on a corrupt/schema-invalid sprint.json: the merge
     # itself already succeeded on target, and the surrounding push/delete/
     # remote-prune chain must continue. Matches close_verify_gate's

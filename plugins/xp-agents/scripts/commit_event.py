@@ -38,7 +38,7 @@ def recorded_commit_hashes(events: list[dict]) -> set[str]:
 
     One home for the index, because two callers build it and each had
     hand-rolled the same `(e.get("metadata") or {}).get("commit_hash")` walk:
-    `commit_emit.merge_resolves` (which trailers a merge may re-derive) and
+    `merged_range.merge_resolves` (which trailers a merge may re-derive) and
     `commit_observer` (which commits in a range still need recording).
     `commit_handling._commit_hash_recorded` asks the same question one hash at a
     time and stays separate. A THIRD set-builder is how these drift, and drift

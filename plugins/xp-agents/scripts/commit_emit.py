@@ -40,22 +40,13 @@ import commit_message
 import commits
 import identity
 import markers
+import merged_range
 import resolution
 import review_records
-
-# `merge_resolves` lives in `merged_range` — it is a question ABOUT a merge's
-# incoming range, and it was the last thing keeping this file's range knowledge
-# here. Moved when one added import line took this file one over its 450 sub-cap
-# with no ratchet to record: the cap's whole job is to force that placement
-# decision, and the module named after the range is where the decision lands.
-# Re-exported because `merge_commit_event` reaches it as `commit_emit.
-# merge_resolves`.
-from merged_range import merge_resolves
 
 __all__ = [
     "HEAD_REBUILD_MAX_AGE_SECONDS",
     "build_commit_event",
-    "merge_resolves",
     "parse_commit_body",
     "rebuild_at_head",
 ]
@@ -166,7 +157,9 @@ def build_commit_event(
         is_merge = parent_count is not None and parent_count > 1
 
     if is_merge and commit_hash:
-        resolves = merge_resolves(cwd, commit_hash, resolves, events=events)
+        resolves = merged_range.merge_resolves(
+            cwd, commit_hash, resolves, events=events
+        )
 
     # A trailer naming an id absent from the live log resolves nothing.
     # `resolve_prefix` is a lookup over the events it is handed, so an archived

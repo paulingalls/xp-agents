@@ -121,14 +121,16 @@ def write_record(
 def settle_owed_reset(smm_dir: Path, agent_id: str, cwd: str, owed: str) -> bool:
     """Apply or drop a reset a leaked observation could not apply. True = done.
 
-    False means "still owed" and is returned for one class of reason only: the
-    observer lock could not be taken — busy, so another process is mid-reconcile
-    and the next Bash should try again, or unopenable, which a read-only SMM and
-    a symlinked lock path both answer with a bare OSError. Every other answer
-    RESOLVES the record, because a reset kept across an answer it cannot use
-    wedges the marker forever while leaving the latch defect it exists to fix
-    fully live. Neither may escape: this call sits outside `observe`'s own
-    `except`, and its caller runs that unguarded.
+    False means "still owed", and the `except` that returns it wraps the WHOLE
+    locked body, not just the acquire: the lock being busy or unopenable, and
+    equally a watermark read, an ancestry fork, a dropped-reset record or the
+    cycle end itself failing on I/O. That breadth is deliberate — what those
+    share is that a RETRY could change the answer, which is the only question
+    this return value asks. Every answer the body actually REACHES resolves the
+    record, because a reset kept across an answer it cannot use wedges the marker
+    forever while leaving the latch defect it exists to fix fully live. Nothing
+    may escape either way: this call sits outside `observe`'s own `except`, and
+    its caller runs that unguarded.
 
     THREE states, all ruled here rather than left to discovery:
 
