@@ -111,15 +111,26 @@ _NO_AGE_LIMIT = 10**9  # ~31 years
 # PostToolUse refresh either. So a live-but-quiet teammate read as dead is a
 # state to expect, not a corner.
 #
-# What that costs differs by caller, and only one of them has a backstop. The
-# sprint gate falls through to `worktree.has_live_teammates`, a registration
-# check that still sees the teammate. The TDD gate does not: it reaches this
-# question only on the LEAD's unscoped read, so the red suite it then refuses
-# to stop on may be the teammate's rather than its own, and the lead re-runs
-# its own suite to clear it. Neither error is silent and both self-heal within
-# a tool call, which is why the number is left where the story set it. Raising
-# it is not the fix if this bites, because it buys the false block back as a
-# longer false release. A refresh source that survives a subagent run is.
+# What that costs differs by caller, and both now have a backstop. The sprint
+# gate falls through to `worktree.has_live_teammates`, a registration check that
+# still sees the teammate. The TDD gate had nothing and now answers a different
+# question instead: `tdd_check._is_another_trees_agent` drops a worktree
+# teammate's signals from the LEAD's read by AUTHOR, so the lead is never
+# offered that failure to refuse on in the first place.
+#
+# Attribution rather than a second liveness check, because the gap it closes is
+# not this window at all. A teammate that edits only through Bash never gets a
+# coordination entry (`post_tool_use` is the sole writer and is registered on
+# Write|Edit), and `has_active_teammates` iterates ENTRIES — so no entry means
+# the heartbeat below is never consulted for that agent. That failure sits
+# upstream of this number and is permanent, not a window; an earlier version of
+# this comment surveyed the TTL-shaped instance and read as if it had surveyed
+# the whole gap.
+#
+# The number itself is unaffected by that correction, and stands: raising it is
+# still not the fix if the TTL-shaped case bites, because it buys a false block
+# back as a longer false release. A refresh source that survives a subagent run
+# is, and remains open.
 _HEARTBEAT_TRUST_SECONDS = 15 * 60
 
 

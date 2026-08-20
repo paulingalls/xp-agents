@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import concerns
+import in_place_marker
 import resolution
 import worktree_state
 from identity import extract_worktree_name, in_place_teammate_name, is_teammate_agent_id
@@ -51,8 +52,11 @@ def _reader_scope(
     lead or a sibling, which this teammate can neither see nor fix. A
     teammate therefore also carries an `owner` (its worktree name, which is
     the agent_id it stamps on its own events): only its OWN test signals gate
-    it. The lead reads `owner=None` — its session window already scopes it,
-    and it legitimately observes the whole session (its own and subagents').
+    it. The lead reads `owner=None`, which scopes it by WINDOW only — it is not
+    an unfiltered read: `find_last_test_signal` applies the author filter this
+    value selects, dropping the signals of agents whose working tree is not the
+    lead's. `owner=None` means "not scoped to one author", never "accepts every
+    author".
 
     A WORKTREE teammate is caught by `extract_worktree_name(cwd)` above — its
     hook process runs INSIDE the worktree, so cwd carries the
@@ -129,19 +133,70 @@ def reader_scope_owner(
     return _reader_scope(events, cwd, smm_dir)[1]
 
 
+def _is_another_trees_agent(agent_id: str, smm_dir: Path | None) -> bool:
+    """Does `agent_id` name an agent working in a DIFFERENT working tree?
+
+    Only asked by the LEAD's read. A worktree teammate qualifies: its hook
+    process lives inside its own worktree, which is created for one story and
+    removed at close, so its test signals can never be about the lead's tree.
+
+    An IN-PLACE teammate does NOT, and is the reason this is a function rather
+    than a prefix test. `spawn_teammate --in-place` runs in the MAIN checkout,
+    so its red suite IS the lead's — yet its name carries the same `worktree-`
+    prefix, because that prefix is how teammate detection works everywhere else.
+    The live marker is the only thing that tells the two apart from an event
+    author alone.
+
+    `in_place_marker_exists`, not the name-free `has_live_in_place_teammate`:
+    this asks about ONE specific author, where the name-free verdict would
+    exempt every worktree author the moment any in-place teammate was live. It
+    also reaps markers it proves dead, which must not happen inside a read.
+
+    The cost of that door, stated here because this is the caller that pays it:
+    `in_place_marker_exists` is existence-only, and its other callers make a
+    leaked marker inert by ALSO requiring a non-None XP_TEAMMATE_NAME. This one
+    has no env var to pair with, so a stale marker for a long-dead in-place
+    teammate keeps its signals gating the lead. That is the safe direction —
+    toward blocking, never toward disarming — and the alternative (liveness) is
+    the reaping read this function must not perform.
+
+    Without `smm_dir` the in-place exemption cannot be evaluated, so nothing is
+    filtered — the same fail-closed direction `_reader_scope` takes with a
+    leaked env var, and it keeps every caller that omits the dir answering
+    exactly as before.
+
+    NOT COVERED, deliberately: a subagent OF a worktree teammate. `bash_post_tool`
+    resolves the author through `identity.resolve_agent_id`, which prefers the
+    raw payload `agent_id`, and the harness sends that only inside a subagent
+    call — so a teammate's `/xp-quality-review` files its red under an opaque id
+    indistinguishable from one of the lead's own subagents. Filtering opaque ids
+    would drop the lead's real failures, which is the worse error, so the false
+    block survives on that one path. It is also where the caller's coordination
+    release still earns its keep.
+    """
+    if not is_teammate_agent_id(agent_id):
+        return False
+    if smm_dir is None:
+        return False
+    return not in_place_marker.in_place_marker_exists(smm_dir, agent_id)
+
+
 def find_last_test_signal(
     events: list[dict], cwd: str = ".", smm_dir: Path | None = None
 ) -> str | None:
     """Scan events from the end. Return 'pass', 'fail', or None.
 
-    `smm_dir` locates the in-place-teammate marker for `_reader_scope`'s env
-    leg. All three hook callers (tdd_stop_gate, teammate_idle, task_completed)
-    thread the SAME validated dir they read `events` from, so the marker and
-    the log always come from one SMM — a caller that passes an explicit
-    `smm_dir` must not have the env silently redirect half the read. Omit it
-    and the leg self-resolves through `identity.in_place_teammate_name`'s
-    shared validated resolver (see `_reader_scope`), which also avoids a
-    second `init.sh` derivation per hook.
+    `smm_dir` locates the in-place-teammate marker, now for TWO legs:
+    `_reader_scope`'s env leg (which reader am I?) and
+    `_is_another_trees_agent`'s per-author exemption (whose signal is this?).
+    All three hook callers (tdd_stop_gate, teammate_idle, task_completed) thread
+    the SAME validated dir they read `events` from, so the marker and the log
+    always come from one SMM — a caller that passes an explicit `smm_dir` must
+    not have the env silently redirect half the read. Omit it and the scope leg
+    self-resolves through `identity.in_place_teammate_name`'s shared validated
+    resolver (see `_reader_scope`), which also avoids a second `init.sh`
+    derivation per hook; the AUTHOR leg cannot self-resolve and simply filters
+    nothing, which is the fail-closed direction.
 
     Skips resolved concerns — a resolved test failure should not block.
 
@@ -171,9 +226,15 @@ def find_last_test_signal(
         e = events[i]
         # A worktree teammate shares the log with the lead and siblings; only
         # its OWN test signals (fail concerns AND the pass that would clear
-        # them) gate it. owner is None for the lead — it observes everything
-        # in its session window, unfiltered.
+        # them) gate it.
         if owner is not None and e.get("agent_id") != owner:
+            continue
+        # The LEAD (owner is None) gets the INVERSE of that filter, not no
+        # filter — see `_is_another_trees_agent` for which authors and why.
+        # Placed ABOVE both branches deliberately: it must drop a teammate's
+        # PASS as well as its fail, or a teammate's green run short-circuits the
+        # walk below and clears the lead's own red suite.
+        if owner is None and _is_another_trees_agent(e.get("agent_id", ""), smm_dir):
             continue
         content = e.get("content", "")
         etype = e.get("type", "")

@@ -322,7 +322,10 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.
-    "plugins/xp-agents/scripts/coordination.py": 169,
+    # 169 -> 181: the window comment claimed both callers' errors "self-heal"
+    # and that only one had a backstop; a Bash-only teammate gets no entry, so
+    # that failure is upstream of the window and permanent. Number untouched.
+    "plugins/xp-agents/scripts/coordination.py": 181,
     "plugins/xp-agents/scripts/dash_c_tokens.py": 129,
     "plugins/xp-agents/scripts/framework_detect.py": 122,
     # Crossed the floor on gaining `stages_all_tracked_changes`, so it records a
@@ -426,7 +429,15 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/shell_exit_structure.py": 291,
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
     "plugins/xp-agents/scripts/staged_lint.py": 221,
-    "plugins/xp-agents/scripts/tdd_check.py": 133,
+    # 133 -> 183: `_is_another_trees_agent` carries the five rulings a reader
+    # would otherwise reverse (in-place exemption, per-name marker over the
+    # name-free verdict, missing smm_dir filters nothing, the subagent path it
+    # does NOT cover, and what an existence-only marker costs a caller with no
+    # env var to pair it with), and retires two stale claims about the lead
+    # reading unfiltered. The last of those moved HERE from in_place_marker.py,
+    # which had no room for it: this is the caller that pays it. Call-site
+    # comment cut to a pointer; the rationale has one home.
+    "plugins/xp-agents/scripts/tdd_check.py": 183,
     # 182 -> 199 (story-023): `is_project_prompt_path`, the inverse of
     # `project_prompt_path`, added so the lead's Write gate can recognise the one
     # write /xp-assign owes its own spawn. Its docstring is long relative to its
