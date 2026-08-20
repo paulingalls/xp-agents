@@ -40,7 +40,7 @@ Three link types close events and risk pillar items:
 
 **Per commit (cadence set at kickoff):** *commit* — `/xp-quality-review` → `git commit`, gate blocks if skipped. *story* — gate defers; review at `/xp-story-close` Step 4.5b. At `/xp-{free,sprint,plan}-close`: threshold-gated broad review (Step 4b — a Workflow script, Skill tool `/code-review` as fallback) + LLM `/security-review` (Step 4).
 
-**Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-schedule` → plan → `/xp-review-plan` → (teammate) `/xp-assign` → implement → `/xp-accept` → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` → `in-progress` → `reviewing` → `closing` (Step 1.5 singleton lock) → `done`/`deferred`; AC-fail reverts to `in-progress`. `/xp-schedule` (kickoff tail + `/xp-accept` post-loop) solely owns promotion + `execution_mode`; `/xp-story-close` merges + cleans up only. Stop gate fires on in-motion stories.
+**Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-schedule` → plan → `/xp-review-plan` → (teammate) `/xp-assign` → implement → `/xp-accept` → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` → `in-progress` → `reviewing` → `closing` (Step 1.5 singleton lock) → `done`/`deferred`; AC-fail reverts to `in-progress`. `/xp-schedule` (kickoff tail + `/xp-accept` post-loop) owns promotion + `execution_mode` (`/xp-assign` writes `in-agent`); `/xp-story-close` merges + cleans up only. Stop gate fires on in-motion stories.
 
 **Session close:** `/xp-end-session` — emits `session_summary`, appends to `session_history.json`, populates next kickoff's `### LAST_SESSION` block + the `recent_summaries` of retro + housekeeper inputs.
 
@@ -48,7 +48,7 @@ Three link types close events and risk pillar items:
 
 **File domain:** Declare `file_domain` per planner intent; over-declaring defeats cascade_size.
 
-**Forked skills:** `/xp-review-plan`, `/xp-sprint-review`, `/xp-system-context` — preload + cleanup.
+**Skills:** all inline; a delegating one spawns its subagent (Agent tool).
 
 **Tests:** Check for FAIL/ERROR first. Never re-run the full suite to find failure names.
 

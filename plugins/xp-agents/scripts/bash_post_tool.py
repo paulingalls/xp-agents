@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import commits
+import commit_observer
 import concerns
 import git_commits
 import hook_liveness
@@ -21,6 +21,7 @@ import identity
 import markers
 import run_attribution
 import test_attribution
+import worktree_state
 from commit_handling import (
     _handle_commit,
     _working_tree_is_test_only,
@@ -150,7 +151,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     tool_input = input_data.get("tool_input", {})
     tool_response = input_data.get("tool_response", {})
     agent_id = identity.resolve_agent_id(input_data)
-    cwd = input_data.get("cwd", ".")
+    # `.get("cwd", ".")` defaults only on a MISSING key: an explicit
+    # `cwd: null` payload (a shape `identity.extract_worktree_name` documents)
+    # returns None through it. Kept three-valued because `observe` and the
+    # attribution site derive a CHECKOUT from this value, where "." fabricates
+    # `main` — they must see the real None and decline/omit. The git-subprocess
+    # readers below take "." (this process's cwd). `_handle_commit` is impure:
+    # it shells out AND keys the review watermark off it, so a null-cwd commit
+    # in a worktree still settles under `main` — pre-dates this fix, unfixed.
+    raw_cwd: str | None = input_data.get("cwd") or None
+    cwd = raw_cwd or "."
 
     command = tool_input.get("command", "")
     # tool_response can be a dict with stdout/stderr or a string
@@ -188,7 +198,25 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 result = f"{result} {nudge}" if result is not None else nudge
         return result
 
-    if _common.is_xp_agent(input_data):
+    # Any OTHER Bash: catch up on commits that moved HEAD while nothing was
+    # watching. A commit-shaped command was compared against HEAD above and is
+    # deliberately not re-examined here — `_handle_commit` owns its own
+    # decisions, including the ones it refuses on purpose. See
+    # `commit_observer`'s docstring for why leaving the marker un-advanced on
+    # that branch is what keeps the range open rather than losing it.
+    #
+    # BEFORE the xp-agent return, for the reason the commit branch above also
+    # runs on a leak: the commit event always lands, and only the state
+    # mutations are gated on the identity being wrong.
+    leaked_identity = _common.is_xp_agent(input_data)
+    commit_observer.observe(
+        smm_dir,
+        agent_id,
+        raw_cwd,
+        is_xp_agent_leak=leaked_identity,
+    )
+
+    if leaked_identity:
         return None
 
     # Test run detection
@@ -286,7 +314,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             concern_metadata: dict = {
                 "action": CONCERN_ACTION_TRANSIENT_TEST,
                 **run_attribution.run_attribution_metadata(
-                    input_data.get("cwd"),
+                    raw_cwd,
                     failed=failed,
                     total=trustworthy_total,
                     errors=errors,
@@ -313,7 +341,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 # is one marker read, while the uncommitted probe spawns git
                 # subprocesses on every green test run.
                 cadence = markers.read_review_cadence(smm_dir)
-                if cadence != "story" and commits.get_uncommitted_code_files(cwd):
+                if cadence != "story" and worktree_state.get_uncommitted_code_files(
+                    cwd
+                ):
                     parts.append("Commit now to trigger /xp-quality-review.")
                 if parts:
                     return " ".join(parts)

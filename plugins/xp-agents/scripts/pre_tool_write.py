@@ -18,6 +18,7 @@ import coordination
 import identity
 import markers
 import sprint_state
+import teammate_runner
 import worktree
 import write_scope
 from lead_gates import check_lead_gates
@@ -254,10 +255,23 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 "File conflict detected — another agent is working on this file.",
             )
 
-    # Plan, assign and question gates — all lead-only, all exempt plan files
-    # (.claude/plans/) except the question gate. See lead_gates._LEAD_GATES.
+    # Plan, assign and question gates — all lead-only; the first two exempt the
+    # writes that ARE the machinery they demand. Why the teammate prompt is one
+    # of them: lead_gates.check_lead_gates.
+    #
+    # SEPARATE FLAGS, deliberately. `is_plan_file` also suppresses the
+    # accept-marker re-arm below, and the prompt must NOT inherit that: it is
+    # written during an active sprint that still needs acceptance, so widening
+    # `is_plan_file` in place would weaken a second, unrelated gate.
+    # `is_project_prompt_path` answers from the writer's own path builder rather
+    # than a substring test, and costs every other write one suffix comparison.
     is_plan_file = bool(target_file and "/.claude/plans/" in target_file)
-    check_lead_gates(input_data, smm_dir, is_plan_file)
+    is_machinery_write = is_plan_file or (
+        target_file is not None
+        and smm_dir is not None
+        and teammate_runner.is_project_prompt_path(smm_dir, target_file)
+    )
+    check_lead_gates(input_data, smm_dir, is_machinery_write)
 
     if target_file and smm_dir:
         tdd_nudge = check_tdd_order(smm_dir, agent_id, target_file)

@@ -2,9 +2,17 @@
 """PostToolUse:Skill|Agent hook: drain ACCEPT_IN_FLIGHT on accept's terminal dispatch.
 
 /xp-accept always ends by invoking exactly one of /xp-schedule (more
-stories) or /xp-sprint-review (all done/deferred). Those completions
-are accept's deterministic terminal signal — this hook consumes the
-ACCEPT_IN_FLIGHT marker there, at the real flip-to-in-progress event.
+stories) or /xp-sprint-review (all done/deferred). That DISPATCH is accept's
+deterministic terminal signal — this hook consumes the ACCEPT_IN_FLIGHT marker
+there, at the real flip-to-in-progress event.
+
+Dispatch, not the dispatched skill's completion: both terminal skills run
+INLINE, so `PostToolUse:Skill` fires when the Skill tool returns the body, not
+when the body finishes. /xp-sprint-review only joined that set when story-013
+converted it off `context: fork`, whose completion-timed return held the marker
+for the whole review; /xp-schedule was always inline. Accept is over once it has
+dispatched, so the marker's window now matches accept's own rather than
+outliving it — see `sprint_stop_gate._deferred` for what the window suppresses.
 
 Extracted from review_cycle_done.py to restore single-responsibility:
 the review-cycle hook should own review-flag lifecycle; the accept

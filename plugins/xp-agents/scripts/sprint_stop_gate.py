@@ -72,8 +72,9 @@ def _deferred(smm_dir: Path, agent_id: str, cwd: str) -> bool:
     # suppress the accept gate so it never tells the agent to run the skill it
     # is already inside (e.g. while awaiting background acceptance tests). The
     # consume is hook-driven at accept's terminal dispatch — accept_terminal
-    # drains it on the /xp-schedule or /xp-sprint-review completion that ends
-    # the skill (the old state-derived drain here could never fire mid-sprint
+    # drains it when the Skill tool returns for /xp-schedule or
+    # /xp-sprint-review, which for an inline skill is its LAUNCH rather than its
+    # completion (the old state-derived drain here could never fire mid-sprint
     # once /xp-schedule promoted the next story). The SessionStart sweep is the
     # abandonment backstop.
     if markers.marker_exists(smm_dir, markers.ACCEPT_IN_FLIGHT):

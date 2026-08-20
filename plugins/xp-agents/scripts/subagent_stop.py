@@ -188,7 +188,8 @@ def _handle_close_reviewer_done(smm_dir: Path, input_data: dict) -> None:
 
 
 def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> None:
-    """Record the plan reviewer's completion; arm the teammate assign gate.
+    """Record the plan reviewer's completion; arm the assign gate, discharge the
+    plan gate.
 
     Returns None and emits NO continuing context. On SubagentStop, returned
     additionalContext is delivered to the SUBAGENT and continues its turn —
@@ -197,16 +198,24 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> None:
     The real teammate gate is the ASSIGN_PENDING marker on disk plus the
     plan_reviewed gate event, both written below; the reviewer's own
     Next-step block already tells the main agent to run /xp-assign.
+
+    plan_reviewed is emitted on BOTH the solo and teammate paths — it is a
+    completion record, not a gate; only ASSIGN_PENDING is teammate-scoped.
+    Since /xp-review-plan converted from a forked skill to one that spawns
+    xp-plan-reviewer via Agent (story-013), this SubagentStop leg is the sole
+    producer of that record, same shape as quality_review_done.
     """
     agent_type = input_data.get("agent_type", "")
     if target_routing.strip_our_namespace(agent_type) != _PLAN_REVIEWER_BARE:
         return None
 
+    agent_id = input_data.get("agent_id", _PLAN_REVIEWER_AGENT_ID)
+
     # Narrow the assign gate to teammate-mode plans: only teammate mode
     # needs /xp-assign to create the branch and spawn the teammate (per
     # story). Solo/unset plan reviews leave no marker so the agent codes
-    # straight through — but still record the reviewer's completion (the
-    # generic path below skips xp-* agents).
+    # straight through — but still record the reviewer's completion, and
+    # still record plan_reviewed (the generic path below skips xp-* agents).
     #
     # Loaded ONCE and read twice: the same sprint answers "is this a delegated
     # plan?" and "which stories is the marker being armed for?". The two used
@@ -217,37 +226,52 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> None:
     promoted = sprint_status.select_promoted_teammate_stories(
         sprint_data.get("stories", [])
     )
-    if not promoted:
-        _emit_subagent_complete(smm_dir, input_data)
-        return None
+    content = "Plan reviewed"
+    if promoted:
+        # SCOPE the marker to the stories this review covered, so a marker that
+        # goes moot cannot gate an unrelated frontier promoted later. Only the
+        # promoted set — deliberately NOT also filtered by "already spawned":
+        # the reader applies that, and re-deriving it here would put a
+        # `git worktree list` subprocess on the SubagentStop path. The simpler
+        # form is also the safer one — a worktree that vanished while its story
+        # is still in flight keeps the marker ARMED.
+        markers.marker_write(
+            smm_dir,
+            markers.ASSIGN_PENDING,
+            assign_scope.format_assign_scope(
+                sprint_data.get("sprint_id") or "",
+                [story.get("id", "") for story in promoted],
+            ),
+        )
+        content = "assign_pending: Plan reviewed, run /xp-assign"
 
-    agent_id = input_data.get("agent_id", _PLAN_REVIEWER_AGENT_ID)
-    # SCOPE the marker to the stories this review covered, so a marker that
-    # goes moot cannot gate an unrelated frontier promoted later. Only the
-    # promoted set — deliberately NOT also filtered by "already spawned":
-    # the reader applies that, and re-deriving it here would put a
-    # `git worktree list` subprocess on the SubagentStop path. The simpler
-    # form is also the safer one — a worktree that vanished while its story
-    # is still in flight keeps the marker ARMED.
-    markers.marker_write(
-        smm_dir,
-        markers.ASSIGN_PENDING,
-        assign_scope.format_assign_scope(
-            sprint_data.get("sprint_id") or "",
-            [story.get("id", "") for story in promoted],
-        ),
-    )
-
-    gate_event = _common.make_event(
+    event = _common.make_event(
         _common.STATUS,
         agent_id,
-        "assign_pending: Plan reviewed, run /xp-assign",
+        content,
         working_on=[],
         metadata={"action": STATUS_ACTION_PLAN_REVIEWED},
     )
-    _common.append_safe(smm_dir, gate_event)
+    _common.append_safe(smm_dir, event)
 
     _emit_subagent_complete(smm_dir, input_data)
+
+    # THE plan gate's discharge, and the only one: a review that COMPLETED is
+    # exactly what PLAN_AWAITING_REVIEW demands. It used to be spent by
+    # /xp-review-plan's preload, i.e. at review START, so an opened-and-abandoned
+    # review left the lead un-gated with no review having happened — and on the
+    # harness where a shell read of SKILL.md is what triggers the preload, a plain
+    # `cat` of the skill body spent it too.
+    #
+    # Same order as _handle_close_reviewer_done, for the same reason: emit FIRST,
+    # consume SECOND — a crash between them must leave evidence, not a silently
+    # consumed marker. No backstop for an abandoned review, and that was measured
+    # rather than assumed: `check_lead_gates` is reached only from
+    # `pre_tool_write` (Write/Edit/MultiEdit) and `pre_tool_skill` never consults
+    # `lead_gates`, so the gate cannot block the Skill call that clears it.
+    # Recovery is re-running /xp-review-plan to completion, which is the act the
+    # gate demands.
+    markers.marker_consume(smm_dir, markers.PLAN_AWAITING_REVIEW)
 
     return None
 

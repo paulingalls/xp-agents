@@ -28,7 +28,7 @@ ${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/
 ├── .curation-watermark       ← last-curated event position (for housekeeping + compaction)
 ├── .coordination.json        ← per-agent working_on for O(1) conflict detection
 ├── .needs-kickoff                    ← gate marker, cleared by /xp-kickoff
-├── .plan-awaiting-review             ← plan review gate marker, cleared by plan reviewer preload
+├── .plan-awaiting-review             ← plan review gate marker, cleared when the plan reviewer COMPLETES (subagent_stop), not by its preload
 ├── .review-cycle-{agent_id}.json     ← review flags, keyed on the REVIEWING SESSION's checkout
 ├── .review-watermark-{agent_id}.json ← the sha the last review measured from, keyed on the TARGET REPO
 ├── events.lock                       ← flock for atomic appends
@@ -76,7 +76,7 @@ All three are JSON with schema validation and CLI tools (`system_context_cli.py`
 | `answer` | Agent | Response to a question event |
 | `assumption` | Agent + subagent (plan reviewer) | Stated beliefs — escalates if contradicted |
 | `debt` | Subagent (quality reviewer, retrospective) | Acknowledged tradeoff |
-| `commit` | Hook (PostToolUse:Bash, auto) | One record per `git commit` — sha, message, story id |
+| `commit` | Hook (PostToolUse:Bash, auto) | One record per `git commit` — sha, message, story id. Emitted by three paths that all share `commit_event.make_commit_event`: the attributed commit path, the catch-up observer, and the close-cycle merge emitter |
 | `sprint` | Hook (subagent_stop._handle_sprint_review_done) | Sprint lifecycle events (start/end with velocity data) |
 | `session_started` | Hook (SessionStart) | Session boundary anchor — bounds "this session's" event reads |
 | `session_end` | Hook (SessionEnd) | Duration, unresolved items, final status flag |
@@ -98,9 +98,10 @@ Four pillars:
 
 ### Context Injection
 
-Context reaches the agent through two mechanisms:
+Context reaches the agent through three mechanisms:
 - **Prompt nuggets** (UserPromptSubmit via `prompt_nugget.py`): lightweight injection of new signal events since last prompt (~50-100 tokens). Watermark-based — only new concerns, decisions, and discoveries.
-- **Tiered context injection** (SubagentStart via `subagent_start.py`): every tier receives `XP_VALUES.md` — never the process guide, which SubagentStart does not load. On top of the values: Explore gets Intent+Constraints; `xp-code-reviewer` and unknown/ad-hoc types (including `Plan`) get the full rendered SMM; `general-purpose` / `workflow-subagent` / `claude` get the reference tier (a one-line pointer to run `smm_cli.py render` themselves); `xp-retrospective` and `xp-housekeeper` get path strings to their preload inputs; every other `xp-*` forked agent gets values only, because its data arrives through its skill's preload. CLI teammates do **not** appear here at all — they are separate `claude -p` processes and take the SessionStart path instead (see §Teammate Detection).
+- **Skill preload injection** (PreToolUse via `preload_injection.py`): a skill's own preload state, run by the hook and returned as `additionalContext`. Since sprint-007 this is the **sole** channel — no `SKILL.md` carries an instruction-time `!` line, because the second harness never expanded one (only a skill's LOCATOR reached the model there). See `docs/completed/PRELOAD_DELIVERY_MECHANISM.md`.
+- **Tiered context injection** (SubagentStart via `subagent_start.py`): every tier receives `XP_VALUES.md` — never the process guide, which SubagentStart does not load. On top of the values: Explore gets Intent+Constraints; `xp-code-reviewer` and unknown/ad-hoc types (including `Plan`) get the full rendered SMM; `general-purpose` / `workflow-subagent` / `claude` get the reference tier (a one-line pointer to run `smm_cli.py render` themselves); `xp-retrospective` and `xp-housekeeper` get path strings to their preload inputs; every other `xp-*` agent gets values only, because its data arrives in the Agent prompt the spawning skill builds from its injected preload state. CLI teammates do **not** appear here at all — they are separate `claude -p` processes and take the SessionStart path instead (see §Teammate Detection).
 
 ## Hook Map
 
@@ -117,11 +118,12 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **UserPromptSubmit** | | `prompt_nugget.py` | Inject prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | **PreToolUse** | `Write\|Edit\|MultiEdit` | `pre_tool_write.py` | Conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker file) |
 | **PreToolUse** | `Bash` | `pre_tool_bash.py` | Tier 1 deterministic security scan of the staged diff (fail-closed), staged-lint gate, commit-gated review cycle, branch-protection advisories, cd-into-worktree-git advisory. The review gate arms at `commits.REVIEW_CYCLE_THRESHOLD` (2) changed code files since the last review and blocks on `quality_review_done` alone — `/xp-quality-review` is the whole per-commit gate. On **story** cadence it does not block: it emits a deferral advisory and the review relocates to `/xp-story-close`. No file-modification coordination gate — pre_tool_write covers Edit/Write; trust+merge handles the rest (sprint-105 decision). Also carries the reviewer read-only guard (`pre_tool_bash_reviewer_guard.py`): `xp-code-reviewer` and `xp-close-reviewer` are refused any non-allowlisted `git`, after two incidents where a review's `git reset` mutated shared state |
-| **PreToolUse** | `Skill` | `pre_tool_skill.py` | Prepare review guidance for skills |
+| **PreToolUse** | `Skill` | `pre_tool_skill.py` | Prepare review guidance for skills; **blocks** a teammate from a lead-owned lifecycle skill, and an `/xp-accept` with no evidence |
+| **PreToolUse** | `Skill` | `preload_injection.py` | Run the invoked skill's own preload and return its state as `additionalContext` — the sole channel since the `!` lines were deleted. `skill_preload_map.py` resolves skill → argv + environment. Registered on `Bash` too in the derived variant (`hooks.codex.json`), where the model reaches a skill by reading its `SKILL.md` rather than by a tool call. Runs in parallel with `pre_tool_skill.py`, so it cannot observe that handler's refusal — it recomputes the same verdict itself and skips the preload when the call will be blocked (story-019) |
 | **PreToolUse** | `EnterPlanMode` | `pre_tool_plan_mode.py` | Schedule gate — block plan entry until `/xp-schedule` promotes a frontier |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, inject errors as additionalContext |
-| **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit bookkeeping (review cycle reset), test result parsing |
+| **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit bookkeeping (review cycle reset), test result parsing. On a commit-shaped command `commit_handling._handle_commit` records the commit it can ATTRIBUTE to that command. On every OTHER Bash `commit_observer.observe` catches up on commits that moved HEAD while nothing was watching — a backgrounded commit lands after its own tool call returned, so the launching hook cannot see it. The two make different claims and carry different guards: the first proves "this command produced this commit" (reflog, freshness, message), the second only "a commit is reachable from HEAD with no event, and here is its message read back from git". The observer's cheap path is a `.git/HEAD` file read (`git_head.py`), ~0.2 ms, so watching every Bash costs no fork |
 | **PostToolUse** | `Skill\|Agent` | `review_cycle_done.py` | Set review cycle flags — `simplify_done` from the `/code-review` skill only. Every entry in this hook's allowlist records at LAUNCH (a Skill/Agent call returns when the tool returns, which for an inline skill and for a backgrounded Agent-tool subagent is before any work has run), so nothing that gates a commit may live here: `quality_review_done` is set on `SubagentStop` instead. Emits canonical lifecycle events (simplify/security-review/plan-review/assign/housekeeping); nudges next step via `additionalContext`; injects PROCESS_GUIDE.md after `xp-housekeeper` completes |
 | **PostToolUse** | `Skill\|Agent` | `accept_terminal.py` | Drain the accept-in-flight marker on `/xp-accept`'s terminal dispatch (`/xp-schedule` or `/xp-sprint-review`), via exact-match allowlist |
 | **PostToolUse** | `ExitPlanMode` | `post_tool_exit_plan.py` | Write `.plan-awaiting-review` marker, capture plan file path, nudge `/xp-review-plan` |
@@ -129,7 +131,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs. `async: true` |
 | **PostToolUseFailure** | `AskUserQuestion` | `question_answered.py` | Record clarification when question is dismissed |
 | **SubagentStart** | | `subagent_start.py` | Tiered context injection + `XP_VALUES.md` for every tier (Explore: Intent+Constraints; `xp-code-reviewer`/Plan/unknown: full SMM; generic catch-alls: SMM reference pointer; other `xp-*`: values only) |
-| **SubagentStop** | | `subagent_stop.py` | Record completion + conflict detection. Owns the review cycle's completion signal via `review_cycle_legs.update_review_cycle_flags`: an `xp-code-reviewer` completion sets `quality_review_done`, records the code files that review covered (so its own fixes don't re-arm the commit gate) and emits `qr_complete` — this is the only event in the review family that fires after the work has run. Handles forked xp-* completions before the is_xp_agent skip: `_handle_housekeeping_done` (consume KICKOFF + NEEDS_HOUSEKEEPING + NEEDS_SPRINT markers, emit completion event — does NOT return context; SubagentStop `additionalContext` is routed to the finished subagent, not the parent), `_handle_sprint_review_done` (record sprint end + velocity), `_handle_close_reviewer_done` (consume CLOSE_CYCLE_ACTIVE), `_handle_plan_review_done` (write ASSIGN_PENDING marker + plan_reviewed gate event, returns None — the reviewer's own Next-step block tells the main agent to run `/xp-assign`). Writes `.plan-awaiting-review` marker file for Plan subagent. |
+| **SubagentStop** | | `subagent_stop.py` | Record completion + conflict detection. Owns the review cycle's completion signal via `review_cycle_legs.update_review_cycle_flags`: an `xp-code-reviewer` completion sets `quality_review_done`, records the code files that review covered (so its own fixes don't re-arm the commit gate) and emits `qr_complete` — this is the only event in the review family that fires after the work has run. Handles xp-* subagent completions before the is_xp_agent skip: `_handle_housekeeping_done` (consume KICKOFF + NEEDS_HOUSEKEEPING + NEEDS_SPRINT markers, emit completion event — does NOT return context; SubagentStop `additionalContext` is routed to the finished subagent, not the parent), `_handle_sprint_review_done` (record sprint end + velocity), `_handle_close_reviewer_done` (consume CLOSE_CYCLE_ACTIVE), `_handle_plan_review_done` (emit the plan_reviewed completion record on every path — this leg is its sole producer since `/xp-review-plan` went inline — additionally write the ASSIGN_PENDING marker on teammate-mode plans, then consume PLAN_AWAITING_REVIEW: the review completing is what that gate demands, and discharging it in the preload instead put the discharge at review START, where an abandoned review or a plain shell read of the skill body spent it; returns None, the reviewer's own Next-step block tells the main agent to run `/xp-assign`). Writes `.plan-awaiting-review` marker file for Plan subagent. |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing |
 | **Stop** | | `sprint_stop_gate.py` | Sprint lifecycle cascade (accept → review): blocks on in-progress + accept marker → run /xp-accept; sprint complete + no sprint_end event → run /xp-sprint-review |
 | **Stop** | | `close_cycle_stop_gate.py` | Block when CLOSE_CYCLE_ACTIVE marker present — nudges agent to run /security-review then invoke xp-close-reviewer. Defers on ASKING_USER. Records a high-severity concern + emits stderr if `stop_hook_active` bypass coincides with an active marker |
@@ -146,28 +148,28 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 
 ### Plugin Subagents (agents/ directory)
 
-Plugin subagents with full tool access. Each wrapped by a forked skill with `!` preloads for deterministic SMM state injection, or spawned directly by an inline skill.
+Plugin subagents with full tool access. Each is spawned by an inline skill that threads the hook-injected preload state into the Agent prompt — no skill forks any more (story-013 converted the last three).
 
 | Subagent | Trigger | Method | Purpose |
 |---|---|---|---|
 | `xp-code-reviewer` | `/xp-quality-review` skill (inline) | Agent tool | Independent code review — code-review accountability, drift management, debt awareness, XP-lens review |
 | `xp-retrospective` | `/xp-kickoff` Step 1 | Agent tool (synchronous) | Keep/Fix/Try analysis, session stats, debt escalation. Reads `.retro-input.json`; emits a seed retrospective on a fresh project |
-| `xp-plan-reviewer` | `/xp-review-plan` skill (forked) | Fork | Plan size, TDD ordering, decision conflicts. Writes assumption/question/decision events |
+| `xp-plan-reviewer` | `/xp-review-plan` skill (inline) | Agent tool | Plan size, TDD ordering, decision conflicts. Writes assumption/question/decision events |
 | `xp-housekeeper` | `/xp-kickoff` Step 6 | Agent tool (synchronous) | Four-pillar SMM curation with LLM judgment |
-| `xp-sprint-reviewer` | `/xp-sprint-review` skill | Fork | Sprint review: what shipped vs planned, execution_plan.json milestone updates, velocity |
+| `xp-sprint-reviewer` | `/xp-sprint-review` skill (inline) | Agent tool | Sprint review: what shipped vs planned, execution_plan.json milestone updates, velocity |
 | `xp-close-reviewer` | `/xp-story-close`, `/xp-sprint-close`, `/xp-plan-close`, `/xp-free-close` | Agent tool | Holistic close-review at story/sprint/plan/free integration points (mode-aware). The close skills are inline and spawn it — they are not themselves forked |
-| `xp-system-analyzer` | `/xp-system-context` skill | Fork | Autonomous codebase analysis — product, architecture, constraints. (The *skill* is `xp-system-context`; the agent file is `agents/xp-system-analyzer.md`) |
+| `xp-system-analyzer` | `/xp-system-context` skill (inline) | Agent tool | Autonomous codebase analysis — product, architecture, constraints. (The *skill* is `xp-system-context`; the agent file is `agents/xp-system-analyzer.md`) |
 
 ### Skills
 
-Forked skills delegate to a subagent above. Inline skills run in the main agent for full tool access (AskUserQuestion, Bash, Agent). Exactly three skills carry `context: fork` — `/xp-review-plan`, `/xp-sprint-review`, `/xp-system-context`. The four close skills are **inline**: they run in the main agent and *spawn* `xp-close-reviewer` themselves. (Having a `scripts/preload.sh` does not make a skill forked — 15 skills have one.)
+Every skill is inline: it runs in the main agent for full tool access (AskUserQuestion, Bash, Agent), and a delegating skill *spawns* its subagent with the Agent tool rather than forking. No skill carries `context: fork` — story-013 converted the last three (`/xp-review-plan`, `/xp-sprint-review`, `/xp-system-context`) because hook-side preload injection does not cross a fork boundary.
 - `/xp-kickoff` — orchestrator, sequences retro → work selection → housekeeping at session start
 - `/xp-work-selection` — sprint setup, work selection, retro Try items
 - `/xp-quality-review` — orchestrator: spawns `xp-code-reviewer` subagent for independent review (code-review accountability, drift, debt, XP-lens), resolves plan concerns inline
 - `/xp-plan` — create/update execution plan with milestones (`execution_plan.json`)
 - `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.json`)
 - `/xp-accept` — acceptance testing gate, mark stories done/deferred, dispatch `/xp-story-close` per accepted story; post-loop dispatches `/xp-schedule` for the next frontier (or `/xp-sprint-review` when none remain)
-- `/xp-schedule` — sole owner of `scheduled → in-progress`: promote the next dependency-satisfied frontier, decide mode (solo vs CLI teammates), set each story's `execution_mode`, and (solo) JIT-create the branch. Runs before planning; state-derived gates (write + EnterPlanMode) enforce it
+- `/xp-schedule` — sole owner of `scheduled → in-progress`: promote the next dependency-satisfied frontier, decide mode (solo vs CLI teammates), set each story's `execution_mode`, and (solo) JIT-create the branch. Runs before planning; state-derived gates (write + EnterPlanMode) enforce it. It owns the *promoted* shape only — `/xp-assign` re-records `execution_mode` as the shape actually executed, and is the sole writer of `in-agent`
 - `/xp-assign` — per-story: read the most-recent per-story plan, target the lowest-id un-spawned teammate story, create its branch, and spawn ONE teammate via `spawn_teammate.py` (per-story plan→review→spawn loop, NOT a batch fan-out). Teammate-only — mode selection and solo branching belong to `/xp-schedule`. Auto-runs after `/xp-schedule` promotion and `/xp-review-plan` (one story at a time)
 - `/xp-story-close` — per-accepted-story: review (close-reviewer mode=story), merge into sprint base via `close_common.py merge`, cleanup teammate worktree if present. Does NOT promote or branch the next story
 - `/xp-sprint-close` — push sprint branch, fork close-reviewer, merge into target, cleanup
@@ -195,7 +197,7 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
 | Before Bash | Tier 1 security patterns + staged lint, then the commit-gated review cycle (blocks until `quality_review_done`; defers on story cadence), cd-into-worktree-git advisory. NO Bash file-modification gate — see the PreToolUse:Bash row in the Hook Map (sprint-105 dropped it; trust+merge model) |
-| Subagent spawn | `XP_VALUES.md` for every tier, plus: Explore→Intent+Constraints; xp-code-reviewer/Plan/unknown→full SMM; general-purpose / workflow-subagent / claude→SMM reference pointer; xp-retrospective/xp-housekeeper→preload path strings; other forked xp-*→nothing extra. Teammates are not subagents and never reach this hook |
+| Subagent spawn | `XP_VALUES.md` for every tier, plus: Explore→Intent+Constraints; xp-code-reviewer/Plan/unknown→full SMM; general-purpose / workflow-subagent / claude→SMM reference pointer; xp-retrospective/xp-housekeeper→preload path strings; every other `xp-*` agent→nothing extra, because its data arrives in the Agent prompt the spawning skill builds from its injected preload state. Teammates are not subagents and never reach this hook |
 | After compaction | Full SMM + PROCESS_GUIDE.md re-injection via SessionStart (`compact` source) |
 
 Injection order in SessionStart `additionalContext`:
@@ -286,16 +288,17 @@ SubagentStart → subagent_start.py: tiered injection; XP_VALUES.md on EVERY tie
                   sequential-discipline note — the one tier that omits it
                 xp-retrospective: SMM_DIR + RETRO_INPUT path strings
                 xp-housekeeper: SMM_DIR + CURATION_INPUT + work-selection block
-                Other xp-* forked agents: values only (data comes via preloads)
+                Other xp-* agents: values only (their state is threaded into
+                  the Agent prompt by the skill that spawns them)
                 CLI teammates: never reach this hook — separate `claude -p`
                   processes, served by SessionStart (XP Values + TEAMMATE_GUIDE
                   + rendered SMM)
 SubagentStop  → subagent_stop.py: record completion, conflict detection
-              → Forked-xp-* handlers (consume markers, emit lifecycle events):
+              → xp-* subagent handlers (consume markers, emit lifecycle events):
                   housekeeping → consume KICKOFF + NEEDS_HOUSEKEEPING + NEEDS_SPRINT
                   sprint-reviewer → record sprint end + velocity
                   close-reviewer → consume CLOSE_CYCLE_ACTIVE
-                  plan-reviewer → write ASSIGN_PENDING marker, nudge /xp-assign
+                  plan-reviewer → emit plan_reviewed; ASSIGN_PENDING if teammate
               → Write .plan-awaiting-review marker file for Plan subagent
 ```
 
@@ -323,7 +326,7 @@ plugins/xp-agents/
 - `additionalContext` appends after prompt cache — cache is preserved
 - PostToolUse supports `additionalContext` and `decision: "block"`
 - Prompt/agent hooks use `ok`/`reason` format, NOT `decision`/`block`
-- `!` command permissions in skills controlled by `allowed-tools` field — add `Bash(*/skills/*/scripts/*)` to pre-approve preload scripts
+- `allowed-tools` gates what the MODEL may run from a skill body, and nothing else. It did once pre-approve the instruction-time `!` preload line via `Bash(*/skills/*/scripts/*)`, but sprint-007 deleted every such line: `preload_injection.py` now runs each preload with `subprocess.run` from inside the hook, which never consults `allowed-tools`. The grant is therefore only load-bearing for a skill that still invokes its own script from a numbered step — a still-open concern tracks which of the 16 carry it as dead permission surface
 - **SubagentStop only supports `decision:"block"` or silence** — `decision:"approve"` with `reason` is silently dropped. `additionalContext` is delivered to the finished subagent (continuing its turn), not the parent — so it cannot message the main agent (and can bury a subagent's final message). This limits enforcement options for plan review
 - Plugin cache requires version bump to update — `/reload-plugins` alone isn't sufficient if version is unchanged
 - File-based coordination (`.retro-input.json`) is a race — design for graceful degradation
@@ -407,6 +410,8 @@ Mode selection happens at `/xp-schedule`, **before** planning — not at `/xp-as
 **Solo mode** — chosen when the frontier is a single story, or 2+ stories share file domains. `/xp-schedule` promotes the lowest-id story, sets `execution_mode=solo`, JIT-creates its branch, and the lead plans + executes it directly (no `/xp-assign`).
 
 **CLI teammate mode** — chosen when 2+ frontier stories have non-overlapping file domains (user confirms). `/xp-schedule` promotes the whole frontier (`execution_mode=teammate`); the lead then loops plan→review→`/xp-assign` per story, one at a time.
+
+**`in-agent`** — the third `execution_mode` value, and the only one `/xp-schedule` never writes. `/xp-assign`'s execution-shape decision can resolve a story by *not* spawning (the plan reviewer recommends in-agent, or the lead forces it), and the lead then implements it in the main checkout. It is recorded because the assign write-gate self-clears from "every promoted teammate story has a worktree": an outcome that creates no worktree needs some other durable trace, or the gate blocks the lead forever with no act that can clear it.
 
 Flow:
 1. `/xp-schedule` reads the frontier, picks mode, promotes (`scheduled → in-progress`), sets `execution_mode`; solo also JIT-branches.

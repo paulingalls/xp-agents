@@ -9,7 +9,6 @@ allowed-tools:
   - Bash
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
-  - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/branching.py *)
   - Bash(python3 */scripts/close_common.py *)
   - Bash(python3 */smm/plan_cli.py *)
@@ -18,8 +17,6 @@ allowed-tools:
   - Skill
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
-
 # Plan Close
 
 > **Sequential discipline.** Run Step 1 → 2 → 3 → 4 → 4b → 4.5 → 5–6 → 7 → 8
@@ -27,7 +24,7 @@ allowed-tools:
 > with one that depends on it, and never spawn the same subagent twice;
 > independent read-only calls may batch.
 
-The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
+The injected preload state names `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
 `GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the primary
 integration branch (plan-close merges plan → primary). Shared pipeline
 lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.

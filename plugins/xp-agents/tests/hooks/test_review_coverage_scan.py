@@ -153,7 +153,12 @@ class TestTheScanFitsTheHookBudget(_RealTreeCase):
     """
 
     _HOOK_BUDGET_S = 5.0
-    _EXPECTED_READS = 5
+    # 5 -> 6 (merge of main into sprint-007): the ghost filter this branch added
+    # to `get_code_files_for_review` forks a fifth read inside the scan. It is
+    # now a COUNTED leg, so the budget total is unchanged and only the split
+    # narrows — but the read count is genuinely one higher, and this number is
+    # the pin that says so out loud.
+    _EXPECTED_READS = 6
 
     def _timeouts_during_a_completion(self) -> list[float]:
         """Each git read's timeout, an absent one recorded as `inf`.

@@ -57,10 +57,39 @@ the entry to go, which banks the deletion as the new bound.
 # from a raised one.
 PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/_common.py": 164,
-    "plugins/xp-agents/scripts/bash_post_tool.py": 123,
+    # 123 -> 133: the non-commit branch now says why the catch-up observer sits
+    # there rather than on every Bash, and why it runs before the xp-agent
+    # return. Both are decisions a reader would otherwise reverse — the first
+    # looks like an oversight, the second like a leak.
+    # 133 -> 141 (story-026): the cwd read now carries why it normalizes into
+    # two variables instead of one fallback string — the distinction a caller
+    # would otherwise collapse back into the null-cwd crash this story fixes.
+    # Named `raw_cwd: str | None` rather than commented, and the review trimmed
+    # the `_handle_commit` claim to the one that is true.
+    "plugins/xp-agents/scripts/bash_post_tool.py": 141,
     "plugins/xp-agents/scripts/branch_lifecycle.py": 149,
     "plugins/xp-agents/scripts/branch_resolution.py": 207,
     "plugins/xp-agents/scripts/branching.py": 180,
+    # 128 -> 151 (story-019): the handler now computes the blocking hook's
+    # own refusal verdict before running a preload, and the new function
+    # carries why it CALLS those predicates instead of respelling them, why
+    # it no-ops on the second harness, and that the two processes race
+    # benignly. A reader without those would reasonably delete the call.
+    # 151 -> 154 (story-009): `_refresh_heartbeat`'s docstring said ordering was
+    # "the whole point" because the preload refused on a stale heartbeat. That
+    # reader is deleted, so the claim was false and the replacement has to say
+    # what the write is FOR now — two consumers that never lived in this file.
+    # This is the claim-narrowing case above: the true statement is longer than
+    # the false one it replaces. Cut three times first; a fourth pass would have
+    # been deleting the reason, which this table says the measure must not buy.
+    # 154 -> 161 (story-026): `run_preload`'s docstring and its new
+    # `except PreloadMapError` branch now say why one ambiguous skill's
+    # `scripts/` dir must be logged rather than silently swallowed with every
+    # other skill's injection. 161 -> 168 (close review of sprint-007): the
+    # same docstring now splits the logged failures from the silent ones, and
+    # the two it gained — a preload that exits non-zero, and one wedged past
+    # the bound — each leave the skill blind after the claim is already spent.
+    "plugins/xp-agents/scripts/preload_injection.py": 168,
     "plugins/xp-agents/scripts/close_cycle_abandonment.py": 139,
     "plugins/xp-agents/scripts/close_cycle_stop_gate.py": 163,
     "plugins/xp-agents/scripts/close_gate_commands.py": 149,
@@ -111,11 +140,26 @@ PROSE_MEASURED: dict[str, int] = {
     # because it is the one place all three routes read it — and the close
     # emitter's old "a merge subject never carries a trailer" reasoning had to be
     # written down as false, or converging it looks like a style change.
-    "plugins/xp-agents/scripts/commit_emit.py": 249,
+    # 249 -> 218 at the sprint-007 close review: `merge_resolves` and the whole
+    # argument above LEFT for `merged_range`, the module its question is about.
+    # The last eight went with a re-export that should not have existed — this
+    # file calls the function, so it imports it and publishes nothing.
+    "plugins/xp-agents/scripts/commit_emit.py": 218,
     # 167 -> 170: `is_merge` in the metadata table now says ANY merge HEAD, not
     # "close cycle, or the rebuild's merge arm" — that reading is what produced
     # the story_metrics defect.
-    "plugins/xp-agents/scripts/commit_event.py": 170,
+    # 170 -> 184: `recorded_commit_hashes` arrives with the live-log bound
+    # written down. Three callers now dedup against this index and each had
+    # hand-rolled the walk; the caveat that "absent" means "not visible from
+    # here" rather than "never recorded" is the part a fourth copy would drop.
+    # 184 -> 196 (story-018): `_resolve_story_id` gained `from_commit_only`, and
+    # the six added docstring lines are the fix — the guard itself is four lines
+    # of code. They say why Tier 1 is cut alongside Tier 2, which is the half a
+    # reader would otherwise restore: a `.story-assignment` looks explicit but
+    # names the CHECKOUT's story, not the commit's. Re-recorded rather than
+    # golfed, which is this table's own stated rule; the fuller argument lives
+    # in test_commit_observer_claims.py, where no ratchet governs it.
+    "plugins/xp-agents/scripts/commit_event.py": 196,
     # 161 -> 168: the commit-size gate now states why a merge is exempt, which
     # is where that reasoning belongs — it was asserted in commit_emit.py while
     # no code implemented it.
@@ -141,6 +185,26 @@ PROSE_MEASURED: dict[str, int] = {
     # arrows are hand-typed while the pin is generated — the third stale number in
     # this table in one sprint. The rule the table already states (numbers come
     # from `_prose_scan`, never a keyboard) applies to prose ABOUT the numbers too.
+    # 167 -> 182 for the two rev-parameterized reads. `get_commit_files` has to
+    # say why it is not a rev argument on `get_committed_files` — that one
+    # diffs against the WORKING TREE, so the obvious merge of the two would
+    # silently change an existing caller's answer on a dirty checkout.
+    # Re-recorded for the ghost filter: the rule it applies is narrower than the
+    # obvious one and the difference is invisible from the code, so the reader
+    # needs to be told what is NOT excluded (a staged `git rm`, a deletion
+    # already committed) or the next edit widens it back and quietly stops
+    # counting deletions.
+    # 202 -> 164: the working-tree question moved to worktree_state.py, and
+    # its prose went with it. Banked rather than left at 202 — a ceiling kept
+    # above a completed split hands back the ground the split just won.
+    # 164 -> 171: the ghost rule gained its third clause, and the reason it has
+    # one is not derivable from the code. A path is only a ghost while the
+    # command leaves it unstaged, so the docstring must say that membership in
+    # the deletion set is necessary and NOT sufficient — the first rule read it
+    # as sufficient and the gate went silent on a commit deleting three code
+    # files. The call site's own note is three lines because the enumeration of
+    # stage-all forms lives beside the regex in git_commits.py, not restated.
+    # --- and, from main ---
     # Re-measured after the review-scope budget and the HEAD-distance reader
     # landed, and after `get_filenames_from_diff` left for `diff_filenames.py` —
     # the extraction took prose out of this file, so the number is a re-measure
@@ -150,13 +214,141 @@ PROSE_MEASURED: dict[str, int] = {
     # wider set FORGIVES for one caller and BLOCKS for the other, and
     # `count_commits_since` counts first parents because counting a merge's whole
     # range measured 6 landings against a cap of 2.
-    "plugins/xp-agents/scripts/commits.py": 190,
+    # 200 -> 209: budgeting the ghost read. The fork had to be told what the
+    # rest of the scan already knew, and both halves of that need saying — why a
+    # fifth read cannot sit on the per-call default, and why its leg is counted
+    # when it CAN run rather than when it will. The pin that caught it is named,
+    # because the next reader's instinct is to drop the parameter again.
+    # 171/190 -> 200 (merge of main into sprint-007): the two branches grew
+    # this module along DIFFERENT axes — the ghost filter here, the review-scope
+    # flags and scan budget there — so the merged file is a union and neither
+    # side's number describes it. Measured, not chosen. Both histories are kept
+    # above because each explains a guard the other side's reader would undo.
+    # 209 -> 204 deleting an orphaned comment: it explained the `-z` flag on
+    # three constants story-016 moved to worktree_state.py, and the surviving
+    # rationale is richer anyway (`_nul_paths`'s docstring, which that module
+    # imports). Banked downward rather than left as slack.
+    # 204 -> 211 (story-025): `_run_git` gained `strict`, and the lines are the
+    # ones a later reader would otherwise undo — that only a TIMEOUT is
+    # retryable, and that a missing binary keeps the decline because raising
+    # there leaves a git-less checkout re-forking the same read forever. The
+    # file is now 449 of its 450 sub-cap, so the next addition takes an
+    # extraction rather than more prose.
+    # 211 -> 209 (same review, banked DOWNWARD): the `merged_range` re-export
+    # block went, because importing it back made the pair a cycle. What replaces
+    # it is shorter and says why the absence is load-bearing.
+    "plugins/xp-agents/scripts/commits.py": 209,
+    # Arrives above the floor, so it records a ceiling on its first commit —
+    # no absolute quoted here, per this file's own rule that prose ABOUT the
+    # numbers goes stale exactly the way the numbers do.
+    # Most of it is one warning: the observer's guard is REACHABILITY
+    # and the reflog check that guards the attributed path must not be added
+    # here. Story-004's brief demanded that warning in the docstring precisely
+    # because a reader who "restores" the missing check silently reduces the
+    # module to recording at most the newest commit.
+    # 130 -> 135: `observe` now separates the two ways a reconcile ends. A
+    # DECLINE advances the marker (it was recorded, so re-filing it every Bash
+    # is noise); a RAISE must not (it recorded nothing, so advancing drops the
+    # range this module exists to catch). The pair reads alike from outside,
+    # which is why the distinction is written down rather than inferred.
+    # 135 -> 168 (story-018): the dedup became a lock plus an in-lock re-check,
+    # and three of the added notes are the ones a later reader would otherwise
+    # undo — why the lock is the observer's OWN file (taking the event log's
+    # inside it deadlocks), why the events list is REBOUND rather than re-read
+    # (a merge later in the range derives trailers off it), and what the fix
+    # still does NOT close (`_handle_commit` writes without this lock, so an
+    # observer racing a commit-shaped Bash can still double-record). Trimmed
+    # once already; the residue is re-recorded rather than golfed further.
+    # 168 -> 184 (sprint-007 close review): two silent-success defects were
+    # fixed, and each carries the rationale that stops it being undone — why the
+    # cycle reset is keyed to the newest RECORDED commit in the range (keyed to
+    # whatever this observer happened to record, the watermark walks BACKWARDS
+    # over a foreground commit and clears the review that ran in between), and
+    # why the append is split by what a retry could change (`bulk_append_safe`
+    # swallows a lock timeout, so its return cannot distinguish written from
+    # dropped, and a dropped event that advanced the marker is a commit no event
+    # will ever carry).
+    # 184 -> 178 -> 171 (story-022): two extractions, each banked DOWNWARD on
+    # the commit that made it — the report paths to `commit_observer_reports.py`
+    # and the observation record plus its deferred reset to
+    # `commit_observer_state.py`. An entry left above the tree is a re-entry
+    # allowance, and the extracted lines could come back here for free.
+    # 171 -> 189: the rewrite decline arrived, and its notes are the ones a
+    # later reader would otherwise undo — that EVERY git call this module added
+    # sits below the cheap exit and why (a sibling hook path is bounded at 5s,
+    # and one unbudgeted read broke it once this sprint), that the range is
+    # declined wholesale to match the two declines already there rather than
+    # inventing a third shape, and that the decline still OWES its reset
+    # because the marker advances past it. 189 -> 197: the module docstring's
+    # "do not restore the reflog check" rule now says what survives that change
+    # and why — without it the new reflog read reads as the forbidden one.
+    # 197 -> 199: the review's fix to the owed reset — a reconcile owing nothing
+    # new must not overwrite one still owed, and the settle moved BELOW the
+    # reconcile so a decline settles on its own call — and the two lines say
+    # which loss each shape prevented. 199 -> 208 (story-025): a git read that
+    # never answered joins the quiet decline path, and the two notes say why it
+    # is not the raise path — `bash_post_tool` calls `observe` unguarded, so a
+    # raise leaves the whole handler and takes test detection, both commit
+    # nudges and the TDD signals with it, which the raise-path contract was
+    # silent about because its test asserts in-process.
+    # 208 -> 210 (story-026, resolved AT THE MERGE): `observe`'s `cwd` widened
+    # to `str | None` so the null-cwd decline reaches it, and the guard clause
+    # says why the seemingly-redundant `cwd is None` check is there — for the
+    # type checker, not new behavior. story-026 also trimmed the redundant
+    # four-line guard note to two, which is why the merged file gains only 2
+    # over story-025's 208 rather than that story's own +2 over 199.
+    #
+    # Both stories re-recorded this ONE key from 199 independently and
+    # conflicted here — three consecutive stories have now drifted on this
+    # registry (debt 43a85ba13b72), and this is the first to actually collide.
+    # 210 is `_prose_scan`'s reading of the MERGED file (128 docstring + 82
+    # comment), not either side's number: neither was correct once both sets of
+    # prose were present, and taking one would have been a guess.
+    # 210 -> 218 (close review of sprint-007): the append's raise/return split
+    # now names OSError and says why it is on the raising side rather than with
+    # the permanent failures — `bulk_append` opens two files, so a read-only SMM
+    # or a symlinked lock path arrives that way, and it was escaping `observe`
+    # into a caller that runs it unguarded, killing the rest of the handler on
+    # every subsequent Bash. Without that sentence the next reader narrows the
+    # `except` back to the documented pair.
+    # 218 -> 225 in the same review: the reconcile's budget note claimed "at
+    # most three forks" while `_record_one` spends two per recorded commit, so
+    # the real worst case is `2 * MAX_RECONCILE + 5` against a declared 5000ms.
+    # The corrected note has to carry both the number and why bounding it is a
+    # choice (overrun the hook, or decline commits on a slow repo) — without the
+    # second half the next reader "fixes" it by adding a timeout that silently
+    # drops commit events.
+    "plugins/xp-agents/scripts/commit_observer.py": 225,
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.
     "plugins/xp-agents/scripts/coordination.py": 169,
     "plugins/xp-agents/scripts/dash_c_tokens.py": 129,
     "plugins/xp-agents/scripts/framework_detect.py": 122,
+    # Crossed the floor on gaining `stages_all_tracked_changes`, so it records a
+    # ceiling on arrival rather than being golfed back under. Every regex in
+    # this module carries the bug it was written for, and the new one carries
+    # two that a reader cannot see: `(?<!\S)` exists because `--amend` contains
+    # `-a`, and the `[^;&|]*?` bound exists so a trailing `&& git add -A` cannot
+    # vouch for an earlier narrow `git add`. Delete either note and the next
+    # simplification reintroduces a silent gate failure.
+    # 125 -> 140 (merge of main into sprint-007): both branches added prose to
+    # this module and it auto-merged, so this is a re-measure of the union, not
+    # an allowance for growth on either side. Re-recorded rather than golfed:
+    # each side's notes carry the bug its own regex was written for.
+    # 140 -> 184 (close review of sprint-007): the module gained the pathspec
+    # predicate the ghost filter was missing, and three of its notes are the
+    # reason the code cannot be shortened — why a quoted argument is MASKED
+    # rather than deleted (deleting it feeds the pathspec to `-m`), why the
+    # value-option set is short in one direction and not the other, and which
+    # measured undercount `commit_names_a_pathspec` exists to stop. Re-recorded
+    # rather than golfed, for the reason the `stages_all_tracked_changes` note
+    # above gives: delete either and the next simplification reintroduces a
+    # silent gate failure. 184 -> 195 in the same review: the `git add` leg of
+    # the same scan moved here off the RAW command, and its note is the one that
+    # stops it collapsing into `stages_all_tracked_changes` — a narrow add
+    # widens the scan and does NOT make an unstaged deletion part of the commit.
+    "plugins/xp-agents/scripts/git_commits.py": 195,
     # Crossed the floor at the close review, at 130. Two thirds of it is the
     # gate's own boundary: which shapes it misses (`eval`), which it over-refuses
     # (a `;` that is compound-statement syntax), and why `|` after `&&` is not a
@@ -170,18 +362,41 @@ PROSE_MEASURED: dict[str, int] = {
     # and the argument for a rewrite-not-a-second-walk went with it. The
     # footprint paragraph that took this file to 140 stayed; it is about this
     # gate's own placement and belongs nowhere else.
-    "plugins/xp-agents/scripts/hook_liveness.py": 196,
+    # RETIRED (story-009): hook_liveness.py 196 -> 114 prose lines, below the
+    # floor, so the entry goes rather than being re-recorded — this table's own
+    # rule, because an entry for a file that has shrunk below the floor is a
+    # re-entry allowance: the comparison stops running and every deleted line
+    # could come back to the old number with nothing red. The verdict machinery
+    # left (`check_liveness`, its result type, four reason builders, the CLI)
+    # and most of the prose was the argument for THOSE; the primitive's own
+    # reasons are untouched.
     # 227 -> 239: CLOSE_CYCLE_AGENT_ID lands here rather than in
     # `event_metadata` — it is an agent identity, not an event metadata key, and
     # the note has to say why the id is read as a discriminator or a future
     # reader deletes the `story_metrics` check that depends on it.
     "plugins/xp-agents/scripts/identity.py": 239,
     "plugins/xp-agents/scripts/in_place_marker.py": 291,
-    "plugins/xp-agents/scripts/lead_gates.py": 166,
+    # 166 -> 195 (story-023): the assign gate gained a fourth way to go false
+    # (teammate support off) and, more importantly, a docstring that ENUMERATES
+    # all four. story-021 shipped a discharge covering only some of /xp-assign's
+    # outcomes and nothing else could clear the rest, so "which outcomes clear
+    # this, and how" is the fact whose absence cost a permanent write block —
+    # recorded rather than left to be re-derived. The rest is the exemption
+    # rename: `machinery_exempt` now covers the teammate prompt as well as the
+    # plan file, and both the field and the parameter have to say why.
+    "plugins/xp-agents/scripts/lead_gates.py": 195,
     "plugins/xp-agents/scripts/lint_runners.py": 177,
     "plugins/xp-agents/scripts/linter_invocation.py": 201,
     "plugins/xp-agents/scripts/linter_tables.py": 290,
-    "plugins/xp-agents/scripts/markers.py": 123,
+    # 123 -> 131: LAST_SEEN_HEAD records that it is keyed on the REPO, not the
+    # session. The SMM is shared across worktrees, so the wrong keying is not a
+    # style question — every checkout would read every other's HEAD as an
+    # unexplained jump.
+    # 131 -> 133 (story-018): the same note now says why the marker is
+    # deliberately absent from _AGENT_SCOPED_MARKERS. Recorded rather than left
+    # inside the slack, which the two added lines had spent down to zero — a
+    # ceiling with no headroom reddens the push gate on the next rationale line.
+    "plugins/xp-agents/scripts/markers.py": 133,
     "plugins/xp-agents/scripts/migration_lock.py": 121,
     "plugins/xp-agents/scripts/result_counts.py": 126,
     # Crossed the floor on arrival of the HEAD-distance expiry, which needed
@@ -212,7 +427,14 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
     "plugins/xp-agents/scripts/staged_lint.py": 221,
     "plugins/xp-agents/scripts/tdd_check.py": 133,
-    "plugins/xp-agents/scripts/teammate_runner.py": 182,
+    # 182 -> 199 (story-023): `is_project_prompt_path`, the inverse of
+    # `project_prompt_path`, added so the lead's Write gate can recognise the one
+    # write /xp-assign owes its own spawn. Its docstring is long relative to its
+    # five lines of code because the two facts a reader needs are both negative:
+    # why it is NOT a substring test (drift, and it would accept another
+    # project's prompts) and why it is deliberately sprint-agnostic (the sprint
+    # id resolves fail-open, so pinning it could reject a path the writer owns).
+    "plugins/xp-agents/scripts/teammate_runner.py": 199,
     "plugins/xp-agents/scripts/test_attribution.py": 151,
     "plugins/xp-agents/scripts/test_parsing.py": 151,
     "plugins/xp-agents/scripts/verify_acceptance.py": 159,

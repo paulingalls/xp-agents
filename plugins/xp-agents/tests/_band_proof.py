@@ -20,13 +20,28 @@ theoretical — it is the defect these proofs exist to close:
 So a proof reads the message: it must name the surface, carry a band
 percentage, and that percentage must land inside the band. Shared because
 four call sites need the identical reading and each lives in its own host
-module.
+module. `spy_case` is here for the same reason: reading a failure message
+means provoking one against a throwaway case first.
 """
 
 import re
 import unittest
 
 _BAND_LINE = r": (\d+) chars, (\d+\.\d)% of budget (\d+)"
+
+
+def spy_case() -> unittest.TestCase:
+    """A throwaway TestCase to hand to a budget assert as its `testcase` arg.
+
+    It raises AssertionError like any other TestCase — the point is that the
+    failure lands HERE, so the caller can catch and read it without polluting
+    the outer test's own state.
+
+    A bare instance rather than a subclass: pytest collects every
+    `unittest.TestCase` SUBCLASS whatever it is named, so a spy class with a
+    no-op `runTest` also joins the suite as a test that asserts nothing.
+    """
+    return unittest.TestCase()
 
 
 def _band_line_re(surface: str) -> re.Pattern[str]:
@@ -88,4 +103,29 @@ def assert_band_fired(
         budget,
         f"{actual} chars is over budget {budget} ({pct}%) — a breach a bare "
         "cap check reports too, so this is not proof the band is wired",
+    )
+
+
+def _measure_via_assert(assert_at_budget, surface: str) -> int:
+    """Measure a surface by asking the ASSERT what it sees.
+
+    A parallel bootstrap is not a safe proxy: `assert_*_under_budgets` runs
+    every surface through ONE seeded SMM in a fixed order, so earlier state
+    reaches later surfaces. The gap was 184 chars on `subagent_start.py`,
+    hidden only because unnormalized checkout paths inflated the assert's side
+    back into the band by coincidence; fixing that dropped this proof to 89%.
+    A proof of an assert must not measure by a second route.
+    """
+    try:
+        assert_at_budget(1)
+    except AssertionError as exc:
+        match = _band_line_re(surface).search(str(exc))
+        if match is not None:
+            return int(match[1])
+        raise AssertionError(
+            f"no band line for {surface} to measure from: {exc}"
+        ) from exc
+    raise AssertionError(
+        f"{surface} did not breach a budget of 1 — it produced no measurable "
+        "stdout, so neither band leg would prove anything"
     )

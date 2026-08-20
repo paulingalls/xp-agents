@@ -1,28 +1,97 @@
 #!/usr/bin/env python3
-"""What a merge brought in: the commits reachable from it but not from `^1`.
+"""Which commits a RANGE contains — the two range questions the hooks ask.
 
 Split from `commits.py`, which crossed its 450-line sub-cap when the per-commit
-reader arrived. One job, asked by every merge emitter, so it lives here rather
-than beside every other git read.
+reader arrived, and stayed split when the second range question arrived for the
+same reason. Both are `git rev-list`/`git log` walks whose subtlety is in the
+revision arguments, so they live together rather than beside every other git
+read.
 
-`<merge> --not <merge>^1`, NOT `^1..^2`. The two agree for an ordinary two-parent
-merge and diverge for an octopus: `^1..^2` sees only the second parent's work, so a
-`git merge feat-a feat-b` silently dropped feat-b's commits while the merge still
-counted as one. Asking for "reachable from the merge, not from the first parent"
-covers every incoming parent by construction.
+* `merged_range_commits` — what a MERGE brought in, for the merge emitters.
+* `first_parent_range` — what moved HEAD on THIS branch between two revisions,
+  for `commit_observer`'s catch-up walk.
+
+They are near-opposites and must not be confused: the first deliberately
+crosses into the merged branch, the second deliberately refuses to.
+
+`merge_resolves` sits on top of the first, and arrived from `commit_emit` when
+that file went one line over its own sub-cap: it is the only READER of a merged
+range that is not itself a range walk, so it lives with the walk it asks rather
+than with the emitter that calls it.
 """
 
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import commit_event
+import commits
 from commits import _run_git
 
-# A full git object name. Anchored at both ends, because its whole job is to
-# refuse a hash-shaped span a commit BODY supplied — see the parse below.
-_OBJECT_NAME_RE = re.compile(r"^[0-9a-f]{40}$")
+# A full git object name, whatever width this repository's object format uses.
+# Anchored at both ends, because its whole job is to refuse a hash-shaped span
+# a commit BODY supplied — see the parse below. IMPORTED rather than compiled
+# again: the two sites are one rule, and a copy is how one of them silently
+# stays behind when git's object format changes under both.
+from git_head import _OBJECT_NAME_RE
+
+# The range walk's own bound, mirroring `commit_observer_history._TIMEOUT_SECONDS`
+# — a patchable constant rather than a shipped env knob, because the only reader
+# who needs it shorter is a test driving the timeout. `first_parent_range` took
+# no bound at all before, so this states the one it was inheriting.
+_TIMEOUT_SECONDS = 5
+
+
+def first_parent_range(
+    cwd: str, base: str, head: str, *, limit: int
+) -> list[str] | None:
+    """Commits on `head`'s first-parent chain that `base` cannot reach, oldest first.
+
+    None when git RAN and refused — which is the meaningful case, not an empty
+    one: `base` unknown to this repo (rewritten by a rebase, garbage-collected,
+    or a marker written by another checkout) is a state the caller must report,
+    while "nothing new" is a legitimate empty list.
+
+    Raises `commits.GitUnavailable` when git never answered at all. That is the ONLY
+    reason this reads `strict` and no other caller of `_run_git` does: collapsed
+    into the same None, a walk that merely timed out reached the caller as a
+    rewritten history, which it reports as such and then advances past — so the
+    range's commits are never recorded, their resolve trailers never link, and
+    the artifact left behind sends the next reader hunting a rebase that never
+    happened. A retry can change a timeout; nothing can change the refusal.
+
+    Every commit returned is reachable from `head` BY CONSTRUCTION — that is
+    what `base..head` means — so this query IS `commit_observer`'s reachability
+    guard, asked once for the range instead of once per commit.
+
+    `--first-parent` is load-bearing, and this is where it differs from
+    `merged_range_commits` directly below. Without it a back-merge enumerates
+    every commit the merged branch brought in: dozens whose own events landed
+    weeks ago and may since have been compacted out of the LIVE log, which is
+    the only index a caller can dedup against — so it would re-record them. The
+    first-parent chain is what moved HEAD *here*, which is the question asked.
+
+    `limit` bounds the walk. Pass one MORE than you will accept, so an over-long
+    range is visible as such rather than silently truncated: git applies the
+    count to the newest commits before `--reverse` orders them.
+    """
+    out = _run_git(
+        [
+            "git",
+            "rev-list",
+            "--first-parent",
+            "--reverse",
+            f"--max-count={limit}",
+            f"{base}..{head}",
+        ],
+        cwd,
+        timeout=_TIMEOUT_SECONDS,
+        strict=True,
+    )
+    if out is None:
+        return None
+    return out.split()
 
 
 def merged_range_commits(cwd: str, merge_hash: str) -> list[tuple[str, str]]:
@@ -63,9 +132,10 @@ def merged_range_commits(cwd: str, merge_hash: str) -> list[tuple[str, str]]:
         #     record. That mattered because the caller skips commits whose event is
         #     recorded, and a forged hash is absent from the log BY CONSTRUCTION —
         #     so an injected record smuggled its trailers past the filter every
-        #     time. Validating the hash as 40 hex does NOT close that: a body can
-        #     spell 40 hex characters as easily as any others (measured — the test
-        #     for this failed against exactly that guard).
+        #     time. Validating the hash as a full object name does NOT close
+        #     that: a body can spell 40 (or 64) hex characters as easily as any
+        #     others (measured — the test for this failed against exactly that
+        #     guard).
         #   * `partition` takes the FIRST `\x1f`, and the hash is emitted before the
         #     body, so a `\x1f` inside a message lands in the body half where it is
         #     harmless rather than truncating the hash.
@@ -78,3 +148,53 @@ def merged_range_commits(cwd: str, merge_hash: str) -> list[tuple[str, str]]:
             continue
         pairs.append((commit_hash, body))
     return pairs
+
+
+def merge_resolves(
+    cwd: str,
+    commit_hash: str,
+    authored: list[str],
+    *,
+    events: list[dict],
+) -> list[str]:
+    """`authored` UNION the trailers of merged-in commits whose event never landed.
+
+    ALL THREE merge emitters route through here, which is the point — it was
+    written twice with different answers, and the close-cycle copy replaced where
+    the hook routes unioned.
+
+    ONLY commits whose own event never landed. That is the entire rationale for
+    re-parsing at all — a teammate's per-commit events can fail to reach the shared
+    log, leaving the merge HEAD the only surviving record of that work — and
+    unfiltered the derivation is catastrophically wider than its rationale. A
+    back-merge (`git merge main` to keep a branch current) has two parents like any
+    other, and its incoming range is EVERY commit the branch had not seen: dozens
+    or hundreds, whose trailers landed with their own commits weeks ago. Unioning
+    those credits one merge with resolving them, and silently closes any that were
+    deliberately left open.
+
+    That range is bounded by the source/target RELATIONSHIP, never structurally, so
+    "the close cycle's range is its own story's commits" was never a property the
+    code had: a story branch that back-merged `main` carries main's commits in its
+    range at close time too.
+
+    UNION, never replace. The authored ids come from a body the operator may have
+    written — a `-m` on a hand merge, an edited conflict-finish message, or a
+    close-cycle body read back from HEAD — and replacing drops what they typed.
+
+    The bound is the LIVE log, NARROWER than "already recorded": compaction
+    archives commit events once their sprint leaves the retention window, and a
+    rebased branch's hashes never match, so either case still re-derives. Recorded
+    rather than implied — reading the archives here would put an unbounded read on
+    a synchronous hook.
+
+    `events` is the caller's already-locked read, so the filter costs no lock.
+    """
+    recorded = commit_event.recorded_commit_hashes(events)
+    unrecorded = [
+        body
+        for landed, body in merged_range_commits(cwd, commit_hash)
+        if landed not in recorded
+    ]
+    derived, _, _ = commits.extract_resolves_trailer("\n".join(unrecorded))
+    return authored + [rid for rid in derived if rid not in authored]

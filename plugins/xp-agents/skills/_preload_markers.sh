@@ -1,11 +1,10 @@
 #!/bin/bash
 # Marker helpers for preloads — thin wrappers over scripts/markers.py.
 #
-# Extracted from _preload_base.sh when that file crossed its 500-line cap, the
-# same move that produced _preload_emit.sh, _preload_diff.sh and
-# _preload_liveness.sh. Sourced by _preload_base.sh, so every preload gets these
-# transitively with no call-site changes. Not executable on its own: it relies on
-# PLUGIN_ROOT and SMM_DIR being set by the base.
+# Extracted from _preload_base.sh when that file crossed its 500-line cap.
+# Sourced by _preload_base.sh, so every preload gets these transitively with no
+# call-site changes. Not executable on its own: it relies on PLUGIN_ROOT and
+# SMM_DIR being set by the base.
 #
 # Usage: consume_marker ACCEPT
 #        write_marker NEEDS_HOUSEKEEPING "kickoff"

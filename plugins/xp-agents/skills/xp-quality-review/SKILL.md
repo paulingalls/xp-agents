@@ -13,12 +13,9 @@ allowed-tools:
   - Agent
   - Skill
   - Bash
-  - Bash(*/skills/*/scripts/*)
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
 ---
-
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
 # Quality Review
 

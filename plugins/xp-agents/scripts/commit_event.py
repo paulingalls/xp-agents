@@ -33,12 +33,39 @@ from event_schema import (
 )
 
 
+def recorded_commit_hashes(events: list[dict]) -> set[str]:
+    """Every commit hash the LIVE log already carries a commit event for.
+
+    One home for the index, because two callers build it and each had
+    hand-rolled the same `(e.get("metadata") or {}).get("commit_hash")` walk:
+    `merged_range.merge_resolves` (which trailers a merge may re-derive) and
+    `commit_observer` (which commits in a range still need recording).
+    `commit_handling._commit_hash_recorded` asks the same question one hash at a
+    time and stays separate. A THIRD set-builder is how these drift, and drift
+    here is silent — a missed entry re-records a commit, a spurious one drops it.
+
+    LIVE log only, and the bound is real: compaction archives commit events once
+    their sprint leaves the retention window, and a rebased branch's hashes
+    never match. Callers must treat "absent" as "not visible from here", not as
+    proof the commit was never recorded.
+    """
+    return {
+        h
+        for e in events
+        if e.get("type") == _common.COMMIT
+        for h in [(e.get("metadata") or {}).get(METADATA_KEY_COMMIT_HASH)]
+        if h
+    }
+
+
 def _resolve_story_id(
     smm_dir: Path,
     cwd: str,
     committed_files: list[str],
     sprint: dict | None = None,
     message: str | None = None,
+    *,
+    from_commit_only: bool = False,
 ) -> str | None:
     """Resolve story_id for a commit using four-tier attribution.
 
@@ -62,39 +89,49 @@ def _resolve_story_id(
             `[sprint-*]`, `[release]`, ...) is left to aggregate at sprint
             level rather than guessed.
     Tier 3: Non-sprint / infrastructure — returns None.
+
+    `from_commit_only` keeps ONLY Tier 0. The message prefix is the one source
+    that travels WITH the commit object; Tiers 1/2/2.5 all describe the
+    CHECKOUT at the moment of asking — Tier 1's `.story-assignment` included,
+    which looks explicit but names this checkout's story, not the commit's.
+    Defaults False: `_handle_commit` watched the command run, so it is
+    unchanged. Argued in test_commit_observer_claims.py's attribution case.
     """
     import sprint_status
     import sprint_store
     import story_metrics
 
-    wt_name = identity.extract_worktree_name(cwd)
-    if wt_name is None:
-        # In-place (solo-delegation) teammate: its cwd IS the main checkout,
-        # so there is no worktree path marker — but spawn_teammate exported
-        # XP_TEAMMATE_NAME and wrote a name-keyed .story-assignment. Recover the
-        # name from the env so attribution stays EXPLICIT (Tier 1) instead of
-        # falling through to the single-in-progress heuristic, which would
-        # mis-attribute when a second story is also in-progress.
-        #
-        # XP_TEAMMATE_NAME is a documented leaky var, so the env alone isn't
-        # trustworthy: were it to leak into the lead AND a stale name-keyed
-        # .story-assignment still exist, the lead's own commit would be
-        # mis-attributed. `identity.in_place_teammate_name` — the shared helper
-        # that also backs is_worktree_teammate, tdd_check._reader_scope, and
-        # pre_tool_skill._is_live_teammate — gates on the lifetime-scoped
-        # in-place marker spawn_teammate writes only WHILE the in-place child
-        # runs; a leaked env with no live marker returns None and falls through
-        # to the heuristics instead. Passing the already-validated `smm_dir`
-        # keeps attribution keyed to the SAME SMM this commit is recorded in.
-        wt_name = identity.in_place_teammate_name(smm_dir)
-    if wt_name is not None:
-        assignment = worktree.story_assignment_path(smm_dir, wt_name)
-        try:
-            story_id = assignment.read_text(encoding="utf-8").strip()
-            if story_id:
-                return story_id
-        except (FileNotFoundError, OSError):
-            pass
+    # Tier 1 sits INSIDE the guard: the code order is not the docstring order,
+    # and this block returns before Tier 0 is ever reached.
+    if not from_commit_only:
+        wt_name = identity.extract_worktree_name(cwd)
+        if wt_name is None:
+            # In-place (solo-delegation) teammate: its cwd IS the main checkout,
+            # so there is no worktree path marker — but spawn_teammate exported
+            # XP_TEAMMATE_NAME and wrote a name-keyed .story-assignment. Recover the
+            # name from the env so attribution stays EXPLICIT (Tier 1) instead of
+            # falling through to the single-in-progress heuristic, which would
+            # mis-attribute when a second story is also in-progress.
+            #
+            # XP_TEAMMATE_NAME is a documented leaky var, so the env alone isn't
+            # trustworthy: were it to leak into the lead AND a stale name-keyed
+            # .story-assignment still exist, the lead's own commit would be
+            # mis-attributed. `identity.in_place_teammate_name` — the shared helper
+            # that also backs is_worktree_teammate, tdd_check._reader_scope, and
+            # pre_tool_skill._is_live_teammate — gates on the lifetime-scoped
+            # in-place marker spawn_teammate writes only WHILE the in-place child
+            # runs; a leaked env with no live marker returns None and falls through
+            # to the heuristics instead. Passing the already-validated `smm_dir`
+            # keeps attribution keyed to the SAME SMM this commit is recorded in.
+            wt_name = identity.in_place_teammate_name(smm_dir)
+        if wt_name is not None:
+            assignment = worktree.story_assignment_path(smm_dir, wt_name)
+            try:
+                story_id = assignment.read_text(encoding="utf-8").strip()
+                if story_id:
+                    return story_id
+            except (FileNotFoundError, OSError):
+                pass
 
     if sprint is None:
         sprint = sprint_store.load_sprint(smm_dir)
@@ -111,6 +148,11 @@ def _resolve_story_id(
             in_motion = sprint_status.select_in_motion_stories(sprint["stories"])
             if any(s["id"] == tagged for s in in_motion):
                 return tagged
+
+    if from_commit_only:
+        # Past Tier 0 nothing reads the commit. None is already a supported
+        # answer here — ties below return it too.
+        return None
 
     in_progress = sprint_store.list_stories(sprint, status="in-progress")
     if not in_progress:

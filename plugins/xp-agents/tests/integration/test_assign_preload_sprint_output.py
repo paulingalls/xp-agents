@@ -289,14 +289,16 @@ class TestPreloadE2EPipeline(_IntegrationTestCase):
         self.assertGreaterEqual(plan_pos, 0)
         self.assertGreaterEqual(sprint_pos, 0)
 
-    def test_preload_clears_assign_pending_marker(self):
-        """The consume is opted into with `--consume-gate` (story-010): the bare
-        run is for inspection and must leave the live gate alone."""
+    def test_preload_leaves_the_assign_pending_marker(self):
+        """No run of the preload spends the gate (story-021). The `--consume-gate`
+        opt-in this used to exercise could not tell an invocation from a read —
+        the injected argv carried it, and a shell read of SKILL.md is what
+        triggers that injection."""
         marker = self.smm_dir / ".assign-pending"
         marker.write_text("gate-id")
-        result = self._run_preload(_PRELOAD_SCRIPT, args=["--consume-gate"])
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(marker.exists())
+        self.assertTrue(marker.exists())
 
     def test_preload_outputs_plugin_root(self):
         result = self._run_preload(_PRELOAD_SCRIPT)

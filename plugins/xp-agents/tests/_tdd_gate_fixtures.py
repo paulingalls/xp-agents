@@ -60,7 +60,9 @@ class _GateTestCase(_HookTestCase):
             payload.pop("agent_id", None)
         else:
             payload["agent_id"] = agent_id
-        with patch("commits.get_uncommitted_files", return_value=uncommitted) as mock:
+        with patch(
+            "worktree_state.get_uncommitted_files", return_value=uncommitted
+        ) as mock:
             result = tdd_stop_gate.run(payload, smm_dir=self.smm_dir)
         self.tree_was_checked = mock.called
         return result

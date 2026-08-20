@@ -34,8 +34,10 @@ class TestIsTddRedStepWorkingTree(_HookTestCase):
 
     def test_test_only_dirty_tree_is_red_step(self):
         with (
-            patch("commits.get_uncommitted_files", return_value=["tests/test_x.py"]),
-            patch("commits.get_uncommitted_code_files", return_value=[]),
+            patch(
+                "worktree_state.get_uncommitted_files", return_value=["tests/test_x.py"]
+            ),
+            patch("worktree_state.get_uncommitted_code_files", return_value=[]),
         ):
             self.assertTrue(commit_handling.is_tdd_red_step(self.smm_dir, _CWD))
 
@@ -43,10 +45,12 @@ class TestIsTddRedStepWorkingTree(_HookTestCase):
         """Non-test code also dirty -> a failure may be a real regression."""
         with (
             patch(
-                "commits.get_uncommitted_files",
+                "worktree_state.get_uncommitted_files",
                 return_value=["tests/test_x.py", "src/x.py"],
             ),
-            patch("commits.get_uncommitted_code_files", return_value=["src/x.py"]),
+            patch(
+                "worktree_state.get_uncommitted_code_files", return_value=["src/x.py"]
+            ),
         ):
             self.assertFalse(commit_handling.is_tdd_red_step(self.smm_dir, _CWD))
 
@@ -57,11 +61,11 @@ class TestIsTddRedStepWorkingTree(_HookTestCase):
         failure is silently suppressed as a deliberate red."""
         with (
             patch(
-                "commits.get_uncommitted_files",
+                "worktree_state.get_uncommitted_files",
                 return_value=["tests/test_x.py", "src/new.py"],
             ),
             # narrow helper omits untracked files -> would report "no code"
-            patch("commits.get_uncommitted_code_files", return_value=[]),
+            patch("worktree_state.get_uncommitted_code_files", return_value=[]),
         ):
             self.assertFalse(commit_handling.is_tdd_red_step(self.smm_dir, _CWD))
 
@@ -69,15 +73,15 @@ class TestIsTddRedStepWorkingTree(_HookTestCase):
         """get_uncommitted_files -> None (git could not answer) must NOT be
         read as a clean tree — default to "treat failures as regressions"."""
         with (
-            patch("commits.get_uncommitted_files", return_value=None),
-            patch("commits.get_uncommitted_code_files", return_value=[]),
+            patch("worktree_state.get_uncommitted_files", return_value=None),
+            patch("worktree_state.get_uncommitted_code_files", return_value=[]),
         ):
             self.assertFalse(commit_handling.is_tdd_red_step(self.smm_dir, _CWD))
 
     def test_no_repo_is_not_red_step(self):
         with (
-            patch("commits.get_uncommitted_files", return_value=[]),
-            patch("commits.get_uncommitted_code_files", return_value=[]),
+            patch("worktree_state.get_uncommitted_files", return_value=[]),
+            patch("worktree_state.get_uncommitted_code_files", return_value=[]),
         ):
             self.assertFalse(commit_handling.is_tdd_red_step(self.smm_dir, _CWD))
 
@@ -96,8 +100,8 @@ class TestIsTddRedStepCommitBased(_HookTestCase):
         _common.append_safe(self.smm_dir, commit)
 
         with (
-            patch("commits.get_uncommitted_files", return_value=[]),
-            patch("commits.get_uncommitted_code_files", return_value=[]),
+            patch("worktree_state.get_uncommitted_files", return_value=[]),
+            patch("worktree_state.get_uncommitted_code_files", return_value=[]),
         ):
             self.assertTrue(commit_handling.is_tdd_red_step(self.smm_dir, _CWD))
 

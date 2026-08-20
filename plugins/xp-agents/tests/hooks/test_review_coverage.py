@@ -25,6 +25,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
@@ -34,6 +35,7 @@ import pre_tool_bash_commit_gates
 import review_cycle_done
 import review_records
 import subagent_stop
+from _commit_repo_case import _RebuildTestCase
 from conftest import _HookTestCase
 
 _KEY = "main"
@@ -352,6 +354,73 @@ class TestCoverageBelongsToTheRepoItWasMeasuredIn(_HookTestCase):
         self.assertEqual(
             review_records.read_review_coverage(self.smm_dir, _KEY), {"a.py"}
         )
+
+
+class TestTheSubtractionSeesTheSameSet(_RebuildTestCase):
+    """A ghost excluded from the count must be excluded from coverage too.
+
+    Coverage is recorded from the SAME scan when the reviewer finishes, and the
+    gate blocks on current-minus-coverage — so an exclusion that reached only
+    one side would shift the subtraction rather than fix it. The case that
+    discriminates is a ghost raised AFTER the review: a spike committed and
+    cleaned up while acting on findings is in `current` and not in `coverage`,
+    so counting it re-blocks the very commit the review was for. Real repo, and
+    the whole lifecycle, because that is where the two sides meet. See
+    test_review_ghosts.py for the rule itself.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.watermark = self.head()
+        review_records.write_review_watermark(self.smm_dir, _KEY, self.watermark)
+
+    def _commit(self, *names: str) -> None:
+        for name in names:
+            (self.repo / name).write_text("x = 1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "work")
+
+    def _review_then_land_it(self) -> None:
+        subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "rev-1",
+                "agent_type": "xp-agents:xp-code-reviewer",
+                "cwd": str(self.repo),
+                "last_assistant_message": "Done",
+            },
+            smm_dir=self.smm_dir,
+        )
+        # The reviewed work commits, which clears the flag. Coverage survives
+        # its own commit and is what the NEXT commit spends.
+        review_records.end_review_cycle(self.smm_dir, _KEY, _KEY, self.watermark)
+
+    def _gate(self) -> list[str]:
+        return pre_tool_bash_commit_gates.commit_gate_parts(
+            self.smm_dir, "git commit -m fix", str(self.repo)
+        )
+
+    def test_ghosts_raised_after_the_review_do_not_re_block_the_commit(self):
+        self._commit("a.py", "b.py")
+        self._review_then_land_it()
+        self._commit("spike1.py", "spike2.py")
+        for name in ("spike1.py", "spike2.py"):
+            (self.repo / name).unlink()
+
+        self.assertEqual(
+            review_records.read_review_coverage(self.smm_dir, _KEY), {"a.py", "b.py"}
+        )
+        self._gate()
+
+    def test_real_work_raised_after_the_review_still_blocks(self):
+        """Non-vacuity for the class: the subtraction still gates."""
+        self._commit("a.py", "b.py")
+        self._review_then_land_it()
+        self._commit("new1.py", "new2.py")
+
+        with self.assertRaises(_common.BlockedError) as ctx:
+            self._gate()
+        self.assertIn("/xp-quality-review", str(ctx.exception))
 
 
 if __name__ == "__main__":

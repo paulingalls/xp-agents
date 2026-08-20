@@ -1,0 +1,473 @@
+#!/usr/bin/env python3
+"""Tests for preload_injection.py — the hook that delivers a skill's state.
+
+Every requirement this handler exists to satisfy fails QUIETLY: exit 0, no
+error, and an injection that looks successful. So each test below pins a
+property that has no other symptom — the preload ran in the wrong directory,
+against the wrong command, before the heartbeat, or with a failure stream
+injected as though it were state.
+
+The preload is faked with a temp script in most tests, deliberately. Driving a
+real shipped preload through this handler has side effects — the close preloads
+ARM a close cycle by running, which is how a measurement session once left four
+orphaned cycles behind — and none of the properties here need a real one. The
+one thing a fake cannot show, that the resolver reaches a real shipped script,
+is pinned separately and without running it.
+
+The FIRST harness's leg only: everything here starts from `tool_input.skill`.
+The shell-read leg — identity out of `tool_input.command`, and the claim that
+keeps a mention from starving a read — is `test_preload_injection_shell_read.py`,
+which shares no fixture with anything below. The refusal guard — what a call the
+gate beside this hook REFUSES must not spend — is `test_preload_refusal_guard.py`,
+split off at the 500-line cap for the same reason: its fixture is a real gate
+marker and a preload that spends it, the opposite of the fake used here.
+"""
+
+import json
+import os
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+
+import pre_tool_skill
+import preload_injection
+import skill_preload_map
+from _budget_helpers import (
+    _bootstrap_seeded_smm,
+    _run_preload,
+    scrub_close_cycle_marker,
+)
+from conftest import _HookTestCase
+
+_HEARTBEAT_NAME = ".hook-heartbeat"
+
+
+def _write_script(path: Path, body: str) -> Path:
+    """A fake preload: a shell script that is executable and prints something."""
+    path.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return path
+
+
+class TestSkillIdentityFromPayload(unittest.TestCase):
+    """The first harness names the skill in the tool call itself."""
+
+    def test_our_namespace_is_stripped(self):
+        payload = {"tool_input": {"skill": "xp-agents:xp-accept"}}
+        self.assertEqual(preload_injection.skill_from_payload(payload), "xp-accept")
+
+    def test_bare_name_survives(self):
+        payload = {"tool_input": {"skill": "xp-accept"}}
+        self.assertEqual(preload_injection.skill_from_payload(payload), "xp-accept")
+
+    def test_absent_skill_is_none(self):
+        self.assertIsNone(preload_injection.skill_from_payload({"tool_input": {}}))
+        self.assertIsNone(preload_injection.skill_from_payload({}))
+
+
+class TestResolverIsTheSoleSourceOfTheCommand(unittest.TestCase):
+    """Requirement 2, and the reason an arbitrary-command vector is unreachable.
+
+    A hardcoded `preload.sh` would be right on fourteen shipped skills and WRONG
+    on two — one takes an extra flag, one names a different script — so the pin
+    is that the handler asks the resolver rather than that it finds some script.
+    Asserted WITHOUT running anything: a real close preload arms a close cycle by
+    running, and this property needs no execution to observe.
+    """
+
+    def test_a_shipped_skill_resolves_to_a_real_executable_script(self):
+        invocation = skill_preload_map.resolve_preload("xp-schedule")
+        assert invocation is not None
+        self.assertTrue(Path(invocation.argv[0]).is_file())
+
+    def test_the_outlier_skill_is_reached_through_the_resolver(self):
+        """The one the hardcoded default would still get wrong.
+
+        There were two. xp-assign was the other, because its invocation carried
+        `--consume-gate` — and that flag went when the gate it spent moved to the
+        act that satisfies it (story-021), so nothing but a differently-named
+        entry point distinguishes a skill from the default any more. Pinned as
+        one case rather than left asserting an empty argv twice.
+        """
+        kickoff = skill_preload_map.resolve_preload("xp-kickoff")
+        assert kickoff is not None
+        self.assertEqual(Path(kickoff.argv[0]).name, "check_session_needs.sh")
+
+    def test_a_skill_we_do_not_ship_injects_nothing(self):
+        """A third-party or built-in skill reaches this handler routinely; the
+        resolver raises for it and the handler must treat that as 'not ours',
+        not as an error."""
+        self.assertIsNone(preload_injection.run_preload("code-review", ""))
+
+    def test_a_shipped_skill_with_no_preload_injects_nothing(self):
+        self.assertIsNone(preload_injection.run_preload("xp-stage-migration", ""))
+
+
+class TestPreloadExecution(_HookTestCase):
+    """The four quiet failures in actually running the thing."""
+
+    def setUp(self):
+        super().setUp()
+        self.work = Path(self.smm_dir) / "work"
+        self.work.mkdir()
+
+    def _fake(self, body: str, env: dict | None = None):
+        script = _write_script(self.work / "fake_preload.sh", body)
+        return patch.object(
+            skill_preload_map,
+            "resolve_preload",
+            return_value=skill_preload_map.PreloadInvocation(
+                argv=[str(script)], env=env or {}
+            ),
+        )
+
+    def test_output_is_returned_as_the_injected_context(self):
+        with self._fake('echo "STATE=here"'):
+            self.assertEqual(
+                preload_injection.run_preload("xp-accept", str(self.work)),
+                "STATE=here\n",
+            )
+
+    def test_it_runs_in_the_session_cwd_not_the_skill_dir(self):
+        """Requirement 1. Resolving elsewhere silently yields ANOTHER PROJECT's
+        state — the injection succeeds and the content is wrong, which no exit
+        status reports."""
+        session_cwd = Path(self.smm_dir) / "session"
+        session_cwd.mkdir()
+        with self._fake("pwd"):
+            output = preload_injection.run_preload("xp-accept", str(session_cwd))
+        assert output is not None
+        self.assertEqual(Path(output.strip()).resolve(), session_cwd.resolve())
+
+    def test_declared_env_reaches_the_preload(self):
+        fake = self._fake(
+            'echo "DATA=$CLAUDE_PLUGIN_DATA"', env={"CLAUDE_PLUGIN_DATA": "/x"}
+        )
+        with fake:
+            self.assertEqual(
+                preload_injection.run_preload("xp-accept", str(self.work)),
+                "DATA=/x\n",
+            )
+
+    def test_a_failing_preload_injects_nothing(self):
+        """Requirement 4. The partial stream a failed preload printed before
+        dying is not state, and injecting it is indistinguishable from success."""
+        with self._fake('echo "half a table"; exit 1'):
+            self.assertIsNone(
+                preload_injection.run_preload("xp-accept", str(self.work))
+            )
+
+    def test_an_empty_preload_injects_nothing(self):
+        with self._fake("true"):
+            self.assertIsNone(
+                preload_injection.run_preload("xp-accept", str(self.work))
+            )
+
+    def test_a_wedged_preload_times_out_and_injects_nothing(self):
+        """It must degrade to 'no state', never hang the tool call."""
+        with (
+            self._fake("sleep 5; echo late"),
+            patch.object(preload_injection, "_PRELOAD_TIMEOUT_SECONDS", 1),
+        ):
+            self.assertIsNone(
+                preload_injection.run_preload("xp-accept", str(self.work))
+            )
+
+    def test_a_failing_preload_says_so_in_the_error_log(self):
+        """Requirement 4 says inject NOTHING. It does not say say nothing.
+
+        A preload that exits non-zero leaves the skill running blind, and on the
+        shell-read leg the claim is already taken, so the rest of the burst
+        injects nothing either and the whole invocation proceeds with no state.
+        The resolver's own breakage is logged for exactly this reason; a broken
+        preload SCRIPT is the same class and was the one shape reaching exit 0
+        with no trace anywhere.
+        """
+        with self._fake('echo "half a table"; exit 3'):
+            self.assertIsNone(
+                preload_injection.run_preload("xp-accept", str(self.work))
+            )
+
+        trace = (self.smm_dir / "hook_errors.jsonl").read_text(encoding="utf-8")
+        self.assertIn("xp-accept", trace)
+        self.assertIn("3", trace)
+
+    def test_a_wedged_preload_says_so_too(self):
+        with (
+            self._fake("sleep 5; echo late"),
+            patch.object(preload_injection, "_PRELOAD_TIMEOUT_SECONDS", 1),
+        ):
+            preload_injection.run_preload("xp-accept", str(self.work))
+
+        trace = (self.smm_dir / "hook_errors.jsonl").read_text(encoding="utf-8")
+        self.assertIn("xp-accept", trace)
+
+    def test_an_unexecutable_preload_injects_nothing(self):
+        script = self.work / "not_executable.sh"
+        script.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+        script.chmod(0o600)
+        with patch.object(
+            skill_preload_map,
+            "resolve_preload",
+            return_value=skill_preload_map.PreloadInvocation(argv=[str(script)]),
+        ):
+            self.assertIsNone(
+                preload_injection.run_preload("xp-accept", str(self.work))
+            )
+
+
+class TestHeartbeatIsWrittenBeforeTheRun(_HookTestCase):
+    """Requirement 3, and the ORDER is the whole property.
+
+    The preload scripts carry their own liveness check and emit a refusal banner
+    INSTEAD OF STATE when no fresh heartbeat exists. A heartbeat written after
+    the run would therefore inject that banner while every exit status said
+    success. Proven by having the fake preload look for the heartbeat itself, so
+    the assertion is about what the preload SAW — a test that merely checked the
+    file exists afterwards would pass with the write in the wrong place.
+    """
+
+    def test_the_preload_sees_the_heartbeat_already_written(self):
+        work = Path(self.smm_dir) / "work"
+        work.mkdir()
+        # Globbed, not an exact name: the heartbeat is written session-suffixed
+        # (`.hook-heartbeat-<id>`), one file per session, because the SMM dir is
+        # shared across worktrees and windows. Asserting the bare stem passed
+        # nothing and failed this test for the wrong reason.
+        script = _write_script(
+            work / "fake_preload.sh",
+            f'if ls "{self.smm_dir}/{_HEARTBEAT_NAME}"* >/dev/null 2>&1; '
+            "then echo SAW_HEARTBEAT; else echo NO_HEARTBEAT; fi",
+        )
+        with patch.object(
+            skill_preload_map,
+            "resolve_preload",
+            return_value=skill_preload_map.PreloadInvocation(argv=[str(script)]),
+        ):
+            output = preload_injection.run(
+                {"tool_input": {"skill": "xp-agents:xp-accept"}, "cwd": str(work)}
+            )
+        self.assertEqual(output, "SAW_HEARTBEAT\n")
+
+    def test_the_write_is_the_shipped_one_not_a_second_copy(self):
+        """`pre_tool_skill.refresh_heartbeat` does exactly this, and used to be
+        duplicated here line for line. Two spellings of the same write drift
+        silently; the ORDERING guarantee above stays this module's, because on
+        the shell-read leg `pre_tool_skill` never runs at all."""
+        with patch.object(pre_tool_skill, "refresh_heartbeat") as shipped:
+            preload_injection._refresh_heartbeat({"session_id": "s"})
+        shipped.assert_called_once()
+
+    def test_the_same_probe_says_no_heartbeat_when_the_write_is_removed(self):
+        """Non-vacuity for the pin above: with the heartbeat write suppressed,
+        the identical probe must report NO_HEARTBEAT. Without this, a probe that
+        silently always printed SAW_HEARTBEAT would pass forever."""
+        work = Path(self.smm_dir) / "work2"
+        work.mkdir()
+        script = _write_script(
+            work / "fake_preload.sh",
+            f'if ls "{self.smm_dir}/{_HEARTBEAT_NAME}"* >/dev/null 2>&1; '
+            "then echo SAW_HEARTBEAT; else echo NO_HEARTBEAT; fi",
+        )
+        with (
+            patch.object(
+                skill_preload_map,
+                "resolve_preload",
+                return_value=skill_preload_map.PreloadInvocation(argv=[str(script)]),
+            ),
+            patch.object(
+                preload_injection, "_refresh_heartbeat", lambda _payload: None
+            ),
+        ):
+            output = preload_injection.run(
+                {"tool_input": {"skill": "xp-agents:xp-accept"}, "cwd": str(work)}
+            )
+        self.assertEqual(output, "NO_HEARTBEAT\n")
+
+
+class TestRecursionGuard(_HookTestCase):
+    """Our own xp- subagents must not re-trigger the injection.
+
+    Every command hook gating an agent hook checks this; without it a subagent
+    invoking a skill re-enters the mechanism.
+    """
+
+    def test_our_own_agent_injects_nothing(self):
+        work = Path(self.smm_dir) / "work"
+        work.mkdir()
+        script = _write_script(work / "fake_preload.sh", 'echo "STATE=here"')
+        payload = {
+            "tool_input": {"skill": "xp-agents:xp-accept"},
+            "cwd": str(work),
+            "agent_type": "xp-code-reviewer",
+        }
+        with patch.object(
+            skill_preload_map,
+            "resolve_preload",
+            return_value=skill_preload_map.PreloadInvocation(argv=[str(script)]),
+        ):
+            self.assertIsNone(preload_injection.run(payload))
+
+
+class TestHandlerRunsAsAHook(_HookTestCase):
+    """E2E over the process boundary: the shape the harness actually invokes.
+
+    Every test above calls `run()` in-process, which never exercises stdin
+    parsing, the `hookSpecificOutput` envelope, or the exit status. A hook that
+    emitted the right string on the wrong envelope would deliver nothing, and
+    an import-only suite would stay green through it.
+    """
+
+    def test_stdin_payload_produces_a_hookspecificoutput_envelope(self):
+        work = Path(self.smm_dir) / "work"
+        work.mkdir()
+
+        # A real subprocess cannot see a patched resolver, so the fake is
+        # installed the way the resolver itself reads the tree: point the
+        # plugin root at a scratch tree carrying one skill.
+        fake_root = Path(self.smm_dir) / "plugin"
+        skill_scripts = fake_root / "skills" / "xp-accept" / "scripts"
+        skill_scripts.mkdir(parents=True)
+        _write_script(skill_scripts / "preload.sh", 'echo "MARKER=delivered"')
+
+        env = {
+            **os.environ,
+            "CLAUDE_PLUGIN_ROOT": str(fake_root),
+            "SMM_DIR": str(self.smm_dir),
+        }
+        payload = json.dumps(
+            {"tool_input": {"skill": "xp-agents:xp-accept"}, "cwd": str(work)}
+        )
+        completed = subprocess.run(
+            [sys.executable, str(Path(preload_injection.__file__))],
+            input=payload,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("hookSpecificOutput", completed.stdout)
+        self.assertIn("additionalContext", completed.stdout)
+        self.assertIn("MARKER=delivered", completed.stdout)
+
+
+class TestPreloadResolverAmbiguityIsContained(_HookTestCase):
+    """story-026 leg 2: one skill shipping two `.sh` files under its own
+    `scripts/` dir used to make `_discover_preload_scripts` raise for the
+    WHOLE map, and `run_preload`'s bare `except ValueError` could not tell
+    that global failure apart from "not a skill we ship" — so it returned
+    None at exit 0, and every OTHER preload-bearing skill resolved off that
+    same map lost its injection too, silently. The next teammate to extract a
+    shared shell helper into a second `.sh` under any skill's `scripts/` would
+    turn injection off for all 17 skills at once, with nothing in the logs.
+    """
+
+    def _fake_root(self) -> Path:
+        root = Path(self.smm_dir) / "plugin"
+        ambiguous = root / "skills" / "xp-ambiguous" / "scripts"
+        ambiguous.mkdir(parents=True)
+        _write_script(ambiguous / "preload.sh", 'echo "AMBIGUOUS-A"')
+        _write_script(ambiguous / "extra.sh", 'echo "AMBIGUOUS-B"')
+        healthy = root / "skills" / "xp-healthy" / "scripts"
+        healthy.mkdir(parents=True)
+        _write_script(healthy / "preload.sh", 'echo "HEALTHY-STATE"')
+        return root
+
+    def test_ambiguous_skill_logs_and_others_still_resolve(self):
+        root = self._fake_root()
+        with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": str(root)}):
+            ambiguous_output = preload_injection.run_preload(
+                "xp-ambiguous", str(self.smm_dir)
+            )
+            healthy_output = preload_injection.run_preload(
+                "xp-healthy", str(self.smm_dir)
+            )
+        self.assertIsNone(ambiguous_output)
+        self.assertEqual(healthy_output, "HEALTHY-STATE\n")
+        errors_path = self.smm_dir / "hook_errors.jsonl"
+        self.assertTrue(errors_path.exists())
+        self.assertIn("xp-ambiguous", errors_path.read_text())
+
+    def test_unknown_skill_name_stays_a_silent_no_op(self):
+        """Most tool calls reaching this handler are not ours — a third-party
+        or built-in skill must not become loud just because the resolver now
+        distinguishes its OWN breakage."""
+        root = self._fake_root()
+        errors_path = self.smm_dir / "hook_errors.jsonl"
+        with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": str(root)}):
+            output = preload_injection.run_preload(
+                "not-a-real-skill", str(self.smm_dir)
+            )
+        self.assertIsNone(output)
+        self.assertFalse(errors_path.exists())
+
+    def test_ambiguous_skill_is_distinguishable_from_a_no_preload_skill(self):
+        """Both used to surface as a plain `None` from `resolve_preload` if the
+        ambiguous one were merely dropped from the map — indistinguishable
+        from "this skill exists and declares no preload." They must not be."""
+        root = self._fake_root()
+        no_preload = root / "skills" / "xp-quiet" / "scripts"
+        no_preload.mkdir(parents=True)
+        with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": str(root)}):
+            with self.assertRaises(skill_preload_map.PreloadMapError):
+                skill_preload_map.resolve_preload("xp-ambiguous")
+            self.assertIsNone(skill_preload_map.resolve_preload("xp-quiet"))
+
+
+class TestInjectedStateMatchesInstructionTimeState(unittest.TestCase):
+    """The mechanism swap must not change WHAT arrives, only how.
+
+    A quiet-failure class the six recorded requirements miss, and which no other
+    suite can see: `skill_preload_map` builds the preload's environment from
+    `os.environ`, and `smm/init.sh` records in its own comment that
+    `CLAUDE_PLUGIN_DATA` is absent in some hook processes. So the injected run
+    can resolve a DIFFERENT SMM root than the instruction-time run did — at exit
+    0, with output that looks entirely successful.
+
+    story-003's delivery pin cannot catch it: that suite runs preloads directly
+    rather than through this handler, so both of its sides are the same side.
+    This one drives the SAME skill both ways against one seeded SMM and compares
+    the bytes.
+
+    Reach, measured rather than claimed: mutating the handler to alter the
+    delivered bytes turns this red, so it is live on CONTENT. Mutating it to
+    ignore the session cwd does NOT — `xp-schedule`'s output happens not to
+    depend on the working directory, so that requirement is covered by its own
+    dedicated pin above and not by this one. Stated so a reader does not take
+    this for a general equivalence proof it is not.
+    """
+
+    def test_a_preload_delivers_the_same_bytes_through_both_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, smm_dir = _bootstrap_seeded_smm(Path(tmp))
+
+            instruction_stdout, _stderr, rc = _run_preload("xp-schedule", smm_dir, repo)
+            self.assertEqual(rc, 0)
+            scrub_close_cycle_marker(smm_dir)
+
+            with patch.dict(os.environ, {"SMM_DIR": str(smm_dir)}):
+                injected = preload_injection.run_preload("xp-schedule", str(repo))
+            scrub_close_cycle_marker(smm_dir)
+
+        self.assertIsNotNone(injected, "the handler delivered nothing at all")
+        assert injected is not None
+        self.assertEqual(
+            injected,
+            instruction_stdout.decode("utf-8"),
+            "injected state differs from what the instruction-time path "
+            "delivered — the mechanism swap changed the CONTENT, which is the "
+            "one thing it must not do",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

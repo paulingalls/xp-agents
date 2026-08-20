@@ -265,8 +265,13 @@ class TestGitPrefixSharedRegex(unittest.TestCase):
         self.assertTrue(re.search(pattern, "git add scripts/x.py"))
 
     def test_git_dash_C_commit_dash_a_matches(self):
-        pattern = git_commits.GIT_PREFIX + r"commit\s+-a"
-        self.assertTrue(re.search(pattern, "git -C /repo commit -am 'msg'"))
+        """The `commit -a` half no longer has a pattern of its own here — it
+        goes through `stages_all_tracked_changes`, which owns every spelling of
+        "stages everything" for both this leg and the ghost filter. A second
+        hand-rolled `commit\\s+-a` was what missed `commit -q -a`."""
+        self.assertTrue(
+            git_commits.stages_all_tracked_changes("git -C /repo commit -am 'msg'")
+        )
 
     def test_git_status_does_not_match_add(self):
         pattern = git_commits.GIT_PREFIX + r"add\b"

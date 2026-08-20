@@ -80,14 +80,17 @@ See PROCESS_GUIDE.md for event types, required fields, and common patterns.
 
 ## Testing
 
-All tests run on every **push** via lefthook; the commit gate is lint, format, types and the test files you staged (the whole suite measured 432s, too slow to pay per increment, and pushing happens at every story close). Both gates exist only once `make setup` has installed the hooks; a clone that skips it commits and pushes ungated, silently. Leaky env vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `SMM_DIR`, `XP_TEAMMATE_NAME`, `CLAUDE_CODE_SESSION_ID`, and more) stripped via `env -u` in lefthook.yml and at import time in `tests/_env_hygiene.py` — that module's `STRIPPED_VARS` is the single registry of the strip list, and every `env -u` run in lefthook.yml must strip all of it. Don't hand-check that: `tests/test_env_strip_mirror.py` discovers the `env -u` runs by scanning lefthook.yml and fails if any omits a registry entry. The rule is containment, NOT set equality — lefthook additionally strips `XP_SESSION_ID`, which the registry deliberately does not (it *pins* the session id rather than stripping it), so each lefthook-only strip is declared with its reason in that pin, and a declaration lefthook has stopped honouring fails the same test. The teammate var matters because the SessionStart hook reads it to choose the teammate guide; without stripping, integration tests assert against the wrong guide and every teammate's gated run fails.
+All tests run on every **push** via lefthook; the commit gate is lint, format, types and the test files you staged (the whole suite measured up to 590s (9946 tests, this machine), too slow to pay per increment, and pushing happens at every story close). Both gates exist only once `make setup` has installed the hooks; a clone that skips it commits and pushes ungated, silently. Leaky env vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `SMM_DIR`, `XP_TEAMMATE_NAME`, `CLAUDE_CODE_SESSION_ID`, and more) stripped via `env -u` in lefthook.yml and at import time in `tests/_env_hygiene.py` — that module's `STRIPPED_VARS` is the single registry of the strip list, and every `env -u` run in lefthook.yml must strip all of it. Don't hand-check that: `tests/test_env_strip_mirror.py` discovers the `env -u` runs by scanning lefthook.yml and fails if any omits a registry entry. The rule is containment, NOT set equality — lefthook additionally strips `XP_SESSION_ID`, which the registry deliberately does not (it *pins* the session id rather than stripping it), so each lefthook-only strip is declared with its reason in that pin, and a declaration lefthook has stopped honouring fails the same test. The teammate var matters because the SessionStart hook reads it to choose the teammate guide; without stripping, integration tests assert against the wrong guide and every teammate's gated run fails.
 
 **Setup** (one-time): `make setup` — verifies `pytest -n auto` and `node --test` work, and installs the lefthook hooks. See README "Development setup" for details and the manual equivalents. Node is dev-only: it runs the JS suite over `plugins/xp-agents/workflows/`, driven from pytest so a missing node fails loudly instead of skipping.
 
 ```bash
-# Run everything in parallel (432s / 9188 tests measured 2026-08-08 on a
-# 16-core machine running endpoint AV that taxes every file access; a box
-# without it is much faster — treat this as an upper bound, not a spec):
+# Run everything in parallel. Re-measured 2026-08-16, `-n auto` across 16
+# cores: 590s (9946 tests, this machine) cold, 276s (9946 tests, this machine)
+# on a warm re-run minutes later. Treat the high end as the number — the spread
+# is this box's endpoint AV rescanning what the previous run touched, and a box
+# without it is faster still. lefthook.yml holds the canonical statement of
+# these figures; keep the two in step, or quote neither:
 pytest -n auto
 # Run a single file:
 pytest plugins/xp-agents/tests/hooks/test_session_start_core.py
@@ -118,7 +121,7 @@ Seven suites: `tests/hooks/` (unit), `tests/integration/` (subprocess pipeline),
 - Python 3.11+, stdlib only, zero dependencies
 - Four-file architecture: events.jsonl + system_context.json + execution_plan.json + sprint.json (all JSON with schema validation and CLI; reversed three-file decision — product_spec was too monolithic for change-request workflows)
 - Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
-- Most skills run inline; exactly three carry `context: fork` (`/xp-review-plan`, `/xp-sprint-review`, `/xp-system-context`). The close skills are inline and *spawn* a reviewer rather than being forked themselves
+- Every skill runs inline; none carries `context: fork` (story-013 converted the last three — `/xp-review-plan`, `/xp-sprint-review`, `/xp-system-context` — because hook-side preload injection cannot cross a fork boundary). A delegating skill *spawns* its subagent with the Agent tool rather than being forked itself
 - Teammates detected by `is_worktree_teammate()` — two legs: the cwd `worktree-story-` path segment (location-independent; worktrees live out of the repo, a sibling of the SMM dir), plus an in-place leg keyed on `XP_TEAMMATE_NAME` and guarded on a live `.in-place-active-*` marker, which is what catches solo-delegation teammates running in the main checkout
 - `/xp-assign`'s preload computes the teammate batch and tier vars deterministically; the domain analysis on top of it is LLM judgment
 - Commit-gated review cycle (not stop-gated) — enforced at commit time via PreToolUse:Bash, which blocks on `/xp-quality-review` alone at 2+ changed code files. See PROCESS_GUIDE.md §When to Run XP Skills for the cadence split

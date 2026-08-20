@@ -11,8 +11,6 @@ allowed-tools:
   - AskUserQuestion
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
-
 # Work Selection
 
 > **Sequential discipline.** Run Step 1 → 2 → 3 → 4 → 5 strictly, one step per

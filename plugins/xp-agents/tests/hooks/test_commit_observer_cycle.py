@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""What a commit the observer records does to the review cycle — and what a
+commit it FAILED to record must not do.
+
+Split from `test_commit_observer.py` when that file reached its recorded
+sub-cap. Cohesive rather than arbitrary: every row here is about the three
+review records (flags, watermark, coverage) that `end_review_cycle` moves
+together, and the two ways the observer can be wrong about them — resetting for
+the wrong commit in the range, or resetting for one the event log never took.
+"""
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+import _common
+import commit_observer_history
+import pre_tool_bash_commit_gates
+import review_records
+from _observer_case import ORDINARY_BASH, _ObserverCase
+from commit_observer_state import OWED_RESET_FIELD
+
+
+class TestReviewCycle(_ObserverCase):
+    """A commit event recorded without a cycle reset leaves the previous
+    cycle's quality-review flag latched, so the NEXT commit's gate reads
+    satisfied off a review that predates this commit. Same hazard, and same
+    fix, as `rebuild_at_head` documents."""
+
+    def test_the_reset_is_keyed_to_the_newest_commit_recorded(self):
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        self.seed_observer()
+        self.commit("feat: one", path="src/a.py")
+        newest = self.commit("feat: two", path="src/b.py")
+        self.observe()
+        flags = review_records.read_review_flags(self.smm_dir, "main")
+        self.assertFalse(flags["quality_review_done"])
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), newest
+        )
+
+    def test_a_commit_recorded_ahead_of_this_one_keeps_the_watermark_there(self):
+        """The backgrounded case, one commit later. A foreground commit that
+        ALREADY reset the cycle sits at the top of the same range, so keying the
+        reset to what this observer happened to record walks the watermark back
+        to the older hash and clears the review that ran in between."""
+        self.seed_observer()
+        older = self.commit("feat: backgrounded", path="src/a.py")
+        newest = self.commit("feat: foreground", path="src/b.py")
+        # What `_handle_commit` already did for the foreground commit.
+        self.record_commit_event(newest)
+        review_records.write_review_watermark(self.smm_dir, "main", newest)
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+
+        self.observe()
+
+        self.assertIn(older, self.recorded_hashes())
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), newest
+        )
+        self.assertTrue(
+            review_records.read_review_flags(self.smm_dir, "main")[
+                "quality_review_done"
+            ]
+        )
+
+    def test_recording_nothing_leaves_the_cycle_alone(self):
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        self.seed_observer()
+        self.observe()
+        self.assertTrue(
+            review_records.read_review_flags(self.smm_dir, "main")[
+                "quality_review_done"
+            ]
+        )
+
+    def test_a_leaked_xp_agent_type_records_but_does_not_reset(self):
+        """Mirrors both other commit paths: the commit event always lands, and
+        only the state mutations are gated on the identity being wrong."""
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        self.run_hook(ORDINARY_BASH, agent_type="xp-leaked")
+        self.commit("feat: x")
+        self.run_hook(ORDINARY_BASH, agent_type="xp-leaked")
+        self.assertEqual(len(self.commit_events()), 1)
+        self.assertTrue(
+            review_records.read_review_flags(self.smm_dir, "main")[
+                "quality_review_done"
+            ]
+        )
+
+
+class _GateCase(_ObserverCase):
+    """An observer case that can also ask the REAL commit gate a question.
+
+    Every class below asserts the same consequence — that the next
+    2+-code-file commit does not pass on a review predating it — because that
+    is what a lost reset costs. A marker's value is not that assertion: it
+    passes against a fix that leaves the gate broken.
+    """
+
+    def _stage_two_code_files(self) -> None:
+        for name in ("src/one.py", "src/two.py"):
+            target = self.repo / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("x = 1\n")
+        self.git("add", "-A")
+
+    def _run_the_commit_gate(self) -> list[str]:
+        """The real gate over the real index.
+
+        `_HookTestCase` auto-mocks `commits.get_staged_diff` to "" for every
+        hook test, and an empty staged diff is a gate that counts no code files
+        and so blocks nothing — the assertions below would pass against any
+        implementation, including none. Stopped for the call and restarted
+        whichever way it returns, since a block is a raise.
+        """
+        self._staged_diff_patch.stop()
+        try:
+            return pre_tool_bash_commit_gates.commit_gate_parts(
+                self.smm_dir, "git commit -m x", str(self.repo)
+            )
+        finally:
+            self._staged_diff_patch.start()
+
+
+class TestALeakedIdentityStillOwesTheReset(_GateCase):
+    """Skipping the reset under a leaked `xp-` identity is deliberate. The
+    marker advancing PAST the skip is not: the range never comes back, so the
+    reset is lost permanently rather than deferred.
+
+    Asserted as the CONSEQUENCE the reset exists to produce, not as a marker
+    value. `quality_review_done` left latched means the next 2+-code-file
+    commit reads the gate satisfied off a review that predates the commit and
+    ships unreviewed — a test that only read a marker would pass against a fix
+    that left exactly that hole open.
+    """
+
+    def _observe_under_a_leak(self) -> None:
+        """The defect's setup: a commit recorded while the identity was wrong."""
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        self.seed_observer()
+        self.commit("feat: recorded under a leak", path="src/a.py")
+        self.run_hook(ORDINARY_BASH, agent_type="xp-leaked")
+
+    def test_the_next_two_file_commit_does_not_pass_on_the_stale_review(self):
+        self._observe_under_a_leak()
+        self.observe()
+        self._stage_two_code_files()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run_the_commit_gate()
+
+    def test_the_owed_reset_waits_for_an_identity_allowed_to_apply_it(self):
+        """Another leaked Bash may not settle it either — that is the same
+        wrong identity mutating the same cycle state, one call later."""
+        self._observe_under_a_leak()
+        self.run_hook(ORDINARY_BASH, agent_type="xp-leaked")
+
+        self.assertTrue(
+            review_records.read_review_flags(self.smm_dir, "main")[
+                "quality_review_done"
+            ]
+        )
+
+    def test_settling_it_once_does_not_clear_a_review_that_ran_after(self):
+        """Idempotence, stated as the harm it prevents: a second settle would
+        clear the flags a review set in between and demand a re-review that
+        nothing asked for."""
+        self._observe_under_a_leak()
+        self.observe()
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+
+        self.observe()
+
+        self.assertTrue(
+            review_records.read_review_flags(self.smm_dir, "main")[
+                "quality_review_done"
+            ]
+        )
+
+    def test_an_owed_reset_outlives_an_observation_with_nothing_to_record(self):
+        """The marker advances on every HEAD move, including one whose commits
+        another path already recorded. Letting that walk REPLACE the owed hash
+        loses it exactly as the un-deferred skip did: nothing pending, nothing
+        owed, and the latch stays set for good."""
+        self._observe_under_a_leak()
+        later = self.commit("feat: recorded by the commit path", path="src/b.py")
+        self.record_commit_event(later)
+        self.run_hook(ORDINARY_BASH, agent_type="xp-leaked")
+
+        self.observe()
+        self._stage_two_code_files()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run_the_commit_gate()
+
+    def test_an_owed_hash_the_watermark_is_already_past_is_not_applied(self):
+        """Walking the watermark BACKWARDS is the defect `86d4d129` fixed
+        earlier this sprint. An owed reset must not reintroduce it by a new
+        door, so it applies only to a DESCENDANT of the current watermark."""
+        self._observe_under_a_leak()
+        ahead = self.commit("feat: reviewed since", path="src/b.py")
+        review_records.write_review_watermark(self.smm_dir, "main", ahead)
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+
+        self.observe()
+
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), ahead
+        )
+        self.assertTrue(
+            review_records.read_review_flags(self.smm_dir, "main")[
+                "quality_review_done"
+            ]
+        )
+
+    def test_an_owed_hash_no_longer_in_the_repo_is_dropped_with_a_trace(self):
+        """Kept, it wedges the marker forever AND leaves the latch defect live.
+        Dropped silently, the unreviewed commit is the one thing nobody hears
+        about — so it goes, and says so."""
+        self._observe_under_a_leak()
+        review_records.write_review_watermark(
+            self.smm_dir, "main", self.git("rev-parse", "HEAD~1")
+        )
+        # Reset alone leaves the object in place and perfectly resolvable; the
+        # reflog expiry and prune are what make git genuinely unable to answer,
+        # which is the state being tested.
+        self.git("reset", "-q", "--hard", "HEAD~1")
+        self.git("reflog", "expire", "--expire=now", "--all")
+        self.git("gc", "-q", "--prune=now")
+
+        self.observe()
+
+        self.assertTrue(
+            any("owed" in c["content"].lower() for c in self.concerns()),
+            "an owed reset dropped without a trace is a silent loss",
+        )
+        self.observe()
+        self.assertEqual(
+            len([c for c in self.concerns() if "owed" in c["content"].lower()]),
+            1,
+            "a dropped owed reset must not re-file its trace on every Bash",
+        )
+
+
+class TestADeclinedRewriteAlsoOwesItsReset(_GateCase):
+    """A rewrite decline reaches the SAME defect by a second route.
+
+    The marker still advances on a decline (advance on DECLINE, never on
+    RAISE), so `_end_cycle_for_the_range` never runs for that range —
+    `quality_review_done` stays latched exactly as it did after a leak, and the
+    next 2+-code-file commit passes on a review that predates the rewritten
+    work. Closing that door is part of the decline, not a follow-up.
+    """
+
+    def test_the_next_two_file_commit_does_not_pass_after_a_declined_rewrite(self):
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        self.seed_observer()
+        base = self.head()
+        self.commit("feat: original", path="src/a.py")
+        self.reword_rebase(base, "feat: reworded\n")
+
+        self.observe()
+        self._stage_two_code_files()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run_the_commit_gate()
+
+    def test_the_reset_is_owed_to_head_not_to_a_rewritten_hash(self):
+        """Owed to the hash the range was declined AT. Any commit inside the
+        range is one this observer just refused to record, so resetting to it
+        would point the gate's `{sha}..HEAD` diff at a commit with no event."""
+        self.seed_observer()
+        base = self.head()
+        self.commit("feat: original", path="src/a.py")
+        self.reword_rebase(base, "feat: reworded\n")
+        head = self.head()
+
+        # ONE observation. The declining call settles the reset it owes when
+        # the identity may apply it: the next thing after a rebase is routinely
+        # the commit whose gate must not read satisfied off the stale review,
+        # and a second Bash is not guaranteed to arrive before it.
+        self.observe()
+
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), head
+        )
+
+
+class TestAWatermarkTheRebaseLeftBehindStillGetsItsReset(_GateCase):
+    """The state the owed reset was invented for, and the one it was losing.
+
+    A review's cycle-ending commit leaves a watermark and a set
+    `quality_review_done`. The developer then rebases: the watermark is still
+    RESOLVABLE — the object survives in the reflog — but it is no longer an
+    ancestor of HEAD, so `is_ancestor(watermark, owed)` answers a flat False.
+
+    That False was read as "the watermark is already past this hash" and the
+    reset was discarded, with nothing applied and nothing filed. Two histories
+    that DIVERGED answer False as well, and there the owed hash is the newer
+    work: the reverse question is what tells them apart, and asking it is the
+    difference between the latch being cleared and the next 2+-code-file commit
+    passing on a review that predates a rebase.
+    """
+
+    def _a_review_then_a_rebase(self) -> None:
+        review_records.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        self.seed_observer()
+        base = self.head()
+        reviewed = self.commit("feat: original", path="src/a.py")
+        # What the review's own cycle-ending commit left behind.
+        review_records.write_review_watermark(self.smm_dir, "main", reviewed)
+        self.reword_rebase(base, "feat: reworded\n")
+
+    def test_the_watermark_is_still_resolvable_but_no_longer_an_ancestor(self):
+        """The premise, asked of git: this is the diverged case and not the
+        pruned one the sibling drop path is for."""
+        self._a_review_then_a_rebase()
+        watermark = review_records.read_review_watermark(self.smm_dir, "main")
+
+        self.assertEqual(
+            self.git("rev-parse", "--verify", f"{watermark}^{{commit}}"), watermark
+        )
+        self.assertIsNot(
+            commit_observer_history.is_ancestor(str(self.repo), watermark, self.head()),
+            None,
+            "git can still place both hashes, so this is divergence, not a prune",
+        )
+
+    def test_the_next_two_file_commit_does_not_pass_on_the_pre_rebase_review(self):
+        self._a_review_then_a_rebase()
+
+        self.observe()
+        self._stage_two_code_files()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run_the_commit_gate()
+
+    def test_the_reset_lands_on_head_rather_than_being_discarded(self):
+        self._a_review_then_a_rebase()
+        head = self.head()
+
+        self.observe()
+
+        self.assertEqual(
+            review_records.read_review_watermark(self.smm_dir, "main"), head
+        )
+        self.assertNotIn(
+            OWED_RESET_FIELD,
+            self.marker() or {},
+            "an applied reset must not stay owed",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

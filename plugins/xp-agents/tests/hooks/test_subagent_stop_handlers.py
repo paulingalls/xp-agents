@@ -177,8 +177,15 @@ class TestPlanReviewerDone(_HookTestCase):
         )
 
     def test_solo_leaves_no_marker_but_records_completion(self):
-        """Solo-mode plan review: no marker, no gate event, returns None — but
-        the reviewer's subagent_complete is still recorded."""
+        """Solo-mode plan review: no marker, no assign_pending gate event,
+        returns None — but the reviewer's subagent_complete AND a
+        plan_reviewed completion record are both still recorded.
+
+        plan_reviewed is a completion record, not a gate: /xp-review-plan
+        converted from a forked skill (story-013), so this SubagentStop leg
+        is now the sole producer for BOTH solo and teammate plans, same as
+        quality_review_done never being gated on execution mode.
+        """
         self._write_sprint(execution_mode="solo")
         result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
@@ -189,6 +196,8 @@ class TestPlanReviewerDone(_HookTestCase):
         )
         sc = [e for e in statuses if event_action(e) == STATUS_ACTION_SUBAGENT_COMPLETE]
         self.assertEqual(len(sc), 1)
+        pr = [e for e in statuses if event_action(e) == STATUS_ACTION_PLAN_REVIEWED]
+        self.assertEqual(len(pr), 1)
 
     def test_unset_execution_mode_leaves_no_marker(self):
         """An in-progress story with no execution_mode is treated as non-teammate."""

@@ -51,6 +51,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import lead_gates
+import markers
 import pre_tool_write
 import worktree
 from _lead_gate_fixtures import (
@@ -198,6 +199,32 @@ class TestAssignGateIsStateDerived(_AssignGateTestCase):
         self._arm(SPRINT_SOLO_IN_PROGRESS)
         with self._spawned():
             self._assert_allows(_lead_write())
+
+    def test_teammate_support_off_does_not_block(self):
+        """The demanded act became impossible, so the gate must go quiet.
+
+        With teammate support off there is no spawn to make: /xp-assign's first
+        branch exits without one. Read at the predicate rather than only through
+        the discharge, because placement is part of the contract — the check sits
+        AFTER the promoted/scope early returns and BEFORE the `git worktree list`
+        subprocess, so it can only save that call, never add a marker read to a
+        write that never reached git.
+        """
+        self._arm(SPRINT_TEAMMATE_IN_PROGRESS)
+        markers.write_teammate_config(self.smm_dir, "off")
+        with self._spawned():
+            self._assert_allows(_lead_write())
+
+    def test_an_unreadable_teammate_config_still_blocks(self):
+        """`read_teammate_config` fail-safes to enabled, and the gate must inherit
+        that direction: only an EXPLICIT off clears. A corrupt marker read as off
+        would eat the arm and leave a real batch un-assigned."""
+        self._arm(SPRINT_TEAMMATE_IN_PROGRESS)
+        markers.marker_path(self.smm_dir, markers.TEAMMATE_CONFIG).write_text(
+            "{not json"
+        )
+        with self._spawned():
+            self._assert_blocks(_lead_write())
 
     def test_no_sprint_does_not_block(self):
         """No sprint at all — the marker cannot possibly be actionable."""

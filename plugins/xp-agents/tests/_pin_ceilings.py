@@ -48,7 +48,9 @@ BAND_CEILINGS = {
     # room for another helper: the next addition here takes an extraction, as
     # the three before it did (_preload_emit, _preload_diff and
     # _preload_liveness all came out of this file).
-    "plugins/xp-agents/skills/_preload_base.sh": 483,
+    # 483 -> 482 (story-009): the liveness source line and its rationale left
+    # with the fragment they named. Banked rather than left as slack.
+    "plugins/xp-agents/skills/_preload_base.sh": 482,
     # 447 -> 484, crossing the 450 floor: three execution tests for the `.js`
     # branch of the staged-tests gate. Its only coverage was a regex over the
     # glob line, which is exactly what this file's own harness exists to
@@ -136,6 +138,13 @@ BAND_CEILINGS = {
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,
     # Entered the band with the caller's REFUSED_UNMERGED note.
     "plugins/xp-agents/scripts/worktree.py": 452,
+    # NOT ENTERED (story-011): markers.py briefly reached 453 with the exclusive
+    # claim in it, and took a ceiling here before its own sub-cap pin was
+    # consulted. That pin (test_session_markers.TestMarkersSplit) holds the
+    # module to 450 and says to extract rather than to record — so the claim
+    # moved to scripts/marker_claim.py and the file is back at 388. A ceiling
+    # entry here would have quietly overridden a stricter rule that already
+    # existed.
     # Entered the band with `also_changed` on untouched_verify_paths: the
     # keyword-only parameter, the union, and the one sentence naming who may
     # pass it. The walk itself is unchanged, so this is the parameter's cost
@@ -154,6 +163,13 @@ BAND_CEILINGS = {
     # goes rather than sitting dormant — kept at 474 it would hand back all 181
     # lines the split just won, which is the manual step this table's docstring
     # says nothing enforces.
+    # NOT ENTERED: test_budget_measurement.py crossed 450 (446 -> 461) when both
+    # band proofs stopped measuring their surface by a second bootstrap and
+    # started reading the assert's own number, and took a ceiling here. But that
+    # change left `_measure_emitter`/`_measure_preload` with no callers at all;
+    # deleting the dead pair put the file at 421, back under the floor. A ceiling
+    # recorded over dead code would have made the file's growth room its reward
+    # for keeping it.
     "plugins/xp-agents/tests/hooks/test_housekeeping_stop_gate.py": 495,
     "plugins/xp-agents/tests/integration/test_branching_delete.py": 494,
     "plugins/xp-agents/tests/hooks/test_branch_lifecycle.py": 494,
@@ -171,7 +187,10 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_spawn_teammate.py": 488,
     "plugins/xp-agents/tests/engine/test_compact.py": 488,
     "plugins/xp-agents/tests/smm/test_smm_store.py": 487,
-    "plugins/xp-agents/tests/hooks/test_commits_issues.py": 486,
+    # RETIRED (story-016): test_commits_issues.py 495->359. The two
+    # uncommitted-state classes moved to test_worktree_state.py beside the
+    # module they now test. Below the 450 floor, so the entry is deleted
+    # rather than lowered.
     "plugins/xp-agents/tests/hooks/test_lang_leak_scan.py": 486,
     "plugins/xp-agents/tests/smm/test_session_history.py": 484,
     "plugins/xp-agents/tests/hooks/test_lint_config_style_flags.py": 483,
@@ -255,13 +274,49 @@ BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_retrospective_signals.py": 455,
     "plugins/xp-agents/tests/scaffold/test_scaffold_plan.py": 455,
     "plugins/xp-agents/tests/engine/test_file_domain_lock.py": 454,
+    # NOT ENTERED (story-011): test_preload_injection.py reached 483 with both
+    # of the handler's legs in it, and took a ceiling here in the same breath
+    # as naming the split that would avoid one. The shell-read family (identity
+    # from the command, plus the claim/mention interaction) moved to
+    # tests/hooks/test_preload_injection_shell_read.py — it shared no fixture
+    # with the execution and heartbeat classes — leaving both files well under
+    # the 450 floor. A band entry taken on a file's first day is the shape the
+    # file-size convention names as recurring debt.
+    # ENTERED ANYWAY at the sprint-007 close review, 447 -> 473: the two rows
+    # are that a preload which RAN and failed leaves a trace — non-zero exit, or
+    # wedged past the bound — and they belong beside the execution classes whose
+    # fixture they reuse, which is the split above's own criterion. The note
+    # above stands as the warning it was: the next addition here takes the split
+    # it names, the heartbeat family, which shares no fixture with either half.
+    "plugins/xp-agents/tests/hooks/test_preload_injection.py": 473,
+    # 447 -> 482 across sprint-007, and the growth is the POINT of this file:
+    # every entry is a measured number plus the reason its file's prose grew,
+    # and this sprint re-recorded nine of them. It cannot be split by subject —
+    # it is one table keyed by path, and a second table is a second place to
+    # look for a file's ceiling. What it can lose is history: entries whose
+    # files have since been rewritten carry rationale for numbers no longer in
+    # the table, and the changelog holds that. Nothing else here is spendable.
+    "plugins/xp-agents/tests/_prose_baseline.py": 482,
+    # Entered the band with the derived variant's path-existence pin
+    # (story-011): the source's own check covers hooks.json only, so a hook
+    # authored straight into the variant could name a script that does not
+    # exist — which one did. This file has already been split twice for size;
+    # the cohesive group to extract next is the M-2 close-skill step-ordering
+    # pins, which share `_assert_text_ordering` and touch no manifest at all.
+    "plugins/xp-agents/tests/hooks/test_plugin_integrity_structure_and_close.py": 454,
     "plugins/xp-agents/tests/hooks/test_close_common_verify_gate.py": 453,
     # 452 -> 459 when the merged-range tests retargeted from `merged_range_bodies`
     # (deleted — the third emitter's convergence left it callerless) onto the
     # per-commit reader. The +7 buys two assertions the blob-returning helper could
     # not express: the incoming COUNT, and that the merge commit itself is filtered
     # out of its own range. Trimmed the prose first; the remainder is assertions.
-    "plugins/xp-agents/tests/hooks/test_commits_git_helpers.py": 459,
+    # 459 -> 489 at the sprint-007 close review, for the import-cycle row: the
+    # pair `merged_range`/`commits` raised ImportError whichever way round a
+    # future hook imported them, and it survived only on collection order. The
+    # row imports each first in a subprocess, so it cannot be greened by the
+    # order this suite happens to run in. 11 lines to the cap: what goes next is
+    # the merged-range group itself, which shares only `self.repo` with the rest.
+    "plugins/xp-agents/tests/hooks/test_commits_git_helpers.py": 489,
     # 452 -> 472 for the trailing-newline pins on the agent-id allowlist (`$`
     # matched before a final newline; `\Z` does not). The file sat at exactly
     # its own ceiling, and the cheapest way to stay under it was to put the

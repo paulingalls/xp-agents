@@ -33,7 +33,9 @@ class TestBashPostToolGreenNudge(_HookTestCase):
 
     def test_green_with_uncommitted_code_returns_nudge(self):
         """All tests pass + uncommitted code files -> nudge string returned."""
-        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+        with patch(
+            "worktree_state.get_uncommitted_code_files", return_value=["src/app.py"]
+        ):
             result = bash_post_tool.run(
                 _make_bash_input(
                     command="python3 -m pytest tests/",
@@ -46,7 +48,7 @@ class TestBashPostToolGreenNudge(_HookTestCase):
 
     def test_green_no_uncommitted_code_no_nudge(self):
         """All tests pass but no uncommitted code files -> no nudge."""
-        with patch("commits.get_uncommitted_code_files", return_value=[]):
+        with patch("worktree_state.get_uncommitted_code_files", return_value=[]):
             result = bash_post_tool.run(
                 _make_bash_input(
                     command="python3 -m pytest tests/",
@@ -65,7 +67,9 @@ class TestBashPostToolGreenNudge(_HookTestCase):
         )
         _common.append_safe(self.smm_dir, concern)
 
-        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+        with patch(
+            "worktree_state.get_uncommitted_code_files", return_value=["src/app.py"]
+        ):
             result = bash_post_tool.run(
                 _make_bash_input(
                     command="python3 -m pytest tests/",
@@ -79,7 +83,9 @@ class TestBashPostToolGreenNudge(_HookTestCase):
 
     def test_red_no_nudge(self):
         """Failing tests -> no nudge (even with uncommitted code)."""
-        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+        with patch(
+            "worktree_state.get_uncommitted_code_files", return_value=["src/app.py"]
+        ):
             result = bash_post_tool.run(
                 _make_bash_input(
                     command="python3 -m pytest tests/",
@@ -105,7 +111,9 @@ class TestBashPostToolGreenNudge(_HookTestCase):
         """story-009: under story cadence, committing does not trigger
         /xp-quality-review — the nudge must not promise otherwise."""
         markers.write_review_cadence(self.smm_dir, "story")
-        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+        with patch(
+            "worktree_state.get_uncommitted_code_files", return_value=["src/app.py"]
+        ):
             result = bash_post_tool.run(
                 _make_bash_input(
                     command="python3 -m pytest tests/",
@@ -122,7 +130,9 @@ class TestBashPostToolGreenNudge(_HookTestCase):
     def test_commit_cadence_green_with_uncommitted_code_nudge_verbatim(self):
         """Characterization: commit cadence keeps the exact existing text."""
         markers.write_review_cadence(self.smm_dir, "commit")
-        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+        with patch(
+            "worktree_state.get_uncommitted_code_files", return_value=["src/app.py"]
+        ):
             result = bash_post_tool.run(
                 _make_bash_input(
                     command="python3 -m pytest tests/",
@@ -134,7 +144,9 @@ class TestBashPostToolGreenNudge(_HookTestCase):
 
     def test_zero_passed_zero_failed_no_nudge(self):
         """Ambiguous output (0 passed, 0 failed) -> no nudge."""
-        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+        with patch(
+            "worktree_state.get_uncommitted_code_files", return_value=["src/app.py"]
+        ):
             result = bash_post_tool.run(
                 _make_bash_input(
                     command="python3 -m pytest tests/",
@@ -155,8 +167,10 @@ class TestBashPostToolTddRedConcernGate(_HookTestCase):
     def test_deliberate_red_step_suppresses_regression_concern(self):
         """AC1: uncommitted test file, no impl code in flight, failed>0."""
         with (
-            patch("commits.get_uncommitted_files", return_value=["tests/test_x.py"]),
-            patch("commits.get_uncommitted_code_files", return_value=[]),
+            patch(
+                "worktree_state.get_uncommitted_files", return_value=["tests/test_x.py"]
+            ),
+            patch("worktree_state.get_uncommitted_code_files", return_value=[]),
         ):
             bash_post_tool.run(
                 _make_bash_input(
@@ -171,8 +185,10 @@ class TestBashPostToolTddRedConcernGate(_HookTestCase):
     def test_non_red_failure_still_appends_concern(self):
         """AC2: failure with no test-layer edits pending is a real regression."""
         with (
-            patch("commits.get_uncommitted_files", return_value=["src/app.py"]),
-            patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]),
+            patch("worktree_state.get_uncommitted_files", return_value=["src/app.py"]),
+            patch(
+                "worktree_state.get_uncommitted_code_files", return_value=["src/app.py"]
+            ),
         ):
             bash_post_tool.run(
                 _make_bash_input(
@@ -189,8 +205,10 @@ class TestBashPostToolTddRedConcernGate(_HookTestCase):
         """Suppressing the concern must not hide the failure itself — the
         STATUS test_run_complete event stays honest."""
         with (
-            patch("commits.get_uncommitted_files", return_value=["tests/test_x.py"]),
-            patch("commits.get_uncommitted_code_files", return_value=[]),
+            patch(
+                "worktree_state.get_uncommitted_files", return_value=["tests/test_x.py"]
+            ),
+            patch("worktree_state.get_uncommitted_code_files", return_value=[]),
         ):
             bash_post_tool.run(
                 _make_bash_input(
@@ -208,8 +226,8 @@ class TestBashPostToolTddRedConcernGate(_HookTestCase):
     def test_test_run_complete_carries_suite_size(self):
         """AC4: a 1-test scoped run is distinguishable from a full-suite run."""
         with (
-            patch("commits.get_uncommitted_files", return_value=[]),
-            patch("commits.get_uncommitted_code_files", return_value=[]),
+            patch("worktree_state.get_uncommitted_files", return_value=[]),
+            patch("worktree_state.get_uncommitted_code_files", return_value=[]),
         ):
             bash_post_tool.run(
                 _make_bash_input(
@@ -240,8 +258,10 @@ class TestBashPostToolTddRedConcernGate(_HookTestCase):
             ]
         )
         with (
-            patch("commits.get_uncommitted_files", return_value=["src/app.py"]),
-            patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]),
+            patch("worktree_state.get_uncommitted_files", return_value=["src/app.py"]),
+            patch(
+                "worktree_state.get_uncommitted_code_files", return_value=["src/app.py"]
+            ),
         ):
             bash_post_tool.run(
                 _make_bash_input(

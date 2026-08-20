@@ -84,14 +84,12 @@ def band_offender(name: str, actual: int, budget: int) -> str | None:
     return f"{name}: {actual} chars, {pct}"
 
 
-# A preload/emitter echoes absolute paths (e.g. CLAUDE_PLUGIN_ROOT). When the
-# suite runs from a worktree (lefthook pre-commit), those paths carry an extra
-# "/.claude/worktrees/<dir>" segment (~40 chars) that inflates the char count
-# purely by checkout location. Budgets are calibrated against the main checkout,
-# so strip that segment before measuring (concern 464de40cd905). Match any
-# worktree dir name — not just the "worktree-story-*" prefix — so the
-# normalization holds for every checkout layout under .claude/worktrees/.
-_WORKTREE_SEGMENT_RE = re.compile(r"/\.claude/worktrees/[^/]+")
+# A preload/emitter echoes absolute paths. From a worktree those carry an extra
+# worktrees segment that inflates the count purely by checkout location; budgets
+# are calibrated against the main checkout, so strip it (concern 464de40cd905).
+# Legacy `.claude/` prefix optional: this was `.claude/`-only while worktrees
+# moved to the data root in v5.0.0, so it matched nothing for that whole span.
+_WORKTREE_SEGMENT_RE = re.compile(r"/(?:\.claude/)?worktrees/[^/]+")
 
 
 def _measured_len(stdout_bytes: bytes, normalize_paths: tuple[str, ...] = ()) -> int:
@@ -295,7 +293,9 @@ def assert_emitter_under_budgets(
             if rc != 0:
                 offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
                 continue
-            actual = _measured_len(stdout_bytes)
+            # As the preload sibling does, or the BASE checkout path leaks in.
+            norm = (str(_PLUGIN_ROOT), str(smm_dir), str(repo))
+            actual = _measured_len(stdout_bytes, normalize_paths=norm)
             offender = band_offender(name, actual, budget)
             if offender:
                 offenders.append(offender)

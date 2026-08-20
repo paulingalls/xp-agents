@@ -10,12 +10,9 @@ allowed-tools:
   - Glob
   - AskUserQuestion
   - Bash(*/init.sh)
-  - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/worktree_differential.py *)
   - Bash(python3 */smm/system_context_cli.py *)
 ---
-
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
 # Scaffold Worktree Bootstrap
 
@@ -32,7 +29,7 @@ real repositories, both exited 0, and one fixed nothing at all.
 
 ## Step 0: The values every command below carries
 
-`<SMM_DIR>`, `<REPO_ROOT>` and `<TEST_COMMAND>` come from the preload above —
+`<SMM_DIR>`, `<REPO_ROOT>` and `<TEST_COMMAND>` come from the injected preload state —
 **substitute each literally.** A shell variable assigned in one Bash call is
 gone by the next, so an unsubstituted flag arrives empty.
 

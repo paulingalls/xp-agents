@@ -9,7 +9,6 @@ allowed-tools:
   - Bash
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
-  - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/branching.py *)
   - Bash(python3 */scripts/close_common.py *)
   - Bash(python3 */smm/sprint_cli.py *)
@@ -18,8 +17,6 @@ allowed-tools:
   - Bash(gh pr *)
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
-
 # Story Close
 
 > **Sequential discipline.** Run Step 1 → 1b → 1c → 2 → 3 → 4.5 → 5–6 → 7 → 7b
@@ -27,7 +24,7 @@ allowed-tools:
 > with one that depends on it, and never spawn the same subagent twice;
 > independent read-only calls may batch.
 
-The preload above surfaces `SMM_DIR`, `TEAMMATE_CWD`, `CURRENT_BRANCH`,
+The injected preload state names `SMM_DIR`, `TEAMMATE_CWD`, `CURRENT_BRANCH`,
 `TARGET_BRANCH`, `STORY_BASE_UNRESOLVED`, `GH_AVAILABLE`, `WORKTREE_CLEAN`.
 `TARGET_BRANCH` is the merge destination — the sprint branch at stage 2+,
 primary otherwise. Shared pipeline lives in

@@ -23,6 +23,15 @@ one at all, so behaviour is this module's alone to cover.
 Also measured: `node --test <dir>` FAILS on this version (it tries to load the
 directory as a module), so the invocation is a glob and the glob is what the
 floor protects.
+
+THE REPORTER IS PINNED, for the same reason the floor exists. Node chooses one
+by version and by whether stdout is a TTY: 22 gave TAP (`# pass N`) down a pipe,
+26 gives `spec`, whose count line carries a different prefix, and the parser
+below read -1 off it while all 44 tests passed — a floor that fails on a green
+suite is as useless as one that passes on an empty glob, and it fails on the
+machine doing the pushing.
+`--test-reporter=tap` makes the format this module's choice rather than the
+runner's.
 """
 
 import shutil
@@ -42,7 +51,7 @@ _MIN_PASSING = 44
 
 def _run_node_test() -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["node", "--test", _JS_GLOB],
+        ["node", "--test", "--test-reporter=tap", _JS_GLOB],
         capture_output=True,
         text=True,
         cwd=_REPO_ROOT,

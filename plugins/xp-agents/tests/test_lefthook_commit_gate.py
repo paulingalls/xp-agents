@@ -339,13 +339,13 @@ class TestGateSelectsTheRightTargets(unittest.TestCase):
         )
         self.assertIn("plugins/xp-agents/tests/test_dev_setup.py", argv)
 
-    def test_shared_fixture_selects_its_directory_in_parallel(self):
-        """Editing conftest.py can break thousands of tests, and matched no
-        glob — so it ran ZERO of them and committed green."""
-        argv, _ = _execute_gate(
-            self.cmd, ["plugins/xp-agents/tests/conftest.py"], self.tmp
-        )
-        self.assertIn("plugins/xp-agents/tests", argv)
+    def test_shared_fixture_still_selects_tests_in_parallel(self):
+        """conftest.py can break thousands of tests and matched no glob, so it
+        ran ZERO and committed green. The root cap changed only HOW MANY —
+        test_lefthook_staged_expansion.py owns that boundary."""
+        tests = "plugins/xp-agents/tests"
+        argv, _ = _execute_gate(self.cmd, [f"{tests}/conftest.py"], self.tmp)
+        self.assertTrue([a for a in argv if a.startswith(tests)])
         self.assertIn("-n", argv)
         self.assertIn("auto", argv)
 

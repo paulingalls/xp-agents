@@ -2,6 +2,172 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.21.0 — Skills get their state from a hook, and no hook reaches a subagent
+
+**Every skill's preload state now arrives by hook-side injection, and the `!`
+shell lines that used to carry it are gone from all 19 SKILL.md files.** 17 of
+those skills got their state from a `!` line the second harness never expands,
+so on that harness every one of them ran blind — reading `SMM_DIR=` out of a
+line that was never executed. `PreToolUse:Skill` now runs the skill's own
+preload and injects its output as `additionalContext`, one channel on both
+harnesses.
+
+**The decision was measured, not argued.** `docs/completed/PRELOAD_DELIVERY_MECHANISM.md`
+records the rubric fixed *before* the verdict and every run against it. A uuid
+minted inside the hook — in no file and no prompt — came back byte-identical
+from an inline skill's body inside a realistic 24,309-byte payload. Every
+measurement ran against a throwaway probe plugin, never the shipped tree, each
+with a control, and the probe wrote one side-channel line per invocation so
+*the hook never fired* stayed distinguishable from *the hook fired and the model
+could not dereference the value*. Without that third state a dead hook and a
+real negative are the same observation.
+
+**The most consequential result is a negative: no hook delivers context into a
+subagent.** A forked skill's subagent reported the token absent while its own
+parent confirmed receiving the very same payload — so the injection landed and
+the fork boundary blocked it. `PreToolUse:Agent` does not fire at all for a
+forked skill (a direct Agent-tool call does, which is what proves the matcher
+name right), and where it does fire it reaches the spawner, not the subagent.
+
+**So the last three forked skills were converted rather than worked around.**
+`/xp-review-plan`, `/xp-sprint-review` and `/xp-system-context` now run inline
+and spawn their reviewer through the Agent tool. Nothing in the plugin carries
+`context: fork` any more, and a subagent's state comes only from what its
+spawner writes into its prompt — the general rule that negative implies.
+
+**One trigger on the first harness, two on the second — which the manifest
+emitter could not express.** The derived manifest was subtraction-only: it could
+drop an entry the second harness cannot honour, but a trigger that exists ONLY
+there had nowhere to live. It can now add, so the second harness carries a
+`PreToolUse:Bash` injection entry the source manifest deliberately does not.
+
+**Delivery is pinned by content, not by mechanism** — the check asserts each
+marker arrives, not that a particular line is present, because the whole point
+of replacing a channel is that a mechanism-shaped pin goes green while a marker
+quietly stops being delivered. The skill-to-preload mapping likewise moved into
+one place, resolved from the `skills/*/scripts/*.sh` glob with the two outliers
+pinned, so no third copy can drift.
+
+### The gates stop reporting on things that are not happening
+
+Half the sprint went to honesty in the enforcement layer, each item its own
+falsified claim:
+
+- **Every commit that moves HEAD is recorded.** HEAD is re-read after the
+  commit-shaped command has gone, so a commit made by a shape the classifier
+  did not recognise still lands as an event.
+- **The commit observer records only what it can support.** Attribution comes
+  from the commit itself rather than from ambient session state; its last-seen
+  marker outlives the session but not the checkout; a reset it could not apply
+  is now *owed* rather than lost; and a rewritten range is declined while still
+  owing that reset. Two of these were defects the story's own tests had masked
+  by observing twice.
+- **A gate stops charging for work it has no claim on.** A deletion the command
+  itself stages was never a ghost, and the review gate no longer bills for it.
+- **A guard that matches nothing says so.** Guard pins are derived from
+  specimens instead of restating literals, and a new guard pattern must declare
+  a specimen or the completeness check fails.
+- **No preload side effect survives a refused call.** A preload that mutated
+  state and then had its call refused spent a gate for nothing; the mutating
+  sites are now enumerated by *running* them and classified, and a preload is
+  skipped when the call will be refused.
+- **Each gate discharges at the act that satisfies it,** not at the launch of
+  the thing that will eventually satisfy it. The plan gate now clears when the
+  review completes; the assign gate is no longer spendable by merely reading a
+  skill.
+
+### Then the sprint's own broad review found that three of those gates had no discharge at all
+
+Moving each discharge to the satisfying act left outcomes with **no** satisfying
+act — a permanent write block with nothing the user could do. The review that
+found them is the same one described under v5.20.0, run against this sprint: it
+returned 20 verified findings, and these are the three that gated the release.
+
+**An armed gate now has a clearer for every outcome, not just the happy one.**
+There is no `marker_consume(ASSIGN_PENDING)` anywhere in the plugin — the only
+clearer is the write gate deleting the marker when its state predicate goes
+false, and that predicate reads worktree liveness. So every `/xp-assign` outcome
+that exits *without spawning* left it armed forever. `execution_mode` gains a
+third value, `in-agent`, which the assign skill records so the existing
+self-clearing path becomes reachable; teammates-off clears too, checked after the
+cheap early returns and before the `git worktree list` fork.
+
+**And the gate was blocking the write that satisfies it.** `/xp-assign` writes a
+teammate prompt file outside `~/.claude/plans/`, so the gate refused the write
+the spawn requires — the whole parallel pipeline would have stopped the moment
+this release shipped. The plan-file exemption became a named
+assignment-machinery exemption keyed on the function that *writes* that path, so
+the exemption cannot drift from the writer. It is a skip, not a discharge:
+sibling paths in the same directory still block.
+
+**A plan marker holding no path had no exit either.** The `Plan`-agent flow arms
+with an agent id rather than a file path, and that arm reported an error without
+clearing — so no review could run and nothing could clear it. It is now
+collected. The tempting alternative was rejected and the reason recorded: the
+last-reviewed-plan pointer is written only by the review's own success path, so
+it can never name the plan just armed, and reviewing it would have discharged a
+new plan's gate on an old plan's review.
+
+- **A retryable git failure is no longer a rewritten history.** `_run_git`
+  collapsed a timeout, an unspawnable binary and every non-zero exit into one
+  `None`, so a `rev-list` that merely timed out reached the observer as *history
+  rewritten by a rebase* — reported as such, and then advanced past, so the
+  range's commits were never recorded and their resolve trailers never linked.
+  The helper's failure vocabulary widens by **opt-in**: `strict=False` keeps
+  today's behaviour byte-for-byte for all 18 callers, and the one caller that
+  must discriminate asks. Only a timeout raises; "no git on PATH" is permanent
+  and keeps declining, because routing it to the retry path would re-fork the
+  walk forever.
+- **A null `cwd` no longer kills the post-Bash hook.** An explicit null in the
+  payload read as `None` rather than the default, and `Path(None)` raised — so
+  test-run detection, both commit nudges and the TDD signals stopped firing for
+  the rest of the session. The value stays three-valued rather than collapsing
+  to `"."`, because two readers need the distinction: the attribution metadata
+  omits the field rather than fabricating one, and the observer's checkout key
+  would otherwise flip from the worktree's identity to `main` and strand its
+  lower bound.
+- **One skill with two shell scripts no longer disables injection for all 17.**
+  The resolver built the whole map on every lookup and raised on any single
+  ambiguous skill, and its one caller read that global failure as "not a skill we
+  ship" — exit 0, no error, an injection that looked successful. Ambiguity is now
+  contained to the offending skill and logged; an unknown skill name is still a
+  silent no-op, because most tool calls reaching that handler are not ours.
+
+**Liveness was narrowed, then its reader was deleted.** The check that asked
+"are hooks running" was reachable only from the injection hook — so it judged a
+runtime already running — and that handler wrote the heartbeat immediately
+before the preload read it. Inert by construction, not merely mis-ordered. It
+was narrowed to the state it could still see, then removed: **net −1869 lines.**
+The heartbeat primitive stays, because two other consumers ask about OTHER
+sessions — the Stop gates' conflict check and close-cycle abandonment — which is
+the question the deleted reader could never answer. Both return `bool | None`
+and treat an unageable heartbeat as "cannot tell".
+
+### Deferred, and named rather than absorbed
+
+Seven stories did not ship: paying twice at close, the prose-leak pin's own blind
+spots, a blocking question raised by a forked reviewer, working hook timeouts on
+both harnesses, the domain-collision message that should name a dependency as the
+remedy, and two from the review above.
+
+**The two late deferrals were scoped on evidence, not on effort.** The second
+harness's read leg — where a plain `cat` of a skill body spends that skill's gate
+— is real and confirmed, but only the second harness registers injection on the
+Bash trigger, so it cannot fire on the first, and that harness's support is not
+yet released. Two vacuous test pins were likewise left: they report coverage
+while checking nothing, which is worth fixing and blocks nobody.
+
+The whole set stays recorded as open concerns rather than closed quietly, so the
+next work selection sees them.
+
+**The timeout deferral leaves a measured gap, recorded as one.** Neither
+injection entry declares a timeout, so both run at their harness default. The
+first harness's allowance is large and the slowest preload is 1.91s — but that
+1.91s is a *floor*, since close preloads compute diffs, and the second harness's
+default is neither measured nor documented. If it is short, a preload is killed
+mid-run and delivers nothing: this sprint's own quiet-failure class, arriving
+through the bound instead of the trigger. Discharging it is one run.
+
 ## v5.20.0 — The broad review is ours, and its cost is a number
 
 **The one broad multi-agent correctness pass now runs from a shipped script this

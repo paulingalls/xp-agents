@@ -59,3 +59,20 @@ def test_direct_imports_from_module():
             _bootstrap_seeded_smm,
         ]
     )
+
+
+def test_emitter_budgets_normalize_checkout_paths():
+    """`assert_emitter_under_budgets` must pass `normalize_paths`, as its
+    preload sibling does. Without it the base checkout path length leaks into
+    every emitter measurement, so the same code scores differently depending on
+    where the checkout lives.
+    """
+    import inspect
+
+    from conftest import assert_emitter_under_budgets
+
+    source = inspect.getsource(assert_emitter_under_budgets)
+    assert "normalize_paths" in source, (
+        "emitter budgets must normalize checkout-variable paths before "
+        "measuring — the preload helper already does"
+    )

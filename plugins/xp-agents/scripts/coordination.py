@@ -194,9 +194,10 @@ def _session_is_live(smm_dir: Path, session_id: object) -> bool | None:
     """Is the session that wrote an entry still beating? None = cannot tell.
 
     Reuses the heartbeat every hook already refreshes — there is no second
-    liveness implementation here, and must not be. `check_liveness` is the
-    wrong reader for this question: it takes no session id, so it can only
-    ever answer about the process it runs in. Only the freshness threshold is
+    liveness implementation here, and must not be. Any reader added for this
+    question has to take a SESSION ID: one that does not can only answer about
+    the process it runs in, which is never the process being asked about. Only
+    the freshness threshold is
     ours: see `_HEARTBEAT_TRUST_SECONDS` for why this caller cannot use the
     scan's own, and what a teammate quieter than it gets.
 

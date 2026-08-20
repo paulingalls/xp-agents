@@ -75,6 +75,38 @@ _CAPPED_FILES = (
     _SCRIPTS_DIR / "merged_range.py",
     Path(__file__).resolve().parent / "test_manual_merge_commit_event.py",
     Path(__file__).resolve().parent / "test_merge_event_contents.py",
+    # The catch-up observer and the HEAD reader it rides on, plus the suites
+    # that pin them. Capped on arrival, per the rule this list already states:
+    # the observer is a THIRD commit-recording path, so it is exactly the kind
+    # of file the other three would otherwise grow into. The review-cycle split
+    # is the cap doing its job — the sprint-007 close review's rows crossed it.
+    _SCRIPTS_DIR / "commit_observer.py",
+    # What the observer SAYS when it cannot record what it can see, split off
+    # when the rewrite-detection and owed-reset work would have pushed the
+    # observer through the cap. Capped on arrival, per this list's own rule:
+    # a file added only once it is crowded has already had its placement
+    # decision made for it.
+    _SCRIPTS_DIR / "commit_observer_reports.py",
+    # The observation record and the review-cycle reset it can owe, and the
+    # ancestry reads that decide where a hash sits. Both capped on arrival for
+    # the reason above: the observer is the file they were split OUT of, so
+    # uncapped they are simply somewhere to move its growth to.
+    _SCRIPTS_DIR / "commit_observer_state.py",
+    _SCRIPTS_DIR / "commit_observer_history.py",
+    _SCRIPTS_DIR / "git_head.py",
+    Path(__file__).resolve().parent / "test_commit_observer.py",
+    Path(__file__).resolve().parent / "test_commit_observer_cycle.py",
+    # The multi-checkout, multi-process cases, split off when this story's
+    # rewrite cases pushed `test_commit_observer.py` past this cap. That group
+    # rather than the new one: the cap forces A placement decision, and the
+    # cases the story's own acceptance command gates belong in the file it
+    # names. Capped on arrival like everything above.
+    Path(__file__).resolve().parent / "test_commit_observer_sharing.py",
+    Path(__file__).resolve().parent / "test_commit_event_recording.py",
+    # What the observer does when the APPEND refuses rather than the git read,
+    # split off when the sprint-007 close review's rebase row took the cycle
+    # suite over this cap. Capped on arrival like everything above.
+    Path(__file__).resolve().parent / "test_commit_observer_append.py",
 )
 
 

@@ -12,8 +12,6 @@ allowed-tools:
   - Bash(python3 */smm/smm_cli.py *)
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
-
 # End Session
 
 > **Sequential discipline.** Run Step 1 → 2 → 3 → 4 → 5 strictly, one step per
@@ -21,7 +19,7 @@ allowed-tools:
 > `AskUserQuestion` with the action consuming its answer (a force-close/defer
 > question vs the append that records its disposition).
 
-The preload above provides:
+The injected preload state provides:
 - `SMM_DIR=<path>` — pass to every append.sh call.
 - `### CANDIDATES` — mechanical line-per-event narrative draft (newest at the bottom; an `...` prefix means older lines were trimmed to fit budget).
 - `### OPEN_QUESTIONS` — event ids of questions still open in this session.
