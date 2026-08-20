@@ -290,11 +290,13 @@ BAND_CEILINGS = {
     # it names, the heartbeat family, which shares no fixture with either half.
     "plugins/xp-agents/tests/hooks/test_preload_injection.py": 473,
     # 482 -> 493 on the free branch after that close, for three re-records the
-    # TDD-gate attribution fix earned. THIRD raise of this one file inside a day,
-    # which is the close reviewer's concern c1a6dd3c3db1 arriving empirically
-    # rather than as a prediction: notes were compressed to ~3 lines each first,
-    # and 493 is what survived. 7 lines to the cap, and there is no fourth raise
-    # available — the next edit here sheds history, per the paragraph below.
+    # TDD-gate attribution fix earned — the THIRD raise of this file inside a
+    # day, which is close-review concern c1a6dd3c3db1 arriving empirically rather
+    # than as a prediction. That note said the next edit would shed history
+    # instead of raising again, and the next edit did: 493 -> 484, by collapsing
+    # preload_injection.py's four-step trajectory to the one claim it supports.
+    # BANKED DOWNWARD rather than kept as slack, per this table's own rule — a
+    # ceiling left above the measurement is a re-entry allowance.
     # 447 -> 482 across sprint-007, and the growth is the POINT of this file:
     # every entry is a measured number plus the reason its file's prose grew,
     # and this sprint re-recorded nine of them. It cannot be split by subject —
@@ -302,7 +304,7 @@ BAND_CEILINGS = {
     # look for a file's ceiling. What it can lose is history: entries whose
     # files have since been rewritten carry rationale for numbers no longer in
     # the table, and the changelog holds that. Nothing else here is spendable.
-    "plugins/xp-agents/tests/_prose_baseline.py": 493,
+    "plugins/xp-agents/tests/_prose_baseline.py": 484,
     # Entered the band with the derived variant's path-existence pin
     # (story-011): the source's own check covers hooks.json only, so a hook
     # authored straight into the variant could name a script that does not
