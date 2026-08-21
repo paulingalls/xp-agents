@@ -51,7 +51,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # disagreement this gate was fixed for.
     cwd = input_data.get("cwd", ".")
 
-    signal = tdd_check.find_last_test_signal(events, cwd, smm_dir)
+    signal, author = tdd_check.find_last_test_signal_with_author(events, cwd, smm_dir)
     if signal == "fail":
         # RESOLVED, never the raw payload field. The harness sends `agent_id`
         # only when a hook fires inside a subagent call, and Stop fires on the
@@ -72,23 +72,29 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # scoping above, so the two cannot disagree; paid only on this branch,
         # where we would otherwise block.
         #
-        # OVER-BROAD, and it no longer rests on "the lead reads unfiltered":
-        # `tdd_check._is_another_trees_agent` already dropped a story worktree's
-        # signals, so the other-tree failures still reaching here are the ones
-        # that filter cannot name — an opaque subagent id, or a worktree whose
-        # name is not `worktree-story-*`. For any other author, including the
-        # lead's own `main`, this releases the lead's OWN red suite whenever a
-        # sibling holds a coordination entry, which is the fail-open direction.
+        # NARROWED to authorship. `_is_another_trees_agent` already dropped every
+        # story-worktree signal above, so the failures still arriving here are
+        # the ones it cannot place: an opaque subagent id, or a worktree whose
+        # name is not `worktree-story-*`. Releasing on "some sibling is active"
+        # therefore released the reader's OWN red — authored with its own id —
+        # whenever any sibling held a coordination entry. A fail-open, and the
+        # release's stated basis ("only the lead reads unscoped") had already
+        # been falsified by that filter.
         #
-        # The narrowing is a RETURN TYPE, not a blocker: hand back
-        # `(signal, author)` and release only for an author this filter could not
-        # place. An earlier version of this comment called the missing author a
-        # constraint, which read as "cannot" when it means "not yet" — see the
-        # open concern on this line.
-        if tdd_check.reader_scope_owner(events, cwd, smm_dir) is None:
-            agent_id = identity.resolve_agent_id(input_data)
-            if coordination.has_active_teammates(smm_dir, agent_id):
-                return None  # A sibling may own the failing tests
+        # `resolve_agent_id` is the same function that WRITES the coordination
+        # key being read, which is the one-identity-source argument above.
+        #
+        # RESIDUAL, unclosable on this signal: the reader's own subagent authors
+        # an opaque id too, indistinguishable from a worktree teammate's. Events
+        # carry no session id, so the author is the best discriminator available;
+        # this still releases a red that is really ours.
+        agent_id = identity.resolve_agent_id(input_data)
+        if (
+            tdd_check.reader_scope_owner(events, cwd, smm_dir) is None
+            and author != agent_id
+            and coordination.has_active_teammates(smm_dir, agent_id)
+        ):
+            return None  # A sibling may own the failing tests
         return "Tests are failing. Fix failing tests before stopping."
 
     return None

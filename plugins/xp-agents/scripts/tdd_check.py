@@ -169,10 +169,10 @@ def _is_another_trees_agent(agent_id: object) -> bool:
     return isinstance(agent_id, str) and is_teammate_agent_id(agent_id)
 
 
-def find_last_test_signal(
+def find_last_test_signal_with_author(
     events: list[dict], cwd: str = ".", smm_dir: Path | None = None
-) -> str | None:
-    """Scan events from the end. Return 'pass', 'fail', or None.
+) -> tuple[str | None, str | None]:
+    """Scan events from the end. Return ('pass'|'fail'|None, author|None).
 
     `smm_dir` locates the in-place-teammate marker for `_reader_scope`'s env
     leg. All three hook callers (tdd_stop_gate, teammate_idle, task_completed)
@@ -223,6 +223,7 @@ def find_last_test_signal(
         # walk below and clears the lead's own red suite.
         if owner is None and _is_another_trees_agent(e.get("agent_id")):
             continue
+        author = e.get("agent_id") if isinstance(e.get("agent_id"), str) else None
         content = e.get("content", "")
         etype = e.get("type", "")
         if (
@@ -231,7 +232,7 @@ def find_last_test_signal(
             and e.get("id", "") not in resolved_ids
         ):
             if i >= window_start:
-                return "fail"
+                return "fail", author
             # Older than this session: the rare path, and the only one that
             # pays for a git call. `get_uncommitted_files`, not the narrower
             # `get_uncommitted_code_files` — the latter drops test files and
@@ -242,7 +243,22 @@ def find_last_test_signal(
             # NOT the same as a clean tree. Only a positive CLEAN reading may
             # un-gate a real failure; absence of evidence keeps the teeth.
             dirty = worktree_state.get_uncommitted_files(cwd)
-            return "fail" if dirty is None or dirty else None
+            return ("fail", author) if dirty is None or dirty else (None, None)
         if etype == _common.STATUS and TEST_PASS_RE.search(content):
-            return "pass"
-    return None
+            return "pass", author
+    return None, None
+
+
+def find_last_test_signal(
+    events: list[dict], cwd: str = ".", smm_dir: Path | None = None
+) -> str | None:
+    """The signal alone, for the callers that do not ask whose it was.
+
+    A projection over the walk above, in the shape `reader_scope_owner` already
+    uses for `_reader_scope`'s tuple: one reader, one walk, and a named view of
+    the part most callers want. Two of the three gates (`teammate_idle`,
+    `task_completed`) genuinely do not care about authorship — they gate a single
+    agent on its own scoped read — so widening their call sites would buy
+    nothing and touch code this change has no business in.
+    """
+    return find_last_test_signal_with_author(events, cwd, smm_dir)[0]

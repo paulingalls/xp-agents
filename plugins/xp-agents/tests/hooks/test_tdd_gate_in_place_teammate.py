@@ -160,7 +160,11 @@ class TestInPlaceTeammateIsNotReleasedByCoordination(_GateTestCase):
         release" would satisfy the block above while quietly deleting the
         behaviour the gate is supposed to have."""
         self._coordinate("main", "worktree-story-007")
-        events = [session_anchor(), *filler(3), failing_tests_concern(agent_id="main")]
+        events = [
+            session_anchor(),
+            *filler(3),
+            failing_tests_concern(agent_id="aefef7af4afed4caf"),
+        ]
         with _in_place_env_patch(self.smm_dir):
             result = self._stop(events, cwd=_LEAD_CWD, dirty=False, agent_id=None)
         self.assertIsNone(result)
