@@ -429,11 +429,11 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/shell_exit_structure.py": 291,
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
     "plugins/xp-agents/scripts/staged_lint.py": 221,
-    # 133 -> 184: retires three "the lead reads unfiltered" claims, says what the
-    # predicate recognises (a STORY WORKTREE, not "another tree") and the three
-    # gaps that follow, and the widening projection states why two of the three
-    # gates do NOT ask whose signal it was — the reason not to touch them.
-    "plugins/xp-agents/scripts/tdd_check.py": 184,
+    # 133 -> 179: retires four "the lead reads unfiltered" claims, names what the
+    # predicate recognises (a STORY WORKTREE) and the three gaps that follow, and
+    # says why two of the three gates do not ask whose signal it was. Banked DOWN
+    # from 184: deleting `reader_scope_owner` deleted its rationale too.
+    "plugins/xp-agents/scripts/tdd_check.py": 179,
     # 182 -> 199 (story-023): `is_project_prompt_path`, the inverse of
     # `project_prompt_path`, added so the lead's Write gate can recognise the one
     # write /xp-assign owes its own spawn. Its docstring is long relative to its

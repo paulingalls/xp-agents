@@ -136,7 +136,7 @@ class TestTheTddGateHoldsARedSuiteOfItsOwn(_OwnSessionGateE2ECase):
 
     def _seed_red(self) -> None:
         """A red suite the lead reads UNSCOPED, which is the only reader that
-        can reach the release — see `tdd_stop_gate`'s `reader_scope_owner`
+        can reach the release — see `tdd_stop_gate`'s authorship check
         branch. Same event shape story-003 uses at the gate."""
         self._seed_events(
             [

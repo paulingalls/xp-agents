@@ -158,17 +158,22 @@ class TestOnlyTheLeadMayReleaseOnASibling(_GateTestCase):
         result = self._stop(events, dirty=False, agent_id=None)
         self.assertIsNone(result)
 
-    def test_the_two_resolvers_agree_for_a_worktree_teammate(self):
-        """The one-identity-source claim asserted directly, rather than inferred
-        from the block above. `resolve_agent_id` and the reader scope must
-        return the SAME name for a worktree teammate on a real payload; the
-        original defect was precisely that they could not."""
+    def test_the_author_and_the_resolved_id_agree_for_a_worktree_teammate(self):
+        """The one-identity-source claim, asserted directly rather than inferred.
+
+        It used to compare `resolve_agent_id` against `reader_scope_owner`, the
+        guard that kept a teammate out of the release. That guard is gone: the
+        release is keyed on authorship now, and this is what makes it safe
+        WITHOUT the guard — a worktree teammate's own signal carries the same id
+        its payload resolves to, so `author != agent_id` is false for it and the
+        release declines on its own. Same claim, one indirection fewer.
+        """
         payload = {"session_id": "t", "cwd": TEAMMATE_CWD}
         events = [failing_tests_concern(agent_id="worktree-story-003"), *filler(3)]
-        self.assertEqual(
-            identity.resolve_agent_id(payload),
-            tdd_check.reader_scope_owner(events, TEAMMATE_CWD, self.smm_dir),
-        )
+        author = tdd_check.find_last_test_signal_with_author(
+            events, TEAMMATE_CWD, self.smm_dir
+        )[1]
+        self.assertEqual(identity.resolve_agent_id(payload), author)
 
 
 class TestADeadSiblingDoesNotReleaseTheGate(_GateTestCase):

@@ -25,7 +25,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     **This function asks "who am I?" once, and the answer comes from one
     source.** It has three identity-shaped decisions — whose test signals count
     (`find_last_test_signal`), whether this reader may release on a sibling
-    (`reader_scope_owner`), and which coordination key to compare against
+    (by AUTHORSHIP), and which coordination key to compare against
     (`resolve_agent_id`) — and every one of them derives from the hook payload's
     `cwd` plus the in-place marker, never from the raw `agent_id` field. That
     field is present only when a hook fires inside a subagent call; Stop fires on
@@ -84,16 +84,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # `resolve_agent_id` is the same function that WRITES the coordination
         # key being read, which is the one-identity-source argument above.
         #
+        # NO "only the lead may release" guard any more, and none is needed: a
+        # worktree teammate's own failures are the only ones it can see, and its
+        # author and its resolved id both come off the same cwd — so authorship
+        # refuses the release for it without a second question being asked. That
+        # guard was `reader_scope_owner`, now deleted; it asserted a rule the
+        # in-place change falsified.
+        #
         # RESIDUAL, unclosable on this signal: the reader's own subagent authors
         # an opaque id too, indistinguishable from a worktree teammate's. Events
         # carry no session id, so the author is the best discriminator available;
         # this still releases a red that is really ours.
         agent_id = identity.resolve_agent_id(input_data)
-        if (
-            tdd_check.reader_scope_owner(events, cwd, smm_dir) is None
-            and author != agent_id
-            and coordination.has_active_teammates(smm_dir, agent_id)
-        ):
+        if author != agent_id and coordination.has_active_teammates(smm_dir, agent_id):
             return None  # A sibling may own the failing tests
         return "Tests are failing. Fix failing tests before stopping."
 
