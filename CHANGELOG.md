@@ -2,10 +2,10 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
-## v5.21.1 — The lead's TDD gate asks whose working tree the failure was in
+## v5.21.1 — Three TDD-gate answers about the wrong agent
 
-Patch release. One fix, and an honest account of two attempts that were reverted
-before they shipped.
+Patch release: three gate defects, and an honest account of two attempts that
+were reverted before they shipped.
 
 **The lead's TDD Stop gate was holding the lead on a *teammate's* transient
 red** — observed live several times during the last sprint. The release meant to
@@ -31,6 +31,30 @@ them — pinned as an authorship fact, because the design rests on it. A subagen
 opaque id still gates, which leaves one known gap: a *teammate's* subagent files
 its red under an id of that same shape, so the false block survives that path.
 Documented in the code rather than papered over.
+
+**The gate's coordination release was handing back the lead's own red suite.**
+It existed on the reasoning that "the lead reads unscoped, so this failure might
+be someone else's" — which the filter above falsified: every story-worktree
+signal is dropped before the release is reached. What remained was a fail-open,
+firing whenever any sibling merely held a coordination entry. It now releases
+only when the failure's author is not the reader's own. That reverses an AC on
+purpose: its row asserted the lead must be released when its own subagent holds
+a fresh entry, but the row authored the red with the LEAD's id, which no subagent
+emits, so the case it described could not occur. Re-authored to a subagent-shaped
+id, the intent survives — a genuine concurrent subagent still releases.
+
+**And the in-place teammate's own Stop gate had never fired.** A
+`spawn_teammate --in-place` teammate was scoped to signals authored under its
+teammate name, while its events are authored `main` — its cwd is the main
+checkout, so there is no worktree name to derive. The filter matched nothing.
+It now reads as the lead does, which is correct rather than a fallback: it
+*shares* the lead's working tree, so a red in that tree is its problem whoever
+ran it. Its suite had been pinning the defect — three rows fed an author nothing
+produces, and the one row fed a real author asserted the red does not block.
+
+Both were only possible in that order. Fixing the in-place scope alone would
+have handed that teammate the un-narrowed release and un-gated its own red; the
+plan reviewer reproduced exactly that by applying it alone.
 
 **Two changes were reverted rather than shipped, both found by this release's own
 broad review.** They are named here because the concerns they targeted are still
