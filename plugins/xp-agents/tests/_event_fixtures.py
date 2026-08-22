@@ -295,18 +295,6 @@ def tests_run_status(
 # Canonical test-signal factories shared across integration tests that
 # exercise tdd_check.find_last_test_signal. Content strings match
 # scripts/concerns.py::TEST_CONCERN_RE and scripts/tdd_check.py::TEST_PASS_RE.
-SUBAGENT_AUTHOR = "aefef7af4afed4caf"
-"""An opaque agent id, the shape `resolve_agent_id` returns from the raw payload
-field — which the harness populates only INSIDE a subagent call.
-
-Shared because five suites now need it for the same reason: the TDD gate's
-coordination release fires only for an author the tree filter could not place,
-and a subagent's is the one such author that occurs in practice. Written once
-because five hand-copied literals of a value a resolver produces is the drift
-hazard `TEAMMATE_CWD` already documents.
-"""
-
-
 def failing_tests_concern(**kwargs) -> dict:
     """Concern event that find_last_test_signal classifies as 'fail'."""
     return make_event(

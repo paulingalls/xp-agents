@@ -24,7 +24,7 @@ import identity
 import tdd_check
 from _heartbeat_fixtures import coordinate
 from _tdd_gate_fixtures import TEAMMATE_CWD, _GateTestCase, filler, session_anchor
-from conftest import SUBAGENT_AUTHOR, failing_tests_concern
+from conftest import failing_tests_concern
 
 
 class TestAbsentAgentIdIsNotASibling(_GateTestCase):
@@ -57,42 +57,11 @@ class TestAbsentAgentIdIsNotASibling(_GateTestCase):
         events = [session_anchor(), *filler(3), failing_tests_concern()]
         self.assertIsNotNone(self._stop(events, dirty=False, agent_id=None))
 
-    def test_our_own_red_is_not_released_by_a_sibling(self):
-        """AC-2, INVERTED, and this is increment 1's pin.
-
-        It used to read "a genuine teammate is active, so the failure may be its
-        own" — but the failure here is authored `main`, which is the READER'S
-        own id, so it provably is not the teammate's. v5.21.1's author filter
-        already dropped every story-worktree signal before this point, so what
-        the old assertion actually released was the lead's own red suite
-        whenever any sibling held a coordination entry: a fail-open, and the
-        direction this whole area errs toward badly.
-
-        The release survives for the author it was really for — see the row
-        below, where a signal the filter could not place still releases.
-        """
+    def test_no_agent_id_and_a_real_sibling_releases(self):
+        """AC-2. Same payload, but a genuine teammate is active, so the failure
+        may be its own and the lead must not be held."""
         self._coordinate("main", "worktree-story-007")
         events = [session_anchor(), *filler(3), failing_tests_concern()]
-        self.assertIsNotNone(self._stop(events, dirty=False, agent_id=None))
-
-    def test_a_signal_the_filter_could_not_place_still_releases(self):
-        """The over-arming control, and the reason this is a narrowing rather
-        than a deletion. An opaque id is what a subagent's PostToolUse authors —
-        possibly a WORKTREE teammate's, whose red is about another tree — and
-        the author filter cannot place it. That is the case the release exists
-        for, and it must survive.
-
-        Known residual, stated because the row cannot distinguish it: the same
-        opaque shape covers the READER'S OWN subagent, whose red this releases
-        and should not. Events carry no session id, so authorship is the best
-        signal available here.
-        """
-        self._coordinate("main", "worktree-story-007")
-        events = [
-            session_anchor(),
-            *filler(3),
-            failing_tests_concern(agent_id="aefef7af4afed4caf"),
-        ]
         self.assertIsNone(self._stop(events, dirty=False, agent_id=None))
 
     def test_the_empty_spelling_matches_the_absent_key(self):
@@ -143,37 +112,23 @@ class TestOnlyTheLeadMayReleaseOnASibling(_GateTestCase):
 
     def test_the_lead_is_still_released_by_a_real_sibling(self):
         """Over-arming control. Without it, "never release" satisfies the test
-        above while silently deleting the release the gate is meant to have.
-
-        Authored by a SUBAGENT: the release is keyed on authorship now, so a
-        red carrying the reader's OWN id is provably ours and is held. An opaque
-        id is the author the release still fires for.
-        """
+        above while silently deleting the release the gate is meant to have."""
         self._coordinate("main", "worktree-story-003")
-        events = [
-            session_anchor(),
-            *filler(3),
-            failing_tests_concern(agent_id=SUBAGENT_AUTHOR),
-        ]
+        events = [session_anchor(), *filler(3), failing_tests_concern()]
         result = self._stop(events, dirty=False, agent_id=None)
         self.assertIsNone(result)
 
-    def test_the_author_and_the_resolved_id_agree_for_a_worktree_teammate(self):
-        """The one-identity-source claim, asserted directly rather than inferred.
-
-        It used to compare `resolve_agent_id` against `reader_scope_owner`, the
-        guard that kept a teammate out of the release. That guard is gone: the
-        release is keyed on authorship now, and this is what makes it safe
-        WITHOUT the guard — a worktree teammate's own signal carries the same id
-        its payload resolves to, so `author != agent_id` is false for it and the
-        release declines on its own. Same claim, one indirection fewer.
-        """
+    def test_the_two_resolvers_agree_for_a_worktree_teammate(self):
+        """The one-identity-source claim asserted directly, rather than inferred
+        from the block above. `resolve_agent_id` and the reader scope must
+        return the SAME name for a worktree teammate on a real payload; the
+        original defect was precisely that they could not."""
         payload = {"session_id": "t", "cwd": TEAMMATE_CWD}
         events = [failing_tests_concern(agent_id="worktree-story-003"), *filler(3)]
-        author = tdd_check.find_last_test_signal_with_author(
-            events, TEAMMATE_CWD, self.smm_dir
-        )[1]
-        self.assertEqual(identity.resolve_agent_id(payload), author)
+        self.assertEqual(
+            identity.resolve_agent_id(payload),
+            tdd_check.reader_scope_owner(events, TEAMMATE_CWD, self.smm_dir),
+        )
 
 
 class TestADeadSiblingDoesNotReleaseTheGate(_GateTestCase):
@@ -217,31 +172,18 @@ class TestADeadSiblingDoesNotReleaseTheGate(_GateTestCase):
             self.smm_dir, session_id=self.SESSION, now=time.time() - beat_age
         )
 
-    def _red(self) -> list[dict]:
-        """The red both rows read, authored by a SUBAGENT.
-
-        BOTH rows, deliberately. The release is keyed on authorship now, so a
-        `main`-authored red is provably the reader's own and is held before the
-        heartbeat is ever consulted — which would leave the dead-sibling row
-        passing for a reason that has nothing to do with liveness, i.e. vacuous,
-        while the pair's whole claim is that only the heartbeat separates them.
-        """
-        return [
-            session_anchor(),
-            *filler(3),
-            failing_tests_concern(agent_id=SUBAGENT_AUTHOR),
-        ]
-
     def test_a_sibling_whose_session_died_does_not_release(self):
-        """The lead is left holding a red suite nobody live can claim."""
+        """The lead is left holding its own red suite, which is its own."""
         self._sibling(beat_age=self.ENTRY_AGE)
-        self.assertIsNotNone(self._stop(self._red(), dirty=False, agent_id=None))
+        events = [session_anchor(), *filler(3), failing_tests_concern()]
+        self.assertIsNotNone(self._stop(events, dirty=False, agent_id=None))
 
     def test_the_same_sibling_still_releases_while_it_beats(self):
         """Over-arming control: identical entry, live heartbeat. Without it,
         "never release on a sibling" satisfies the test above."""
         self._sibling(beat_age=60)
-        self.assertIsNone(self._stop(self._red(), dirty=False, agent_id=None))
+        events = [session_anchor(), *filler(3), failing_tests_concern()]
+        self.assertIsNone(self._stop(events, dirty=False, agent_id=None))
 
 
 if __name__ == "__main__":

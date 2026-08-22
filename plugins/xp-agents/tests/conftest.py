@@ -127,7 +127,6 @@ from _cli_helpers import (  # noqa: E402, F401
     run_cli,
 )
 from _event_fixtures import (  # noqa: E402, F401
-    SUBAGENT_AUTHOR,
     adopt_try_event,
     commit_event,
     defer_try_event,

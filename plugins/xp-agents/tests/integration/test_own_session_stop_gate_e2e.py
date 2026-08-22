@@ -43,7 +43,6 @@ from _heartbeat_fixtures import env as _no_id_env
 from _tdd_gate_fixtures import filler, session_anchor
 from conftest import (
     SPRINT_IN_PROGRESS,
-    SUBAGENT_AUTHOR,
     _IntegrationTestCase,
     _make_stop_input,
     failing_tests_concern,
@@ -136,15 +135,9 @@ class TestTheTddGateHoldsARedSuiteOfItsOwn(_OwnSessionGateE2ECase):
 
     def _seed_red(self) -> None:
         """A red suite the lead reads UNSCOPED, which is the only reader that
-        can reach the release — see `tdd_stop_gate`'s authorship check
+        can reach the release — see `tdd_stop_gate`'s `reader_scope_owner`
         branch. Same event shape story-003 uses at the gate."""
-        self._seed_events(
-            [
-                session_anchor(),
-                *filler(3),
-                failing_tests_concern(agent_id=SUBAGENT_AUTHOR),
-            ]
-        )
+        self._seed_events([session_anchor(), *filler(3), failing_tests_concern()])
 
     def test_our_own_subagents_aged_entry_does_not_release_the_gate(self):
         self._seed_red()

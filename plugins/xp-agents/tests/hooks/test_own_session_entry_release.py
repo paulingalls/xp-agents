@@ -39,12 +39,7 @@ import sprint_stop_gate
 from _heartbeat_fixtures import as_session, coordinate
 from _heartbeat_fixtures import env as _env
 from _tdd_gate_fixtures import _GateTestCase, filler, session_anchor
-from conftest import (
-    SPRINT_IN_PROGRESS,
-    SUBAGENT_AUTHOR,
-    _make_stop_input,
-    failing_tests_concern,
-)
+from conftest import SPRINT_IN_PROGRESS, _make_stop_input, failing_tests_concern
 from test_coordination import _LivenessTestCase
 
 
@@ -155,17 +150,7 @@ class TestTheTddGateHoldsARedSuiteOfItsOwn(_OwnSessionTestCase, _GateTestCase):
     """
 
     def _stop_on_red(self) -> str | None:
-        # Authored by a SUBAGENT, which is the shape AC-4 is actually about: a
-        # concurrent subagent of ours may have caused this red. The fixture used
-        # to author it `main` — the lead's own id — which no subagent emits, so
-        # it described a scenario production cannot produce. Once the release is
-        # keyed on authorship a `main`-authored red is provably ours and is held,
-        # which reverses the amendment's LETTER while keeping its intent.
-        events = [
-            session_anchor(),
-            *filler(3),
-            failing_tests_concern(agent_id=SUBAGENT_AUTHOR),
-        ]
+        events = [session_anchor(), *filler(3), failing_tests_concern()]
         return self._as_us(lambda: self._stop(events, dirty=False, agent_id=None))
 
     def test_our_own_subagents_aged_entry_does_not_release_the_gate(self):

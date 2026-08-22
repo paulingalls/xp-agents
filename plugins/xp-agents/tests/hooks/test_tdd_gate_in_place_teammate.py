@@ -54,20 +54,9 @@ class TestInPlaceTeammateReaderWindow(_GateTestCase):
     deliberately NEVER that function's process-cwd fallback (a documented
     leak `_reader_scope` already avoids for the cwd leg). Without this leg an
     in-place teammate fell through to the LEAD branch and read the lead's
-    `session_started` anchor as its own window.
-
-    The WINDOW is what that leg is for. The OWNER is not: this class used to
-    claim an in-place teammate "can neither see nor fix" a lead-authored red,
-    and that is false for the one shape it describes. It shares the lead's
-    working tree by definition, so a red in that tree is precisely its problem.
-    Owner-scoping was built for a WORKTREE teammate — a different checkout, a
-    different suite — and was extended here on a rationale that does not carry.
-
-    Worse, it never worked: `resolve_agent_id` authors this teammate's events
-    `main` (its cwd has no worktree segment), so an owner of `XP_TEAMMATE_NAME`
-    matched nothing and the gate never fired at all (concern 80cbbb577106). The
-    reader now takes the LEAD's filter — everything in its own tree gates it,
-    a story worktree's signals do not — and keeps a window of 0.
+    `session_started` anchor as its own window: exactly the shared-log/
+    owner-filter hazard the owner mechanism exists to prevent for worktree
+    teammates, now reproduced for the in-place shape.
     """
 
     def _in_place_env(self):
@@ -80,11 +69,8 @@ class TestInPlaceTeammateReaderWindow(_GateTestCase):
         un-gate under the LEAD's anchor-relative window. An in-place teammate
         has no prior session either, so this must still block."""
         worktree.in_place_marker_path(self.smm_dir, _IN_PLACE_NAME).touch()
-        # Authored `main`, which is what this teammate really emits — its cwd is
-        # the main checkout. The row used to author it `_IN_PLACE_NAME`, a shape
-        # nothing produces, and passed only because the owner filter matched it.
         events = [
-            failing_tests_concern(agent_id="main"),
+            failing_tests_concern(agent_id=_IN_PLACE_NAME),
             session_anchor(),
             *filler(3),
         ]
@@ -93,42 +79,24 @@ class TestInPlaceTeammateReaderWindow(_GateTestCase):
         self.assertIsNotNone(result)
         self.assertIn("failing", str(result).lower())
 
-    def test_a_red_in_its_own_tree_blocks_the_in_place_teammate(self):
-        """INVERTED, and this is increment 2's pin.
-
-        It used to assert that a `main`-authored red does NOT gate an in-place
-        teammate — and `main` is exactly what this teammate's own failures are
-        authored with, so the row asserted that its own red suite would not hold
-        it. That is concern 80cbbb577106, pinned as though it were the design.
-
-        The author is indistinguishable from the lead's, and that is correct
-        rather than a limitation: they share one working tree, so a red in it is
-        both their problem. There is no reading of "whose failure is this" that
-        separates them, and none is wanted.
-
-        The former control (`test_own_failure_still_blocks_...`) is gone rather
-        than re-authored: once its unproducible `_IN_PLACE_NAME` author becomes
-        the `main` that production emits, it is byte-for-byte this row.
-        """
+    def test_foreign_fail_concern_does_not_block_the_in_place_teammate(self):
+        """Owner scoping, in-place flavor: a fail concern authored by the lead
+        (shared log) must not gate an in-place teammate that can neither see
+        nor fix it."""
         worktree.in_place_marker_path(self.smm_dir, _IN_PLACE_NAME).touch()
         events = [failing_tests_concern(agent_id="main"), *filler(3)]
         with self._in_place_env():
             result = self._stop(events, cwd=_LEAD_CWD, dirty=False)
-        self.assertIsNotNone(result)
+        self.assertIsNone(result)
 
-    def test_a_story_worktrees_red_does_not_block_the_in_place_teammate(self):
-        """The filter working on this reader's behalf, which no row covered.
-
-        A worktree teammate's suite is a different checkout, so its red is not
-        this teammate's to fix — the same judgement the lead now makes, reached
-        the same way. Without this row, "block on everything" satisfies the row
-        above.
-        """
+    def test_own_failure_still_blocks_the_in_place_teammate(self):
+        """Control for the test above: its OWN unresolved failure still
+        gates it — the narrowing must not also disarm the common case."""
         worktree.in_place_marker_path(self.smm_dir, _IN_PLACE_NAME).touch()
-        events = [failing_tests_concern(agent_id="worktree-story-007"), *filler(3)]
+        events = [failing_tests_concern(agent_id=_IN_PLACE_NAME), *filler(3)]
         with self._in_place_env():
             result = self._stop(events, cwd=_LEAD_CWD, dirty=False)
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
 
     def test_env_var_without_a_live_marker_falls_back_to_the_lead_window(self):
         """A leaked `XP_TEAMMATE_NAME` with no live marker must not be
@@ -166,7 +134,7 @@ class TestInPlaceTeammateIsNotReleasedByCoordination(_GateTestCase):
         foreign entry is present, so `has_active_teammates` said yes."""
         worktree.in_place_marker_path(self.smm_dir, _IN_PLACE_NAME).touch()
         self._coordinate("main", "worktree-story-007")
-        events = [failing_tests_concern(agent_id="main"), *filler(3)]
+        events = [failing_tests_concern(agent_id=_IN_PLACE_NAME), *filler(3)]
         with _in_place_env_patch(self.smm_dir):
             result = self._stop(events, cwd=_LEAD_CWD, dirty=False, agent_id=None)
         self.assertIsNotNone(result)
@@ -192,11 +160,7 @@ class TestInPlaceTeammateIsNotReleasedByCoordination(_GateTestCase):
         release" would satisfy the block above while quietly deleting the
         behaviour the gate is supposed to have."""
         self._coordinate("main", "worktree-story-007")
-        events = [
-            session_anchor(),
-            *filler(3),
-            failing_tests_concern(agent_id="aefef7af4afed4caf"),
-        ]
+        events = [session_anchor(), *filler(3), failing_tests_concern(agent_id="main")]
         with _in_place_env_patch(self.smm_dir):
             result = self._stop(events, cwd=_LEAD_CWD, dirty=False, agent_id=None)
         self.assertIsNone(result)

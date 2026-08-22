@@ -2,10 +2,11 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
-## v5.21.1 — Three TDD-gate answers about the wrong agent
+## v5.21.1 — The lead's TDD gate asks whose working tree the failure was in
 
-Patch release: three gate defects, and an honest account of two attempts that
-were reverted before they shipped.
+Patch release: one gate fixed, and an account of four attempts withdrawn. The
+withdrawals are here on purpose — each was reverted because a review caught it,
+and the reasons are what make the next attempt cheaper than the last four.
 
 **The lead's TDD Stop gate was holding the lead on a *teammate's* transient
 red** — observed live several times during the last sprint. The release meant to
@@ -18,11 +19,15 @@ false block for a false release. So the lead now gets the inverse of the filter 
 teammate already had: a signal authored by an agent working in another tree is
 not its business.
 
-**Which closed a second defect nobody had reported, and it was the worse one.**
-The same reverse walk short-circuits on the first passing status it meets, and
-for the lead that status could be anyone's — so a teammate's *green* run cleared
-the lead's own *red* suite. A false block costs a re-run; that costs a stop on a
-broken tree. Both close on one filter.
+**It also narrows a second defect nobody had reported, and that one is only
+half closed.** The same reverse walk short-circuits on the first passing status
+it meets, and for the lead that status could be anyone's — so a teammate's
+*green* run cleared the lead's own *red* suite. The filter closes that channel.
+It does NOT close the other one: a teammate's green run also RESOLVES the lead's
+open failure outright, because concern resolution matches on type and content
+with no author and no tree, and a resolved concern is skipped before authorship
+is ever consulted. That path is still live and is recorded open. An earlier draft
+of this entry claimed both channels closed on one filter; that was wrong.
 
 The filter is one predicate over the event's author, with no filesystem access
 and no liveness probe. An in-place teammate needs no special case: it runs in the
@@ -32,29 +37,22 @@ opaque id still gates, which leaves one known gap: a *teammate's* subagent files
 its red under an id of that same shape, so the false block survives that path.
 Documented in the code rather than papered over.
 
-**The gate's coordination release was handing back the lead's own red suite.**
-It existed on the reasoning that "the lead reads unscoped, so this failure might
-be someone else's" — which the filter above falsified: every story-worktree
-signal is dropped before the release is reached. What remained was a fail-open,
-firing whenever any sibling merely held a coordination entry. It now releases
-only when the failure's author is not the reader's own. That reverses an AC on
-purpose: its row asserted the lead must be released when its own subagent holds
-a fresh entry, but the row authored the red with the LEAD's id, which no subagent
-emits, so the case it described could not occur. Re-authored to a subagent-shaped
-id, the intent survives — a genuine concurrent subagent still releases.
+**Two further gate defects were attempted and withdrawn** — narrowing that
+release to the failure's author, and making an in-place teammate read as the lead
+(its own Stop gate has never fired, because it is scoped to signals authored
+under its teammate name while its events are authored `main`). Both are real and
+both stay open. The attempts came out because this release's own broad review
+found five confirmed defects in them: the release read only the newest
+unplaceable signal, so a newer foreign red masked the reader's own; removing a
+guard re-opened the release for the one teammate shape that reads unscoped; and
+window-0 with no owner filter made the prior-session escape unreachable, so an
+ancient red the *lead* is exempt from would have hard-blocked that teammate.
 
-**And the in-place teammate's own Stop gate had never fired.** A
-`spawn_teammate --in-place` teammate was scoped to signals authored under its
-teammate name, while its events are authored `main` — its cwd is the main
-checkout, so there is no worktree name to derive. The filter matched nothing.
-It now reads as the lead does, which is correct rather than a fallback: it
-*shares* the lead's working tree, so a red in that tree is its problem whoever
-ran it. Its suite had been pinning the defect — three rows fed an author nothing
-produces, and the one row fed a real author asserted the red does not block.
-
-Both were only possible in that order. Fixing the in-place scope alone would
-have handed that teammate the un-narrowed release and un-gated its own red; the
-plan reviewer reproduced exactly that by applying it alone.
+They are recorded together because they are one design problem, not four bugs:
+this gate's answer is decided by four interacting mechanisms — concern
+resolution, window bounds, release eligibility and authorship — and four separate
+attempts each fixed one while breaking another. It needs acceptance criteria
+covering all four, which a patch release is the wrong place for.
 
 **Two changes were reverted rather than shipped, both found by this release's own
 broad review.** They are named here because the concerns they targeted are still

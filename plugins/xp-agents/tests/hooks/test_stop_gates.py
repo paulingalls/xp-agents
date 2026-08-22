@@ -201,10 +201,6 @@ class TestTddStopGate(_HookTestCase):
                     EVENT_TYPE_CONCERN,
                     content="Test failures detected: 2 failed (pytest)",
                     severity="high",
-                    # Opaque author: the release is keyed on authorship now, so
-                    # a red authored with the reader's own id is held rather than
-                    # deferred. This row is about the deferral, not that change.
-                    agent_id="aefef7af4afed4caf",
                 ),
             ]
         )

@@ -99,23 +99,37 @@ def _reader_scope(
     if name and is_teammate_agent_id(name):
         return 0, name
 
-    # WINDOW 0, OWNER None — and the owner is the correction. An in-place
-    # teammate runs in the MAIN checkout, so it shares the lead's tree and its
-    # events are authored `main` (no worktree segment for
-    # `resolve_agent_id_from_cwd` to find). An owner of `XP_TEAMMATE_NAME`
-    # therefore matched NOTHING and its gate never fired at all.
-    #
-    # Reading as the lead is not a degradation, it is the right answer: a red in
-    # a tree you share IS yours, whoever ran it, and the author filter below
-    # still drops a story worktree's signals for this reader as it does for the
-    # lead. The window stays 0 because this teammate lives exactly one session
-    # and has no prior one to bound against — that part of the leg was always
-    # right.
-    if in_place_teammate_name(smm_dir) is not None:
-        return 0, None
+    env_name = in_place_teammate_name(smm_dir)
+    if env_name is not None:
+        return 0, env_name
 
     anchor = _common._last_index_of_type(events, _common.SESSION_STARTED)
     return (anchor if anchor >= 0 else 0), None
+
+
+def reader_scope_owner(
+    events: list[dict], cwd: str = ".", smm_dir: Path | None = None
+) -> str | None:
+    """The agent this read was SCOPED to, or None when reading as the lead.
+
+    Public face of `_reader_scope`'s second return value, for callers that need
+    the scope but not the window. The Stop gate needs exactly this: having found
+    a failure, it must know whether that failure could belong to someone else.
+    Only the lead reads unscoped, so only the lead may release on another agent
+    being active — a teammate's failure is provably its own.
+
+    Named for the reader's scope, NOT for the signal's author: the two differ,
+    and this returns None for the lead even though the signal it found does have
+    an author.
+
+    A wrapper rather than a rename of `_reader_scope`, which is referenced by
+    name in `identity`, `pre_tool_skill`, `commit_event`, three test modules and
+    `docs/ARCHITECTURE.md`. Sharing it (rather than re-deriving teammate-ness
+    through `identity.is_worktree_teammate`, whose process-cwd fallback this
+    reader deliberately avoids) is what keeps the gate from answering "who am I"
+    two different ways in one function.
+    """
+    return _reader_scope(events, cwd, smm_dir)[1]
 
 
 def _is_another_trees_agent(agent_id: object) -> bool:
@@ -149,16 +163,22 @@ def _is_another_trees_agent(agent_id: object) -> bool:
       worktree, `extract_worktree_name`'s `explore-abc` shape, an Agent-Teams
       teammate — authors `main` and still false-blocks the lead.
     * AFTER the story merges, that code IS in the lead's tree, so an unresolved
-      teammate red the lead would once have blocked on is now invisible to it.
-      `close_verify_gate` is the backstop that makes this safe, not this filter.
+      teammate red the lead would once have blocked on is now invisible to it —
+      permanently, because the predicate keys on the NAME, not on whether that
+      worktree still exists. An earlier version of this note claimed
+      `close_verify_gate` as the backstop; it is not, and the claim was measured
+      false — that gate re-derives acceptance verify records and never reads a
+      test-failure concern at all. NOTHING re-establishes this block. Accepted
+      deliberately (a red in a deleted tree is not the lead's to fix) but
+      UNBACKSTOPPED, which is a different statement and the honest one.
     """
     return isinstance(agent_id, str) and is_teammate_agent_id(agent_id)
 
 
-def find_last_test_signal_with_author(
+def find_last_test_signal(
     events: list[dict], cwd: str = ".", smm_dir: Path | None = None
-) -> tuple[str | None, str | None]:
-    """Scan events from the end. Return ('pass'|'fail'|None, author|None).
+) -> str | None:
+    """Scan events from the end. Return 'pass', 'fail', or None.
 
     `smm_dir` locates the in-place-teammate marker for `_reader_scope`'s env
     leg. All three hook callers (tdd_stop_gate, teammate_idle, task_completed)
@@ -209,7 +229,6 @@ def find_last_test_signal_with_author(
         # walk below and clears the lead's own red suite.
         if owner is None and _is_another_trees_agent(e.get("agent_id")):
             continue
-        author = e.get("agent_id") if isinstance(e.get("agent_id"), str) else None
         content = e.get("content", "")
         etype = e.get("type", "")
         if (
@@ -218,7 +237,7 @@ def find_last_test_signal_with_author(
             and e.get("id", "") not in resolved_ids
         ):
             if i >= window_start:
-                return "fail", author
+                return "fail"
             # Older than this session: the rare path, and the only one that
             # pays for a git call. `get_uncommitted_files`, not the narrower
             # `get_uncommitted_code_files` — the latter drops test files and
@@ -229,24 +248,7 @@ def find_last_test_signal_with_author(
             # NOT the same as a clean tree. Only a positive CLEAN reading may
             # un-gate a real failure; absence of evidence keeps the teeth.
             dirty = worktree_state.get_uncommitted_files(cwd)
-            return ("fail", author) if dirty is None or dirty else (None, None)
+            return "fail" if dirty is None or dirty else None
         if etype == _common.STATUS and TEST_PASS_RE.search(content):
-            return "pass", author
-    return None, None
-
-
-def find_last_test_signal(
-    events: list[dict], cwd: str = ".", smm_dir: Path | None = None
-) -> str | None:
-    """The signal alone, for the callers that do not ask whose it was.
-
-    A projection over the walk above: one reader, one walk, and a named view of
-    the part most callers want. (`reader_scope_owner` was the same shape over
-    `_reader_scope`'s tuple, and went when its last caller did.)
-
-    Two of the three gates (`teammate_idle`, `task_completed`) genuinely do not
-    care about authorship — they gate a single agent on its own scoped read — so
-    widening their call sites would buy nothing and touch code this change has no
-    business in.
-    """
-    return find_last_test_signal_with_author(events, cwd, smm_dir)[0]
+            return "pass"
+    return None
