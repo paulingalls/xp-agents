@@ -97,7 +97,7 @@ class TestTheLeadIsNotHeldOnAnotherTreesRed(_GateTestCase):
         took the whole post-Bash hook down through `cwd` one release ago. Here it
         would raise AttributeError out of a Stop gate.
 
-        Reads as "not another tree's", so the signal still gates: an author we
+        Reads as "not a story worktree's", so the signal still gates: an author we
         cannot identify is not one we can prove is elsewhere.
         """
         concern = failing_tests_concern()

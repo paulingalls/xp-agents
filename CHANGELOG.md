@@ -4,7 +4,7 @@ History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
 ## v5.21.1 — The lead's TDD gate asks whose working tree the failure was in
 
-Patch release: one gate fixed, and an account of four attempts withdrawn. The
+Patch release: one gate NARROWED, and an account of four attempts withdrawn. The
 withdrawals are here on purpose — each was reverted because a review caught it,
 and the reasons are what make the next attempt cheaper than the last four.
 
@@ -19,29 +19,39 @@ false block for a false release. So the lead now gets the inverse of the filter 
 teammate already had: a signal authored by an agent working in another tree is
 not its business.
 
-**It also narrows a second defect nobody had reported, and that one is only
-half closed.** The same reverse walk short-circuits on the first passing status
-it meets, and for the lead that status could be anyone's — so a teammate's
-*green* run cleared the lead's own *red* suite. The filter closes that channel.
-It does NOT close the other one: a teammate's green run also RESOLVES the lead's
-open failure outright, because concern resolution matches on type and content
-with no author and no tree, and a resolved concern is skipped before authorship
-is ever consulted. That path is still live and is recorded open. An earlier draft
-of this entry claimed both channels closed on one filter; that was wrong.
+**A second, unreported defect is closed on paper and not in practice, and that
+is worth stating plainly.** The reverse walk short-circuits on the first passing
+status it meets, and for the lead that status could be anyone's — so a teammate's
+*green* run cleared the lead's own *red* suite. The filter closes that door. But
+the same hook run that appends the pass ALSO resolves the concern, and resolution
+matches on type and content with no author and no tree; a resolved concern is
+skipped before authorship is ever consulted. So in production both doors open
+from one event and shutting one changes the outcome only in a race. The gate now
+refuses a teammate's green as a PASS while still honouring it as a RESOLUTION —
+two rules for one event, which is a cost, not a fix. The resolution channel is
+recorded open (`6f1f4f41d32e`); no attempt has touched it. Two earlier drafts of
+this entry claimed this as a second fix. It is not one.
 
 The filter is one predicate over the event's author, with no filesystem access
 and no liveness probe. An in-place teammate needs no special case: it runs in the
 main checkout, so its events are authored `main` and the filter never considers
 them — pinned as an authorship fact, because the design rests on it. A subagent's
-opaque id still gates, which leaves one known gap: a *teammate's* subagent files
-its red under an id of that same shape, so the false block survives that path.
-Documented in the code rather than papered over.
+opaque id still gates, which leaves THREE gaps, all named in the code: a
+*teammate's* subagent files its red under an id of that same shape; an other-tree
+agent not named `worktree-story-*` is not recognised at all; and after a story
+merges the lead can never again block on that teammate's unresolved red, with
+nothing re-establishing it. The last is the only new fail-open here, and it is
+bounded only accidentally — any agent's next green run clears the stale concern,
+which is not a backstop the code can claim.
 
 **Two further gate defects were attempted and withdrawn** — narrowing that
 release to the failure's author, and making an in-place teammate read as the lead
 (its own Stop gate has never fired, because it is scoped to signals authored
 under its teammate name while its events are authored `main`). Both are real and
-both stay open. The attempts came out because this release's own broad review
+both are tracked open as `1b5fe7f16eb3` and `463e092f3b2e` — re-recorded, because
+each attempt had closed its concern with a commit trailer and reverting the code
+cannot un-resolve an append-only event. That trap is named twice in this entry
+because it was walked into twice. The attempts came out because this release's own broad review
 found five confirmed defects in them: the release read only the newest
 unplaceable signal, so a newer foreign red masked the reader's own; removing a
 guard re-opened the release for the one teammate shape that reads unscoped; and

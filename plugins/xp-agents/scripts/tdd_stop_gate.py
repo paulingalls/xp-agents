@@ -83,8 +83,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # The narrowing is a RETURN TYPE, not a blocker: hand back
         # `(signal, author)` and release only for an author this filter could not
         # place. An earlier version of this comment called the missing author a
-        # constraint, which read as "cannot" when it means "not yet" — see the
-        # open concern on this line.
+        # constraint, which read as "cannot" when it means "not yet". Tracked as
+        # an open concern; deliberately NOT cited by id here, because the last two
+        # ids this comment named were both closed by commits that were later
+        # reverted, and a revert cannot un-resolve an append-only record. A stale
+        # id reads as "already handled" — worse than no pointer at all.
         if tdd_check.reader_scope_owner(events, cwd, smm_dir) is None:
             agent_id = identity.resolve_agent_id(input_data)
             if coordination.has_active_teammates(smm_dir, agent_id):

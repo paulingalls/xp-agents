@@ -103,7 +103,7 @@ class TestInPlaceTeammateReaderWindow(_GateTestCase):
         trusted (mirrors identity's own env+marker guard). If it were
         wrongly treated as an in-place teammate, the owner filter would hide
         the LEAD's own in-session failure below; instead it must still
-        block, as the lead reading its own tree's authors."""
+        block, as the lead, which drops only story-worktree authors."""
         events = [session_anchor(), *filler(3), failing_tests_concern(agent_id="main")]
         with patch.dict(
             os.environ,

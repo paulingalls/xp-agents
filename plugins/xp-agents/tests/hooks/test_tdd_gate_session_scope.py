@@ -262,7 +262,9 @@ class TestTeammateReaderAgentScope(_GateTestCase):
     consider only its OWN signals (agent_id == its worktree name).
 
     The lead reader keeps its whole-session WINDOW, but no longer accepts every
-    author within it: it drops the signals of agents working in another tree.
+    author within it: it drops the signals of agents in a story WORKTREE. Not
+    every other tree — the predicate recognises `worktree-story-*` only, so a
+    teammate's subagent and any differently-named worktree are still observed.
     That is the mirror of this class and is pinned in
     test_tdd_gate_lead_attribution.py, not here."""
 
