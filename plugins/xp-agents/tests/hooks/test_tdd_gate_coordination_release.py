@@ -81,7 +81,8 @@ class TestOnlyTheLeadMayReleaseOnASibling(_GateTestCase):
 
     By the time the coordination release is considered, `find_last_test_signal`
     has ALREADY scoped the read: a teammate sees only its OWN signals, the lead
-    reads unscoped and legitimately observes everyone's. So "someone else may
+    reads unscoped and drops only STORY WORKTREE authors — not every other tree,
+    which the predicate cannot recognise. So "someone else may
     own this failure" can only ever be true for the lead. A teammate reaching
     `signal == "fail"` is looking at a failure `_reader_scope` proved is its
     own, and releasing it because the LEAD has a coordination entry abandons a

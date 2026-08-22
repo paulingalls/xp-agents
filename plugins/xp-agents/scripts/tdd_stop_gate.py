@@ -68,10 +68,26 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # The release is the LEAD's alone. `find_last_test_signal` has already
         # scoped this read — a teammate saw only its own signals — so a teammate
         # reaching here is looking at a failure that is provably its own, and
-        # "a teammate may own it" is false by construction. Only the lead reads
-        # unscoped and can be looking at someone else's red suite. Same source
-        # as the scoping above, so the two cannot disagree; paid only on this
-        # branch, where we would otherwise block.
+        # "a teammate may own it" is false by construction. Same source as the
+        # scoping above, so the two cannot disagree; paid only on this branch,
+        # where we would otherwise block.
+        #
+        # OVER-BROAD, and it no longer rests on "the lead reads unfiltered":
+        # `tdd_check._is_another_trees_agent` already dropped a story worktree's
+        # signals, so the other-tree failures still reaching here are the ones
+        # that filter cannot name — an opaque subagent id, or a worktree whose
+        # name is not `worktree-story-*`. For any other author, including the
+        # lead's own `main`, this releases the lead's OWN red suite whenever a
+        # sibling holds a coordination entry, which is the fail-open direction.
+        #
+        # The narrowing is a RETURN TYPE, not a blocker: hand back
+        # `(signal, author)` and release only for an author this filter could not
+        # place. An earlier version of this comment called the missing author a
+        # constraint, which read as "cannot" when it means "not yet". Tracked as
+        # an open concern; deliberately NOT cited by id here, because the last two
+        # ids this comment named were both closed by commits that were later
+        # reverted, and a revert cannot un-resolve an append-only record. A stale
+        # id reads as "already handled" — worse than no pointer at all.
         if tdd_check.reader_scope_owner(events, cwd, smm_dir) is None:
             agent_id = identity.resolve_agent_id(input_data)
             if coordination.has_active_teammates(smm_dir, agent_id):

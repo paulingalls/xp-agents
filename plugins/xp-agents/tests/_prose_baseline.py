@@ -322,7 +322,10 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/concern_conflicts.py": 161,
     # 166 -> 169: the acquire-budget comment said the env override "still
     # outranks this", which the precedence reversal made false.
-    "plugins/xp-agents/scripts/coordination.py": 169,
+    # 169 -> 185: a Bash-only teammate gets no entry, so its failure is upstream
+    # of this window and permanent; the first correction then overstated the other
+    # way, so the residual that DOES depend on the number is named too.
+    "plugins/xp-agents/scripts/coordination.py": 185,
     "plugins/xp-agents/scripts/dash_c_tokens.py": 129,
     "plugins/xp-agents/scripts/framework_detect.py": 122,
     # Crossed the floor on gaining `stages_all_tracked_changes`, so it records a
@@ -426,7 +429,11 @@ PROSE_MEASURED: dict[str, int] = {
     "plugins/xp-agents/scripts/shell_exit_structure.py": 291,
     "plugins/xp-agents/scripts/spawn_teammate.py": 271,
     "plugins/xp-agents/scripts/staged_lint.py": 221,
-    "plugins/xp-agents/scripts/tdd_check.py": 133,
+    # 133 -> 181: retires three "the lead reads unfiltered" claims, says what the
+    # predicate recognises (a STORY WORKTREE), and names its three gaps. The
+    # post-merge gap grew when its cited backstop was MEASURED false —
+    # close_verify_gate reads no test-failure concern, so nothing re-establishes it.
+    "plugins/xp-agents/scripts/tdd_check.py": 181,
     # 182 -> 199 (story-023): `is_project_prompt_path`, the inverse of
     # `project_prompt_path`, added so the lead's Write gate can recognise the one
     # write /xp-assign owes its own spawn. Its docstring is long relative to its

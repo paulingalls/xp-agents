@@ -2,6 +2,97 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.21.1 — The lead's TDD gate asks whose working tree the failure was in
+
+Patch release: one gate NARROWED, and an account of four attempts withdrawn. The
+withdrawals are here on purpose — each was reverted because a review caught it,
+and the reasons are what make the next attempt cheaper than the last four.
+
+**The lead's TDD Stop gate was holding the lead on a *teammate's* transient
+red** — observed live several times during the last sprint. The release meant to
+prevent that reads `.coordination.json`, and the only writer of an entry there is
+registered on `Write|Edit|MultiEdit`, so a teammate editing through Bash had no
+entry to grade: not a stale window but a permanent hole. The obvious fix was the
+wrong one — copying the sprint gate's liveness backstop would stop the gate
+firing on *any* red while a teammate is live, including the lead's own, trading a
+false block for a false release. So the lead now gets the inverse of the filter a
+teammate already had: a signal authored by an agent working in another tree is
+not its business.
+
+**A second, unreported defect is closed on paper and not in practice, and that
+is worth stating plainly.** The reverse walk short-circuits on the first passing
+status it meets, and for the lead that status could be anyone's — so a teammate's
+*green* run cleared the lead's own *red* suite. The filter closes that door. But
+the same hook run that appends the pass ALSO resolves the concern, and resolution
+matches on type and content with no author and no tree; a resolved concern is
+skipped before authorship is ever consulted. So in production both doors open
+from one event and shutting one changes the outcome only in a race. The gate now
+refuses a teammate's green as a PASS while still honouring it as a RESOLUTION —
+two rules for one event, which is a cost, not a fix. The resolution channel is
+recorded open (`6f1f4f41d32e`); no attempt has touched it. Two earlier drafts of
+this entry claimed this as a second fix. It is not one.
+
+The filter is one predicate over the event's author, with no filesystem access
+and no liveness probe. An in-place teammate needs no special case: it runs in the
+main checkout, so its events are authored `main` and the filter never considers
+them — pinned as an authorship fact, because the design rests on it. A subagent's
+opaque id still gates, which leaves THREE gaps, all named in the code: a
+*teammate's* subagent files its red under an id of that same shape; an other-tree
+agent not named `worktree-story-*` is not recognised at all; and after a story
+merges the lead can never again block on that teammate's unresolved red, with
+nothing re-establishing it. The last is the only new fail-open here, and it is
+bounded only accidentally — any agent's next green run clears the stale concern,
+which is not a backstop the code can claim.
+
+**Two further gate defects were attempted and withdrawn** — narrowing that
+release to the failure's author, and making an in-place teammate read as the lead
+(its own Stop gate has never fired, because it is scoped to signals authored
+under its teammate name while its events are authored `main`). Both are real and
+both are tracked open as `1b5fe7f16eb3` and `463e092f3b2e` — re-recorded, because
+each attempt had closed its concern with a commit trailer and reverting the code
+cannot un-resolve an append-only event. That trap is named twice in this entry
+because it was walked into twice. The attempts came out because this release's own broad review
+found five confirmed defects in them: the release read only the newest
+unplaceable signal, so a newer foreign red masked the reader's own; removing a
+guard re-opened the release for the one teammate shape that reads unscoped; and
+window-0 with no owner filter made the prior-session escape unreachable, so an
+ancient red the *lead* is exempt from would have hard-blocked that teammate.
+
+They are recorded together because they are one design problem, not four bugs:
+this gate's answer is decided by four interacting mechanisms — concern
+resolution, window bounds, release eligibility and authorship — and four separate
+attempts each fixed one while breaking another. It needs acceptance criteria
+covering all four, which a patch release is the wrong place for.
+
+**Two changes were reverted rather than shipped, both found by this release's own
+broad review.** They are named here because the concerns they targeted are still
+open, and the next attempt should start from why these failed.
+
+An attempt to stop a `cat` of a `SKILL.md` from arming a gate on the second
+harness was a **regression, not a guard**: on that harness a skill is loaded *by*
+reading its body, so every genuine preload run carried the suppression flag —
+`ACCEPT_IN_FLIGHT` was never armed during a real `/xp-accept` (restoring the very
+Stop loop that marker prevents) and housekeeping was never armed at kickoff. It
+also failed to cover the case it was justified by, since the close-cycle marker is
+armed elsewhere. `0ab41b5a02ba` remains open, and `55189b2b3e42` records why it
+needs a design rather than a patch: for the accept gate, the read-time consume is
+the gate's *only* discharge, so both spending it and skipping it are wrong.
+
+An attempt to release a preload's claim when its run failed **re-ran side
+effects**: close preloads emit their `close_started` event and arm their cycle
+*before* the step that fails, so handing the claim back produced a second cycle
+id for one close. The reverted commit had already carried a `Resolves-Event`
+trailer for `8b4a39a99214`, and reverting code cannot un-resolve an append-only
+event — so that id stays closed over a live defect, and the defect is re-recorded
+as `d4959d019cd8`, which was checked against the resolver rather than assumed
+open. (The first re-record, `17766cc63f6a`, read resolved itself; catching that
+took asking the resolver twice.) The honest fix is idempotent preloads, not a
+shorter claim.
+
+Also: a null `agent_id` on an event no longer raises out of the Stop gate — the
+same present-but-null shape that took down the whole post-Bash hook one release
+ago, in new code this time.
+
 ## v5.21.0 — Skills get their state from a hook, and no hook reaches a subagent
 
 **Every skill's preload state now arrives by hook-side injection, and the `!`

@@ -259,8 +259,14 @@ class TestTeammateReaderAgentScope(_GateTestCase):
     session). Scoping by time alone made it gate on ANY unresolved
     failing-test concern in the shared log — including one authored by the
     lead or a sibling, which this teammate cannot see or fix. Its gate must
-    consider only its OWN signals (agent_id == its worktree name). The lead
-    reader keeps its whole-session, un-scoped behaviour."""
+    consider only its OWN signals (agent_id == its worktree name).
+
+    The lead reader keeps its whole-session WINDOW, but no longer accepts every
+    author within it: it drops the signals of agents in a story WORKTREE. Not
+    every other tree — the predicate recognises `worktree-story-*` only, so a
+    teammate's subagent and any differently-named worktree are still observed.
+    That is the mirror of this class and is pinned in
+    test_tdd_gate_lead_attribution.py, not here."""
 
     def test_sibling_fail_concern_does_not_block_the_teammate(self):
         # Authored by a SIBLING teammate; read by worktree-story-003, clean tree.

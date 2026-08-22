@@ -289,6 +289,15 @@ BAND_CEILINGS = {
     # above stands as the warning it was: the next addition here takes the split
     # it names, the heartbeat family, which shares no fixture with either half.
     "plugins/xp-agents/tests/hooks/test_preload_injection.py": 473,
+    # 482 -> 489 on the free branch after that close: two re-records the
+    # TDD-gate attribution fix earned, notes compressed to ~4 lines each first.
+    # A THIRD raise of this file inside a day is close-review concern
+    # c1a6dd3c3db1 arriving empirically rather than as a prediction, and it very
+    # nearly went further — an interim version of this branch took it to 493 for
+    # a change the broad review then found broken. Reverting that code deleted
+    # its rationale too, which is the mechanism this table wants: 489 is banked
+    # DOWN to the measurement, not left at the high-water mark, because a ceiling
+    # above the number is a re-entry allowance. 11 lines to the cap.
     # 447 -> 482 across sprint-007, and the growth is the POINT of this file:
     # every entry is a measured number plus the reason its file's prose grew,
     # and this sprint re-recorded nine of them. It cannot be split by subject —
@@ -296,7 +305,7 @@ BAND_CEILINGS = {
     # look for a file's ceiling. What it can lose is history: entries whose
     # files have since been rewritten carry rationale for numbers no longer in
     # the table, and the changelog holds that. Nothing else here is spendable.
-    "plugins/xp-agents/tests/_prose_baseline.py": 482,
+    "plugins/xp-agents/tests/_prose_baseline.py": 489,
     # Entered the band with the derived variant's path-existence pin
     # (story-011): the source's own check covers hooks.json only, so a hook
     # authored straight into the variant could name a script that does not

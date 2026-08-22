@@ -51,8 +51,11 @@ def _reader_scope(
     lead or a sibling, which this teammate can neither see nor fix. A
     teammate therefore also carries an `owner` (its worktree name, which is
     the agent_id it stamps on its own events): only its OWN test signals gate
-    it. The lead reads `owner=None` — its session window already scopes it,
-    and it legitimately observes the whole session (its own and subagents').
+    it. The lead reads `owner=None`, which scopes it by WINDOW only — it is not
+    an unfiltered read: `find_last_test_signal` applies the author filter this
+    value selects, dropping the signals of agents whose working tree is not the
+    lead's. `owner=None` means "not scoped to one author", never "accepts every
+    author".
 
     A WORKTREE teammate is caught by `extract_worktree_name(cwd)` above — its
     hook process runs INSIDE the worktree, so cwd carries the
@@ -78,8 +81,8 @@ def _reader_scope(
     shared SMM would let a live in-place marker for a leaked `XP_TEAMMATE_NAME`
     misread the lead as a teammate). With neither a param nor the env, the
     in-place leg is unverifiable and fails closed (lead branch) — never CLOSED
-    in the disarming sense, since the lead branch's own unfiltered
-    whole-session scan still catches a same-process failure; it only loses the
+    in the disarming sense, since the lead branch drops only OTHER trees'
+    authors and a same-process failure is authored `main`; it only loses the
     tighter teammate-shaped window.
 
     For any other reader (the lead), the window anchors at the most recent
@@ -129,6 +132,49 @@ def reader_scope_owner(
     return _reader_scope(events, cwd, smm_dir)[1]
 
 
+def _is_another_trees_agent(agent_id: object) -> bool:
+    """Does `agent_id` name a STORY WORKTREE's agent — a tree that is not ours?
+
+    Only asked by the LEAD's read, and named for what it actually recognises: a
+    `spawn_teammate` story worktree, not "somewhere else" in general. While that
+    worktree exists its signals cannot be about the lead's tree.
+
+    NOT `isinstance`-free. The value comes off an event, and a truthy non-string
+    reaching `.startswith` raises out of a Stop COMMAND hook, whose non-zero exit
+    disarms the gate — the same fail-open the falsy guard was added for, one type
+    away. House style is the explicit check (`hook_liveness.payload_session_id`).
+
+    An IN-PLACE teammate needs no exemption. `spawn_teammate --in-place` runs in
+    the main checkout, so its red suite IS the lead's — and its events are
+    authored `main`, not its teammate name: `resolve_agent_id` prefers the
+    payload field, which the harness sends only inside a subagent call, so a
+    top-level in-place hook falls to `resolve_agent_id_from_cwd` and a
+    main-checkout path answers `main`. The prefix test therefore already lets
+    those signals through.
+
+    THREE gaps, none of them closable by widening this predicate:
+
+    * A subagent OF a worktree teammate authors under an opaque id (the payload
+      field is populated inside a subagent call), indistinguishable from one of
+      the lead's own. Filtering opaque ids would drop the lead's real failures,
+      the worse error, so the false block survives there — and that is where the
+      caller's coordination release still earns its keep.
+    * Any other-tree agent NOT named `worktree-story-*` — a harness's own
+      worktree, `extract_worktree_name`'s `explore-abc` shape, an Agent-Teams
+      teammate — authors `main` and still false-blocks the lead.
+    * AFTER the story merges, that code IS in the lead's tree, so an unresolved
+      teammate red the lead would once have blocked on is now invisible to it —
+      permanently, because the predicate keys on the NAME, not on whether that
+      worktree still exists. An earlier version of this note claimed
+      `close_verify_gate` as the backstop; it is not, and the claim was measured
+      false — that gate re-derives acceptance verify records and never reads a
+      test-failure concern at all. NOTHING re-establishes this block. Accepted
+      deliberately (a red in a deleted tree is not the lead's to fix) but
+      UNBACKSTOPPED, which is a different statement and the honest one.
+    """
+    return isinstance(agent_id, str) and is_teammate_agent_id(agent_id)
+
+
 def find_last_test_signal(
     events: list[dict], cwd: str = ".", smm_dir: Path | None = None
 ) -> str | None:
@@ -142,6 +188,8 @@ def find_last_test_signal(
     and the leg self-resolves through `identity.in_place_teammate_name`'s
     shared validated resolver (see `_reader_scope`), which also avoids a
     second `init.sh` derivation per hook.
+
+    The author filter below needs no dir at all: authorship is on the event.
 
     Skips resolved concerns — a resolved test failure should not block.
 
@@ -171,9 +219,15 @@ def find_last_test_signal(
         e = events[i]
         # A worktree teammate shares the log with the lead and siblings; only
         # its OWN test signals (fail concerns AND the pass that would clear
-        # them) gate it. owner is None for the lead — it observes everything
-        # in its session window, unfiltered.
+        # them) gate it.
         if owner is not None and e.get("agent_id") != owner:
+            continue
+        # The LEAD (owner is None) gets the INVERSE of that filter, not no
+        # filter — see `_is_another_trees_agent` for which authors and why.
+        # Placed ABOVE both branches deliberately: it must drop a teammate's
+        # PASS as well as its fail, or a teammate's green run short-circuits the
+        # walk below and clears the lead's own red suite.
+        if owner is None and _is_another_trees_agent(e.get("agent_id")):
             continue
         content = e.get("content", "")
         etype = e.get("type", "")
